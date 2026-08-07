@@ -4,6 +4,7 @@
 //! - 检查 prep/ffmpeg/模型是否存在、是否可用
 //! - 扫描已有模型池 (AIDU/comic-gen/subgen 缓存复用)
 //! - 首次运行健康检查报告
+//!
 //! 下载/校验/回滚是 M5 后续 (需要 manifest 端点), 这里先建立检查与报告基础。
 
 use serde::{Deserialize, Serialize};

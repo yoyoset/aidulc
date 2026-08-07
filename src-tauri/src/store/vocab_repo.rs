@@ -144,7 +144,7 @@ impl<'a> VocabRepo<'a> {
                 norm.word, norm.lemma, norm.pos, norm.meaning, norm.sense_id,
                 norm.phonetic, norm.context, norm.level,
                 serde_json::to_string(&norm.collocations).unwrap_or_else(|_| "[]".to_string()),
-                norm.stage, norm.interval as f64, norm.ease_factor, norm.next_review, norm.reviews,
+                norm.stage, norm.interval, norm.ease_factor, norm.next_review, norm.reviews,
                 norm.added_at, now, profile_id,
                 serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string()),
             ],

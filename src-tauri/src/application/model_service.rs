@@ -50,6 +50,9 @@ pub fn resolve_paths(db: &Db, language: &str) -> (String, String, String) {
 }
 
 /// M 系列: 是否已有该语言的完整模型组合 (llm + tts 必填, nlp 可选)
+// TODO(未接线): 写了测试(见 tests 模块)但没有任何 command/前端调用它, preflight_check
+// 可能已覆盖同等语义 —— 接线前先确认是否与 preflight_check 重复, 避免留两套判定。
+#[allow(dead_code)]
 pub fn bundle_complete(db: &Db, language: &str) -> bool {
     let (llm, tts, _) = resolve_paths(db, language);
     !llm.is_empty() && !tts.is_empty()
@@ -168,6 +171,8 @@ pub fn resolve_for_book(db: &Db, book_id: &str, lang: &str) -> (String, String, 
 }
 
 /// 书级模型是否完整 (llm + tts)
+// TODO(未接线): 同 bundle_complete, 写了测试但没有调用方, 可能与下方 preflight_check 重复。
+#[allow(dead_code)]
 pub fn book_bundle_complete(db: &Db, book_id: &str, lang: &str) -> bool {
     let (llm, tts, _) = resolve_for_book(db, book_id, lang);
     !llm.is_empty() && !tts.is_empty()

@@ -142,8 +142,6 @@ pub fn pull_profile(
     Err(last_err)
 }
 
-/// 合并本地 + 远端 → 新者胜 (domain 规则, 生产调用方直接用 domain::sync::merge_envelopes)
-
 fn urlencode(s: &str) -> String {
     // 极简 URL 编码 (profile id 通常是字母数字)
     let mut out = String::new();

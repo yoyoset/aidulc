@@ -58,6 +58,9 @@ impl<'a> ProfileRepo<'a> {
         Ok(())
     }
 
+    // TODO(未接线): 写了测试(upsert_get_roundtrip)但没有 command 调用单条查询,
+    // 目前界面可能只走 list。真要按 id 单查 profile 时再接线, 优先级低于其余 4 项功能缺口。
+    #[allow(dead_code)]
     pub fn get(&self, id: &str) -> Option<Profile> {
         let conn = self.db.conn.lock().unwrap();
         conn.query_row(

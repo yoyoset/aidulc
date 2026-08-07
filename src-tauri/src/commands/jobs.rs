@@ -337,7 +337,7 @@ pub fn batch_start(
                 .map(|s| !s.is_empty())
                 .unwrap_or(false)
         })
-        .map(|k| *k)
+        .copied()
         .collect();
     if !missing.is_empty() {
         return Err(format!(
@@ -360,7 +360,7 @@ pub fn batch_start(
     let missing_p: Vec<&str> = required_profile
         .iter()
         .filter(|k| profile_obj.get(**k).is_none())
-        .map(|k| *k)
+        .copied()
         .collect();
     if !missing_p.is_empty() {
         return Err(format!(
@@ -487,7 +487,7 @@ pub fn batch_start(
 #[tauri::command]
 pub fn batch_list(db: State<store::Db>) -> Result<serde_json::Value, String> {
     let repo = store::batches_repo::BatchesRepo::new(db.inner());
-    Ok(serde_json::to_value(repo.list()).map_err(|e| e.to_string())?)
+    serde_json::to_value(repo.list()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -501,7 +501,7 @@ pub fn batch_detail(db: State<store::Db>, id: String) -> Result<serde_json::Valu
 #[tauri::command]
 pub fn job_list(db: State<store::Db>) -> Result<serde_json::Value, String> {
     let repo = store::jobs_repo::JobsRepo::new(db.inner());
-    Ok(serde_json::to_value(repo.list()).map_err(|e| e.to_string())?)
+    serde_json::to_value(repo.list()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -763,7 +763,7 @@ pub fn pump_queue(
 
     let req_path = std::path::Path::new(&job.output_dir).join("job_request.json");
     let job_dir = std::path::PathBuf::from(&job.output_dir);
-    let (child, mut lines) = match jobs::spawn::spawn_prep(&cfg.prep_path, &req_path, &job_dir) {
+    let (child, lines) = match jobs::spawn::spawn_prep(&cfg.prep_path, &req_path, &job_dir) {
         Ok(v) => v,
         Err(e) => {
             // Bug fix (审查确认): spawn 失败时清理 running_job + 标记任务 failed,
@@ -807,7 +807,7 @@ pub fn pump_queue(
     std::thread::spawn(move || {
         use tauri::Emitter;
         let mut failed_count: i64 = 0;
-        while let Some(line) = lines.next() {
+        for line in lines {
             match jobs::progress::parse_progress_line(&line) {
                 Ok(ev) => {
                     match &ev {

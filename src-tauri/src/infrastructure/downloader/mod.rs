@@ -7,7 +7,7 @@
 //! GitHub: API 解析 release 资产 URL 后走同一管道
 
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// 下载文件: 断点续传 + 可选 sha256 校验 + 原子改名
 /// 返回最终路径; Err = 失败 (保留 .part 供续传)
@@ -94,6 +94,9 @@ pub fn download(
 }
 
 /// 从 GitHub Release 解析资产下载 URL
+// TODO(未接线): 写了测试但没有调用方 —— 需确认首次运行"自动下载缺失模型"这条路径
+// 是否真的跑通, 还是只有 URL 构造函数、没有编排它们的下载流程。
+#[allow(dead_code)]
 pub fn github_release_asset_url(repo: &str, tag: &str, asset: &str) -> Result<String, String> {
     // 直接构造已知 release 资产 URL (GitHub 官方 redirect, 无需 API token 也能下公开资产)
     Ok(format!(
@@ -102,6 +105,8 @@ pub fn github_release_asset_url(repo: &str, tag: &str, asset: &str) -> Result<St
 }
 
 /// HF resolve URL 构造
+// TODO(未接线): 同 github_release_asset_url, 未见调用方。
+#[allow(dead_code)]
 pub fn hf_resolve_url(repo: &str, revision: &str, file: &str) -> String {
     format!("https://huggingface.co/{repo}/resolve/{revision}/{file}")
 }

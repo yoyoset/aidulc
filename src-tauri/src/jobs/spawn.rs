@@ -50,7 +50,8 @@ pub fn spawn_prep(
     bind_child_to_job(&child);
     let stdout = child.stdout.take().ok_or("无法取得侧车 stdout")?;
     let reader = BufReader::new(stdout);
-    let iter = reader.lines().filter_map(|l| l.ok());
+    // map_while (非 filter_map): 读到 Err 就停止迭代, 不会在持续读错误时死循环。
+    let iter = reader.lines().map_while(Result::ok);
     Ok((child, Box::new(iter)))
 }
 

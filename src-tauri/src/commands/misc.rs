@@ -34,7 +34,7 @@ pub fn components_health(
     // en 是当前唯一支持语言 (H4); 多语言后按书语言查询
     let (llm, tts, _spacy) = model_service::resolve_paths(db.inner(), "en");
     let checks = crate::services::components::health_check(cfg.inner(), &lib, &hf, &llm, &tts);
-    Ok(serde_json::to_value(checks).map_err(|e| e.to_string())?)
+    serde_json::to_value(checks).map_err(|e| e.to_string())
 }
 
 /// boot 探针 (开发用: 验证进程活着)

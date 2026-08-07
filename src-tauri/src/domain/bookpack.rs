@@ -1,18 +1,6 @@
-//! domain/bookpack.rs —— 书包 struct + schemaVersion 校验 (高版本明确拒绝, 不尽力解析)
-
-use serde::{Deserialize, Serialize};
+//! domain/bookpack.rs —— schemaVersion 校验 (高版本明确拒绝, 不尽力解析)
 
 pub const SUPPORTED_SCHEMA_VERSION: i64 = 1;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BookpackMeta {
-    pub schema_version: i64,
-    pub title: String,
-    #[serde(default)]
-    pub profile: serde_json::Value,
-    #[serde(default)]
-    pub chapters: Vec<serde_json::Value>,
-}
 
 /// 校验 schemaVersion: 高于支持版本 → Err (明确拒绝)。
 /// 其余字段校验交给 conformance 测试 (用 fixtures/sample_bookpack)。

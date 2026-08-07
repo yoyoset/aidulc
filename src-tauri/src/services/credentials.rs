@@ -27,6 +27,8 @@ pub fn get_cf_token() -> Result<String, String> {
     }
 }
 
+// TODO(未接线): 写了测试但没有 command/前端调用它 —— 界面上没有"断开 CF 同步"入口。
+#[allow(dead_code)]
 pub fn delete_cf_token() -> Result<(), String> {
     let entry = Entry::new(SERVICE, TOKEN_ACCOUNT).map_err(|e| format!("创建凭据条目失败: {e}"))?;
     entry

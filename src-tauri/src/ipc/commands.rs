@@ -32,7 +32,7 @@ pub fn profile_upsert(db: State<Db>, profile: Profile) -> Result<(), String> {
 #[tauri::command]
 pub fn profile_list(db: State<Db>) -> Result<serde_json::Value, String> {
     let repo = crate::store::profile_repo::ProfileRepo::new(db.inner());
-    Ok(serde_json::to_value(repo.list()).map_err(|e| e.to_string())?)
+    serde_json::to_value(repo.list()).map_err(|e| e.to_string())
 }
 
 // ---- 阅读状态 ----

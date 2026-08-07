@@ -33,7 +33,7 @@ pub fn library_list(
         Some(k) if k == "original" || k == "product" => repo.list_by_kind(k),
         _ => repo.list(),
     };
-    Ok(serde_json::to_value(books).map_err(|e| e.to_string())?)
+    serde_json::to_value(books).map_err(|e| e.to_string())
 }
 
 /// 登记一本书
@@ -97,7 +97,7 @@ pub fn library_open(db: State<store::Db>, id: String) -> Result<serde_json::Valu
     let repo = store::books_repo::BooksRepo::new(db.inner());
     let book = repo.get(&id).ok_or("书不存在")?;
     repo.touch_opened(&id, now_ms())?;
-    Ok(serde_json::to_value(book).map_err(|e| e.to_string())?)
+    serde_json::to_value(book).map_err(|e| e.to_string())
 }
 
 /// 加载书包 (book_id)

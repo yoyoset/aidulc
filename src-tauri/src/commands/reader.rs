@@ -36,7 +36,7 @@ pub fn word_lookup(
         ))
     };
     let result = dictionary_service::lookup(db.inner(), &profile_id, &word, &context, &lookup_fn)?;
-    Ok(serde_json::to_value(result).map_err(|e| e.to_string())?)
+    serde_json::to_value(result).map_err(|e| e.to_string())
 }
 
 /// spawn 侧车 dict-lookup: python -m aidulc_prep.dict_lookup --model <m> --word <w> --context <ctx>
@@ -168,7 +168,7 @@ pub fn add_vocab(
 #[tauri::command]
 pub fn dict_list(db: State<store::Db>, profile_id: String) -> Result<serde_json::Value, String> {
     let repo = store::dict_repo::DictRepo::new(db.inner());
-    Ok(serde_json::to_value(repo.list_by_profile(&profile_id)).map_err(|e| e.to_string())?)
+    serde_json::to_value(repo.list_by_profile(&profile_id)).map_err(|e| e.to_string())
 }
 
 /// 词典搜索
@@ -179,7 +179,7 @@ pub fn dict_search(
     q: String,
 ) -> Result<serde_json::Value, String> {
     let repo = store::dict_repo::DictRepo::new(db.inner());
-    Ok(serde_json::to_value(repo.search(&profile_id, &q)).map_err(|e| e.to_string())?)
+    serde_json::to_value(repo.search(&profile_id, &q)).map_err(|e| e.to_string())
 }
 
 /// 词典删除
@@ -195,7 +195,7 @@ pub fn dict_remove(db: State<store::Db>, key: String, profile_id: String) -> Res
 #[tauri::command]
 pub fn vocab_all(db: State<store::Db>, profile_id: String) -> Result<serde_json::Value, String> {
     let repo = store::vocab_repo::VocabRepo::new(db.inner());
-    Ok(serde_json::to_value(repo.list(&profile_id)).map_err(|e| e.to_string())?)
+    serde_json::to_value(repo.list(&profile_id)).map_err(|e| e.to_string())
 }
 
 /// 生词搜索
@@ -206,7 +206,7 @@ pub fn vocab_search(
     q: String,
 ) -> Result<serde_json::Value, String> {
     let repo = store::vocab_repo::VocabRepo::new(db.inner());
-    Ok(serde_json::to_value(repo.search(&profile_id, &q)).map_err(|e| e.to_string())?)
+    serde_json::to_value(repo.search(&profile_id, &q)).map_err(|e| e.to_string())
 }
 
 /// 删除生词
@@ -235,7 +235,7 @@ pub fn sync_status(
     let url = svc.cf_worker_url.lock().unwrap().clone();
     let token = svc.cf_token.lock().unwrap().clone();
     let s = crate::application::sync_service::get_status(db.inner(), &url, &token);
-    Ok(serde_json::to_value(s).map_err(|e| e.to_string())?)
+    serde_json::to_value(s).map_err(|e| e.to_string())
 }
 
 /// 立即同步 (push)
@@ -248,7 +248,7 @@ pub fn sync_now(
     let url = svc.cf_worker_url.lock().unwrap().clone();
     let token = svc.cf_token.lock().unwrap().clone();
     let s = crate::application::sync_service::sync_now(db.inner(), &url, &token)?;
-    Ok(serde_json::to_value(s).map_err(|e| e.to_string())?)
+    serde_json::to_value(s).map_err(|e| e.to_string())
 }
 
 /// 拉取合并
@@ -261,7 +261,7 @@ pub fn sync_pull_now(
     let url = svc.cf_worker_url.lock().unwrap().clone();
     let token = svc.cf_token.lock().unwrap().clone();
     let s = crate::application::sync_service::sync_pull(db.inner(), &url, &token)?;
-    Ok(serde_json::to_value(s).map_err(|e| e.to_string())?)
+    serde_json::to_value(s).map_err(|e| e.to_string())
 }
 
 /// 同步配置 (URL + token; token 存 Credential Manager; 即时生效)

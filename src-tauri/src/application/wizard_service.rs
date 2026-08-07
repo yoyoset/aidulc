@@ -5,7 +5,6 @@
 
 use crate::store::Db;
 
-pub const WIZARD_ID: &str = "first-run";
 pub const TOTAL_STEPS: i64 = 6;
 
 pub fn get_state(db: &Db) -> (i64, String) {
@@ -31,6 +30,9 @@ pub fn set_step(db: &Db, step: i64, status: &str) -> Result<(), String> {
     Ok(())
 }
 
+// TODO(未接线): 写了测试但没有调用方 —— main.rs 启动流程未查询是否已完成向导,
+// 已完成向导的用户重启后可能仍会看到首次运行向导重复弹出。
+#[allow(dead_code)]
 pub fn is_done(db: &Db) -> bool {
     let (_, status) = get_state(db);
     status == "done"

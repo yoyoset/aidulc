@@ -9,7 +9,7 @@ use tauri::State;
 #[tauri::command]
 pub fn models_list(db: State<store::Db>) -> Result<serde_json::Value, String> {
     let repo = store::model_repo::ModelRepo::new(db.inner());
-    Ok(serde_json::to_value(repo.list_all()).map_err(|e| e.to_string())?)
+    serde_json::to_value(repo.list_all()).map_err(|e| e.to_string())
 }
 
 /// 某语言某家族的模型 (供书级选择)
@@ -20,7 +20,7 @@ pub fn models_by(
     language: String,
 ) -> Result<serde_json::Value, String> {
     let repo = store::model_repo::ModelRepo::new(db.inner());
-    Ok(serde_json::to_value(repo.list_by(&family, &language)).map_err(|e| e.to_string())?)
+    serde_json::to_value(repo.list_by(&family, &language)).map_err(|e| e.to_string())
 }
 
 /// 推荐组合 (导入书时自动带出)

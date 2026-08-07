@@ -61,17 +61,23 @@
 
 ---
 
-## P3(架构收口,S2 阶段做)
+## P3(架构收口)
 
-### commands/jobs.rs 过大, 业务编排住在命令层
+### clippy 基线(8)的真正清零需要函数签名重设计, 不只是挪文件
 
-`jobs.rs` 947 行,其中 `pump_queue`(226 行)、`batch_start`(147 行)等是批处理调度器,应移到
-`application/job_orchestrator.rs`,命令层只留薄壳(每个 command ≤30 行)。
+S2.1(2026-08-07)已把 `commands/jobs.rs`(原 947 行)的业务编排拆到
+`application/job_orchestrator.rs`,命令层现在是薄壳(`pump_queue`/`batch_start`/
+`start_prep_job`/`batch_start_prep` 等移走, `jobs.rs` 降到 228 行)。
 
-`scripts/check.ps1` 的 clippy 检查目前用 `-ClippyBaseline 8` 放行这批"参数过多/类型复杂"的
-结构性警告(集中在 `jobs.rs`/`library_service.rs` 等命令层),拆分完这里的基线数字要调低。
+但 clippy 基线**仍是 8,没有降**——这是诚实的结果,不是漏做:挪文件不会减少函数的参数
+个数,`start_prep_job`(10 参数)等 3 个"参数过多"警告只是换了文件,原样跟过去了(挪的时候
+特意验证过没有被静默压掉,`ipc/registry.rs` 的一致性测试也确认了这次拆分没有改变任何
+command 的名称/路径)。真正清零基线需要把这些参数打包成请求结构体(如
+`StartPrepJobRequest { book_path, profile, models, ... }`),这是比"挪文件"更大的改动
+(要动 Tauri command 的调用约定, 前端 `invoke()` 传参方式也要跟着改), 留作独立任务,
+不要和"分层"这件事混在一起做。
 
-来源:2026-08-07 审计。
+来源:2026-08-07 审计 + S2.1 完成后的复核。
 
 ---
 

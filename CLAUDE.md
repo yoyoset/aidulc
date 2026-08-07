@@ -55,8 +55,10 @@
 - 前端: `cd reader && npx vitest run`
 
 `scripts/check.ps1` 额外跑 `cargo fmt --check` 和 `cargo clippy`(clippy 用基线放行 8 处已知结构性警告
-——集中在 `jobs.rs` 等命令层的参数过多/类型复杂,是已知的架构债,等拆分命令层时一并清,**不要为了让
-门禁变绿而调高基线数字,只能调低**)。
+——参数过多/类型复杂, 分布在 `job_orchestrator.rs`/`library_service.rs`/`library.rs`/`models.rs`/
+`sync_service.rs`/`reader.rs`。S2.1(2026-08-07)已把业务编排从命令层挪到 `application/`,但挪文件
+不会减少参数个数, 基线仍是 8——真正清零需要把多参数函数改成接收请求结构体, 是比挪文件更大的改动,
+留在 `docs/ROADMAP.md` P3。**不要为了让门禁变绿而调高基线数字,只能调低**)。
 
 ## 前端(reader/)编码规约
 

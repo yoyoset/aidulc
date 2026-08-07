@@ -2,6 +2,7 @@
 
 mod application {
     pub mod dictionary_service;
+    pub mod job_orchestrator;
     pub mod library_service;
     pub mod model_service;
     pub mod sync_service;
@@ -251,7 +252,7 @@ fn main() {
                         let _ = books_repo.upsert(&nb);
                     }
                 }
-                let _ = commands::jobs::pump_queue(
+                let _ = application::job_orchestrator::pump_queue(
                     app.handle().clone(),
                     cfg.inner(),
                     st.inner(),

@@ -24,7 +24,6 @@ mod services {
     pub mod components;
     pub mod config;
     pub mod credentials;
-    pub mod sync;
 }
 mod store {
     pub mod batches_repo;
@@ -45,6 +44,7 @@ mod jobs {
     pub mod spawn;
 }
 mod infrastructure {
+    pub mod aidu_worker_client;
     pub mod downloader;
     pub mod log;
     pub mod model_store {

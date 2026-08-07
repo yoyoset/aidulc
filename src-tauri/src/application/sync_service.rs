@@ -6,7 +6,7 @@
 //! - synced: 最近一次成功
 //! - failed: 结构性错误 (token 无效/HTTP 4xx)
 
-use crate::services::sync::{self, WorkerEnvelope};
+use crate::infrastructure::aidu_worker_client::{self as sync, WorkerEnvelope};
 use crate::store::Db;
 
 #[derive(Debug, Clone, serde::Serialize)]

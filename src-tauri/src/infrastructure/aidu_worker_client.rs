@@ -1,4 +1,9 @@
-//! services/sync.rs —— AIDU Worker 推拉 + 离线降级 (M1)
+//! infrastructure/aidu_worker_client.rs —— AIDU Worker HTTP 客户端 (M1)
+//!
+//! 只做网络 I/O(推/拉/重试/超限校验), 不做编排决策——编排在
+//! application/sync_service.rs(状态机/离线降级/何时调用这里)。
+//! S2 从 services/sync.rs 改名至此: 原名和 application/sync_service.rs 同名不同层,
+//! 容易搞混; 这里本质是 HTTP 客户端, 该归 infrastructure/ 而不是 services/。
 //!
 //! 协议严格对齐 aidu/worker/index.js:
 //! - GET  <worker>?profile=<id>   → {vocab, dictionary, dictionaries?, meta?} | 404 {} (新 profile)

@@ -71,11 +71,6 @@
 `scripts/check.ps1` 的 clippy 检查目前用 `-ClippyBaseline 8` 放行这批"参数过多/类型复杂"的
 结构性警告(集中在 `jobs.rs`/`library_service.rs` 等命令层),拆分完这里的基线数字要调低。
 
-### 命名消歧
-
-`services/sync.rs`(HTTP 客户端)与 `application/sync_service.rs`(编排)同名不同层,容易搞混,
-拆分时一并理清命名。
-
 来源:2026-08-07 审计。
 
 ---

@@ -43,6 +43,53 @@
       logSec.appendChild(logRow);
       wrap.appendChild(logSec);
 
+      // P1.2: 书库位置(用户明确要求的产品能力, 见 docs/ROADMAP.md P1)
+      const libSec = el('div', 'settings-section');
+      libSec.appendChild(el('h2', null, '书库位置'));
+      const libRow = el('div', 'log-row');
+      const libPath = el('span', 'log-info', '读取中…');
+      const libChangeBtn = el('button', 'btn-small', '更改…');
+      libRow.append(libPath, libChangeBtn);
+      libSec.appendChild(libRow);
+      const libMsg = el('div', 'import-tip');
+      libSec.appendChild(libMsg);
+      wrap.appendChild(libSec);
+
+      const refreshLibPath = () => {
+        AiduMiscService.libraryDirGet().then((r) => {
+          libPath.textContent = r.ok ? ('当前: ' + r.data) : ('读取失败: ' + r.error);
+        });
+      };
+      refreshLibPath();
+
+      libChangeBtn.onclick = () => {
+        libChangeBtn.disabled = true;
+        libMsg.textContent = '迁移中, 请稍候…(数据量大时可能需要几分钟)';
+        AiduMiscService.libraryDirPickAndSet().then((r) => {
+          libChangeBtn.disabled = false;
+          if (!r.ok) {
+            // 后端明确拒绝的场景(如任务处理中), 错误信息本身就是人话
+            libMsg.textContent = r.error;
+            return;
+          }
+          const d = r.data || {};
+          if (d.cancelled) {
+            libMsg.textContent = d.same ? '选择的位置和当前一致, 未做改动。' : '';
+            return;
+          }
+          const movedN = (d.moved || []).length;
+          const failedN = (d.failed || []).length;
+          let msg = `已迁移 ${movedN} 项`;
+          if (failedN > 0) {
+            const reasons = d.failed.map((f) => `${f.name}(${f.reason})`).join('; ');
+            msg += `, ${failedN} 项失败: ${reasons}`;
+          }
+          msg += '。新位置: ' + d.new_dir + '。需要重启应用才能生效。';
+          libMsg.textContent = msg;
+          refreshLibPath();
+        });
+      };
+
       // G5: 组件中心 (健康检查)
       const compSec = el('div', 'settings-section');
       compSec.appendChild(el('h2', null, '组件与模型'));

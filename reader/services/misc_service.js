@@ -10,6 +10,9 @@
     componentsHealth() { return AiduBridge.invoke('components_health'); },
     runtimeConfig() { return AiduBridge.invoke('runtime_config'); },
     openPath(path) { return AiduBridge.openPath(path); },
+    // P1.2: 书库位置("...存放在哪"的产品化入口, 见 docs/ROADMAP.md P1)
+    libraryDirGet() { return AiduBridge.invoke('library_dir_get'); },
+    libraryDirPickAndSet() { return AiduBridge.invoke('library_dir_pick_and_set'); },
   };
 
   global.AiduMiscService = MiscService;

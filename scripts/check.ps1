@@ -38,11 +38,20 @@ Run-Check "cargo fmt --check" {
 }
 
 # 3. Rust clippy (基线放行存量, 禁止新增)
+# 实测坑(2026-08-07): `cargo clippy 2>&1 | Out-String` 在 PowerShell 5.1 下对原生程序
+# 合并 stdout/stderr 不可靠 —— 同一份未改动代码连续两次门禁跑出 8 和 7 两个不同计数
+# (直接用 Bash 跑两次稳定都是 8, 只有走 PS 的 `2>&1` 管道才会漏行)。改用文件重定向
+# (交给 cmd.exe 而不是 PowerShell 处理流合并)彻底绕开这个坑, 不是猜一个数字将就。
 Run-Check "cargo clippy (baseline<=$ClippyBaseline)" {
     Push-Location "$root\src-tauri"
-    $output = cargo clippy --release -p aidulc 2>&1 | Out-String
+    $tmpOut = Join-Path $env:TEMP "aidulc_clippy_$PID.txt"
+    cmd /c "cargo clippy --release -p aidulc > `"$tmpOut`" 2>&1"
+    $output = Get-Content $tmpOut -Raw
+    Remove-Item $tmpOut -ErrorAction SilentlyContinue
     Write-Output $output
-    $count = ([regex]::Matches($output, '(?m)^warning:')).Count
+    # 排除 cargo 自己的摘要行(如 "warning: `aidulc` (bin "aidulc") generated 8 warnings")
+    # ——它本身也以 "warning:" 开头, 不排除会把警告数错多算 1。
+    $count = ([regex]::Matches($output, '(?m)^warning:(?!.*\bgenerated\b)')).Count
     Pop-Location
     Write-Output "clippy 警告数: $count (基线: $ClippyBaseline)"
     if ($count -gt $ClippyBaseline) {

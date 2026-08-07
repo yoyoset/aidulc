@@ -43,7 +43,8 @@
 
 - Python: `prep\.venv\Scripts\python.exe -m pytest prep\tests` → 126 全绿
 - Rust: `cargo test --release -p aidulc -- --test-threads=1` → 100 全绿 (并行有隔离问题)
-- 前端: 29 个测试
+- 前端: `cd reader && npx vitest run` → 32 全绿 (2026-08-07 审计前是 0——"29 个测试"是把
+  reader/ 下的 JS 文件数误记成测试数, 当时既无 package.json 也无测试运行器)
 - 打包: `pyinstaller --clean --noconfirm build_exe.spec` → `prep\dist\aidulc-prep\aidulc-prep.exe` → 复制到 `dist\aidulc-portable\prep\`; `cargo build --release` → `aidulc.exe` → 复制到 `dist\aidulc-portable\`。**应用运行时 exe 被锁定, 需先关应用再构建**。
 
 ## 交付状态 (2026-08-07 17:41)

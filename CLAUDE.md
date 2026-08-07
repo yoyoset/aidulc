@@ -88,12 +88,6 @@
 (`wizard_service.rs::is_done`)、CF 同步断开连接(`credentials.rs::delete_cf_token`)、首次下载 URL 构造
 (`infrastructure/downloader/mod.rs`)。改这几处附近代码前先看 `TODO(未接线)` 注释, 别假设它们已经在跑。
 
-## 已知的路径解析问题
-
-`src-tauri/src/main.rs` 的 `db_path` 正确地 `exe_dir.join("data.db")`,但 `lib_dir`(书库目录)没有做同样
-的处理——直接使用 `config.toml` 里的裸相对路径,实际落地位置取决于进程启动时的 CWD,不是文档声称的
-"exe 同目录"。修复前不要假设书库路径是可预测的。
-
 ## 项目记忆
 
 `memory/pipeline.md` 记录 pipeline 踩过的坑(ffmpeg concat/编码超时、TTS 时间轴对齐等),

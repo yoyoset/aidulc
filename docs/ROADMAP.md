@@ -13,19 +13,16 @@
 
 ---
 
-## P0(阻断可用性)
+## P0(阻断可用性)——空,已清
 
-### 书库路径未锚定 exe_dir
+~~书库路径未锚定 exe_dir~~ 已修(2026-08-07)。`main.rs` 新增 `resolve_library_dir` 纯函数
+(比照 `resolve_prep_path` 的既有模式),裸相对路径统一 `exe_dir.join()`,`AIDULC_LIBRARY`
+环境变量显式指定时不做加工;启动日志新增 `library_dir=... (存在: true/false)` 一行,不用再靠猜。
+4 个新测试覆盖:相对路径锚定/绝对路径原样/环境变量覆盖/环境变量为空回退。
 
-`src-tauri/src/main.rs:168-169` 的 `lib_dir` 直接用 `config.toml` 里的裸相对路径,从未
-`exe_dir.join()` 或 `canonicalize()`,实际落地位置取决于进程启动时的 CWD,不是文档声称的
-"exe 同目录"(对比同文件 164 行 `db_path` 的正确写法)。这是审计 `docs/BASELINE.md` 时发现的
-真实 bug,也是用户答不上"三本书的书包在哪"的根因。
-
-**修法**:比照 `db_path` 的模式统一处理;启动日志打印解析后的绝对路径(参照 `prep_path` 已有的
-`main.rs:180-182` 做法)。
-
-来源:2026-08-07 审计,代码实测确认。
+**历史遗留、这次没解决的**:`docs/BASELINE.md` 里 Wolf 21/Breath/Hitchhikers 三本书当时具体
+落在哪个目录仍然未知(修 bug 只保证以后的运行可预测,不能倒推过去的运行落在了哪)——如果这三本书
+的数据还在意义重大,需要用户提供当时的实际路径或干脆重新处理。
 
 ---
 

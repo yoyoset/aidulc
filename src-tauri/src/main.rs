@@ -121,6 +121,83 @@ fn resolve_prep_path(exe_dir: &std::path::Path) -> std::path::PathBuf {
     sibling
 }
 
+/// 书库目录路径解析。
+///
+/// Bug fix (2026-08-07 审计确认): 此前直接用 config.toml 里的裸相对路径("library"),
+/// 没有像 db_path 那样 exe_dir.join(), 实际落地位置取决于进程启动时的当前工作目录
+/// (双击 exe / 快捷方式 / 不同终端启动 CWD 可能不同), 不是 config.rs 注释声称的
+/// "exe 同目录"。load_bookpack/components_health 都把这个值当真实文件系统路径拼接
+/// 使用, 不是摆设字符串, 路径错了会导致真的读不到书包——这是用户反馈"不知道书包在哪"
+/// 的根因。
+///
+/// env_override 存在且非空时不做任何加工(尊重用户经 AIDULC_LIBRARY 显式指定的路径,
+/// 哪怕是相对路径也不强行转换, 语义上环境变量就是"你说了算")。
+fn resolve_library_dir(
+    exe_dir: &std::path::Path,
+    cfg_library_dir: &std::path::Path,
+    env_override: Option<String>,
+) -> String {
+    if let Some(v) = env_override {
+        if !v.is_empty() {
+            return v;
+        }
+    }
+    let resolved = if cfg_library_dir.is_absolute() {
+        cfg_library_dir.to_path_buf()
+    } else {
+        exe_dir.join(cfg_library_dir)
+    };
+    resolved.to_string_lossy().to_string()
+}
+
+#[cfg(test)]
+mod library_dir_tests {
+    use super::resolve_library_dir;
+
+    #[test]
+    fn relative_config_path_anchored_to_exe_dir() {
+        // 核心回归: 这是 2026-08-07 修的那个 bug——裸相对路径必须锚定 exe_dir,
+        // 不能指望"当前工作目录恰好等于 exe_dir"这种运气。
+        let got = resolve_library_dir(
+            std::path::Path::new("C:/app"),
+            std::path::Path::new("library"),
+            None,
+        );
+        assert_eq!(got, "C:/app\\library");
+    }
+
+    #[test]
+    fn absolute_config_path_used_as_is() {
+        let got = resolve_library_dir(
+            std::path::Path::new("C:/app"),
+            std::path::Path::new("D:/my_books"),
+            None,
+        );
+        assert_eq!(got, "D:/my_books");
+    }
+
+    #[test]
+    fn env_override_wins_and_is_not_anchored() {
+        // 环境变量是用户显式指定, 哪怕给的是相对路径也原样尊重, 不强行拼 exe_dir。
+        let got = resolve_library_dir(
+            std::path::Path::new("C:/app"),
+            std::path::Path::new("library"),
+            Some("some/relative/override".to_string()),
+        );
+        assert_eq!(got, "some/relative/override");
+    }
+
+    #[test]
+    fn empty_env_override_falls_through_to_config() {
+        let got = resolve_library_dir(
+            std::path::Path::new("C:/app"),
+            std::path::Path::new("library"),
+            Some(String::new()),
+        );
+        assert_eq!(got, "C:/app\\library");
+    }
+}
+
 #[cfg(test)]
 mod prep_path_tests {
     use super::resolve_prep_path;
@@ -170,9 +247,12 @@ fn main() {
         .unwrap_or_else(|_| exe_dir.join("data.db").to_string_lossy().to_string());
     let db = store::Db::open(&db_path).expect("打开 SQLite 失败");
 
-    // 3. 书库目录
-    let lib_dir = std::env::var("AIDULC_LIBRARY")
-        .unwrap_or_else(|_| cfg.library_dir.to_string_lossy().to_string());
+    // 3. 书库目录 (见 resolve_library_dir 文档注释: 2026-08-07 修复的路径 bug)
+    let lib_dir = resolve_library_dir(
+        &exe_dir,
+        &cfg.library_dir,
+        std::env::var("AIDULC_LIBRARY").ok(),
+    );
 
     // 4. prep 侧车 (多级探测: 环境变量 → exe 同级 → 开发目录 → 上级 prep 构建)
     let prep_path = resolve_prep_path(&exe_dir);
@@ -189,6 +269,16 @@ fn main() {
             "prep_path={} (存在: {})",
             prep_path.to_string_lossy(),
             prep_path.exists()
+        ),
+    );
+    // 书库路径此前是静默的相对路径 bug 根源(见上方修复注释), 启动时明确打印解析后的
+    // 绝对路径, 用户/开发者都能一眼确认书包实际存放位置, 不用再靠猜。
+    infrastructure::log::info(
+        "app",
+        &format!(
+            "library_dir={} (存在: {})",
+            lib_dir,
+            std::path::Path::new(&lib_dir).exists()
         ),
     );
 

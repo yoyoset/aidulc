@@ -53,6 +53,7 @@ mod infrastructure {
 }
 mod ipc {
     pub mod commands;
+    pub mod registry;
 }
 
 use std::sync::Mutex;

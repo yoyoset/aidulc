@@ -46,6 +46,7 @@ mod jobs {
 }
 mod infrastructure {
     pub mod aidu_worker_client;
+    pub mod dir_migration;
     pub mod downloader;
     pub mod log;
     pub mod model_store {
@@ -71,11 +72,6 @@ pub struct PrepState {
     pub child: Mutex<Option<std::process::Child>>,
     pub running_job: Mutex<Option<String>>,
     pub queue: Mutex<Vec<String>>,
-}
-
-/// 书包库目录
-pub struct LibraryState {
-    pub dir: Mutex<String>,
 }
 
 /// prep 侧车路径 + 任务输出目录 + 工具路径
@@ -121,80 +117,83 @@ fn resolve_prep_path(exe_dir: &std::path::Path) -> std::path::PathBuf {
     sibling
 }
 
-/// 书库目录路径解析。
+/// 书库/输出目录路径解析("书库位置")。
 ///
-/// Bug fix (2026-08-07 审计确认): 此前直接用 config.toml 里的裸相对路径("library"),
-/// 没有像 db_path 那样 exe_dir.join(), 实际落地位置取决于进程启动时的当前工作目录
-/// (双击 exe / 快捷方式 / 不同终端启动 CWD 可能不同), 不是 config.rs 注释声称的
-/// "exe 同目录"。load_bookpack/components_health 都把这个值当真实文件系统路径拼接
-/// 使用, 不是摆设字符串, 路径错了会导致真的读不到书包——这是用户反馈"不知道书包在哪"
-/// 的根因。
+/// Bug fix (2026-08-07 审计确认): 此前直接用 config.toml 里的裸相对路径, 没有像
+/// db_path 那样 exe_dir.join(), 实际落地位置取决于进程启动时的当前工作目录(双击 exe /
+/// 快捷方式 / 不同终端启动 CWD 可能不同), 不是文档声称的"exe 同目录"。
 ///
-/// env_override 存在且非空时不做任何加工(尊重用户经 AIDULC_LIBRARY 显式指定的路径,
+/// 架构合并(同日审计发现): 此前有两个不同步的"书目录"概念——`library_dir`(仅两处
+/// 遗留兜底逻辑引用, 没有一本书真正存在这里)和 `PrepConfig.out_dir`(真正的书包存放
+/// 位置, `cfg.out_dir.join("jobs").join(job_id)`)。用户反馈"不知道书包在哪"的真正根因
+/// 是 out_dir 此前没有配置文件持久化入口(只能靠 AIDULC_OUT 环境变量), 不是 library_dir
+/// 本身。现在统一成一个: Config.out_dir 是配置来源, 这个函数是唯一的解析逻辑。
+///
+/// env_override 存在且非空时不做任何加工(尊重用户经 AIDULC_OUT 显式指定的路径,
 /// 哪怕是相对路径也不强行转换, 语义上环境变量就是"你说了算")。
-fn resolve_library_dir(
+fn resolve_out_dir(
     exe_dir: &std::path::Path,
-    cfg_library_dir: &std::path::Path,
+    cfg_out_dir: &std::path::Path,
     env_override: Option<String>,
-) -> String {
+) -> std::path::PathBuf {
     if let Some(v) = env_override {
         if !v.is_empty() {
-            return v;
+            return std::path::PathBuf::from(v);
         }
     }
-    let resolved = if cfg_library_dir.is_absolute() {
-        cfg_library_dir.to_path_buf()
+    if cfg_out_dir.is_absolute() {
+        cfg_out_dir.to_path_buf()
     } else {
-        exe_dir.join(cfg_library_dir)
-    };
-    resolved.to_string_lossy().to_string()
+        exe_dir.join(cfg_out_dir)
+    }
 }
 
 #[cfg(test)]
-mod library_dir_tests {
-    use super::resolve_library_dir;
+mod out_dir_tests {
+    use super::resolve_out_dir;
+    use std::path::PathBuf;
 
     #[test]
     fn relative_config_path_anchored_to_exe_dir() {
         // 核心回归: 这是 2026-08-07 修的那个 bug——裸相对路径必须锚定 exe_dir,
         // 不能指望"当前工作目录恰好等于 exe_dir"这种运气。
-        let got = resolve_library_dir(
+        let got = resolve_out_dir(
             std::path::Path::new("C:/app"),
-            std::path::Path::new("library"),
+            std::path::Path::new("jobs_out"),
             None,
         );
-        assert_eq!(got, "C:/app\\library");
+        assert_eq!(got, PathBuf::from("C:/app").join("jobs_out"));
     }
 
     #[test]
     fn absolute_config_path_used_as_is() {
-        let got = resolve_library_dir(
+        let got = resolve_out_dir(
             std::path::Path::new("C:/app"),
             std::path::Path::new("D:/my_books"),
             None,
         );
-        assert_eq!(got, "D:/my_books");
+        assert_eq!(got, PathBuf::from("D:/my_books"));
     }
 
     #[test]
     fn env_override_wins_and_is_not_anchored() {
         // 环境变量是用户显式指定, 哪怕给的是相对路径也原样尊重, 不强行拼 exe_dir。
-        let got = resolve_library_dir(
+        let got = resolve_out_dir(
             std::path::Path::new("C:/app"),
-            std::path::Path::new("library"),
+            std::path::Path::new("jobs_out"),
             Some("some/relative/override".to_string()),
         );
-        assert_eq!(got, "some/relative/override");
+        assert_eq!(got, PathBuf::from("some/relative/override"));
     }
 
     #[test]
     fn empty_env_override_falls_through_to_config() {
-        let got = resolve_library_dir(
+        let got = resolve_out_dir(
             std::path::Path::new("C:/app"),
-            std::path::Path::new("library"),
+            std::path::Path::new("jobs_out"),
             Some(String::new()),
         );
-        assert_eq!(got, "C:/app\\library");
+        assert_eq!(got, PathBuf::from("C:/app").join("jobs_out"));
     }
 }
 
@@ -247,12 +246,9 @@ fn main() {
         .unwrap_or_else(|_| exe_dir.join("data.db").to_string_lossy().to_string());
     let db = store::Db::open(&db_path).expect("打开 SQLite 失败");
 
-    // 3. 书库目录 (见 resolve_library_dir 文档注释: 2026-08-07 修复的路径 bug)
-    let lib_dir = resolve_library_dir(
-        &exe_dir,
-        &cfg.library_dir,
-        std::env::var("AIDULC_LIBRARY").ok(),
-    );
+    // 3. 书库/输出目录 (见 resolve_out_dir 文档注释: 2026-08-07 修复的路径 bug
+    //    + 合并此前重复的 library_dir/out_dir 两个概念, 见 Config.out_dir 文档注释)
+    let out_dir = resolve_out_dir(&exe_dir, &cfg.out_dir, std::env::var("AIDULC_OUT").ok());
 
     // 4. prep 侧车 (多级探测: 环境变量 → exe 同级 → 开发目录 → 上级 prep 构建)
     let prep_path = resolve_prep_path(&exe_dir);
@@ -276,9 +272,9 @@ fn main() {
     infrastructure::log::info(
         "app",
         &format!(
-            "library_dir={} (存在: {})",
-            lib_dir,
-            std::path::Path::new(&lib_dir).exists()
+            "out_dir={} (存在: {})",
+            out_dir.to_string_lossy(),
+            out_dir.exists()
         ),
     );
 
@@ -305,9 +301,7 @@ fn main() {
 
     let prep_cfg = PrepConfig {
         prep_path,
-        out_dir: std::env::var("AIDULC_OUT")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| exe_dir.join("jobs_out")),
+        out_dir,
         ffmpeg: std::env::var("AIDULC_FFMPEG")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| cfg.ffmpeg_path.clone()),
@@ -316,9 +310,6 @@ fn main() {
     tauri::Builder::default()
         .manage(db)
         .manage(svc)
-        .manage(LibraryState {
-            dir: Mutex::new(lib_dir),
-        })
         .manage(PrepState {
             child: Mutex::new(None),
             running_job: Mutex::new(None),
@@ -407,6 +398,8 @@ fn main() {
             commands::models::wizard_finish,
             commands::misc::runtime_config,
             commands::misc::components_health,
+            commands::misc::library_dir_get,
+            commands::misc::library_dir_pick_and_set,
             commands::misc::boot_ping,
             ipc::commands::profile_upsert,
             ipc::commands::profile_list,

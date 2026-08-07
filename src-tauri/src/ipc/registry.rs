@@ -303,6 +303,16 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "组件健康检查(prep/ffmpeg/模型是否可用)",
     },
     CommandInfo {
+        path: "commands::misc::library_dir_get",
+        domain: "设置",
+        desc: "书库位置(当前生效的绝对路径)",
+    },
+    CommandInfo {
+        path: "commands::misc::library_dir_pick_and_set",
+        domain: "设置",
+        desc: "更改书库位置(自动搬迁旧数据, 重启后生效)",
+    },
+    CommandInfo {
         path: "commands::misc::boot_ping",
         domain: "运行时",
         desc: "boot 探针(开发用: 验证进程活着)",

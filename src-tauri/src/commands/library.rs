@@ -105,11 +105,10 @@ pub fn library_open(db: State<store::Db>, id: String) -> Result<serde_json::Valu
 pub fn load_bookpack(
     app: tauri::AppHandle,
     db: State<store::Db>,
-    state: State<crate::LibraryState>,
+    cfg: State<crate::PrepConfig>,
     book_id: String,
 ) -> Result<serde_json::Value, String> {
     use tauri::Emitter;
-    let lib = state.dir.lock().unwrap().clone();
 
     let repo = store::books_repo::BooksRepo::new(db.inner());
     let target = if let Some(book) = repo.get(&book_id) {
@@ -119,7 +118,9 @@ pub fn load_bookpack(
         if p.is_dir() && p.join("bookpack.json").exists() {
             p
         } else {
-            std::path::Path::new(&lib).join(&book_id)
+            // 兜底: book_id 当作书库根目录下的直接子目录名(未登记进 DB 的场景)。
+            // 沿用此前 library_dir 分支的相对语义, 只是指向的根换成了合并后的 out_dir。
+            cfg.out_dir.join(&book_id)
         }
     };
 

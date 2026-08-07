@@ -6,7 +6,12 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    pub library_dir: PathBuf,
+    /// 书包/任务输出根目录("书库位置")。曾经这里叫 library_dir 但和真正存书的
+    /// PrepConfig.out_dir 是两个不同步的概念(2026-08-07 审计发现的架构债: 全项目
+    /// 没有一本书真正存在旧 library_dir 下面, 它只是两处遗留兜底逻辑的路径来源)。
+    /// 现在统一成一个: 这里的值就是 out_dir 的配置来源, main.rs 用同一套
+    /// resolve_out_dir 解析成绝对路径。
+    pub out_dir: PathBuf,
     pub model_dir: PathBuf,
     pub log_level: String,
     /// CF 同步 (可为空 = 离线模式)
@@ -19,7 +24,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            library_dir: PathBuf::from("library"),
+            out_dir: PathBuf::from("jobs_out"),
             model_dir: PathBuf::from("models"),
             log_level: "info".into(),
             cf_worker_url: String::new(),
@@ -43,5 +48,12 @@ impl Config {
         let cfg = Config::default();
         let _ = std::fs::write(&path, toml::to_string_pretty(&cfg).unwrap_or_default());
         cfg
+    }
+
+    /// 写回 exe 同目录 config.toml(书库位置设置页"更改..."用)。
+    pub fn save(&self, exe_dir: &std::path::Path) -> Result<(), String> {
+        let path = exe_dir.join("config.toml");
+        let text = toml::to_string_pretty(self).map_err(|e| format!("序列化配置失败: {e}"))?;
+        std::fs::write(&path, text).map_err(|e| format!("写 config.toml 失败: {e}"))
     }
 }

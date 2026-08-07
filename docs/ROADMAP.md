@@ -15,10 +15,18 @@
 
 ## P0(阻断可用性)——空,已清
 
-~~书库路径未锚定 exe_dir~~ 已修(2026-08-07)。`main.rs` 新增 `resolve_library_dir` 纯函数
-(比照 `resolve_prep_path` 的既有模式),裸相对路径统一 `exe_dir.join()`,`AIDULC_LIBRARY`
-环境变量显式指定时不做加工;启动日志新增 `library_dir=... (存在: true/false)` 一行,不用再靠猜。
-4 个新测试覆盖:相对路径锚定/绝对路径原样/环境变量覆盖/环境变量为空回退。
+~~书库路径未锚定 exe_dir~~ 已修(2026-08-07)。`main.rs` 新增 `resolve_out_dir` 纯函数
+(比照 `resolve_prep_path` 的既有模式),裸相对路径统一 `exe_dir.join()`,`AIDULC_OUT`
+环境变量显式指定时不做加工;启动日志新增 `out_dir=... (存在: true/false)` 一行,不用再靠猜。
+
+**修复过程中发现并顺带解决的架构债**:项目里曾经有两个不同步的"书目录"概念——
+`library_dir`(仅两处遗留兜底逻辑引用, **没有一本书真正存在这里**)和 `PrepConfig.out_dir`
+(真正的书包存放位置)。用户反馈"不知道书包在哪"的真正根因其实是 out_dir 此前没有
+`config.toml` 持久化入口(只能靠 `AIDULC_OUT` 环境变量), 不是 library_dir 本身。已合并成一个:
+`Config.out_dir` 是唯一配置来源, `LibraryState` 整个结构体已删除, `load_bookpack`/
+`components_health` 两处消费方改读 `PrepConfig.out_dir`。副作用修复: `components_health`
+的磁盘空间检查此前查的是 library_dir 所在盘, 和书实际写入的 out_dir 可能不是同一块盘,
+结果具有误导性——合并后这个问题自动消失。
 
 **历史遗留、这次没解决的**:`docs/BASELINE.md` 里 Wolf 21/Breath/Hitchhikers 三本书当时具体
 落在哪个目录仍然未知(修 bug 只保证以后的运行可预测,不能倒推过去的运行落在了哪)——如果这三本书
@@ -26,18 +34,29 @@
 
 ---
 
-## P1(产品需求,用户已明确提出)
+## P1(产品需求,用户已明确提出)——进行中
 
 ### 书库位置可见可改 + 书包导出导入
 
 用户原话:书库路径"应该可以在设置里修正";处理过的书包"也是资产,是可以导出导入的,这样跨端也可以了"。
 
-- 设置界面需要一个"书库位置: ... [更改...]"的入口(参照 subgen/comic-gen 的既有模式,不是只能改
-  `config.toml` 文本文件)
-- 书包导出/导入,用于跨设备迁移。`src-tauri/src/application/transfer_service.rs` 现在只做
-  `.aidu-data`(词典/生词)的导入导出,不覆盖书包这个更大的资产类型,需要新设计
+产品决策(已与用户确认):改位置时自动搜旧目录并搬迁(与 subgen 一致的策略);导出格式为 zip。
 
-来源:用户在审计 S0.4 阶段的明确反馈。
+- [x] **P1.1 后端**(2026-08-07):`library_dir_get`/`library_dir_pick_and_set` 命令。
+  搬迁逻辑 `infrastructure/dir_migration.rs`——同盘 rename 瞬间完成, 跨盘复制到临时名→
+  核对文件数+总字节数→原子改名→删源, 单条目失败不中断整体(5 个测试覆盖)。
+  **重启后生效, 不是热切换**:`PrepConfig` 是 Tauri 启动时一次性 `.manage()` 的不可变状态,
+  运行时可变需要包 Mutex 并改遍全部直接字段访问点, 风险和收益不成比例, 这是明确的范围
+  取舍不是遗漏, 命令返回值里带 `restart_required: true` 供前端提示。任务处理中禁止更改
+  (参照 subgen"处理任务进行中不能改模型目录"的既有纪律)。
+- [ ] **P1.2 前端**:设置页"书库位置: ... [更改...]"入口(参照 subgen/comic-gen 的既有模式)。
+- [ ] **P1.3 后端**:`book_export` 命令, 打包某本书的 pack_dir 成 zip(需加 `zip` crate 依赖)。
+- [ ] **P1.4 后端**:`book_import` 命令, 解压 zip 到 out_dir 下新建书 id, 登记进 books 表。
+  `src-tauri/src/application/transfer_service.rs` 现在只做 `.aidu-data`(词典/生词)的导入
+  导出, 不覆盖书包这个更大的资产类型, 是独立的新命令不是复用它。
+- [ ] **P1.5 前端**:书库/成品卡"导出"按钮 + 工具条"导入书包"入口。
+
+来源:用户在审计 S0.4 阶段的明确反馈 + 2026-08-07 后续实现中的架构发现。
 
 ---
 

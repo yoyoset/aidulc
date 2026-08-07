@@ -19,7 +19,13 @@ pub struct VocabRepo<'a> {
 
 /// SRS 字段 (content upsert 时保留旧值)
 const SRS_FIELDS: [&str; 7] = [
-    "stage", "interval", "easeFactor", "nextReview", "reviews", "lastReview", "lastGrade",
+    "stage",
+    "interval",
+    "easeFactor",
+    "nextReview",
+    "reviews",
+    "lastReview",
+    "lastGrade",
 ];
 
 impl<'a> VocabRepo<'a> {
@@ -32,7 +38,11 @@ impl<'a> VocabRepo<'a> {
     }
 
     /// content upsert: 保留旧 SRS (M1 语义, 与 aidu vocabService.updateEntry 对齐)
-    pub fn upsert_content(&self, e: VocabEntry, profile_id: &str) -> Result<Option<VocabEntry>, String> {
+    pub fn upsert_content(
+        &self,
+        e: VocabEntry,
+        profile_id: &str,
+    ) -> Result<Option<VocabEntry>, String> {
         let Some(norm) = normalize_vocab_entry(e) else {
             return Err("条目缺 word 和 lemma".into());
         };
@@ -42,7 +52,9 @@ impl<'a> VocabRepo<'a> {
 
         // 读旧 payload (保留 SRS)
         let old_payload: Option<String> = conn
-            .query_row("SELECT payload FROM vocab WHERE key = ?1", [&key], |r| r.get(0))
+            .query_row("SELECT payload FROM vocab WHERE key = ?1", [&key], |r| {
+                r.get(0)
+            })
             .ok();
         let mut payload = serde_json::to_value(&norm).unwrap_or(serde_json::Value::Null);
         if let Some(old) = old_payload {
@@ -102,7 +114,11 @@ impl<'a> VocabRepo<'a> {
     }
 
     /// sync import: 允许远端较新记录覆盖本地 (M1)
-    pub fn upsert_sync(&self, e: VocabEntry, profile_id: &str) -> Result<Option<VocabEntry>, String> {
+    pub fn upsert_sync(
+        &self,
+        e: VocabEntry,
+        profile_id: &str,
+    ) -> Result<Option<VocabEntry>, String> {
         let Some(norm) = normalize_vocab_entry(e) else {
             return Err("条目缺 word 和 lemma".into());
         };
@@ -143,7 +159,9 @@ impl<'a> VocabRepo<'a> {
         let key = Self::full_key(profile_id, lemma);
         let conn = self.db.conn.lock().unwrap();
         let payload: Option<String> = conn
-            .query_row("SELECT payload FROM vocab WHERE key = ?1", [&key], |r| r.get(0))
+            .query_row("SELECT payload FROM vocab WHERE key = ?1", [&key], |r| {
+                r.get(0)
+            })
             .ok();
         drop(conn);
         payload.and_then(|p| serde_json::from_str::<VocabEntry>(&p).ok())

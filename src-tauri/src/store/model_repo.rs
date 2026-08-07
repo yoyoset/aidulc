@@ -7,20 +7,20 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ModelEntry {
-    pub id: String,           // "llm|en|qwen3-4b|2507-q4_k_m"
-    pub family: String,       // llm | tts | nlp
-    pub language: String,     // en | zh | ja | *
+    pub id: String,       // "llm|en|qwen3-4b|2507-q4_k_m"
+    pub family: String,   // llm | tts | nlp
+    pub language: String, // en | zh | ja | *
     pub model_id: String,
     pub version: String,
-    pub variant: String,      // cuda12.4 | cpu
+    pub variant: String, // cuda12.4 | cpu
     pub path: String,
-    pub source_type: String,  // hf | github | spacy | local
+    pub source_type: String, // hf | github | spacy | local
     pub source_ref: String,
     pub commit_sha: String,
     pub sha256: String,
     pub size_bytes: i64,
     pub installed_at: i64,
-    pub active: bool,         // 推荐标记 (每 family+language 可多个 active, 书级自由选)
+    pub active: bool, // 推荐标记 (每 family+language 可多个 active, 书级自由选)
     pub custom: bool,
 }
 
@@ -49,9 +49,21 @@ impl<'a> ModelRepo<'a> {
                 size_bytes = excluded.size_bytes, active = excluded.active,
                 custom = excluded.custom",
             params![
-                m.id, m.family, m.language, m.model_id, m.version, m.variant,
-                m.path, m.source_type, m.source_ref, m.commit_sha, m.sha256,
-                m.size_bytes, m.installed_at, if m.active { 1 } else { 0 }, if m.custom { 1 } else { 0 }
+                m.id,
+                m.family,
+                m.language,
+                m.model_id,
+                m.version,
+                m.variant,
+                m.path,
+                m.source_type,
+                m.source_ref,
+                m.commit_sha,
+                m.sha256,
+                m.size_bytes,
+                m.installed_at,
+                if m.active { 1 } else { 0 },
+                if m.custom { 1 } else { 0 }
             ],
         )
         .map_err(|e| format!("写模型注册表失败: {e}"))?;
@@ -95,11 +107,13 @@ impl<'a> ModelRepo<'a> {
     pub fn list_by(&self, family: &str, language: &str) -> Vec<ModelEntry> {
         let conn = self.db.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, family, language, model_id, version, variant,
+            .prepare(
+                "SELECT id, family, language, model_id, version, variant,
                              path, source_type, source_ref, commit_sha, sha256,
                              size_bytes, installed_at, active, custom
                       FROM model_registry WHERE family = ?1 AND (language = ?2 OR language = '*')
-                      ORDER BY installed_at DESC")
+                      ORDER BY installed_at DESC",
+            )
             .unwrap();
         stmt.query_map(params![family, language], Self::row_to_entry)
             .unwrap()
@@ -110,10 +124,12 @@ impl<'a> ModelRepo<'a> {
     pub fn list_all(&self) -> Vec<ModelEntry> {
         let conn = self.db.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, family, language, model_id, version, variant,
+            .prepare(
+                "SELECT id, family, language, model_id, version, variant,
                              path, source_type, source_ref, commit_sha, sha256,
                              size_bytes, installed_at, active, custom
-                      FROM model_registry ORDER BY family, language, installed_at DESC")
+                      FROM model_registry ORDER BY family, language, installed_at DESC",
+            )
             .unwrap();
         stmt.query_map([], Self::row_to_entry)
             .unwrap()
@@ -163,8 +179,10 @@ mod tests {
     fn upsert_get_list() {
         let db = temp_db();
         let repo = ModelRepo::new(&db);
-        repo.upsert(&entry("llm|en|qwen", "llm", "en", "qwen.gguf")).unwrap();
-        repo.upsert(&entry("tts|en|kokoro", "tts", "en", "kokoro.pth")).unwrap();
+        repo.upsert(&entry("llm|en|qwen", "llm", "en", "qwen.gguf"))
+            .unwrap();
+        repo.upsert(&entry("tts|en|kokoro", "tts", "en", "kokoro.pth"))
+            .unwrap();
         assert_eq!(repo.list_all().len(), 2);
         assert_eq!(repo.list_by("llm", "en").len(), 1);
         assert_eq!(repo.get("llm|en|qwen").unwrap().model_id, "qwen.gguf");
@@ -174,7 +192,8 @@ mod tests {
     fn wildcard_language_matches_all() {
         let db = temp_db();
         let repo = ModelRepo::new(&db);
-        repo.upsert(&entry("llm|*|base", "llm", "*", "base.gguf")).unwrap();
+        repo.upsert(&entry("llm|*|base", "llm", "*", "base.gguf"))
+            .unwrap();
         assert_eq!(repo.list_by("llm", "en").len(), 1, "* 语言应匹配 en");
         assert_eq!(repo.list_by("llm", "ja").len(), 1);
     }
@@ -183,7 +202,8 @@ mod tests {
     fn remove() {
         let db = temp_db();
         let repo = ModelRepo::new(&db);
-        repo.upsert(&entry("llm|en|qwen", "llm", "en", "qwen.gguf")).unwrap();
+        repo.upsert(&entry("llm|en|qwen", "llm", "en", "qwen.gguf"))
+            .unwrap();
         repo.remove("llm|en|qwen").unwrap();
         assert!(repo.get("llm|en|qwen").is_none());
     }

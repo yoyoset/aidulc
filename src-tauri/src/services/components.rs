@@ -10,10 +10,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComponentStatus {
-    pub id: String,          // prep | ffmpeg | llm | tts | spacy
+    pub id: String, // prep | ffmpeg | llm | tts | spacy
     pub name: String,
-    pub present: bool,       // 文件/目录存在
-    pub healthy: bool,       // 通过基本校验
+    pub present: bool, // 文件/目录存在
+    pub healthy: bool, // 通过基本校验
     pub detail: String,
     pub size_bytes: i64,
 }
@@ -85,19 +85,38 @@ pub fn check_dir(path: &str, id: &str, name: &str, required_file: &str) -> Compo
 
 /// 全组件健康检查 (首次运行向导用)
 /// M 系列: llm/tts 路径由调用方从 model_registry 解析后传入 (不再读 PrepConfig)
-pub fn health_check(cfg: &crate::PrepConfig, lib_dir: &str, hf_home: &str, llm_path: &str, tts_path: &str) -> Vec<ComponentStatus> {
+pub fn health_check(
+    cfg: &crate::PrepConfig,
+    lib_dir: &str,
+    hf_home: &str,
+    llm_path: &str,
+    tts_path: &str,
+) -> Vec<ComponentStatus> {
     let mut out = Vec::new();
     out.push(check_file(
         &cfg.prep_path.to_string_lossy(),
-        "prep", "prep 侧车", 1_000_000,
+        "prep",
+        "prep 侧车",
+        1_000_000,
     ));
     if !cfg.ffmpeg.as_os_str().is_empty() {
-        out.push(check_file(&cfg.ffmpeg.to_string_lossy(), "ffmpeg", "ffmpeg", 1_000_000));
+        out.push(check_file(
+            &cfg.ffmpeg.to_string_lossy(),
+            "ffmpeg",
+            "ffmpeg",
+            1_000_000,
+        ));
     }
     out.push(check_file(llm_path, "llm", "LLM 模型", 500_000_000));
     out.push(check_dir(
-        std::path::Path::new(tts_path).parent().unwrap_or(std::path::Path::new("")).to_string_lossy().as_ref(),
-        "tts", "TTS 模型", "kokoro-v1_0.pth",
+        std::path::Path::new(tts_path)
+            .parent()
+            .unwrap_or(std::path::Path::new(""))
+            .to_string_lossy()
+            .as_ref(),
+        "tts",
+        "TTS 模型",
+        "kokoro-v1_0.pth",
     ));
     let _ = lib_dir;
     let _ = hf_home;

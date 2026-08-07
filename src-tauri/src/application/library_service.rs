@@ -10,10 +10,22 @@ use crate::store::books_repo::Book;
 /// 解析失败返回 None (调用方按"无书包"处理)。
 pub fn parse_bookpack_meta(text: &str) -> Option<(String, i64, i64)> {
     let v: serde_json::Value = serde_json::from_str(text).ok()?;
-    let title = v.get("title").and_then(|t| t.as_str()).unwrap_or("Untitled").to_string();
-    let chapters = v.get("chapters").and_then(|c| c.as_array()).map(|a| a.len() as i64).unwrap_or(0);
-    let failed = v.get("quality").and_then(|q| q.get("failedSentences"))
-        .and_then(|f| f.as_array()).map(|a| a.len() as i64).unwrap_or(0);
+    let title = v
+        .get("title")
+        .and_then(|t| t.as_str())
+        .unwrap_or("Untitled")
+        .to_string();
+    let chapters = v
+        .get("chapters")
+        .and_then(|c| c.as_array())
+        .map(|a| a.len() as i64)
+        .unwrap_or(0);
+    let failed = v
+        .get("quality")
+        .and_then(|q| q.get("failedSentences"))
+        .and_then(|f| f.as_array())
+        .map(|a| a.len() as i64)
+        .unwrap_or(0);
     Some((title, chapters, failed))
 }
 
@@ -43,7 +55,11 @@ pub fn register_book(
         source_path,
         pack_dir: pack_dir.to_string(),
         profile_id: profile_id.clone(),
-        status: if failed > 0 { "partial".into() } else { "ready".into() },
+        status: if failed > 0 {
+            "partial".into()
+        } else {
+            "ready".into()
+        },
         // v7 架构分离: 完成登记的是一条 AI 成品 (product), 独立于原版书
         kind: "product".into(),
         // v8: 关联原书 + 模型快照 (资产键)
@@ -100,7 +116,8 @@ mod tests {
 
     #[test]
     fn parse_meta_missing_quality_ok() {
-        let (title, chapters, failed) = parse_bookpack_meta(r#"{"title": "X", "chapters": []}"#).unwrap();
+        let (title, chapters, failed) =
+            parse_bookpack_meta(r#"{"title": "X", "chapters": []}"#).unwrap();
         assert_eq!(title, "X");
         assert_eq!(chapters, 0);
         assert_eq!(failed, 0);

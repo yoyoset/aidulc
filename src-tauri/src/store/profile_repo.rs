@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct Profile {
     pub id: String,
     pub name: String,
-    pub explain_strategy: String,   // none | brief | deep
+    pub explain_strategy: String, // none | brief | deep
     pub voice: String,
     pub speed: f64,
     pub highlight_granularity: String, // word | sentence
@@ -45,7 +45,14 @@ impl<'a> ProfileRepo<'a> {
                 name = excluded.name, explain_strategy = excluded.explain_strategy,
                 voice = excluded.voice, speed = excluded.speed,
                 highlight_granularity = excluded.highlight_granularity",
-            params![p.id, p.name, p.explain_strategy, p.voice, p.speed, p.highlight_granularity],
+            params![
+                p.id,
+                p.name,
+                p.explain_strategy,
+                p.voice,
+                p.speed,
+                p.highlight_granularity
+            ],
         )
         .map_err(|e| format!("写 profile 失败: {e}"))?;
         Ok(())
@@ -119,8 +126,24 @@ mod tests {
     fn update_overwrites() {
         let db = temp_db();
         let repo = ProfileRepo::new(&db);
-        repo.upsert(&Profile { id: "self".into(), name: "旧".into(), explain_strategy: "brief".into(), voice: "v".into(), speed: 1.0, highlight_granularity: "sentence".into() }).unwrap();
-        repo.upsert(&Profile { id: "self".into(), name: "新".into(), explain_strategy: "deep".into(), voice: "v".into(), speed: 0.8, highlight_granularity: "word".into() }).unwrap();
+        repo.upsert(&Profile {
+            id: "self".into(),
+            name: "旧".into(),
+            explain_strategy: "brief".into(),
+            voice: "v".into(),
+            speed: 1.0,
+            highlight_granularity: "sentence".into(),
+        })
+        .unwrap();
+        repo.upsert(&Profile {
+            id: "self".into(),
+            name: "新".into(),
+            explain_strategy: "deep".into(),
+            voice: "v".into(),
+            speed: 0.8,
+            highlight_granularity: "word".into(),
+        })
+        .unwrap();
         assert_eq!(repo.get("self").unwrap().name, "新");
         assert_eq!(repo.get("self").unwrap().explain_strategy, "deep");
     }

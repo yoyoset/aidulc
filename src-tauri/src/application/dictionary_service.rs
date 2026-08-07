@@ -3,7 +3,7 @@
 //! 职责: 本地词典优先 → 未命中调 LLM 补全并沉淀 → 不自动进生词本。
 //! 依赖注入: lookup_llm 是可注入的补全函数 (测试用 fake)。
 
-use crate::store::{Db, dict_repo::DictRepo, vocab_repo::VocabRepo};
+use crate::store::{dict_repo::DictRepo, vocab_repo::VocabRepo, Db};
 
 /// 查词响应 DTO (契约: 前端面板渲染依据)
 #[derive(Debug, Clone, serde::Serialize)]
@@ -20,13 +20,27 @@ pub struct WordLookup {
     pub usage: String,
     #[serde(default)]
     pub phrases: Vec<String>,
-    pub source: String,     // local | llm
+    pub source: String, // local | llm
     pub confidence: f64,
     pub in_vocab: bool,
 }
 
 /// LLM 补全签名: (word, context) -> (pos, phonetic, meanings, examples, example_zh, usage, phrases)
-pub type LookupFn = dyn Fn(&str, &str) -> Result<(String, String, Vec<String>, Vec<String>, Vec<String>, String, Vec<String>), String>;
+pub type LookupFn = dyn Fn(
+    &str,
+    &str,
+) -> Result<
+    (
+        String,
+        String,
+        Vec<String>,
+        Vec<String>,
+        Vec<String>,
+        String,
+        Vec<String>,
+    ),
+    String,
+>;
 
 /// 查词: 本地优先; 未命中调 llm; 结果写入词典 (沉淀); 永不自动进生词本
 pub fn lookup(
@@ -47,9 +61,15 @@ pub fn lookup(
         let meanings = payload
             .get("meanings")
             .and_then(|m| m.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_else(|| {
-                payload.get("meaning").and_then(|m| m.as_str())
+                payload
+                    .get("meaning")
+                    .and_then(|m| m.as_str())
                     .map(|m| vec![m.to_string()])
                     .unwrap_or_default()
             });
@@ -57,27 +77,61 @@ pub fn lookup(
         let in_vocab = vocab_repo.get(profile_id, &key).is_some();
         return Ok(WordLookup {
             word: key.clone(),
-            pos: payload.get("pos").and_then(|p| p.as_str()).unwrap_or("").to_string(),
-            phonetic: payload.get("phonetic").and_then(|p| p.as_str()).unwrap_or("").to_string(),
+            pos: payload
+                .get("pos")
+                .and_then(|p| p.as_str())
+                .unwrap_or("")
+                .to_string(),
+            phonetic: payload
+                .get("phonetic")
+                .and_then(|p| p.as_str())
+                .unwrap_or("")
+                .to_string(),
             meanings,
-            examples: payload.get("examples").and_then(|e| e.as_array())
-                .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+            examples: payload
+                .get("examples")
+                .and_then(|e| e.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default(),
-            example_zh: payload.get("example_zh").and_then(|e| e.as_array())
-                .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+            example_zh: payload
+                .get("example_zh")
+                .and_then(|e| e.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default(),
-            usage: payload.get("usage").and_then(|u| u.as_str()).unwrap_or("").to_string(),
-            phrases: payload.get("phrases").and_then(|p| p.as_array())
-                .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+            usage: payload
+                .get("usage")
+                .and_then(|u| u.as_str())
+                .unwrap_or("")
+                .to_string(),
+            phrases: payload
+                .get("phrases")
+                .and_then(|p| p.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default(),
             source: "local".into(),
-            confidence: payload.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.8),
+            confidence: payload
+                .get("confidence")
+                .and_then(|c| c.as_f64())
+                .unwrap_or(0.8),
             in_vocab,
         });
     }
 
     // 2. LLM 补全 + 沉淀词典 (不自动进生词本)
-    let (pos, phonetic, meanings, examples, example_zh, usage, phrases) = lookup_llm(&key, context)?;
+    let (pos, phonetic, meanings, examples, example_zh, usage, phrases) =
+        lookup_llm(&key, context)?;
     let payload = serde_json::json!({
         "word": key, "lemma": key, "pos": pos, "phonetic": phonetic,
         "meanings": meanings, "examples": examples,
@@ -104,29 +158,43 @@ pub fn lookup(
 }
 
 /// 加入生词本 (显式用户动作)
-pub fn add_to_vocab(
-    db: &Db,
-    profile_id: &str,
-    word: &str,
-) -> Result<serde_json::Value, String> {
+pub fn add_to_vocab(db: &Db, profile_id: &str, word: &str) -> Result<serde_json::Value, String> {
     let repo = DictRepo::new(db);
     let key = word.trim().to_lowercase();
-    let payload = repo.get(&key, profile_id).unwrap_or_else(|| {
-        serde_json::json!({"word": key, "lemma": key})
-    });
+    let payload = repo
+        .get(&key, profile_id)
+        .unwrap_or_else(|| serde_json::json!({"word": key, "lemma": key}));
     let entry = crate::domain::vocab::VocabEntry {
-        word: payload.get("word").and_then(|w| w.as_str()).unwrap_or(&key).to_string(),
+        word: payload
+            .get("word")
+            .and_then(|w| w.as_str())
+            .unwrap_or(&key)
+            .to_string(),
         lemma: key.clone(),
-        pos: payload.get("pos").and_then(|p| p.as_str()).unwrap_or("").to_string(),
-        meaning: payload.get("meaning").and_then(|m| m.as_str())
+        pos: payload
+            .get("pos")
+            .and_then(|p| p.as_str())
+            .unwrap_or("")
+            .to_string(),
+        meaning: payload
+            .get("meaning")
+            .and_then(|m| m.as_str())
             .map(String::from)
             .or_else(|| {
-                payload.get("meanings").and_then(|m| m.as_array())
-                    .map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join("; "))
+                payload.get("meanings").and_then(|m| m.as_array()).map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
             })
             .unwrap_or_default(),
         sense_id: None,
-        phonetic: payload.get("phonetic").and_then(|p| p.as_str()).unwrap_or("").to_string(),
+        phonetic: payload
+            .get("phonetic")
+            .and_then(|p| p.as_str())
+            .unwrap_or("")
+            .to_string(),
         context: String::new(),
         level: String::new(),
         collocations: vec![],
@@ -156,15 +224,42 @@ mod tests {
         Db::open(path.to_str().unwrap()).unwrap()
     }
 
-    fn fake_llm(word: &str, _ctx: &str) -> Result<(String, String, Vec<String>, Vec<String>, Vec<String>, String, Vec<String>), String> {
-        Ok(("NOUN".into(), "/fake/".into(), vec![format!("{word} 的释义")], vec!["example".into()], vec!["例句翻译".into()], "用法说明".into(), vec!["固定搭配".into()]))
+    fn fake_llm(
+        word: &str,
+        _ctx: &str,
+    ) -> Result<
+        (
+            String,
+            String,
+            Vec<String>,
+            Vec<String>,
+            Vec<String>,
+            String,
+            Vec<String>,
+        ),
+        String,
+    > {
+        Ok((
+            "NOUN".into(),
+            "/fake/".into(),
+            vec![format!("{word} 的释义")],
+            vec!["example".into()],
+            vec!["例句翻译".into()],
+            "用法说明".into(),
+            vec!["固定搭配".into()],
+        ))
     }
 
     #[test]
     fn local_hit_returns_local_source() {
         let db = temp_db();
         let repo = DictRepo::new(&db);
-        repo.upsert("bank", &serde_json::json!({"word": "bank", "pos": "NOUN", "meanings": ["银行"]}), "default").unwrap();
+        repo.upsert(
+            "bank",
+            &serde_json::json!({"word": "bank", "pos": "NOUN", "meanings": ["银行"]}),
+            "default",
+        )
+        .unwrap();
         let r = lookup(&db, "default", "Bank", "ctx", &fake_llm).unwrap();
         assert_eq!(r.source, "local");
         assert_eq!(r.meanings, vec!["银行"]);
@@ -187,7 +282,10 @@ mod tests {
         let db = temp_db();
         lookup(&db, "default", "zebra", "ctx", &fake_llm).unwrap();
         let vocab = VocabRepo::new(&db);
-        assert!(vocab.get("default", "zebra").is_none(), "LLM 补全不得自动进生词本");
+        assert!(
+            vocab.get("default", "zebra").is_none(),
+            "LLM 补全不得自动进生词本"
+        );
     }
 
     #[test]
@@ -197,7 +295,10 @@ mod tests {
         assert!(!r.in_vocab);
         add_to_vocab(&db, "default", "zebra").unwrap();
         let vocab = VocabRepo::new(&db);
-        assert!(vocab.get("default", "zebra").is_some(), "显式加入后才进生词本");
+        assert!(
+            vocab.get("default", "zebra").is_some(),
+            "显式加入后才进生词本"
+        );
     }
 
     #[test]

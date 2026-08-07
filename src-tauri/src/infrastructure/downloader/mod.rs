@@ -11,16 +11,28 @@ use std::path::{Path, PathBuf};
 
 /// 下载文件: 断点续传 + 可选 sha256 校验 + 原子改名
 /// 返回最终路径; Err = 失败 (保留 .part 供续传)
-pub fn download(url: &str, dest: PathBuf, expected_sha256: Option<&str>, timeout_secs: u64) -> Result<PathBuf, String> {
+pub fn download(
+    url: &str,
+    dest: PathBuf,
+    expected_sha256: Option<&str>,
+    timeout_secs: u64,
+) -> Result<PathBuf, String> {
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("建目录失败: {e}"))?;
     }
-    let part_path = dest.with_extension(format!("{}.part", dest.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default()));
+    let part_path = dest.with_extension(format!(
+        "{}.part",
+        dest.extension()
+            .map(|e| e.to_string_lossy().to_string())
+            .unwrap_or_default()
+    ));
 
     // 已存在且校验通过 → 直接返回
     if dest.exists() {
         if let Some(sha) = expected_sha256 {
-            if let Ok(h) = crate::infrastructure::model_store::scan::sha256_hex(&dest.to_string_lossy()) {
+            if let Ok(h) =
+                crate::infrastructure::model_store::scan::sha256_hex(&dest.to_string_lossy())
+            {
                 if h == sha {
                     return Ok(dest);
                 }
@@ -48,7 +60,10 @@ pub fn download(url: &str, dest: PathBuf, expected_sha256: Option<&str>, timeout
             .send()
             .map_err(|e| format!("下载请求失败: {e}"))?
     } else {
-        client.get(url).send().map_err(|e| format!("下载请求失败: {e}"))?
+        client
+            .get(url)
+            .send()
+            .map_err(|e| format!("下载请求失败: {e}"))?
     };
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
@@ -59,7 +74,8 @@ pub fn download(url: &str, dest: PathBuf, expected_sha256: Option<&str>, timeout
         .append(true)
         .open(&part_path)
         .map_err(|e| format!("打开 .part 失败: {e}"))?;
-    resp.copy_to(&mut file).map_err(|e| format!("写入失败: {e}"))?;
+    resp.copy_to(&mut file)
+        .map_err(|e| format!("写入失败: {e}"))?;
     file.flush().ok();
     drop(file);
 
@@ -80,7 +96,9 @@ pub fn download(url: &str, dest: PathBuf, expected_sha256: Option<&str>, timeout
 /// 从 GitHub Release 解析资产下载 URL
 pub fn github_release_asset_url(repo: &str, tag: &str, asset: &str) -> Result<String, String> {
     // 直接构造已知 release 资产 URL (GitHub 官方 redirect, 无需 API token 也能下公开资产)
-    Ok(format!("https://github.com/{repo}/releases/download/{tag}/{asset}"))
+    Ok(format!(
+        "https://github.com/{repo}/releases/download/{tag}/{asset}"
+    ))
 }
 
 /// HF resolve URL 构造
@@ -101,7 +119,10 @@ pub fn disk_free_bytes(path: &str) -> u64 {
             lpTotalNumberOfFreeBytes: *mut u64,
         ) -> i32;
     }
-    let wide: Vec<u16> = std::ffi::OsStr::new(path).encode_wide().chain(std::iter::once(0)).collect();
+    let wide: Vec<u16> = std::ffi::OsStr::new(path)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
     let mut free: u64 = 0;
     let mut total: u64 = 0;
     let mut free_total: u64 = 0;

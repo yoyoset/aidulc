@@ -1,7 +1,7 @@
 //! commands/misc.rs —— 杂项命令 (M 系列: 从 main.rs 移出, main 只做组装)
 //! runtime_config / components_health / boot_ping / log_*
 
-use crate::{PrepConfig, LibraryState};
+use crate::{LibraryState, PrepConfig};
 use tauri::State;
 
 /// 运行时配置 (模型/工具路径) — 前端 ImportService 组装 job 参数用
@@ -41,7 +41,11 @@ pub fn components_health(
 #[tauri::command]
 pub fn boot_ping(message: String) -> String {
     let path = std::env::temp_dir().join("aidulc_boot_ping.txt");
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
         use std::io::Write;
         let _ = writeln!(f, "boot_ping: {}", message);
     }

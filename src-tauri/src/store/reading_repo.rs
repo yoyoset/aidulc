@@ -78,7 +78,12 @@ mod tests {
     fn upsert_get_roundtrip() {
         let db = temp_db();
         let repo = ReadingRepo::new(&db);
-        let s = ReadingState { book_key: "alice_self".into(), chapter: 0, position_ms: 12345, bookmarks: vec![3, 7] };
+        let s = ReadingState {
+            book_key: "alice_self".into(),
+            chapter: 0,
+            position_ms: 12345,
+            bookmarks: vec![3, 7],
+        };
         repo.upsert(&s).unwrap();
         assert_eq!(repo.get("alice_self").unwrap(), s);
     }
@@ -87,8 +92,20 @@ mod tests {
     fn update_position() {
         let db = temp_db();
         let repo = ReadingRepo::new(&db);
-        repo.upsert(&ReadingState { book_key: "k".into(), chapter: 0, position_ms: 100, bookmarks: vec![] }).unwrap();
-        repo.upsert(&ReadingState { book_key: "k".into(), chapter: 1, position_ms: 500, bookmarks: vec![1] }).unwrap();
+        repo.upsert(&ReadingState {
+            book_key: "k".into(),
+            chapter: 0,
+            position_ms: 100,
+            bookmarks: vec![],
+        })
+        .unwrap();
+        repo.upsert(&ReadingState {
+            book_key: "k".into(),
+            chapter: 1,
+            position_ms: 500,
+            bookmarks: vec![1],
+        })
+        .unwrap();
         let got = repo.get("k").unwrap();
         assert_eq!(got.chapter, 1);
         assert_eq!(got.position_ms, 500);

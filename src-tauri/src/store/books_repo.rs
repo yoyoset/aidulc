@@ -121,7 +121,10 @@ impl<'a> BooksRepo<'a> {
     pub fn list(&self) -> Vec<Book> {
         let conn = self.db.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare(&format!("SELECT {} FROM books ORDER BY updated_at DESC", Book::COLS))
+            .prepare(&format!(
+                "SELECT {} FROM books ORDER BY updated_at DESC",
+                Book::COLS
+            ))
             .unwrap();
         stmt.query_map([], Book::row_to_book)
             .unwrap()
@@ -133,7 +136,10 @@ impl<'a> BooksRepo<'a> {
     pub fn list_by_kind(&self, kind: &str) -> Vec<Book> {
         let conn = self.db.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare(&format!("SELECT {} FROM books WHERE kind = ?1 ORDER BY updated_at DESC", Book::COLS))
+            .prepare(&format!(
+                "SELECT {} FROM books WHERE kind = ?1 ORDER BY updated_at DESC",
+                Book::COLS
+            ))
             .unwrap();
         stmt.query_map([kind], Book::row_to_book)
             .unwrap()

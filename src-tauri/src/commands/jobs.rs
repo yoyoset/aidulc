@@ -36,7 +36,11 @@ pub fn start_prep_job(
     let job_id = format!("job-{}", uuid_short());
     let job_dir = cfg.out_dir.join("jobs").join(&job_id);
     std::fs::create_dir_all(&job_dir).map_err(|e| format!("建任务目录失败: {e}"))?;
-    let profile_id = profile.get("id").and_then(|i| i.as_str()).unwrap_or("default").to_string();
+    let profile_id = profile
+        .get("id")
+        .and_then(|i| i.as_str())
+        .unwrap_or("default")
+        .to_string();
 
     let repo = store::jobs_repo::JobsRepo::new(db.inner());
     let job = store::jobs_repo::Job {
@@ -57,9 +61,11 @@ pub fn start_prep_job(
         created_at: now_ms(),
         updated_at: now_ms(),
     };
-    repo.upsert(&job).map_err(|e| format!("写任务表失败: {e}"))?;
+    repo.upsert(&job)
+        .map_err(|e| format!("写任务表失败: {e}"))?;
 
-    let mut job_req = jobs::spawn::build_job_request(&book_path, &job_dir.to_string_lossy(), &profile, &models);
+    let mut job_req =
+        jobs::spawn::build_job_request(&book_path, &job_dir.to_string_lossy(), &profile, &models);
     if let Some(bid) = &batch_id {
         job_req["batch_id"] = serde_json::json!(bid);
     }
@@ -98,7 +104,11 @@ pub fn batch_import(
         return Err("至少需要一本书".into());
     }
     let batch_id = format!("batch-{}", uuid_short());
-    let profile_id = profile.get("id").and_then(|i| i.as_str()).unwrap_or("default").to_string();
+    let profile_id = profile
+        .get("id")
+        .and_then(|i| i.as_str())
+        .unwrap_or("default")
+        .to_string();
     let lang = source_language.clone().unwrap_or_else(|| "en".into());
     let tgt = target_language.clone().unwrap_or_else(|| "zh-CN".into());
     let repo = store::batches_repo::BatchesRepo::new(db.inner());
@@ -114,7 +124,8 @@ pub fn batch_import(
         created_at: now_ms(),
         updated_at: now_ms(),
     };
-    repo.upsert(&batch).map_err(|e| format!("写批次失败: {e}"))?;
+    repo.upsert(&batch)
+        .map_err(|e| format!("写批次失败: {e}"))?;
 
     // 登记每本书 (pending): 书库立刻可见, 可配语言/模型
     let books_repo = store::books_repo::BooksRepo::new(db.inner());
@@ -123,7 +134,10 @@ pub fn batch_import(
         if books_repo.get(&book_id).is_none() {
             let book = store::books_repo::Book {
                 id: book_id.clone(),
-                title: std::path::Path::new(path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Untitled".into()),
+                title: std::path::Path::new(path)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Untitled".into()),
                 source_path: path.clone(),
                 pack_dir: String::new(), // 处理开始后才建任务目录
                 profile_id: profile_id.clone(),
@@ -182,7 +196,10 @@ pub fn batch_start_prep(
     }
     // R2/S3: 前置检查 (含 ffmpeg)
     let (ok_ids, skipped) = crate::application::model_service::preflight_batch(
-        db.inner(), &books, &cfg.inner().prep_path, &cfg.inner().ffmpeg,
+        db.inner(),
+        &books,
+        &cfg.inner().prep_path,
+        &cfg.inner().ffmpeg,
     );
     // 通过的书 → 建 job + job_request → 入队
     let profile_obj = match &profile {
@@ -197,15 +214,23 @@ pub fn batch_start_prep(
         std::fs::create_dir_all(&job_dir).map_err(|e| format!("建任务目录失败: {e}"))?;
         // 书级模型
         let (b_llm, b_tts, b_nlp) = crate::application::model_service::resolve_for_book(
-            db.inner(), book_id, &book.source_language,
+            db.inner(),
+            book_id,
+            &book.source_language,
         );
         let mut book_models = match &models {
             serde_json::Value::Array(_) | serde_json::Value::Null => serde_json::json!({}),
             v => v.clone(),
         };
-        if !b_llm.is_empty() { book_models["llm"] = serde_json::json!(b_llm); }
-        if !b_tts.is_empty() { book_models["tts"] = serde_json::json!(b_tts); }
-        if !b_nlp.is_empty() { book_models["spacy"] = serde_json::json!(b_nlp); }
+        if !b_llm.is_empty() {
+            book_models["llm"] = serde_json::json!(b_llm);
+        }
+        if !b_tts.is_empty() {
+            book_models["tts"] = serde_json::json!(b_tts);
+        }
+        if !b_nlp.is_empty() {
+            book_models["spacy"] = serde_json::json!(b_nlp);
+        }
         let job = store::jobs_repo::Job {
             id: job_id.clone(),
             book_path: book.source_path.clone(),
@@ -220,13 +245,19 @@ pub fn batch_start_prep(
             source_language: book.source_language.clone(),
             target_language: book.target_language.clone(),
             error: None,
-        progress: 0.0,
+            progress: 0.0,
             created_at: now_ms(),
             updated_at: now_ms(),
         };
         let jobs = store::jobs_repo::JobsRepo::new(db.inner());
-        jobs.upsert(&job).map_err(|e| format!("写任务表失败: {e}"))?;
-        let mut job_req = jobs::spawn::build_job_request(&book.source_path, &job_dir.to_string_lossy(), &profile_obj, &book_models);
+        jobs.upsert(&job)
+            .map_err(|e| format!("写任务表失败: {e}"))?;
+        let mut job_req = jobs::spawn::build_job_request(
+            &book.source_path,
+            &job_dir.to_string_lossy(),
+            &profile_obj,
+            &book_models,
+        );
         job_req["batch_id"] = serde_json::json!(batch_id);
         job_req["source_language"] = serde_json::json!(book.source_language);
         job_req["target_language"] = serde_json::json!(book.target_language);
@@ -276,11 +307,22 @@ pub fn batch_start(
         serde_json::Value::Array(_) | serde_json::Value::Null => serde_json::json!({}),
         v => v.clone(),
     };
-    let (reg_llm, reg_tts, reg_nlp) = crate::application::model_service::resolve_paths(db.inner(), &lang);
-    if models_obj.get("llm").and_then(|v| v.as_str()).map(|s| s.is_empty()).unwrap_or(true) {
+    let (reg_llm, reg_tts, reg_nlp) =
+        crate::application::model_service::resolve_paths(db.inner(), &lang);
+    if models_obj
+        .get("llm")
+        .and_then(|v| v.as_str())
+        .map(|s| s.is_empty())
+        .unwrap_or(true)
+    {
         models_obj["llm"] = serde_json::json!(reg_llm);
     }
-    if models_obj.get("tts").and_then(|v| v.as_str()).map(|s| s.is_empty()).unwrap_or(true) {
+    if models_obj
+        .get("tts")
+        .and_then(|v| v.as_str())
+        .map(|s| s.is_empty())
+        .unwrap_or(true)
+    {
         models_obj["tts"] = serde_json::json!(reg_tts);
     }
     if models_obj.get("spacy").is_none() && !reg_nlp.is_empty() {
@@ -288,28 +330,50 @@ pub fn batch_start(
     }
     let missing: Vec<&str> = ["llm", "tts"]
         .iter()
-        .filter(|k| !models_obj.get(**k).and_then(|v| v.as_str()).map(|s| !s.is_empty()).unwrap_or(false))
+        .filter(|k| {
+            !models_obj
+                .get(**k)
+                .and_then(|v| v.as_str())
+                .map(|s| !s.is_empty())
+                .unwrap_or(false)
+        })
         .map(|k| *k)
         .collect();
     if !missing.is_empty() {
-        return Err(format!("缺少模型: {}。请先在模型中心配置并设为推荐。", missing.join(", ")));
+        return Err(format!(
+            "缺少模型: {}。请先在模型中心配置并设为推荐。",
+            missing.join(", ")
+        ));
     }
     // profile 契约校验 (schema 要求 5 字段)
     let profile_obj = match &profile {
         serde_json::Value::String(s) => serde_json::json!({"id": s}),
         v => v.clone(),
     };
-    let required_profile = ["id", "explain_strategy", "voice", "speed", "highlight_granularity"];
+    let required_profile = [
+        "id",
+        "explain_strategy",
+        "voice",
+        "speed",
+        "highlight_granularity",
+    ];
     let missing_p: Vec<&str> = required_profile
         .iter()
         .filter(|k| profile_obj.get(**k).is_none())
         .map(|k| *k)
         .collect();
     if !missing_p.is_empty() {
-        return Err(format!("profile 缺字段: {} (前端 ImportService 应组装完整)", missing_p.join(", ")));
+        return Err(format!(
+            "profile 缺字段: {} (前端 ImportService 应组装完整)",
+            missing_p.join(", ")
+        ));
     }
     let batch_id = format!("batch-{}", uuid_short());
-    let profile_id = profile.get("id").and_then(|i| i.as_str()).unwrap_or("default").to_string();
+    let profile_id = profile
+        .get("id")
+        .and_then(|i| i.as_str())
+        .unwrap_or("default")
+        .to_string();
     let repo = store::batches_repo::BatchesRepo::new(db.inner());
     let batch = store::batches_repo::Batch {
         id: batch_id.clone(),
@@ -323,7 +387,8 @@ pub fn batch_start(
         created_at: now_ms(),
         updated_at: now_ms(),
     };
-    repo.upsert(&batch).map_err(|e| format!("写批次失败: {e}"))?;
+    repo.upsert(&batch)
+        .map_err(|e| format!("写批次失败: {e}"))?;
 
     for path in &book_paths {
         let job_id = format!("job-{}", uuid_short());
@@ -336,7 +401,10 @@ pub fn batch_start(
         if books_repo.get(&book_id).is_none() {
             let book = store::books_repo::Book {
                 id: book_id.clone(),
-                title: std::path::Path::new(path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Untitled".into()),
+                title: std::path::Path::new(path)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Untitled".into()),
                 source_path: path.clone(),
                 pack_dir: job_dir.to_string_lossy().to_string(),
                 profile_id: profile_id.clone(),
@@ -357,11 +425,21 @@ pub fn batch_start(
             let _ = books_repo.upsert(&book);
         }
         // 书级模型: 书有绑定用书级, 否则按书语言全局推荐
-        let (b_llm, b_tts, b_nlp) = crate::application::model_service::resolve_for_book(db.inner(), &book_id, &batch.source_language);
+        let (b_llm, b_tts, b_nlp) = crate::application::model_service::resolve_for_book(
+            db.inner(),
+            &book_id,
+            &batch.source_language,
+        );
         let mut book_models = models_obj.clone();
-        if !b_llm.is_empty() { book_models["llm"] = serde_json::json!(b_llm); }
-        if !b_tts.is_empty() { book_models["tts"] = serde_json::json!(b_tts); }
-        if !b_nlp.is_empty() { book_models["spacy"] = serde_json::json!(b_nlp); }
+        if !b_llm.is_empty() {
+            book_models["llm"] = serde_json::json!(b_llm);
+        }
+        if !b_tts.is_empty() {
+            book_models["tts"] = serde_json::json!(b_tts);
+        }
+        if !b_nlp.is_empty() {
+            book_models["spacy"] = serde_json::json!(b_nlp);
+        }
         let job = store::jobs_repo::Job {
             id: job_id.clone(),
             book_path: path.clone(),
@@ -376,13 +454,19 @@ pub fn batch_start(
             source_language: batch.source_language.clone(),
             target_language: batch.target_language.clone(),
             error: None,
-        progress: 0.0,
+            progress: 0.0,
             created_at: now_ms(),
             updated_at: now_ms(),
         };
         let jobs = store::jobs_repo::JobsRepo::new(db.inner());
-        jobs.upsert(&job).map_err(|e| format!("写任务表失败: {e}"))?;
-        let mut job_req = jobs::spawn::build_job_request(path, &job_dir.to_string_lossy(), &profile, &book_models);
+        jobs.upsert(&job)
+            .map_err(|e| format!("写任务表失败: {e}"))?;
+        let mut job_req = jobs::spawn::build_job_request(
+            path,
+            &job_dir.to_string_lossy(),
+            &profile,
+            &book_models,
+        );
         job_req["batch_id"] = serde_json::json!(batch_id);
         job_req["source_language"] = serde_json::json!(batch.source_language);
         job_req["target_language"] = serde_json::json!(batch.target_language);
@@ -443,12 +527,20 @@ pub fn job_retry_failed(
     // 否则侧车继续用旧 tts/llm 路径 → 失败永远复现
     let orig_book_id = crate::commands::library::book_id_from_path(&job.book_path, &job.profile_id);
     let (b_llm, b_tts, b_nlp) = crate::application::model_service::resolve_for_book(
-        db.inner(), &orig_book_id, &job.source_language,
+        db.inner(),
+        &orig_book_id,
+        &job.source_language,
     );
     let mut book_models = serde_json::json!({});
-    if !b_llm.is_empty() { book_models["llm"] = serde_json::json!(b_llm); }
-    if !b_tts.is_empty() { book_models["tts"] = serde_json::json!(b_tts); }
-    if !b_nlp.is_empty() { book_models["spacy"] = serde_json::json!(b_nlp); }
+    if !b_llm.is_empty() {
+        book_models["llm"] = serde_json::json!(b_llm);
+    }
+    if !b_tts.is_empty() {
+        book_models["tts"] = serde_json::json!(b_tts);
+    }
+    if !b_nlp.is_empty() {
+        book_models["spacy"] = serde_json::json!(b_nlp);
+    }
     let profile_obj = serde_json::json!({
         "id": job.profile_id,
         "explain_strategy": "brief",
@@ -457,7 +549,12 @@ pub fn job_retry_failed(
         "highlight_granularity": "sentence",
     });
     let job_dir = std::path::PathBuf::from(&job.output_dir);
-    let mut job_req = jobs::spawn::build_job_request(&job.book_path, &job_dir.to_string_lossy(), &profile_obj, &book_models);
+    let mut job_req = jobs::spawn::build_job_request(
+        &job.book_path,
+        &job_dir.to_string_lossy(),
+        &profile_obj,
+        &book_models,
+    );
     if let Some(bid) = &job.batch_id {
         job_req["batch_id"] = serde_json::json!(bid);
     }
@@ -531,7 +628,12 @@ pub fn job_pause(
             j.updated_at = now_ms();
             repo.upsert(&j)?;
         }
-        _ => return Err(format!("只有排队中或处理中的任务能暂停 (当前 {})", job.status)),
+        _ => {
+            return Err(format!(
+                "只有排队中或处理中的任务能暂停 (当前 {})",
+                job.status
+            ))
+        }
     }
     let _ = app.emit("job-list-changed", serde_json::json!({}));
     Ok(())
@@ -574,7 +676,9 @@ pub fn pause_all(
 ) -> Result<(), String> {
     use tauri::Emitter;
     let repo = store::jobs_repo::JobsRepo::new(db.inner());
-    let ids: Vec<String> = repo.list().into_iter()
+    let ids: Vec<String> = repo
+        .list()
+        .into_iter()
         .filter(|j| j.status == "running" || j.status == "queued")
         .map(|j| j.id)
         .collect();
@@ -595,7 +699,9 @@ pub fn resume_all(
 ) -> Result<(), String> {
     use tauri::Emitter;
     let repo = store::jobs_repo::JobsRepo::new(db.inner());
-    let ids: Vec<String> = repo.list().into_iter()
+    let ids: Vec<String> = repo
+        .list()
+        .into_iter()
         .filter(|j| j.status == "paused")
         .map(|j| j.id)
         .collect();
@@ -670,10 +776,13 @@ pub fn pump_queue(
             j.error = Some(format!("启动处理引擎失败: {e}"));
             j.updated_at = now_ms();
             let _ = repo.upsert(&j);
-            let _ = app.emit("job-progress", serde_json::json!({
-                "jobId": job_id, "batchId": job.batch_id, "type": "error",
-                "message": format!("启动处理引擎失败: {e}"), "ts": now_ms()
-            }));
+            let _ = app.emit(
+                "job-progress",
+                serde_json::json!({
+                    "jobId": job_id, "batchId": job.batch_id, "type": "error",
+                    "message": format!("启动处理引擎失败: {e}"), "ts": now_ms()
+                }),
+            );
             // 继续处理队列里的下一个任务
             let _ = pump_queue(app, cfg, state, db);
             return Err(format!("启动侧车失败: {e}"));
@@ -690,7 +799,8 @@ pub fn pump_queue(
     let job_src_lang = job.source_language.clone(); // Bug fix: 用真实语言登记书库 (审查确认)
     let job_tgt_lang = job.target_language.clone();
     // v8 资产模型: 本次处理用的模型 (job_request 里已解析) + 原书 id
-    let orig_book_id2 = crate::commands::library::book_id_from_path(&job.book_path, &job.profile_id);
+    let orig_book_id2 =
+        crate::commands::library::book_id_from_path(&job.book_path, &job.profile_id);
     let job_llm_id2 = String::new(); // 模型 id 快照后续从 job_request 读 (保持简单: 存路径为空则 None)
     let job_tts_id2 = String::new();
     let app_state = app2.clone();
@@ -701,7 +811,12 @@ pub fn pump_queue(
             match jobs::progress::parse_progress_line(&line) {
                 Ok(ev) => {
                     match &ev {
-                        jobs::progress::ProgressEvent::StageProgress { stage, current, total, .. } => {
+                        jobs::progress::ProgressEvent::StageProgress {
+                            stage,
+                            current,
+                            total,
+                            ..
+                        } => {
                             if let Some(db) = app_state.try_state::<store::Db>() {
                                 let repo = store::jobs_repo::JobsRepo::new(db.inner());
                                 if let Some(mut j) = repo.get(&job_id2) {
@@ -766,7 +881,11 @@ pub fn pump_queue(
                     let _ = repo.upsert(&j);
                 } else {
                     let bp = std::path::Path::new(&j.output_dir).join("bookpack.json");
-                    j.status = if bp.exists() { "done".into() } else { "failed".into() };
+                    j.status = if bp.exists() {
+                        "done".into()
+                    } else {
+                        "failed".into()
+                    };
                     // I-C: 失败可读 —— 从 quality_report.json 生成摘要
                     if j.status == "failed" {
                         j.error = quality_summary(&j.output_dir)
@@ -783,30 +902,48 @@ pub fn pump_queue(
                 let done = jobs.iter().filter(|j| j.status == "done").count() as i64;
                 let failed = jobs.iter().filter(|j| j.status == "failed").count() as i64;
                 let _ = batch_repo.update_progress(&bid, done, failed);
-                let _ = app_state.emit("batch-progress", serde_json::json!({"batchId": bid, "done": done, "failed": failed}));
+                let _ = app_state.emit(
+                    "batch-progress",
+                    serde_json::json!({"batchId": bid, "done": done, "failed": failed}),
+                );
             }
             let bp = std::path::Path::new(&job_dir2).join("bookpack.json");
             if bp.exists() {
                 if let Ok(text) = std::fs::read_to_string(&bp) {
                     if crate::application::library_service::parse_bookpack_meta(&text).is_some() {
-                        let id = crate::commands::library::book_id_from_path(&job_dir2.to_string_lossy(), &profile_id);
+                        let id = crate::commands::library::book_id_from_path(
+                            &job_dir2.to_string_lossy(),
+                            &profile_id,
+                        );
                         let _ = crate::application::library_service::register_book(
                             db.inner(),
                             id,
                             &job_dir2.to_string_lossy(),
                             book_path2.clone(),
-                            orig_book_id2.clone(),  // v8: 关联原书 (资产键)
+                            orig_book_id2.clone(), // v8: 关联原书 (资产键)
                             profile_id.clone(),
                             job_src_lang.clone(),
                             job_tgt_lang.clone(),
                             // v8: 本次处理用的模型快照
-                            if job_llm_id2.is_empty() { None } else { Some(job_llm_id2.clone()) },
-                            if job_tts_id2.is_empty() { None } else { Some(job_tts_id2.clone()) },
+                            if job_llm_id2.is_empty() {
+                                None
+                            } else {
+                                Some(job_llm_id2.clone())
+                            },
+                            if job_tts_id2.is_empty() {
+                                None
+                            } else {
+                                Some(job_tts_id2.clone())
+                            },
                             None,
                         );
                         // v7 架构分离: 原版书标 done (产物独立为 product)
-                        let orig_id = crate::commands::library::book_id_from_path(&book_path2, &profile_id);
-                        crate::application::library_service::mark_original_done(db.inner(), &orig_id);
+                        let orig_id =
+                            crate::commands::library::book_id_from_path(&book_path2, &profile_id);
+                        crate::application::library_service::mark_original_done(
+                            db.inner(),
+                            &orig_id,
+                        );
                         let _ = app_state.emit("library-changed", serde_json::json!({}));
                     }
                 }
@@ -833,21 +970,68 @@ pub fn pump_queue(
 /// v9: 全书完成度 = (已完阶段数 + 当前阶段比例) / 总阶段数 × 100
 /// 7 阶段均分: parse→nlp→translate→explain→tts→align→pack
 fn overall_progress(stage: &str, current: i64, total: i64) -> f64 {
-    const STAGES: [&str; 7] = ["parse", "nlp", "translate", "explain", "tts", "align", "pack"];
+    const STAGES: [&str; 7] = [
+        "parse",
+        "nlp",
+        "translate",
+        "explain",
+        "tts",
+        "align",
+        "pack",
+    ];
     let idx = STAGES.iter().position(|s| *s == stage).unwrap_or(0);
-    let stage_ratio = if total > 0 { (current as f64 / total as f64).clamp(0.0, 1.0) } else { 0.0 };
+    let stage_ratio = if total > 0 {
+        (current as f64 / total as f64).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     let overall = (idx as f64 + stage_ratio) / STAGES.len() as f64;
     (overall * 100.0).round()
 }
 
-fn enrich_progress(ev: jobs::progress::ProgressEvent, job_id: &str) -> serde_json::Value {    use jobs::progress::ProgressEvent as E;
+fn enrich_progress(ev: jobs::progress::ProgressEvent, job_id: &str) -> serde_json::Value {
+    use jobs::progress::ProgressEvent as E;
     match ev {
-        E::StageStart { stage, ts } => serde_json::json!({"jobId": job_id, "type": "stage_start", "stage": stage, "ts": ts}),
-        E::StageProgress { stage, current, total, ts } => serde_json::json!({"jobId": job_id, "type": "stage_progress", "stage": stage, "current": current, "total": total, "ts": ts}),
-        E::StageDone { stage, current, total, ts } => serde_json::json!({"jobId": job_id, "type": "stage_done", "stage": stage, "current": current, "total": total, "ts": ts}),
-        E::SentenceDone { sentence_index, status, ts } => serde_json::json!({"jobId": job_id, "type": "sentence_done", "sentence_index": sentence_index, "status": status, "ts": ts}),
-        E::JobDone { exit_code, message, ts } => serde_json::json!({"jobId": job_id, "type": "job_done", "exit_code": exit_code, "message": message, "ts": ts}),
-        E::Error { message, detail, ts } => serde_json::json!({"jobId": job_id, "type": "error", "message": message, "detail": detail, "ts": ts}),
+        E::StageStart { stage, ts } => {
+            serde_json::json!({"jobId": job_id, "type": "stage_start", "stage": stage, "ts": ts})
+        }
+        E::StageProgress {
+            stage,
+            current,
+            total,
+            ts,
+        } => {
+            serde_json::json!({"jobId": job_id, "type": "stage_progress", "stage": stage, "current": current, "total": total, "ts": ts})
+        }
+        E::StageDone {
+            stage,
+            current,
+            total,
+            ts,
+        } => {
+            serde_json::json!({"jobId": job_id, "type": "stage_done", "stage": stage, "current": current, "total": total, "ts": ts})
+        }
+        E::SentenceDone {
+            sentence_index,
+            status,
+            ts,
+        } => {
+            serde_json::json!({"jobId": job_id, "type": "sentence_done", "sentence_index": sentence_index, "status": status, "ts": ts})
+        }
+        E::JobDone {
+            exit_code,
+            message,
+            ts,
+        } => {
+            serde_json::json!({"jobId": job_id, "type": "job_done", "exit_code": exit_code, "message": message, "ts": ts})
+        }
+        E::Error {
+            message,
+            detail,
+            ts,
+        } => {
+            serde_json::json!({"jobId": job_id, "type": "error", "message": message, "detail": detail, "ts": ts})
+        }
     }
 }
 
@@ -857,11 +1041,20 @@ fn quality_summary(out_dir: &str) -> Option<String> {
     let text = std::fs::read_to_string(&path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&text).ok()?;
     // I-C: 阶段级错误优先 (pack 超时/完整性校验等, 不是句级失败)
-    if let Some(err) = v.get("error").and_then(|e| e.as_str()).filter(|e| !e.is_empty()) {
+    if let Some(err) = v
+        .get("error")
+        .and_then(|e| e.as_str())
+        .filter(|e| !e.is_empty())
+    {
         return Some(err.to_string());
     }
-    let failed_sents = v.get("failedSentences").and_then(|a| a.as_array()).map(|a| a.len()).unwrap_or(0);
-    let stages = v.get("failedSentences")
+    let failed_sents = v
+        .get("failedSentences")
+        .and_then(|a| a.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let stages = v
+        .get("failedSentences")
         .and_then(|a| a.as_array())
         .map(|arr| {
             let mut set: Vec<String> = Vec::new();
@@ -879,7 +1072,8 @@ fn quality_summary(out_dir: &str) -> Option<String> {
             set
         })
         .unwrap_or_default();
-    let reasons: Vec<String> = v.get("failedSentences")
+    let reasons: Vec<String> = v
+        .get("failedSentences")
         .and_then(|a| a.as_array())
         .map(|arr| {
             arr.iter()
@@ -888,7 +1082,12 @@ fn quality_summary(out_dir: &str) -> Option<String> {
                 .collect()
         })
         .unwrap_or_default();
-    let reason_sample = reasons.iter().take(3).cloned().collect::<Vec<_>>().join(" | ");
+    let reason_sample = reasons
+        .iter()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" | ");
     if failed_sents == 0 && stages.is_empty() {
         return Some("任务失败 (bookpack 未生成)".into());
     }
@@ -896,7 +1095,11 @@ fn quality_summary(out_dir: &str) -> Option<String> {
         "{} 句有失败阶段 ({}){}",
         failed_sents,
         stages.join(", "),
-        if reason_sample.is_empty() { String::new() } else { format!(": {reason_sample}") }
+        if reason_sample.is_empty() {
+            String::new()
+        } else {
+            format!(": {reason_sample}")
+        }
     ))
 }
 
@@ -921,14 +1124,18 @@ mod tests {
     fn summary_parses_quality_report() {
         let dir = std::env::temp_dir().join(format!("aidulc_qs_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("quality_report.json"), r#"{
+        std::fs::write(
+            dir.join("quality_report.json"),
+            r#"{
             "failedSentences": [
                 {"chapter": 0, "index": 3, "stages": ["translate"], "reason": "API 超时"},
                 {"chapter": 1, "index": 7, "stages": ["tts"], "reason": "模型加载失败"},
                 {"chapter": 2, "index": 0, "stages": ["nlp", "translate"], "reason": ""}
             ],
             "summary": "3 句有部分阶段失败 (nlp, translate, tts)。"
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         let s = quality_summary(dir.to_str().unwrap()).unwrap();
         assert!(s.contains("3 句有失败阶段"), "got: {s}");
         assert!(s.contains("translate") && s.contains("tts"), "got: {s}");

@@ -12,10 +12,23 @@ impl<'a> DictRepo<'a> {
         Self { db }
     }
 
-    pub fn upsert(&self, key: &str, payload: &serde_json::Value, profile_id: &str) -> Result<(), String> {
+    pub fn upsert(
+        &self,
+        key: &str,
+        payload: &serde_json::Value,
+        profile_id: &str,
+    ) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
-        let word = payload.get("word").and_then(|w| w.as_str()).unwrap_or(key).to_string();
-        let lemma = payload.get("lemma").and_then(|w| w.as_str()).unwrap_or(key).to_lowercase();
+        let word = payload
+            .get("word")
+            .and_then(|w| w.as_str())
+            .unwrap_or(key)
+            .to_string();
+        let lemma = payload
+            .get("lemma")
+            .and_then(|w| w.as_str())
+            .unwrap_or(key)
+            .to_lowercase();
         let full_key = format!("{profile_id}:{}", key.to_lowercase());
         conn.execute(
             "INSERT INTO dictionary (key, word, lemma, pos, payload, profile_id)
@@ -59,7 +72,10 @@ impl<'a> DictRepo<'a> {
         stmt.query_map([profile_id], |r| {
             let lemma: String = r.get(0)?;
             let payload: String = r.get(1)?;
-            Ok((lemma, serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null)))
+            Ok((
+                lemma,
+                serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null),
+            ))
         })
         .unwrap()
         .filter_map(|r| r.ok())
@@ -76,7 +92,10 @@ impl<'a> DictRepo<'a> {
         stmt.query_map(params![profile_id, like], |r| {
             let lemma: String = r.get(0)?;
             let payload: String = r.get(1)?;
-            Ok((lemma, serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null)))
+            Ok((
+                lemma,
+                serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null),
+            ))
         })
         .unwrap()
         .filter_map(|r| r.ok())
@@ -107,7 +126,8 @@ mod tests {
     fn upsert_get_roundtrip() {
         let db = temp_db();
         let repo = DictRepo::new(&db);
-        let payload = serde_json::json!({"word": "Bank", "pos": "NOUN", "meanings": ["银行", "河岸"]});
+        let payload =
+            serde_json::json!({"word": "Bank", "pos": "NOUN", "meanings": ["银行", "河岸"]});
         repo.upsert("bank", &payload, "default").unwrap();
         let got = repo.get("bank", "default").unwrap();
         assert_eq!(got["word"], "Bank");
@@ -118,9 +138,12 @@ mod tests {
     fn list_and_search_by_profile() {
         let db = temp_db();
         let repo = DictRepo::new(&db);
-        repo.upsert("bank", &serde_json::json!({"word": "bank"}), "default").unwrap();
-        repo.upsert("break", &serde_json::json!({"word": "break"}), "default").unwrap();
-        repo.upsert("bank", &serde_json::json!({"word": "bank"}), "kid").unwrap();
+        repo.upsert("bank", &serde_json::json!({"word": "bank"}), "default")
+            .unwrap();
+        repo.upsert("break", &serde_json::json!({"word": "break"}), "default")
+            .unwrap();
+        repo.upsert("bank", &serde_json::json!({"word": "bank"}), "kid")
+            .unwrap();
         assert_eq!(repo.list_by_profile("default").len(), 2);
         assert_eq!(repo.list_by_profile("kid").len(), 1, "profile 隔离");
         let hits = repo.search("default", "ba");
@@ -132,7 +155,8 @@ mod tests {
     fn remove_entry() {
         let db = temp_db();
         let repo = DictRepo::new(&db);
-        repo.upsert("bank", &serde_json::json!({"word": "bank"}), "default").unwrap();
+        repo.upsert("bank", &serde_json::json!({"word": "bank"}), "default")
+            .unwrap();
         repo.remove("bank", "default").unwrap();
         assert!(repo.get("bank", "default").is_none());
     }

@@ -106,7 +106,11 @@ pub fn push_profile(
 
 /// 从 AIDU Worker 拉取当前 profile。
 /// Ok(None) = 404 新 profile (无数据); Ok(Some(env)) = 远端信封。
-pub fn pull_profile(worker_url: &str, token: &str, profile: &str) -> Result<Option<WorkerEnvelope>, String> {
+pub fn pull_profile(
+    worker_url: &str,
+    token: &str,
+    profile: &str,
+) -> Result<Option<WorkerEnvelope>, String> {
     if worker_url.is_empty() {
         return Err("未配置 CF Worker URL (离线模式)".into());
     }
@@ -123,7 +127,8 @@ pub fn pull_profile(worker_url: &str, token: &str, profile: &str) -> Result<Opti
             .send()
         {
             Ok(resp) if resp.status().is_success() => {
-                let v: serde_json::Value = resp.json().map_err(|e| format!("解析远端响应失败: {e}"))?;
+                let v: serde_json::Value =
+                    resp.json().map_err(|e| format!("解析远端响应失败: {e}"))?;
                 return Ok(Some(serde_json::from_value(v).unwrap_or_default()));
             }
             Ok(resp) if resp.status().as_u16() == 404 => {
@@ -165,8 +170,15 @@ mod tests {
     #[test]
     fn huge_payload_rejected() {
         let mut vocab = serde_json::Map::new();
-        vocab.insert("k".into(), serde_json::Value::String("x".repeat(16 * 1024 * 1024)));
-        let env = WorkerEnvelope { vocab, dictionary: serde_json::Map::new(), meta: serde_json::json!({}) };
+        vocab.insert(
+            "k".into(),
+            serde_json::Value::String("x".repeat(16 * 1024 * 1024)),
+        );
+        let env = WorkerEnvelope {
+            vocab,
+            dictionary: serde_json::Map::new(),
+            meta: serde_json::json!({}),
+        };
         let err = push_profile("http://x", "t", "default", &env).unwrap_err();
         assert!(err.contains("超过"), "应告警 payload 超限: {err}");
     }
@@ -180,13 +192,21 @@ mod tests {
     #[test]
     fn envelope_roundtrip() {
         let mut vocab = serde_json::Map::new();
-        vocab.insert("bank".into(), serde_json::json!({"word": "bank", "updatedAt": 123}));
-        let env = WorkerEnvelope { vocab, dictionary: serde_json::Map::new(), meta: serde_json::json!({}) };
+        vocab.insert(
+            "bank".into(),
+            serde_json::json!({"word": "bank", "updatedAt": 123}),
+        );
+        let env = WorkerEnvelope {
+            vocab,
+            dictionary: serde_json::Map::new(),
+            meta: serde_json::json!({}),
+        };
         let envs = env.to_envelopes();
         assert_eq!(envs.len(), 1);
         assert_eq!(envs[0].key, "bank");
         assert_eq!(envs[0].updated_at, 123);
-        let back = WorkerEnvelope::from_entries(&[("bank".into(), serde_json::json!({"word": "bank"}))]);
+        let back =
+            WorkerEnvelope::from_entries(&[("bank".into(), serde_json::json!({"word": "bank"}))]);
         assert!(back.vocab.contains_key("bank"));
     }
 }

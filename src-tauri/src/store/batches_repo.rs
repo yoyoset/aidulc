@@ -38,8 +38,16 @@ impl<'a> BatchesRepo<'a> {
                 done_books = excluded.done_books, failed_books = excluded.failed_books,
                 updated_at = excluded.updated_at",
             params![
-                b.id, b.profile_id, b.source_language, b.target_language, b.status,
-                b.total_books, b.done_books, b.failed_books, b.created_at, b.updated_at
+                b.id,
+                b.profile_id,
+                b.source_language,
+                b.target_language,
+                b.status,
+                b.total_books,
+                b.done_books,
+                b.failed_books,
+                b.created_at,
+                b.updated_at
             ],
         )
         .map_err(|e| format!("写批次失败: {e}"))?;
@@ -74,9 +82,11 @@ impl<'a> BatchesRepo<'a> {
     pub fn list(&self) -> Vec<Batch> {
         let conn = self.db.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, profile_id, source_language, target_language, status,
+            .prepare(
+                "SELECT id, profile_id, source_language, target_language, status,
                              total_books, done_books, failed_books, created_at, updated_at
-                      FROM batches ORDER BY created_at DESC")
+                      FROM batches ORDER BY created_at DESC",
+            )
             .unwrap();
         stmt.query_map([], |r| {
             Ok(Batch {
@@ -118,7 +128,8 @@ mod tests {
     use super::*;
 
     fn temp_db() -> Db {
-        let path = std::env::temp_dir().join(format!("aidulc_batch_test_{}.db", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("aidulc_batch_test_{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
         Db::open(path.to_str().unwrap()).unwrap()
     }

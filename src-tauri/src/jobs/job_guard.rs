@@ -41,7 +41,8 @@ mod tests {
         let job = Job::create().expect("创建 Job Object 失败");
         let mut info = job.query_extended_limit_info().unwrap_or_default();
         info.limit_kill_on_job_close();
-        job.set_extended_limit_info(&info).expect("设置 KILL_ON_JOB_CLOSE 失败");
+        job.set_extended_limit_info(&info)
+            .expect("设置 KILL_ON_JOB_CLOSE 失败");
 
         let mut child = std::process::Command::new("cmd")
             .args(["/C", "ping -n 31 127.0.0.1 >nul"])
@@ -51,7 +52,10 @@ mod tests {
         job.assign_process(handle).expect("绑定子进程到 Job 失败");
 
         std::thread::sleep(std::time::Duration::from_millis(200));
-        assert!(child.try_wait().unwrap().is_none(), "子进程绑定后应该还在运行");
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "子进程绑定后应该还在运行"
+        );
 
         drop(job);
 

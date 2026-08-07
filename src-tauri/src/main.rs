@@ -106,7 +106,11 @@ fn resolve_prep_path(exe_dir: &std::path::Path) -> std::path::PathBuf {
     let mut cur = exe_dir.to_path_buf();
     for _ in 0..4 {
         cur.pop();
-        let dev = cur.join("prep").join("dist").join("aidulc-prep").join("aidulc-prep.exe");
+        let dev = cur
+            .join("prep")
+            .join("dist")
+            .join("aidulc-prep")
+            .join("aidulc-prep.exe");
         if dev.exists() {
             return dev;
         }
@@ -177,9 +181,14 @@ fn main() {
     let _ = infrastructure::log::init(&log_dir);
     infrastructure::log::info("app", "应用启动");
     infrastructure::log::info("app", &format!("exe_dir={}", exe_dir.to_string_lossy()));
-    infrastructure::log::info("app", &format!(
-        "prep_path={} (存在: {})", prep_path.to_string_lossy(), prep_path.exists()
-    ));
+    infrastructure::log::info(
+        "app",
+        &format!(
+            "prep_path={} (存在: {})",
+            prep_path.to_string_lossy(),
+            prep_path.exists()
+        ),
+    );
 
     jobs::job_guard::init_child_job_object();
 
@@ -241,7 +250,12 @@ fn main() {
                         let _ = books_repo.upsert(&nb);
                     }
                 }
-                let _ = commands::jobs::pump_queue(app.handle().clone(), cfg.inner(), st.inner(), db.inner());
+                let _ = commands::jobs::pump_queue(
+                    app.handle().clone(),
+                    cfg.inner(),
+                    st.inner(),
+                    db.inner(),
+                );
             }
             Ok(())
         })
@@ -314,4 +328,3 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-

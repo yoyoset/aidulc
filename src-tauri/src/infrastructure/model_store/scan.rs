@@ -13,7 +13,7 @@ pub struct ScannedModel {
     pub path: String,
     pub file_name: String,
     pub size_bytes: u64,
-    pub layout: String,        // flat | hf
+    pub layout: String,          // flat | hf
     pub repo_id: Option<String>, // hf 布局的 repo
     pub commit_sha: Option<String>,
 }
@@ -31,12 +31,18 @@ pub fn scan_model_dir(root: &str) -> Vec<ScannedModel> {
         for e in rd.flatten() {
             let p = e.path();
             if p.is_file() {
-                let ext = p.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
+                let ext = p
+                    .extension()
+                    .map(|x| x.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
                 if matches!(ext.as_str(), "gguf" | "pth" | "bin") {
                     if let Ok(md) = p.metadata() {
                         out.push(ScannedModel {
                             path: p.to_string_lossy().to_string(),
-                            file_name: p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(),
+                            file_name: p
+                                .file_name()
+                                .map(|f| f.to_string_lossy().to_string())
+                                .unwrap_or_default(),
                             size_bytes: md.len(),
                             layout: "flat".into(),
                             repo_id: None,
@@ -58,7 +64,10 @@ pub fn scan_model_dir(root: &str) -> Vec<ScannedModel> {
                     continue;
                 }
                 // models--owner--name → owner/name
-                let dir_name = repo_dir.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                let dir_name = repo_dir
+                    .file_name()
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_default();
                 let repo_id = dir_name
                     .strip_prefix("models--")
                     .map(|s| s.replace("--", "/"))
@@ -73,7 +82,10 @@ pub fn scan_model_dir(root: &str) -> Vec<ScannedModel> {
                         if !sha_dir.is_dir() {
                             continue;
                         }
-                        let commit = sha_dir.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                        let commit = sha_dir
+                            .file_name()
+                            .map(|f| f.to_string_lossy().to_string())
+                            .unwrap_or_default();
                         walk_hf_dir(&sha_dir, &repo_id, &commit, &mut out);
                     }
                 }
@@ -91,12 +103,18 @@ fn walk_hf_dir(dir: &std::path::Path, repo_id: &str, commit: &str, out: &mut Vec
             if p.is_dir() {
                 walk_hf_dir(&p, repo_id, commit, out);
             } else if p.is_file() {
-                let ext = p.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
+                let ext = p
+                    .extension()
+                    .map(|x| x.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
                 if matches!(ext.as_str(), "gguf" | "pth" | "bin") {
                     if let Ok(md) = p.metadata() {
                         out.push(ScannedModel {
                             path: p.to_string_lossy().to_string(),
-                            file_name: p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(),
+                            file_name: p
+                                .file_name()
+                                .map(|f| f.to_string_lossy().to_string())
+                                .unwrap_or_default(),
                             size_bytes: md.len(),
                             layout: "hf".into(),
                             repo_id: Some(repo_id.to_string()),
@@ -147,7 +165,11 @@ mod tests {
     #[test]
     fn scan_hf_layout() {
         let dir = std::env::temp_dir().join(format!("aidulc_scan_hf_{}", std::process::id()));
-        let model_dir = dir.join("hub").join("models--owner--repo").join("snapshots").join("abc123");
+        let model_dir = dir
+            .join("hub")
+            .join("models--owner--repo")
+            .join("snapshots")
+            .join("abc123");
         std::fs::create_dir_all(&model_dir).unwrap();
         std::fs::write(model_dir.join("model.pth"), vec![0u8; 50]).unwrap();
         let found = scan_model_dir(&dir.to_string_lossy());

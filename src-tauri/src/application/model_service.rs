@@ -20,13 +20,16 @@ pub fn entry_id(family: &str, language: &str, model_id: &str, version: &str) -> 
 pub fn recommend_for(db: &Db, family: &str, language: &str) -> Option<ModelEntry> {
     let repo = ModelRepo::new(db);
     let list = repo.list_by(family, language);
-    list.into_iter().find(|m| m.active).or_else(|| {
-        repo.list_by(family, language).into_iter().next()
-    })
+    list.into_iter()
+        .find(|m| m.active)
+        .or_else(|| repo.list_by(family, language).into_iter().next())
 }
 
 /// 推荐整套组合 (llm/tts/nlp)
-pub fn recommend_bundle(db: &Db, language: &str) -> (Option<ModelEntry>, Option<ModelEntry>, Option<ModelEntry>) {
+pub fn recommend_bundle(
+    db: &Db,
+    language: &str,
+) -> (Option<ModelEntry>, Option<ModelEntry>, Option<ModelEntry>) {
     (
         recommend_for(db, FAMILY_LLM, language),
         recommend_for(db, FAMILY_TTS, language),
@@ -55,7 +58,10 @@ pub fn bundle_complete(db: &Db, language: &str) -> bool {
 /// 登记 (安装/复用后写入注册表); 若该家族语言无 active, 自动设为推荐
 pub fn register(db: &Db, m: &mut ModelEntry) -> Result<(), String> {
     let repo = ModelRepo::new(db);
-    let has_active = repo.list_by(&m.family, &m.language).iter().any(|x| x.active);
+    let has_active = repo
+        .list_by(&m.family, &m.language)
+        .iter()
+        .any(|x| x.active);
     if !has_active {
         m.active = true;
     }
@@ -217,9 +223,21 @@ pub fn preflight_batch(
     let mut ok = Vec::new();
     let mut skipped = Vec::new();
     for b in books {
-        let id = b.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
-        let path = b.get("source_path").and_then(|x| x.as_str()).unwrap_or("").to_string();
-        let lang = b.get("source_language").and_then(|x| x.as_str()).unwrap_or("en").to_string();
+        let id = b
+            .get("id")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        let path = b
+            .get("source_path")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        let lang = b
+            .get("source_language")
+            .and_then(|x| x.as_str())
+            .unwrap_or("en")
+            .to_string();
         let problems = preflight_check(db, &id, &path, &lang, prep_path, ffmpeg);
         if problems.is_empty() {
             ok.push(id);
@@ -321,7 +339,11 @@ mod tests {
         repo.upsert(&entry("llm", "en", "sakura", false)).unwrap();
         set_recommended(&db, "llm|en|sakura|1.0").unwrap();
         let list = repo.list_by("llm", "en");
-        assert_eq!(list.iter().filter(|m| m.active).count(), 1, "同一家族语言至多一个推荐");
+        assert_eq!(
+            list.iter().filter(|m| m.active).count(),
+            1,
+            "同一家族语言至多一个推荐"
+        );
         assert!(repo.get("llm|en|sakura|1.0").unwrap().active);
     }
 
@@ -350,27 +372,38 @@ mod tests {
     fn bind_book_sets_language_and_models() {
         let db = temp_db();
         let books = crate::store::books_repo::BooksRepo::new(&db);
-        books.upsert(&crate::store::books_repo::Book {
-            id: "b1".into(),
-            title: "B".into(),
-            source_path: "".into(),
-            pack_dir: "".into(),
-            profile_id: "default".into(),
-            status: "ready".into(),
-            kind: "product".into(),
-            source_book_id: None,
-            chapter_count: 1,
-            failed_count: 0,
-            last_opened_at: None,
-            source_language: "en".into(),
-            target_language: "zh-CN".into(),
-            llm_id: None,
-            tts_id: None,
-            nlp_id: None,
-            created_at: 100,
-            updated_at: 100,
-        }).unwrap();
-        bind_book(&db, "b1", "ja", "zh-CN", Some("llm|ja|qwen|1.0".into()), None, None).unwrap();
+        books
+            .upsert(&crate::store::books_repo::Book {
+                id: "b1".into(),
+                title: "B".into(),
+                source_path: "".into(),
+                pack_dir: "".into(),
+                profile_id: "default".into(),
+                status: "ready".into(),
+                kind: "product".into(),
+                source_book_id: None,
+                chapter_count: 1,
+                failed_count: 0,
+                last_opened_at: None,
+                source_language: "en".into(),
+                target_language: "zh-CN".into(),
+                llm_id: None,
+                tts_id: None,
+                nlp_id: None,
+                created_at: 100,
+                updated_at: 100,
+            })
+            .unwrap();
+        bind_book(
+            &db,
+            "b1",
+            "ja",
+            "zh-CN",
+            Some("llm|ja|qwen|1.0".into()),
+            None,
+            None,
+        )
+        .unwrap();
         let b = books.get("b1").unwrap();
         assert_eq!(b.source_language, "ja");
         assert_eq!(b.llm_id.as_deref(), Some("llm|ja|qwen|1.0"));
@@ -381,18 +414,34 @@ mod tests {
         // P1 核心: 书级绑定优先, 未绑定家族回落全局推荐
         let db = temp_db();
         let repo = ModelRepo::new(&db);
-        repo.upsert(&entry("llm", "en", "global_llm", true)).unwrap();
-        repo.upsert(&entry("tts", "en", "global_tts", true)).unwrap();
+        repo.upsert(&entry("llm", "en", "global_llm", true))
+            .unwrap();
+        repo.upsert(&entry("tts", "en", "global_tts", true))
+            .unwrap();
         repo.upsert(&entry("llm", "en", "book_llm", false)).unwrap();
         let books = crate::store::books_repo::BooksRepo::new(&db);
-        books.upsert(&crate::store::books_repo::Book {
-            id: "b1".into(), title: "B".into(), source_path: "".into(), pack_dir: "".into(),
-            profile_id: "default".into(), status: "pending".into(),
-            kind: "original".into(), source_book_id: None, chapter_count: 0, failed_count: 0,
-            last_opened_at: None, source_language: "en".into(), target_language: "zh-CN".into(),
-            llm_id: Some("llm|en|book_llm|1.0".into()), tts_id: None, nlp_id: None,
-            created_at: 100, updated_at: 100,
-        }).unwrap();
+        books
+            .upsert(&crate::store::books_repo::Book {
+                id: "b1".into(),
+                title: "B".into(),
+                source_path: "".into(),
+                pack_dir: "".into(),
+                profile_id: "default".into(),
+                status: "pending".into(),
+                kind: "original".into(),
+                source_book_id: None,
+                chapter_count: 0,
+                failed_count: 0,
+                last_opened_at: None,
+                source_language: "en".into(),
+                target_language: "zh-CN".into(),
+                llm_id: Some("llm|en|book_llm|1.0".into()),
+                tts_id: None,
+                nlp_id: None,
+                created_at: 100,
+                updated_at: 100,
+            })
+            .unwrap();
         let (llm, tts, _) = resolve_for_book(&db, "b1", "en");
         assert_eq!(llm, "C:/models/book_llm", "书级绑定优先");
         assert_eq!(tts, "C:/models/global_tts", "未绑定家族回落全局推荐");
@@ -403,13 +452,28 @@ mod tests {
     fn book_binding_echo() {
         let db = temp_db();
         let books = crate::store::books_repo::BooksRepo::new(&db);
-        books.upsert(&crate::store::books_repo::Book {
-            id: "b2".into(), title: "B2".into(), source_path: "".into(), pack_dir: "".into(),
-            profile_id: "default".into(), status: "ready".into(),
-            kind: "product".into(), source_book_id: None, chapter_count: 1, failed_count: 0,
-            last_opened_at: None, source_language: "en".into(), target_language: "zh-CN".into(),
-            llm_id: None, tts_id: None, nlp_id: None, created_at: 100, updated_at: 100,
-        }).unwrap();
+        books
+            .upsert(&crate::store::books_repo::Book {
+                id: "b2".into(),
+                title: "B2".into(),
+                source_path: "".into(),
+                pack_dir: "".into(),
+                profile_id: "default".into(),
+                status: "ready".into(),
+                kind: "product".into(),
+                source_book_id: None,
+                chapter_count: 1,
+                failed_count: 0,
+                last_opened_at: None,
+                source_language: "en".into(),
+                target_language: "zh-CN".into(),
+                llm_id: None,
+                tts_id: None,
+                nlp_id: None,
+                created_at: 100,
+                updated_at: 100,
+            })
+            .unwrap();
         let v = book_binding(&db, "b2");
         assert_eq!(v["source_language"], "en");
         assert!(v["llm_id"].is_null());
@@ -419,13 +483,30 @@ mod tests {
     fn preflight_reports_missing_models_and_sidecar() {
         // R2: 可处理性检查 — 无模型/无侧车 → 结构化原因
         let db = temp_db();
-        let problems = preflight_check(&db, "b1", "C:/nonexistent/book.txt", "en",
+        let problems = preflight_check(
+            &db,
+            "b1",
+            "C:/nonexistent/book.txt",
+            "en",
             std::path::Path::new("C:/nonexistent/prep.exe"),
-            std::path::Path::new("C:/nonexistent/ffmpeg.exe"));
-        assert!(problems.iter().any(|p| p.contains("原书文件")), "应报书文件缺失: {problems:?}");
-        assert!(problems.iter().any(|p| p.contains("翻译引擎")), "应报缺 LLM");
-        assert!(problems.iter().any(|p| p.contains("语音引擎")), "应报缺 TTS");
-        assert!(problems.iter().any(|p| p.contains("处理引擎")), "应报缺侧车");
+            std::path::Path::new("C:/nonexistent/ffmpeg.exe"),
+        );
+        assert!(
+            problems.iter().any(|p| p.contains("原书文件")),
+            "应报书文件缺失: {problems:?}"
+        );
+        assert!(
+            problems.iter().any(|p| p.contains("翻译引擎")),
+            "应报缺 LLM"
+        );
+        assert!(
+            problems.iter().any(|p| p.contains("语音引擎")),
+            "应报缺 TTS"
+        );
+        assert!(
+            problems.iter().any(|p| p.contains("处理引擎")),
+            "应报缺侧车"
+        );
     }
 
     #[test]
@@ -435,12 +516,24 @@ mod tests {
         let repo = ModelRepo::new(&db);
         repo.upsert(&entry("llm", "en", "qwen", true)).unwrap();
         repo.upsert(&entry("tts", "en", "kokoro", true)).unwrap();
-        let problems = preflight_check(&db, "b1", "", "en",
+        let problems = preflight_check(
+            &db,
+            "b1",
+            "",
+            "en",
             std::path::Path::new("C:/nonexistent/prep.exe"),
-            std::path::Path::new(""));
-        assert!(problems.iter().all(|p| !p.contains("缺翻译引擎") && !p.contains("缺语音引擎")),
-            "模型已注册不应报缺引擎: {problems:?}");
-        assert!(problems.iter().any(|p| p.contains("文件丢失")), "注册路径无效应报文件丢失");
+            std::path::Path::new(""),
+        );
+        assert!(
+            problems
+                .iter()
+                .all(|p| !p.contains("缺翻译引擎") && !p.contains("缺语音引擎")),
+            "模型已注册不应报缺引擎: {problems:?}"
+        );
+        assert!(
+            problems.iter().any(|p| p.contains("文件丢失")),
+            "注册路径无效应报文件丢失"
+        );
     }
 
     #[test]
@@ -451,11 +544,19 @@ mod tests {
             serde_json::json!({"id": "ok1", "source_path": "", "source_language": "en"}),
             serde_json::json!({"id": "bad1", "source_path": "C:/gone.txt", "source_language": "en"}),
         ];
-        let (ok, skipped) = preflight_batch(&db, &books,
-            std::path::Path::new("C:/nope.exe"), std::path::Path::new(""));
+        let (ok, skipped) = preflight_batch(
+            &db,
+            &books,
+            std::path::Path::new("C:/nope.exe"),
+            std::path::Path::new(""),
+        );
         assert!(ok.is_empty(), "无模型时都不应入队");
         assert_eq!(skipped.len(), 2);
         assert_eq!(skipped[0]["book_id"], "ok1");
-        assert!(skipped[0]["reasons"].as_array().unwrap().iter().any(|r| r.as_str().unwrap().contains("翻译引擎")));
+        assert!(skipped[0]["reasons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r.as_str().unwrap().contains("翻译引擎")));
     }
 }

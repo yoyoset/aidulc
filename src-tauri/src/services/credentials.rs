@@ -13,7 +13,9 @@ pub fn save_cf_token(token: &str) -> Result<(), String> {
         return Err("token 不能为空".into());
     }
     let entry = Entry::new(SERVICE, TOKEN_ACCOUNT).map_err(|e| format!("创建凭据条目失败: {e}"))?;
-    entry.set_password(token).map_err(|e| format!("保存 token 失败: {e}"))
+    entry
+        .set_password(token)
+        .map_err(|e| format!("保存 token 失败: {e}"))
 }
 
 pub fn get_cf_token() -> Result<String, String> {
@@ -27,7 +29,9 @@ pub fn get_cf_token() -> Result<String, String> {
 
 pub fn delete_cf_token() -> Result<(), String> {
     let entry = Entry::new(SERVICE, TOKEN_ACCOUNT).map_err(|e| format!("创建凭据条目失败: {e}"))?;
-    entry.delete_credential().map_err(|e| format!("删除 token 失败: {e}"))
+    entry
+        .delete_credential()
+        .map_err(|e| format!("删除 token 失败: {e}"))
 }
 
 #[cfg(test)]

@@ -57,6 +57,9 @@ pub fn transfer_export(db: State<Db>) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub fn transfer_import(db: State<Db>, backup: serde_json::Value) -> Result<serde_json::Value, String> {
+pub fn transfer_import(
+    db: State<Db>,
+    backup: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     crate::application::transfer_service::import_aidu_data(db.inner(), &backup)
 }

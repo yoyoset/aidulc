@@ -18,10 +18,14 @@ pub fn now_ms_for_store() -> i64 {
 impl Db {
     pub fn open(path: &str) -> Result<Self, String> {
         let conn = Connection::open(path).map_err(|e| format!("打开数据库失败: {e}"))?;
-        conn.pragma_update(None, "journal_mode", "WAL").map_err(|e| format!("WAL 失败: {e}"))?;
-        conn.busy_timeout(std::time::Duration::from_secs(5)).map_err(|e| format!("busy_timeout 失败: {e}"))?;
+        conn.pragma_update(None, "journal_mode", "WAL")
+            .map_err(|e| format!("WAL 失败: {e}"))?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| format!("busy_timeout 失败: {e}"))?;
         conn.pragma_update(None, "foreign_keys", "ON").ok();
-        let db = Db { conn: Mutex::new(conn) };
+        let db = Db {
+            conn: Mutex::new(conn),
+        };
         db.migrate()?;
         Ok(db)
     }
@@ -37,7 +41,11 @@ impl Db {
         )
         .map_err(|e| format!("建版本表失败: {e}"))?;
         let version: i64 = conn
-            .query_row("SELECT COALESCE(MAX(version), 0) FROM schema_migrations", [], |r| r.get(0))
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+                [],
+                |r| r.get(0),
+            )
             .unwrap_or(0);
         if version < 1 {
             conn.execute_batch(
@@ -289,7 +297,9 @@ mod tests {
         let db = Db::open(&path).expect("空库迁移应成功");
         let conn = db.conn.lock().unwrap();
         let version: i64 = conn
-            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r.get(0))
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert!(version >= 3, "应迁移到 v3, 实得 {version}");
         // 关键表存在
@@ -346,7 +356,9 @@ mod tests {
         let db = Db::open(&path).expect("历史库迁移应成功");
         let conn = db.conn.lock().unwrap();
         let version: i64 = conn
-            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r.get(0))
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert!(version >= 3);
         // 旧数据保留且 profile 迁移为 default

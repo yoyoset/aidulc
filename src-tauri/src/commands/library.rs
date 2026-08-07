@@ -14,12 +14,20 @@ pub fn book_id_from_path(path: &str, profile: &str) -> String {
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "book".into());
-    format!("{}_{}", name.to_lowercase().replace(|c: char| !c.is_alphanumeric(), "_"), profile)
+    format!(
+        "{}_{}",
+        name.to_lowercase()
+            .replace(|c: char| !c.is_alphanumeric(), "_"),
+        profile
+    )
 }
 
 /// 书库列表 (kind: original=原版管理 | product=AI 成品 | 空=全部)
 #[tauri::command]
-pub fn library_list(db: State<store::Db>, kind: Option<String>) -> Result<serde_json::Value, String> {
+pub fn library_list(
+    db: State<store::Db>,
+    kind: Option<String>,
+) -> Result<serde_json::Value, String> {
     let repo = store::books_repo::BooksRepo::new(db.inner());
     let books = match kind.as_deref() {
         Some(k) if k == "original" || k == "product" => repo.list_by_kind(k),
@@ -49,7 +57,11 @@ pub fn library_register(
         source_path,
         pack_dir,
         profile_id,
-        status: if failed_count > 0 { "partial".into() } else { "ready".into() },
+        status: if failed_count > 0 {
+            "partial".into()
+        } else {
+            "ready".into()
+        },
         kind: "product".into(), // v7: 登记的是成品
         source_book_id: None,
         chapter_count,
@@ -112,8 +124,14 @@ pub fn load_bookpack(
     };
 
     let bp_path = target.join("bookpack.json");
-    let data = std::fs::read_to_string(&bp_path).map_err(|e| format!("读书包失败: {e} (book_id={book_id}, target={})", target.display()))?;
-    let bookpack: serde_json::Value = serde_json::from_str(&data).map_err(|e| format!("书包 JSON 解析失败: {e}"))?;
+    let data = std::fs::read_to_string(&bp_path).map_err(|e| {
+        format!(
+            "读书包失败: {e} (book_id={book_id}, target={})",
+            target.display()
+        )
+    })?;
+    let bookpack: serde_json::Value =
+        serde_json::from_str(&data).map_err(|e| format!("书包 JSON 解析失败: {e}"))?;
     crate::domain::bookpack::check_version(&bookpack)?;
 
     let profile_id = bookpack
@@ -134,11 +152,13 @@ pub fn load_bookpack(
             auto_id.clone(),
             &target.to_string_lossy(),
             String::new(),
-            auto_id.clone(),  // v8: 原书 id (打开已有书包的场景, 原书=自己)
+            auto_id.clone(), // v8: 原书 id (打开已有书包的场景, 原书=自己)
             profile_id,
             "en".into(),
             "zh-CN".into(),
-            None, None, None,
+            None,
+            None,
+            None,
         );
     }
     let _ = app.emit("library-changed", serde_json::json!({}));
@@ -154,7 +174,8 @@ pub fn load_bookpack(
 #[tauri::command]
 pub fn read_audio(base_path: String, file: String) -> Result<Vec<u8>, String> {
     let path = std::path::Path::new(&base_path).join(file);
-    let canonical_base = std::fs::canonicalize(&base_path).map_err(|e| format!("书包根无效: {e}"))?;
+    let canonical_base =
+        std::fs::canonicalize(&base_path).map_err(|e| format!("书包根无效: {e}"))?;
     let canonical_path = std::fs::canonicalize(&path).map_err(|e| format!("文件不存在: {e}"))?;
     if !canonical_path.starts_with(&canonical_base) {
         return Err("路径越界".into());
@@ -164,8 +185,15 @@ pub fn read_audio(base_path: String, file: String) -> Result<Vec<u8>, String> {
 
 /// 分块读音频 (G3: 长章避免整文件跨 IPC)
 #[tauri::command]
-pub fn read_audio_range(base_path: String, file: String, offset: u64, length: usize) -> Result<serde_json::Value, String> {    let path = std::path::Path::new(&base_path).join(file);
-    let canonical_base = std::fs::canonicalize(&base_path).map_err(|e| format!("书包根无效: {e}"))?;
+pub fn read_audio_range(
+    base_path: String,
+    file: String,
+    offset: u64,
+    length: usize,
+) -> Result<serde_json::Value, String> {
+    let path = std::path::Path::new(&base_path).join(file);
+    let canonical_base =
+        std::fs::canonicalize(&base_path).map_err(|e| format!("书包根无效: {e}"))?;
     let canonical_path = std::fs::canonicalize(&path).map_err(|e| format!("文件不存在: {e}"))?;
     if !canonical_path.starts_with(&canonical_base) {
         return Err("路径越界".into());
@@ -173,7 +201,8 @@ pub fn read_audio_range(base_path: String, file: String, offset: u64, length: us
     use std::io::{Read, Seek, SeekFrom};
     let mut f = std::fs::File::open(&canonical_path).map_err(|e| format!("打开失败: {e}"))?;
     let total = f.metadata().map(|m| m.len()).unwrap_or(0);
-    f.seek(SeekFrom::Start(offset)).map_err(|e| format!("seek 失败: {e}"))?;
+    f.seek(SeekFrom::Start(offset))
+        .map_err(|e| format!("seek 失败: {e}"))?;
     let mut buf = vec![0u8; length.min(4 * 1024 * 1024)];
     let n = f.read(&mut buf).map_err(|e| format!("读失败: {e}"))?;
     buf.truncate(n);
@@ -225,18 +254,29 @@ pub fn library_preview(
     }
     // 调侧车 preview (复用 loader: 已修复 z-lib EPUB manifest 顺序 + 垃圾句过滤)
     let mut cmd = Command::new(&cfg.prep_path);
-    cmd.arg("--preview-book").arg(&book.source_path)
+    cmd.arg("--preview-book")
+        .arg(&book.source_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .creation_flags(0x08000000);
     let mut child = cmd.spawn().map_err(|e| format!("启动预览失败: {e}"))?;
     let mut out = String::new();
-    child.stdout.take().ok_or("无法读取预览输出")?.read_to_string(&mut out)
+    child
+        .stdout
+        .take()
+        .ok_or("无法读取预览输出")?
+        .read_to_string(&mut out)
         .map_err(|e| format!("读预览输出失败: {e}"))?;
     let _ = child.wait();
-    let line = out.lines().find(|l| l.trim_start().starts_with('{')).ok_or("预览无输出")?;
-    let mut v: serde_json::Value = serde_json::from_str(line).map_err(|e| format!("预览输出非法: {e}"))?;
-    v["format"] = serde_json::json!(std::path::Path::new(&book.source_path).extension()
-        .map(|e| e.to_string_lossy().to_string()).unwrap_or_default());
+    let line = out
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .ok_or("预览无输出")?;
+    let mut v: serde_json::Value =
+        serde_json::from_str(line).map_err(|e| format!("预览输出非法: {e}"))?;
+    v["format"] = serde_json::json!(std::path::Path::new(&book.source_path)
+        .extension()
+        .map(|e| e.to_string_lossy().to_string())
+        .unwrap_or_default());
     Ok(v)
 }

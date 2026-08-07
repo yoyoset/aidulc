@@ -114,8 +114,8 @@ mod tests {
     #[test]
     fn golden_vocab_entry_normalizes_identically() {
         let golden = load_golden();
-        let entry: VocabEntry =
-            serde_json::from_value(golden["vocab_entry_canonical"].clone()).expect("解析 golden 条目");
+        let entry: VocabEntry = serde_json::from_value(golden["vocab_entry_canonical"].clone())
+            .expect("解析 golden 条目");
         let out = normalize_vocab_entry(entry).expect("canonical 条目不该被拒");
         assert_eq!(out.word, "break");
         assert_eq!(out.lemma, "break");

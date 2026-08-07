@@ -80,9 +80,15 @@ mod tests {
 
     #[test]
     fn mixed_sets_merge() {
-        let merged = merge_envelopes(&[env("a", 100), env("b", 50)], &[env("b", 200), env("c", 300)]);
+        let merged = merge_envelopes(
+            &[env("a", 100), env("b", 50)],
+            &[env("b", 200), env("c", 300)],
+        );
         let keys: Vec<&str> = merged.iter().map(|e| e.key.as_str()).collect();
         assert_eq!(keys, vec!["a", "b", "c"]);
-        assert_eq!(merged.iter().find(|e| e.key == "b").unwrap().updated_at, 200);
+        assert_eq!(
+            merged.iter().find(|e| e.key == "b").unwrap().updated_at,
+            200
+        );
     }
 }

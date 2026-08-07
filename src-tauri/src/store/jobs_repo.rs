@@ -90,14 +90,21 @@ impl<'a> JobsRepo<'a> {
 
     pub fn get(&self, id: &str) -> Option<Job> {
         let conn = self.db.conn.lock().unwrap();
-        conn.query_row(&format!("SELECT {} FROM jobs WHERE id = ?1", Self::COLS), [id], Self::row_to_job)
-            .ok()
+        conn.query_row(
+            &format!("SELECT {} FROM jobs WHERE id = ?1", Self::COLS),
+            [id],
+            Self::row_to_job,
+        )
+        .ok()
     }
 
     pub fn list(&self) -> Vec<Job> {
         let conn = self.db.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare(&format!("SELECT {} FROM jobs ORDER BY created_at DESC", Self::COLS))
+            .prepare(&format!(
+                "SELECT {} FROM jobs ORDER BY created_at DESC",
+                Self::COLS
+            ))
             .unwrap();
         stmt.query_map([], Self::row_to_job)
             .unwrap()
@@ -108,7 +115,10 @@ impl<'a> JobsRepo<'a> {
     pub fn list_by_batch(&self, batch_id: &str) -> Vec<Job> {
         let conn = self.db.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare(&format!("SELECT {} FROM jobs WHERE batch_id = ?1 ORDER BY created_at", Self::COLS))
+            .prepare(&format!(
+                "SELECT {} FROM jobs WHERE batch_id = ?1 ORDER BY created_at",
+                Self::COLS
+            ))
             .unwrap();
         stmt.query_map([batch_id], Self::row_to_job)
             .unwrap()
@@ -210,7 +220,11 @@ mod tests {
         repo.upsert(&job("j1", "running")).unwrap();
         repo.upsert(&job("j2", "done")).unwrap();
         repo.reset_stale().unwrap();
-        assert_eq!(repo.get("j1").unwrap().status, "queued", "running 应重置为 queued");
+        assert_eq!(
+            repo.get("j1").unwrap().status,
+            "queued",
+            "running 应重置为 queued"
+        );
         assert_eq!(repo.get("j2").unwrap().status, "done", "done 不受影响");
     }
 

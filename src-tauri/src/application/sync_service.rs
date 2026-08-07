@@ -17,16 +17,32 @@ pub struct SyncStatus {
     pub pending_count: usize,
 }
 
-fn status(
-    configured: bool,
-    last: Option<(i64, Result<(), String>)>,
-    pending: usize,
-) -> SyncStatus {
+fn status(configured: bool, last: Option<(i64, Result<(), String>)>, pending: usize) -> SyncStatus {
     match (configured, last) {
-        (false, _) => SyncStatus { status: "unconfigured".into(), last_sync_at: None, last_error: None, pending_count: pending },
-        (true, None) => SyncStatus { status: "offline".into(), last_sync_at: None, last_error: None, pending_count: pending },
-        (true, Some((ts, Ok(())))) => SyncStatus { status: "synced".into(), last_sync_at: Some(ts), last_error: None, pending_count: 0 },
-        (true, Some((ts, Err(e)))) => SyncStatus { status: "failed".into(), last_sync_at: Some(ts), last_error: Some(e), pending_count: pending },
+        (false, _) => SyncStatus {
+            status: "unconfigured".into(),
+            last_sync_at: None,
+            last_error: None,
+            pending_count: pending,
+        },
+        (true, None) => SyncStatus {
+            status: "offline".into(),
+            last_sync_at: None,
+            last_error: None,
+            pending_count: pending,
+        },
+        (true, Some((ts, Ok(())))) => SyncStatus {
+            status: "synced".into(),
+            last_sync_at: Some(ts),
+            last_error: None,
+            pending_count: 0,
+        },
+        (true, Some((ts, Err(e)))) => SyncStatus {
+            status: "failed".into(),
+            last_sync_at: Some(ts),
+            last_error: Some(e),
+            pending_count: pending,
+        },
     }
 }
 
@@ -35,7 +51,11 @@ pub fn get_status(db: &Db, worker_url: &str, token: &str) -> SyncStatus {
     let configured = !worker_url.is_empty() && !token.is_empty();
     let repo = crate::store::vocab_repo::VocabRepo::new(db);
     // pending = 本地生词数 (简化: 全部本地生词待同步)
-    let pending = if configured { repo.list("default").len() } else { 0 };
+    let pending = if configured {
+        repo.list("default").len()
+    } else {
+        0
+    };
     // 上次结果存内存全局 (进程内足够; 持久化后续)
     let last = get_last_sync();
     status(configured, last, pending)
@@ -58,7 +78,12 @@ fn record_sync(result: Result<(), String>) {
 /// 立即同步 (push 当前 profile 生词)
 pub fn sync_now(db: &Db, worker_url: &str, token: &str) -> Result<SyncStatus, String> {
     if worker_url.is_empty() || token.is_empty() {
-        let s = SyncStatus { status: "unconfigured".into(), last_sync_at: None, last_error: Some("未配置同步".into()), pending_count: 0 };
+        let s = SyncStatus {
+            status: "unconfigured".into(),
+            last_sync_at: None,
+            last_error: Some("未配置同步".into()),
+            pending_count: 0,
+        };
         return Ok(s);
     }
     let repo = crate::store::vocab_repo::VocabRepo::new(db);
@@ -75,7 +100,11 @@ pub fn sync_now(db: &Db, worker_url: &str, token: &str) -> Result<SyncStatus, St
 
     let result = sync::push_profile(worker_url, token, "default", &envelope);
     record_sync(result.clone());
-    Ok(status(true, Some((crate::store::now_ms_for_store(), result)), 0))
+    Ok(status(
+        true,
+        Some((crate::store::now_ms_for_store(), result)),
+        0,
+    ))
 }
 
 /// 拉取合并 (AIDU 远端 → 本地)
@@ -83,14 +112,20 @@ pub fn sync_now(db: &Db, worker_url: &str, token: &str) -> Result<SyncStatus, St
 /// 不再内联 updatedAt 比较 (历史: 三套重复实现之一)。
 pub fn sync_pull(db: &Db, worker_url: &str, token: &str) -> Result<SyncStatus, String> {
     if worker_url.is_empty() || token.is_empty() {
-        return Ok(SyncStatus { status: "unconfigured".into(), last_sync_at: None, last_error: None, pending_count: 0 });
+        return Ok(SyncStatus {
+            status: "unconfigured".into(),
+            last_sync_at: None,
+            last_error: None,
+            pending_count: 0,
+        });
     }
     let remote = sync::pull_profile(worker_url, token, "default");
     match remote {
         Ok(Some(env)) => {
             let repo = crate::store::vocab_repo::VocabRepo::new(db);
             // 本地 → Envelope; 远端 → Envelope; 合并 (新者胜, domain 规则)
-            let local_envs: Vec<crate::domain::sync::Envelope> = repo.list("default")
+            let local_envs: Vec<crate::domain::sync::Envelope> = repo
+                .list("default")
                 .iter()
                 .map(|e| crate::domain::sync::Envelope {
                     key: e.lemma.to_lowercase(),
@@ -103,12 +138,20 @@ pub fn sync_pull(db: &Db, worker_url: &str, token: &str) -> Result<SyncStatus, S
             // 远端赢的条目 (本地无 / 远端 updatedAt 更大) → 写回本地
             for m in &merged {
                 let local_has = local_envs.iter().any(|le| le.key == m.key);
-                let local_newer = local_envs.iter().any(|le| le.key == m.key && le.updated_at >= m.updated_at);
+                let local_newer = local_envs
+                    .iter()
+                    .any(|le| le.key == m.key && le.updated_at >= m.updated_at);
                 if local_has && local_newer {
                     continue; // 本地较新, 不覆盖
                 }
-                if let Some(payload) = remote_envs.iter().find(|re| re.key == m.key).map(|re| re.payload.clone()) {
-                    if let Ok(entry) = serde_json::from_value::<crate::domain::vocab::VocabEntry>(payload) {
+                if let Some(payload) = remote_envs
+                    .iter()
+                    .find(|re| re.key == m.key)
+                    .map(|re| re.payload.clone())
+                {
+                    if let Ok(entry) =
+                        serde_json::from_value::<crate::domain::vocab::VocabEntry>(payload)
+                    {
                         let _ = repo.upsert_sync(entry, "default");
                     }
                 }
@@ -123,7 +166,11 @@ pub fn sync_pull(db: &Db, worker_url: &str, token: &str) -> Result<SyncStatus, S
         }
         Err(e) => {
             record_sync(Err(e.clone()));
-            Ok(status(true, Some((crate::store::now_ms_for_store(), Err(e))), 0))
+            Ok(status(
+                true,
+                Some((crate::store::now_ms_for_store(), Err(e))),
+                0,
+            ))
         }
     }
 }

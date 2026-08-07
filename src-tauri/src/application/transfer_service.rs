@@ -35,12 +35,21 @@ pub fn export_aidu_data(db: &Db) -> Result<serde_json::Value, String> {
         let mut vocab_map = serde_json::Map::new();
         for e in &entries {
             let key = e.lemma.to_lowercase();
-            vocab_map.insert(key, serde_json::to_value(e).unwrap_or(serde_json::Value::Null));
+            vocab_map.insert(
+                key,
+                serde_json::to_value(e).unwrap_or(serde_json::Value::Null),
+            );
         }
-        vocab.insert(format!("vocab_{profile}"), serde_json::Value::Object(vocab_map));
+        vocab.insert(
+            format!("vocab_{profile}"),
+            serde_json::Value::Object(vocab_map),
+        );
 
         let dmap = list_dictionary_payloads(db, profile);
-        dictionaries.insert(format!("dictionary_{profile}"), serde_json::Value::Object(dmap));
+        dictionaries.insert(
+            format!("dictionary_{profile}"),
+            serde_json::Value::Object(dmap),
+        );
     }
 
     Ok(serde_json::json!({
@@ -69,7 +78,9 @@ pub fn import_aidu_data(db: &Db, backup: &serde_json::Value) -> Result<serde_jso
             if let Some(entries_obj) = entries.as_object() {
                 let repo = VocabRepo::new(db);
                 for (lemma, payload) in entries_obj {
-                    match serde_json::from_value::<crate::domain::vocab::VocabEntry>(payload.clone()) {
+                    match serde_json::from_value::<crate::domain::vocab::VocabEntry>(
+                        payload.clone(),
+                    ) {
                         Ok(entry) => {
                             let local = repo.get(&profile, lemma);
                             let remote_newer = payload
@@ -113,7 +124,10 @@ pub fn import_aidu_data(db: &Db, backup: &serde_json::Value) -> Result<serde_jso
     }))
 }
 
-fn list_dictionary_payloads(db: &Db, profile_id: &str) -> serde_json::Map<String, serde_json::Value> {
+fn list_dictionary_payloads(
+    db: &Db,
+    profile_id: &str,
+) -> serde_json::Map<String, serde_json::Value> {
     let conn = db.conn.lock().unwrap();
     let mut out = serde_json::Map::new();
     let prefix = format!("{profile_id}:");
@@ -136,7 +150,12 @@ fn list_dictionary_payloads(db: &Db, profile_id: &str) -> serde_json::Map<String
     out
 }
 
-fn upsert_dictionary(db: &Db, profile_id: &str, lemma: &str, payload: &serde_json::Value) -> Result<(), String> {
+fn upsert_dictionary(
+    db: &Db,
+    profile_id: &str,
+    lemma: &str,
+    payload: &serde_json::Value,
+) -> Result<(), String> {
     let repo = crate::store::dict_repo::DictRepo::new(db);
     repo.upsert(lemma, payload, profile_id)
 }
@@ -150,7 +169,8 @@ mod tests {
         use std::sync::atomic::{AtomicU64, Ordering};
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("aidulc_tr_test_{}_{n}.db", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("aidulc_tr_test_{}_{n}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
         Db::open(path.to_str().unwrap()).unwrap()
     }
@@ -183,7 +203,8 @@ mod tests {
     fn export_import_roundtrip() {
         let db = temp_db();
         let repo = VocabRepo::new(&db);
-        repo.upsert_sync(vocab_entry("bank", 100), "default").unwrap();
+        repo.upsert_sync(vocab_entry("bank", 100), "default")
+            .unwrap();
         repo.upsert_sync(vocab_entry("bank", 100), "kid").unwrap();
 
         let backup = export_aidu_data(&db).unwrap();
@@ -204,7 +225,8 @@ mod tests {
     fn import_keeps_newer_local() {
         let db = temp_db();
         let repo = VocabRepo::new(&db);
-        repo.upsert_sync(vocab_entry("bank", 500), "default").unwrap(); // 本地较新
+        repo.upsert_sync(vocab_entry("bank", 500), "default")
+            .unwrap(); // 本地较新
 
         let backup = serde_json::json!({
             "version": 3,

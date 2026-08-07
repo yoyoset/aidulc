@@ -25,7 +25,15 @@ pub fn word_lookup(
             }
         }
         // 兜底: 无模型/失败 → 占位 (不阻断查词)
-        Ok(("NOUN".into(), String::new(), vec![format!("{w} 的词义待补充(未配置 LLM 模型)")], vec![], vec![], String::new(), vec![]))
+        Ok((
+            "NOUN".into(),
+            String::new(),
+            vec![format!("{w} 的词义待补充(未配置 LLM 模型)")],
+            vec![],
+            vec![],
+            String::new(),
+            vec![],
+        ))
     };
     let result = dictionary_service::lookup(db.inner(), &profile_id, &word, &context, &lookup_fn)?;
     Ok(serde_json::to_value(result).map_err(|e| e.to_string())?)
@@ -38,7 +46,18 @@ fn llm_dict_lookup(
     model: &str,
     word: &str,
     context: &str,
-) -> Result<(String, String, Vec<String>, Vec<String>, Vec<String>, String, Vec<String>), String> {
+) -> Result<
+    (
+        String,
+        String,
+        Vec<String>,
+        Vec<String>,
+        Vec<String>,
+        String,
+        Vec<String>,
+    ),
+    String,
+> {
     use std::io::Read;
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
@@ -51,7 +70,11 @@ fn llm_dict_lookup(
         .creation_flags(0x08000000); // CREATE_NO_WINDOW
     let mut child = cmd.spawn().map_err(|e| format!("启动词典补全失败: {e}"))?;
     let mut out = String::new();
-    child.stdout.take().ok_or("无法取得词典补全输出")?.read_to_string(&mut out)
+    child
+        .stdout
+        .take()
+        .ok_or("无法取得词典补全输出")?
+        .read_to_string(&mut out)
         .map_err(|e| format!("读词典补全输出失败: {e}"))?;
     // 等待 + 超时 (8s; 单词查询应 <2s)
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
@@ -66,32 +89,78 @@ fn llm_dict_lookup(
             Err(e) => return Err(format!("等待词典补全失败: {e}")),
         }
     }
-    let line = out.lines().find(|l| l.trim_start().starts_with('{')).ok_or("词典补全无输出")?;
-    let v: serde_json::Value = serde_json::from_str(line).map_err(|e| format!("词典补全输出非法: {e}"))?;
-    let pos = v.get("pos").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let phonetic = v.get("phonetic").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let meanings: Vec<String> = v.get("meanings").and_then(|a| a.as_array())
-        .map(|a| a.iter().filter_map(|m| m.as_str().map(String::from)).collect())
+    let line = out
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .ok_or("词典补全无输出")?;
+    let v: serde_json::Value =
+        serde_json::from_str(line).map_err(|e| format!("词典补全输出非法: {e}"))?;
+    let pos = v
+        .get("pos")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    let phonetic = v
+        .get("phonetic")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    let meanings: Vec<String> = v
+        .get("meanings")
+        .and_then(|a| a.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|m| m.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
-    let examples: Vec<String> = v.get("examples").and_then(|a| a.as_array())
-        .map(|a| a.iter().filter_map(|m| m.as_str().map(String::from)).collect())
+    let examples: Vec<String> = v
+        .get("examples")
+        .and_then(|a| a.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|m| m.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
-    let example_zh: Vec<String> = v.get("example_zh").and_then(|a| a.as_array())
-        .map(|a| a.iter().filter_map(|m| m.as_str().map(String::from)).collect())
+    let example_zh: Vec<String> = v
+        .get("example_zh")
+        .and_then(|a| a.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|m| m.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
-    let usage = v.get("usage").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let phrases: Vec<String> = v.get("phrases").and_then(|a| a.as_array())
-        .map(|a| a.iter().filter_map(|m| m.as_str().map(String::from)).collect())
+    let usage = v
+        .get("usage")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    let phrases: Vec<String> = v
+        .get("phrases")
+        .and_then(|a| a.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|m| m.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     if meanings.is_empty() {
         return Err("词典补全无释义".into());
     }
-    Ok((pos, phonetic, meanings, examples, example_zh, usage, phrases))
+    Ok((
+        pos, phonetic, meanings, examples, example_zh, usage, phrases,
+    ))
 }
 
 /// 显式加入生词本
 #[tauri::command]
-pub fn add_vocab(db: State<store::Db>, word: String, profile_id: String) -> Result<serde_json::Value, String> {
+pub fn add_vocab(
+    db: State<store::Db>,
+    word: String,
+    profile_id: String,
+) -> Result<serde_json::Value, String> {
     dictionary_service::add_to_vocab(db.inner(), &profile_id, &word)
 }
 
@@ -104,7 +173,11 @@ pub fn dict_list(db: State<store::Db>, profile_id: String) -> Result<serde_json:
 
 /// 词典搜索
 #[tauri::command]
-pub fn dict_search(db: State<store::Db>, profile_id: String, q: String) -> Result<serde_json::Value, String> {
+pub fn dict_search(
+    db: State<store::Db>,
+    profile_id: String,
+    q: String,
+) -> Result<serde_json::Value, String> {
     let repo = store::dict_repo::DictRepo::new(db.inner());
     Ok(serde_json::to_value(repo.search(&profile_id, &q)).map_err(|e| e.to_string())?)
 }
@@ -127,7 +200,11 @@ pub fn vocab_all(db: State<store::Db>, profile_id: String) -> Result<serde_json:
 
 /// 生词搜索
 #[tauri::command]
-pub fn vocab_search(db: State<store::Db>, profile_id: String, q: String) -> Result<serde_json::Value, String> {
+pub fn vocab_search(
+    db: State<store::Db>,
+    profile_id: String,
+    q: String,
+) -> Result<serde_json::Value, String> {
     let repo = store::vocab_repo::VocabRepo::new(db.inner());
     Ok(serde_json::to_value(repo.search(&profile_id, &q)).map_err(|e| e.to_string())?)
 }
@@ -150,7 +227,10 @@ pub fn vocab_stats(db: State<store::Db>, profile_id: String) -> Result<serde_jso
 
 /// 同步状态
 #[tauri::command]
-pub fn sync_status(db: State<store::Db>, services: State<crate::AppServices>) -> Result<serde_json::Value, String> {
+pub fn sync_status(
+    db: State<store::Db>,
+    services: State<crate::AppServices>,
+) -> Result<serde_json::Value, String> {
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
     let token = svc.cf_token.lock().unwrap().clone();
@@ -160,7 +240,10 @@ pub fn sync_status(db: State<store::Db>, services: State<crate::AppServices>) ->
 
 /// 立即同步 (push)
 #[tauri::command]
-pub fn sync_now(db: State<store::Db>, services: State<crate::AppServices>) -> Result<serde_json::Value, String> {
+pub fn sync_now(
+    db: State<store::Db>,
+    services: State<crate::AppServices>,
+) -> Result<serde_json::Value, String> {
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
     let token = svc.cf_token.lock().unwrap().clone();
@@ -170,7 +253,10 @@ pub fn sync_now(db: State<store::Db>, services: State<crate::AppServices>) -> Re
 
 /// 拉取合并
 #[tauri::command]
-pub fn sync_pull_now(db: State<store::Db>, services: State<crate::AppServices>) -> Result<serde_json::Value, String> {
+pub fn sync_pull_now(
+    db: State<store::Db>,
+    services: State<crate::AppServices>,
+) -> Result<serde_json::Value, String> {
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
     let token = svc.cf_token.lock().unwrap().clone();
@@ -187,10 +273,16 @@ pub fn sync_config_set(
 ) -> Result<(), String> {
     use crate::services::config;
     // 持久化 worker_url 到 config.toml
-    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default();
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_default();
     let mut cfg = config::Config::load(&exe_dir);
     cfg.cf_worker_url = worker_url.clone();
-    let _ = std::fs::write(exe_dir.join("config.toml"), toml::to_string_pretty(&cfg).unwrap_or_default());
+    let _ = std::fs::write(
+        exe_dir.join("config.toml"),
+        toml::to_string_pretty(&cfg).unwrap_or_default(),
+    );
     // token 存 Credential Manager (永不落明文)
     if !token.is_empty() {
         crate::services::credentials::save_cf_token(&token)?;
@@ -198,7 +290,8 @@ pub fn sync_config_set(
     // 更新内存态 (即时生效)
     let svc = services.inner();
     *svc.cf_worker_url.lock().unwrap() = worker_url;
-    *svc.cf_token.lock().unwrap() = crate::services::credentials::get_cf_token().unwrap_or_default();
+    *svc.cf_token.lock().unwrap() =
+        crate::services::credentials::get_cf_token().unwrap_or_default();
     Ok(())
 }
 
@@ -206,7 +299,11 @@ pub fn sync_config_set(
 
 /// 书签列表 (本书所有书签句子)
 #[tauri::command]
-pub fn bookmarks_list(db: State<store::Db>, book_key: String, profile_id: String) -> Result<serde_json::Value, String> {
+pub fn bookmarks_list(
+    db: State<store::Db>,
+    book_key: String,
+    profile_id: String,
+) -> Result<serde_json::Value, String> {
     let repo = store::reading_repo::ReadingRepo::new(db.inner());
     let state = repo.get(&book_key);
     // 返回带句文本的书签 (前端从 bookpack 拿文本; 这里先返回下标)

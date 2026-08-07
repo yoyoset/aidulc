@@ -11,8 +11,8 @@ pub struct ReaderSettings {
     pub line_height: f64,
     pub content_width: i64,
     pub font_family: String,
-    pub theme: String,                  // light | dark
-    pub highlight_granularity: String,  // word | sentence
+    pub theme: String,                 // light | dark
+    pub highlight_granularity: String, // word | sentence
     pub child_mode: bool,
     pub updated_at: i64,
 }

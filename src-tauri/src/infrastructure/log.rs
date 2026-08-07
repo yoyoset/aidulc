@@ -47,9 +47,15 @@ fn write_line(level: &str, module: &str, msg: &str) {
     }
 }
 
-pub fn info(module: &str, msg: &str) { write_line("INFO", module, msg); }
-pub fn warn(module: &str, msg: &str) { write_line("WARN", module, msg); }
-pub fn error(module: &str, msg: &str) { write_line("ERROR", module, msg); }
+pub fn info(module: &str, msg: &str) {
+    write_line("INFO", module, msg);
+}
+pub fn warn(module: &str, msg: &str) {
+    write_line("WARN", module, msg);
+}
+pub fn error(module: &str, msg: &str) {
+    write_line("ERROR", module, msg);
+}
 
 /// 前端错误日志 (命令)
 pub fn log_from_frontend(level: String, module: String, message: String) -> Result<(), String> {

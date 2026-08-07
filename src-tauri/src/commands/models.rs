@@ -14,14 +14,21 @@ pub fn models_list(db: State<store::Db>) -> Result<serde_json::Value, String> {
 
 /// 某语言某家族的模型 (供书级选择)
 #[tauri::command]
-pub fn models_by(db: State<store::Db>, family: String, language: String) -> Result<serde_json::Value, String> {
+pub fn models_by(
+    db: State<store::Db>,
+    family: String,
+    language: String,
+) -> Result<serde_json::Value, String> {
     let repo = store::model_repo::ModelRepo::new(db.inner());
     Ok(serde_json::to_value(repo.list_by(&family, &language)).map_err(|e| e.to_string())?)
 }
 
 /// 推荐组合 (导入书时自动带出)
 #[tauri::command]
-pub fn models_recommend(db: State<store::Db>, language: String) -> Result<serde_json::Value, String> {
+pub fn models_recommend(
+    db: State<store::Db>,
+    language: String,
+) -> Result<serde_json::Value, String> {
     let (llm, tts, nlp) = model_service::recommend_bundle(db.inner(), &language);
     Ok(serde_json::json!({
         "llm": llm.map(|m| serde_json::to_value(&m).unwrap_or_default()),
@@ -98,12 +105,23 @@ pub fn models_bind_book(
     tts_id: Option<String>,
     nlp_id: Option<String>,
 ) -> Result<(), String> {
-    model_service::bind_book(db.inner(), &book_id, &source_language, &target_language, llm_id, tts_id, nlp_id)
+    model_service::bind_book(
+        db.inner(),
+        &book_id,
+        &source_language,
+        &target_language,
+        llm_id,
+        tts_id,
+        nlp_id,
+    )
 }
 
 /// 读书级绑定 (书设置弹窗回显用)
 #[tauri::command]
-pub fn models_book_binding(db: State<store::Db>, book_id: String) -> Result<serde_json::Value, String> {
+pub fn models_book_binding(
+    db: State<store::Db>,
+    book_id: String,
+) -> Result<serde_json::Value, String> {
     Ok(model_service::book_binding(db.inner(), &book_id))
 }
 
@@ -114,7 +132,12 @@ pub fn models_download(
     dest: String,
     sha256: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let done = crate::infrastructure::downloader::download(&url, std::path::PathBuf::from(&dest), sha256.as_deref(), 60)?;
+    let done = crate::infrastructure::downloader::download(
+        &url,
+        std::path::PathBuf::from(&dest),
+        sha256.as_deref(),
+        60,
+    )?;
     Ok(serde_json::json!({"path": done.to_string_lossy(), "done": true}))
 }
 
@@ -133,7 +156,9 @@ pub fn hardware_detect(model_dir: String) -> Result<serde_json::Value, String> {
 #[tauri::command]
 pub fn wizard_state(db: State<store::Db>) -> Result<serde_json::Value, String> {
     let (step, status) = crate::application::wizard_service::get_state(db.inner());
-    Ok(serde_json::json!({"step": step, "status": status, "total": crate::application::wizard_service::TOTAL_STEPS}))
+    Ok(
+        serde_json::json!({"step": step, "status": status, "total": crate::application::wizard_service::TOTAL_STEPS}),
+    )
 }
 
 /// 提交向导步骤
@@ -145,5 +170,9 @@ pub fn wizard_submit(db: State<store::Db>, step: i64, status: String) -> Result<
 /// 向导完成
 #[tauri::command]
 pub fn wizard_finish(db: State<store::Db>) -> Result<(), String> {
-    crate::application::wizard_service::set_step(db.inner(), crate::application::wizard_service::TOTAL_STEPS, "done")
+    crate::application::wizard_service::set_step(
+        db.inner(),
+        crate::application::wizard_service::TOTAL_STEPS,
+        "done",
+    )
 }

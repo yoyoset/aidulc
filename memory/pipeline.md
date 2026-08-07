@@ -24,7 +24,10 @@
 
 - 每句一个 checkpoint JSON (checkpoints/chXXX/sNNNNN.json), 逐句原子落盘。阶段: parse → nlp → translate → explain → tts → align → pack。
 - hydrate: 重试时把 checkpoint 的 translation/explanation/audio/words 重新载入内存句子。
-- **对齐风险 (未修, 已知)**: nlp 的 `_has_content` 过滤碎片句 (字母<3 的孤立标点) 会改变句子总数。实测 Hitchhikers 差异句全在**章尾** (前缀完全匹配), hydrate 按位置加载安全。若某书碎片句在**章中间** (引用块孤立引号), 位置会错位 → 音频时间戳错乱。发现即修: 改为按 original_text 匹配或保留 fragment 句。2026-08-07 Breath/Hitchhikers 均尾部过滤, 安全。
+- **对齐风险 (2026-08-07 审计当天已修)**: nlp 的 `_has_content` 过滤碎片句 (字母<3 的孤立标点) 会改变句子总数。实测 Hitchhikers 差异句全在**章尾** (前缀完全匹配), hydrate 按位置加载曾经安全, 但这是运气不是保证——若某书碎片句在**章中间**, 位置会错位 → 音频时间戳错乱。
+  修复: `pipeline/nlp/stage.py` 新增纯函数 `reconcile_position_checkpoint(existing, new_original_text)`, 在写 nlp 产物前比对该位置旧 checkpoint 的 `original_text` 是否等于这次解析出的文本, 不等则判定"这个位置换了句子", 旧的 translation/explanation/audio/words 不能沿用。
+  **踩了一个连带坑**: 第一版实现只在内存里把 `existing` 清成 `{}` 再传给 `save_sentence`——但 `save_sentence` 是"读磁盘旧内容 + `dict.update()`"合并语义, 不出现在传入 dict 里的键会保留磁盘原值, 所以内存清空**不会**清掉磁盘上的旧字段, 是空转。用 `test_reconcile_then_overwrite_roundtrip` 测试真的写盘再读回来才发现（先故意验证坑存在, 再验证修复生效)。修复: `checkpoint.py` 新增 `overwrite_sentence`(整体替换, 不合并), 冲突路径专用; 无冲突路径继续用 `save_sentence`(合并), 否则会破坏"重试只补失败阶段"这个更重要的既有语义。
+  测试: `prep/tests/test_g2_checkpoint.py::TestPositionReconciliation`(6 个用例, 含正例/反例/向后兼容/端到端 roundtrip)。
 
 ## 错误处理与反馈
 

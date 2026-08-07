@@ -29,16 +29,14 @@ def load_sentence(out_dir: str, chapter: int, index: int) -> dict | None:
         return None  # 损坏 checkpoint 视为未完成 (重跑)
 
 
-def save_sentence(out_dir: str, chapter: int, index: int, data: dict) -> None:
-    """把 data 合并进该句 checkpoint (原子写入: tmp + rename)。"""
-    existing = load_sentence(out_dir, chapter, index) or {}
-    existing.update(data)
+def _atomic_write_json(out_dir: str, chapter: int, index: int, data: dict) -> None:
+    """把 data 原样(不合并)原子写入该句 checkpoint。save_sentence/overwrite_sentence 共用。"""
     p = sentence_path(out_dir, chapter, index)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(p), suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(existing, f, ensure_ascii=False)
+            json.dump(data, f, ensure_ascii=False)
         os.replace(tmp, p)  # 原子替换
     except BaseException:
         try:
@@ -46,6 +44,31 @@ def save_sentence(out_dir: str, chapter: int, index: int, data: dict) -> None:
         except OSError:
             pass
         raise
+
+
+def save_sentence(out_dir: str, chapter: int, index: int, data: dict) -> None:
+    """把 data 合并进该句 checkpoint (原子写入: tmp + rename)。
+
+    合并语义: 只更新 data 里出现的键, 不出现的键保留磁盘原值——translate/explain/tts/align
+    各阶段各自只关心自己的字段, 都依赖这个语义互不覆盖对方已写的结果。
+    **想整体替换(丢弃磁盘上未出现在 data 里的旧字段)用 overwrite_sentence, 不要指望
+    "先清空调用方内存里的 dict 再传进来"能生效——这里的 update() 是和磁盘上的旧内容合并,
+    不是和调用方清空后的字典合并, 2026-08-07 写位置对齐修复时踩过这个坑, 已用真实
+    roundtrip 测试复现确认。**
+    """
+    existing = load_sentence(out_dir, chapter, index) or {}
+    existing.update(data)
+    _atomic_write_json(out_dir, chapter, index, existing)
+
+
+def overwrite_sentence(out_dir: str, chapter: int, index: int, data: dict) -> None:
+    """整句 checkpoint 整体替换(不与磁盘旧内容合并), 原子写入。
+
+    用于"确认磁盘上这个位置的旧数据不再有效, 必须整体丢弃"的场景(如 nlp 阶段的位置
+    对齐冲突修复, 见 pipeline/nlp/stage.py::reconcile_position_checkpoint)——不能用
+    save_sentence, 它的合并语义会让调用方"清空"的意图落空。
+    """
+    _atomic_write_json(out_dir, chapter, index, data)
 
 
 def is_done_sentence(out_dir: str, chapter: int, index: int, stage: str) -> bool:

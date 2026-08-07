@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from aidulc_prep.infra.checkpoint import (
     is_done_sentence,
     load_sentence,
+    overwrite_sentence,
     save_sentence,
     save_stage_result,
 )
@@ -61,3 +62,98 @@ class TestCheckpointFailureSemantics:
             f.write("{corrupt json")
         assert load_sentence(out, 0, 0) is None
         assert not is_done_sentence(out, 0, 0, "translation")
+
+
+class TestPositionReconciliation:
+    """S2.4: nlp 阶段位置对齐风险修复 (memory/pipeline.md 记录的已知风险)。
+
+    checkpoint 按章节位置存盘, 不按内容寻址。fragment 过滤在两次运行间产生差异时,
+    同一位置可能对应不同句子——reconcile_position_checkpoint 是这个修复的核心纯函数,
+    独立测试不需要加载真实 spaCy 模型。
+    """
+
+    def test_no_prior_checkpoint_no_conflict(self):
+        from aidulc_prep.pipeline.nlp.stage import reconcile_position_checkpoint
+        result, conflict = reconcile_position_checkpoint({}, "Hello world.")
+        assert conflict is None
+        assert result == {}
+
+    def test_matching_original_text_preserves_data(self):
+        from aidulc_prep.pipeline.nlp.stage import reconcile_position_checkpoint
+        existing = {
+            "original_text": "Hello world.",
+            "translation": "你好世界。",
+            "audio": {"start_ms": 0, "end_ms": 1000},
+        }
+        result, conflict = reconcile_position_checkpoint(existing, "Hello world.")
+        assert conflict is None
+        assert result["translation"] == "你好世界。"
+        assert result["audio"]["end_ms"] == 1000
+
+    def test_mismatched_original_text_clears_stale_data(self):
+        """核心场景: 位置 i 的旧 checkpoint 属于另一句话, 必须清空而不是被"匹配"沿用。"""
+        from aidulc_prep.pipeline.nlp.stage import reconcile_position_checkpoint
+        existing = {
+            "original_text": "The old sentence that used to be here.",
+            "translation": "曾经在这里的旧句子的译文。",
+            "audio": {"start_ms": 5000, "end_ms": 8000},
+            "words": [{"seg_idx": 0, "start_ms": 5000, "end_ms": 5200}],
+        }
+        result, conflict = reconcile_position_checkpoint(existing, "A completely different new sentence.")
+        assert conflict is not None
+        assert "The old sentence" in conflict
+        assert "A completely different" in conflict
+        # 必须清空, 不能残留旧句子的 translation/audio/words 挂到新句子名下
+        assert result == {}
+
+    def test_legacy_checkpoint_without_original_text_backward_compatible(self):
+        """极老的 checkpoint(此字段加入前写的)没有 original_text, 视为"无锚点可比对",
+        不触发清空 —— 这是本次修复刻意保留的向后兼容路径, 不是遗漏。"""
+        from aidulc_prep.pipeline.nlp.stage import reconcile_position_checkpoint
+        existing = {"translation": "旧版本写的译文, 没有 original_text 字段。"}
+        result, conflict = reconcile_position_checkpoint(existing, "Any new sentence.")
+        assert conflict is None
+        assert result["translation"] == "旧版本写的译文, 没有 original_text 字段。"
+
+    def test_reconcile_then_overwrite_roundtrip(self, tmp_path):
+        """端到端确认(复现并修复过一次真实 bug): 用 save_sentence(合并语义)"清空"只在
+        内存里生效, 磁盘上的旧字段纹丝不动——第一版实现就是这样错的, 靠这个测试跑出来
+        才发现。冲突场景必须用 overwrite_sentence(整体替换), 这里验证的是"真的"清空:
+        磁盘上确实不残留旧数据, 不只是内存里看着对。"""
+        out = str(tmp_path)
+        save_sentence(out, 0, 0, {
+            "original_text": "Old text at position 0.",
+            "translation": "旧译文",
+            "audio": {"start_ms": 0, "end_ms": 500},
+        })
+
+        # 先证明"save_sentence 清空是假的"这个坑真实存在: 传一个清空的 dict 进去,
+        # 合并语义会让磁盘上的旧字段原样保留。
+        save_sentence(out, 0, 0, {"original_text": "New text (still via save_sentence)."})
+        still_stale = load_sentence(out, 0, 0)
+        assert still_stale["translation"] == "旧译文", "这一步是在验证坑本身: save_sentence 的合并语义不会清空旧字段"
+
+        # 真正的修复路径: overwrite_sentence 整体替换。
+        overwrite_sentence(out, 0, 0, {"original_text": "New text at position 0."})
+        on_disk = load_sentence(out, 0, 0)
+        assert on_disk == {"original_text": "New text at position 0."}
+        assert "translation" not in on_disk, "旧译文不能残留在磁盘上的新 checkpoint 里"
+        assert "audio" not in on_disk, "旧音频时间轴不能残留"
+
+    def test_no_conflict_path_still_preserves_other_stage_data(self, tmp_path):
+        """非冲突路径(original_text 匹配)必须继续走 save_sentence 合并语义——
+        这是断点续跑的基础: nlp 阶段重跑不能抹掉同一句子已经翻译好的 translation。"""
+        from aidulc_prep.pipeline.nlp.stage import reconcile_position_checkpoint
+        out = str(tmp_path)
+        save_sentence(out, 0, 0, {
+            "original_text": "Same sentence.",
+            "translation": "已经翻译好的译文, 不该被 nlp 重跑抹掉。",
+        })
+        existing = load_sentence(out, 0, 0)
+        reconciled, conflict = reconcile_position_checkpoint(existing, "Same sentence.")
+        assert conflict is None
+        reconciled.update({"original_text": "Same sentence.", "segments": []})
+        save_sentence(out, 0, 0, reconciled)
+        on_disk = load_sentence(out, 0, 0)
+        assert on_disk["translation"] == "已经翻译好的译文, 不该被 nlp 重跑抹掉。"
+        assert on_disk["segments"] == []

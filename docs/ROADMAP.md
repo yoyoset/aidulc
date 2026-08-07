@@ -81,9 +81,6 @@
   `audio` 字段为 null 时,二分查找可能锁定到错误的更早句子。生产环境理论上不会触发(`pack.py` 的
   B3 修复保证失败句也写静音占位 audio),但旧版书包/手工编辑可能撞到。测试已锁定现状行为,见
   `reader/tests/timeline.test.js`。
-- **hydrate 对齐风险**(`memory/pipeline.md` "状态管理"节):nlp 的碎片句过滤若发生在章**中间**
-  (非尾部)会破坏 checkpoint 位置对齐 → 音频时间轴错位。已实测的三本书碎片句均在章尾、位置安全,
-  遇到中间碎片句的书再修(改按 `original_text` 匹配)。
 - **explain 逐句 LLM 调用可批量化**(吞吐预估 2-4x),改 prompt 有回归风险,暂缓
   (来源:`docs/archive/PACK_RELIABILITY_PHASE.md` §6)。
 - **translate 阶段无完整性校验**(explain 阶段已有的 skipped_fatal 校验,translate 阶段还没有),

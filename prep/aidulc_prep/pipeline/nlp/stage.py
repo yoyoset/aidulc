@@ -12,6 +12,29 @@ from aidulc_prep.core.quality import QualityReport
 from aidulc_prep.infra.checkpoint import load_sentence, save_sentence
 
 
+def reconcile_position_checkpoint(existing: dict, new_original_text: str) -> tuple[dict, str | None]:
+    """位置对齐风险修复 (memory/pipeline.md 记录的已知风险, 2026-08-07 修)。
+
+    checkpoint 按"章节位置"存盘(chXXX/sNNNNN.json), 不是按内容寻址。若 fragment 过滤
+    在两次运行间产生差异(句子总数变化), 同一个位置 i 在两次运行里可能对应不同的句子——
+    这个位置上历史的 translation/explanation/audio/words 其实属于"曾经在这个位置"的
+    另一句话, 不能被当前句子沿用(hydrate 只检查 original_text 是否匹配, 而调用方马上
+    就要把 original_text 覆写成当前句子的文本, 不在这里清空旧阶段数据的话, hydrate 会
+    看到"匹配"的假象、把别的句子的译文/音频错误地接到这句上)。
+
+    纯函数, 无 I/O: 输入旧 checkpoint dict + 这次解析出的原文, 判断是否需要清空。
+    清空强制重跑这一句不是最优(要重新过 translate/explain/tts/align)但正确——
+    "不确定时选择重跑而不是用可能错的数据", 与断点续跑的既有取舍一致。
+
+    返回: (可能被清空的 dict, 冲突原因摘要或 None)。
+    """
+    old_text = existing.get("original_text")
+    if old_text and old_text != new_original_text:
+        reason = f"位置原文变化(旧: {old_text[:30]!r} → 新: {new_original_text[:30]!r})"
+        return {}, reason
+    return existing, None
+
+
 def run_nlp_stage(
     book: Book,
     job: dict,
@@ -46,10 +69,26 @@ def run_nlp_stage(
             # G2: 只更新 nlp 产物, 不覆盖已有 status/failedStages (旧实现重跑清掉失败标记,
             # 导致"重试失败句"失效 — 审查确认的 bug)
             existing = load_sentence(out_dir, ch.index, i) or {}
-            existing["original_text"] = s.original_text
-            existing["segments"] = [seg.to_list() for seg in s.segments]
-            existing["phrasal_verbs"] = [
-                {"text": pv.text, "indices": pv.indices, "lemma": pv.lemma, "translation": pv.translation}
-                for pv in s.phrasal_verbs
-            ]
-            save_sentence(out_dir, ch.index, i, existing)
+            reconciled, conflict = reconcile_position_checkpoint(existing, s.original_text)
+            nlp_fields = {
+                "original_text": s.original_text,
+                "segments": [seg.to_list() for seg in s.segments],
+                "phrasal_verbs": [
+                    {"text": pv.text, "indices": pv.indices, "lemma": pv.lemma, "translation": pv.translation}
+                    for pv in s.phrasal_verbs
+                ],
+            }
+            if conflict:
+                # 必须整体替换(overwrite_sentence), 不能用 save_sentence 的合并写入——
+                # 合并语义是"和磁盘上的旧内容 update()", reconcile 在内存里清空的 {} 传给
+                # save_sentence 不会真的清掉磁盘上的旧 translation/audio(踩过这个坑,
+                # 已用 roundtrip 测试复现确认, 见 checkpoint.py::save_sentence 的说明)。
+                from aidulc_prep.infra.checkpoint import overwrite_sentence
+                quality.add_failure(
+                    ch.index, i, ["nlp_realign"],
+                    f"{conflict}, 已清空该位置历史阶段数据强制重跑, 防止张冠李戴",
+                )
+                overwrite_sentence(out_dir, ch.index, i, nlp_fields)
+            else:
+                reconciled.update(nlp_fields)
+                save_sentence(out_dir, ch.index, i, reconciled)

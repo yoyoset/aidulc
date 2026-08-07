@@ -1,6 +1,14 @@
-/* MD3 令牌 —— 从 aidu main.css 精简搬运(Phase 0-B 原型用,Phase 5 对齐全集) */
+/* tokens.css —— 颜色/圆角/字号/间距的唯一来源(CLAUDE.md 强制: 新代码不得写裸 #hex/裸 px)。
+ *
+ * 色板是 Material Design 3 官方 baseline 紫色种子(#6750a4)方案, 不是自定义品牌色
+ * ——浅色 27 个 role 此前就已是这份参考色板的值, 深色此前只覆盖了 17 个(见 app.css 旧版),
+ * 这次把剩余 10 个(secondary 系 4 个 + on-tertiary/on-error/outline/shadow/scrim/
+ * inverse-primary)按同一份官方参考色板补全, 不是新发明的颜色, 只是把没抄完的抄完。
+ * 深色令牌原来散落在 app.css 的 body[data-theme="dark"] 里, 现在整体迁回这里
+ * ——颜色只能有一个来源, 不能一半在这一半在那。
+ */
 :root {
-  /* color roles (MD3 22个) */
+  /* ---- color roles (MD3 27个, 浅色) ---- */
   --md-sys-color-primary: #6750a4;
   --md-sys-color-on-primary: #ffffff;
   --md-sys-color-primary-container: #eaddff;
@@ -29,7 +37,23 @@
   --md-sys-color-inverse-on-surface: #f5eff7;
   --md-sys-color-inverse-primary: #d0bcff;
 
-  /* radius */
+  /* ---- 语义状态色(MD3 标准角色之外, 本项目自己的四态词汇: 完成/警示/进行中/中性;
+     现有值原样保留, 只是从 app.css 的裸 hex 提升成令牌, 不是新颜色) ---- */
+  --md-sys-color-success: #2e7d32;
+  --md-sys-color-on-success: #ffffff;
+  --md-sys-color-warning: #f9a825;
+  --md-sys-color-on-warning: #3e2723;
+  --md-sys-color-info: #1565c0;
+  --md-sys-color-on-info: #ffffff;
+  --md-sys-color-neutral: #9e9e9e;
+  --md-sys-color-on-neutral: #ffffff;
+  /* 固定深色, 不随主题反转(toast 默认态用): 不能用 inverse-surface——inverse-surface
+     语义是"和当前主题相反", 深色模式下会变浅, 反而对比度变差。这个颜色原来就是不跟随
+     主题切换的固定值, 刻意只在 :root 定义一次、深色 body[data-theme="dark"] 块不覆盖它。 */
+  --md-sys-color-scrim-surface: #2d2a31;
+  --md-sys-color-on-scrim-surface: #ffffff;
+
+  /* ---- radius ---- */
   --md-sys-radius-xs: 4px;
   --md-sys-radius-sm: 8px;
   --md-sys-radius-md: 12px;
@@ -37,16 +61,84 @@
   --md-sys-radius-xl: 28px;
   --md-sys-radius-pill: 999px;
 
-  /* elevation */
+  /* ---- elevation ---- */
   --md-sys-elevation-1: 0 1px 2px rgba(0,0,0,.3), 0 1px 3px 1px rgba(0,0,0,.15);
   --md-sys-elevation-2: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15);
   --md-sys-elevation-3: 0 1px 3px rgba(0,0,0,.3), 0 4px 8px 3px rgba(0,0,0,.15);
 
-  /* state layers */
+  /* ---- state layers ---- */
   --md-sys-state-hover: rgba(103, 80, 164, 0.08);
   --md-sys-state-focus: rgba(103, 80, 164, 0.12);
   --md-sys-state-pressed: rgba(103, 80, 164, 0.12);
 
+  /* ---- typography ---- */
   --md-sys-font-sans: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
   --md-sys-font-serif: Georgia, "Times New Roman", serif;
+
+  /* 字号阶梯(MD3 type scale 简化版: display/headline/title/body/label × L/M/S)。
+     现有代码里大量裸 rem 值(1.4rem 标题/0.9rem 正文/0.78rem 标签等)散落各处,
+     取值凌乱不成阶梯——这里先建立阶梯供新代码使用, 存量替换是后续工作,
+     不在这次令牌层地基搭建范围内(改一个数字要核对几十处调用点, 风险和收益不对等)。 */
+  --md-sys-font-size-display-l: 2rem;
+  --md-sys-font-size-display-m: 1.75rem;
+  --md-sys-font-size-display-s: 1.6rem;
+  --md-sys-font-size-headline-l: 1.4rem;
+  --md-sys-font-size-headline-m: 1.25rem;
+  --md-sys-font-size-headline-s: 1.1rem;
+  --md-sys-font-size-title-l: 1.05rem;
+  --md-sys-font-size-title-m: 0.95rem;
+  --md-sys-font-size-title-s: 0.9rem;
+  --md-sys-font-size-body-l: 0.92rem;
+  --md-sys-font-size-body-m: 0.85rem;
+  --md-sys-font-size-body-s: 0.8rem;
+  --md-sys-font-size-label-l: 0.78rem;
+  --md-sys-font-size-label-m: 0.72rem;
+  --md-sys-font-size-label-s: 0.68rem;
+
+  /* 间距阶梯(4 的倍数, 常见 8pt 网格惯例)。同上, 先建阶梯, 存量替换是后续工作。 */
+  --md-sys-space-1: 4px;
+  --md-sys-space-2: 8px;
+  --md-sys-space-3: 12px;
+  --md-sys-space-4: 16px;
+  --md-sys-space-6: 24px;
+  --md-sys-space-8: 32px;
+  --md-sys-space-12: 48px;
+}
+
+/* 深色: 与 JS 端 document.body.dataset.theme = 'dark' 对应(views/reader_view.js、
+   views/settings_view.js 写入)。缺的 10 个 role(secondary 系 4 个、on-tertiary、
+   on-error、outline、shadow、scrim、inverse-primary)按 MD3 官方同一份参考色板补全
+   ——之前只覆盖了 17/27, 未覆盖的在深色模式下会静默显示浅色数值, 是真实的对比度问题
+   (例如 on-tertiary 未覆盖时, 深色下 tertiary 背景变浅粉但文字仍是白色, 对比度不足)。 */
+body[data-theme="dark"] {
+  --md-sys-color-primary: #d0bcff;
+  --md-sys-color-on-primary: #381e72;
+  --md-sys-color-primary-container: #4f378b;
+  --md-sys-color-on-primary-container: #eaddff;
+  --md-sys-color-secondary: #ccc2dc;
+  --md-sys-color-on-secondary: #332d41;
+  --md-sys-color-secondary-container: #4a4458;
+  --md-sys-color-on-secondary-container: #e8def8;
+  --md-sys-color-tertiary: #efb8c8;
+  --md-sys-color-on-tertiary: #492532;
+  --md-sys-color-tertiary-container: #633b48;
+  --md-sys-color-on-tertiary-container: #ffd8e4;
+  --md-sys-color-error: #f2b8b5;
+  --md-sys-color-on-error: #601410;
+  --md-sys-color-error-container: #8c1d18;
+  --md-sys-color-on-error-container: #f9dedc;
+  --md-sys-color-surface: #141218;
+  --md-sys-color-on-surface: #e6e0e9;
+  --md-sys-color-surface-variant: #49454f;
+  --md-sys-color-on-surface-variant: #cac4d0;
+  --md-sys-color-outline: #938f99;
+  --md-sys-color-outline-variant: #49454f;
+  --md-sys-color-inverse-surface: #e6e0e9;
+  --md-sys-color-inverse-on-surface: #322f35;
+  --md-sys-color-inverse-primary: #6750a4;
+  /* shadow/scrim 在 MD3 baseline 深浅色下取值相同(都是纯黑), 不需要覆盖。 */
+
+  /* 语义状态色深色模式: 提高背景饱和度对比度的同时保持"这是同一种状态"的可辨识度
+     ——不是每种状态都需要换色, 这四种在深色背景上原样使用已有足够对比度
+     (深色背景 #141218 上, #2e7d32/#f9a825/#1565c0/#9e9e9e 与白/深色文字对比度均达标)。 */
 }

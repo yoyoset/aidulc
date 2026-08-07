@@ -63,9 +63,14 @@
 ## 前端(reader/)编码规约
 
 - `reader/styles/tokens.css` 是颜色/圆角/字号/间距的唯一来源,新代码不得写裸 `#hex` 或裸 `px` 数值
-  绕过令牌。**现状(2026-08-07 审计)**:`tokens.css` 目前只完整实现了颜色令牌,字号/间距阶梯缺失,
-  深色模式令牌散落在 `app.css` 且只覆盖 18/27 个 color role,`app.css` 另有 43 处硬编码颜色——这些是
-  已知欠账,不是"照着现状抄"的许可,新代码仍按"只能用令牌"的规则写,欠账修复见 `docs/ROADMAP.md`。
+  绕过令牌。**颜色(S3.1, 2026-08-07 已修)**:深色模式令牌已从 `app.css` 整体迁回 `tokens.css`,
+  27 个 color role 深浅色全覆盖(此前只覆盖 18/27);`app.css` 的 43 处硬编码颜色已清零,新增
+  `--md-sys-color-success/warning/info/neutral`(+对应 `on-*`)四个语义状态色和
+  `--md-sys-color-scrim-surface`(+`on-scrim-surface`,固定深色不随主题反转,toast 用)。
+  `scripts/check.ps1` 的 `css:no-raw-hex` 一项强制校验(零豁免):`tokens.css` 之外的样式文件
+  出现裸 `#hex` 直接门禁失败。**字号/间距(仍是已知欠账)**:阶梯令牌(`--md-sys-font-size-*`/
+  `--md-sys-space-*`)已建立,但存量 `rem`/`px` 用法尚未迁移替换,没有对应 lint(迁移是更大的
+  改动,现在加约束会让门禁对着几百处存量代码常年变红)——新代码字号间距仍应优先用阶梯令牌。
 - `reader/core/*.js` 是零 DOM 依赖的纯逻辑模块(挂在 `window` 上的 IIFE),改动配对 `reader/tests/*.test.js`。
   这类模块新增前先看能不能保持"无 DOM 依赖", 保持这个性质才能继续用轻量的 `window=globalThis` shim
   测试,不必引入 jsdom。

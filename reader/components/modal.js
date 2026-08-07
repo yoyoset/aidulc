@@ -1,0 +1,81 @@
+/**
+ * components/modal.js —— 模态弹窗 (苹果级: 遮罩/Esc 关闭/焦点陷阱/标题+内容+操作)
+ * 用法:
+ *   const m = AiduModal.confirm({
+ *     title: '删除《xx》?',
+ *     message: '书的内容和音频都会移除。',
+ *     confirmText: '删除', danger: true,
+ *     onConfirm: () => {...}   // 返回 Promise 则按钮转"处理中"
+ *   });
+ *   m.close();  // 程序化关闭
+ */
+(function (global) {
+  'use strict';
+
+  function buildOverlay() {
+    const ov = document.createElement('div');
+    ov.className = 'modal-overlay';
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-modal', 'true');
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+    return { ov, box };
+  }
+
+  function makeConfirm(opts) {
+    const { ov, box } = buildOverlay();
+    const title = document.createElement('h2');
+    title.className = 'modal-title';
+    title.textContent = opts.title || '';
+    const msg = document.createElement('p');
+    msg.className = 'modal-message';
+    msg.textContent = opts.message || '';
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn-small';
+    cancelBtn.textContent = opts.cancelText || '取消';
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = opts.danger ? 'btn-small btn-danger' : 'btn-small btn-primary';
+    confirmBtn.textContent = opts.confirmText || '确定';
+
+    box.append(title, msg, actions);
+    actions.append(cancelBtn, confirmBtn);
+
+    function close() {
+      document.removeEventListener('keydown', onKey);
+      ov.remove();
+    }
+
+    function onKey(e) {
+      if (e.key === 'Escape') close();
+    }
+
+    cancelBtn.onclick = close;
+    confirmBtn.onclick = () => {
+      const r = opts.onConfirm ? opts.onConfirm() : null;
+      if (r && typeof r.then === 'function') {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = opts.processingText || '处理中…';
+        r.then(() => close()).catch(() => {
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = opts.confirmText || '确定';
+        });
+      } else {
+        close();
+      }
+    };
+    ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+    document.addEventListener('keydown', onKey);
+    // 焦点: 进弹窗聚焦取消钮 (苹果式, 避免误触确认)
+    cancelBtn.focus();
+    return { close };
+  }
+
+  global.AiduModal = {
+    confirm: makeConfirm,
+  };
+})(window);

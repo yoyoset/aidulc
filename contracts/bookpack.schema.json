@@ -1,0 +1,284 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aidulc.local/contracts/bookpack.schema.json",
+  "title": "aidulc 书包 (Bookpack) —— 唯一跨语言契约",
+  "description": "一本书+一个 profile 跑完的产物。字段名与 aidu SENTENCE_SCHEMA 字字相同, 新增字段只有 audio / words / status / failedStages。schemaVersion 从第一天就有: 阅读器遇到高于自己支持的版本必须明确拒绝。",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "title",
+    "profile",
+    "chapters",
+    "quality",
+    "generatedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "冻结于 Phase 1。任何跨端新增字段必须先升此号, 三端 conformance 测试同时变红。"
+    },
+    "title": {
+      "type": "string",
+      "description": "书名 (来自 manifest, 与 aidu draft.title 同语义)"
+    },
+    "profile": {
+      "type": "object",
+      "required": [
+        "id",
+        "name"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "profile 标识, 与 CF KV 键 `?profile=<id>` 一致"
+        },
+        "name": {
+          "type": "string"
+        },
+        "explainStrategy": {
+          "type": "string",
+          "description": "讲解策略快照 (不讲/简讲/深讲)"
+        },
+        "voice": {
+          "type": "string",
+          "description": "TTS 音色"
+        },
+        "speed": {
+          "type": "number"
+        }
+      }
+    },
+    "generatedAt": {
+      "type": "integer",
+      "description": "epoch ms"
+    },
+    "prepVersion": {
+      "type": "string",
+      "description": "生成该书包的 prep 版本"
+    },
+    "chapters": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "index",
+          "title",
+          "audioFile"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "audioFile": {
+            "type": "string",
+            "description": "相对书包根的音频路径, 如 audio/ch_001.opus"
+          },
+          "sentences": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/sentence"
+            }
+          }
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "required": [
+        "stages",
+        "summary"
+      ],
+      "properties": {
+        "stages": {
+          "type": "object",
+          "description": "每阶段 {done, failed, successRate}",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "done": {
+                "type": "integer"
+              },
+              "failed": {
+                "type": "integer"
+              },
+              "successRate": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "summary": {
+          "type": "string",
+          "description": "人话摘要 (给用户)"
+        },
+        "failedSentences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "index",
+              "stages"
+            ],
+            "properties": {
+              "index": {
+                "type": "integer",
+                "description": "章节内句子下标"
+              },
+              "chapter": {
+                "type": "integer"
+              },
+              "stages": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "object",
+      "description": "本次任务各模型实际解析到的绝对路径 (对标 comic-gen job.json)",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "definitions": {
+    "sentence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "original_text",
+        "segments",
+        "status"
+      ],
+      "properties": {
+        "original_text": {
+          "type": "string",
+          "description": "与 aidu SENTENCE_SCHEMA.original_text 字字相同"
+        },
+        "translation": {
+          "type": "string",
+          "description": "aidu SENTENCE_SCHEMA.translation"
+        },
+        "explanation": {
+          "type": "string",
+          "description": "aidu SENTENCE_SCHEMA.explanation"
+        },
+        "segments": {
+          "type": "array",
+          "description": "[[word, POS, lemma], ...] 物理序, 标点独立占位 (aidu SENTENCE_SCHEMA.segments)",
+          "items": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "phrasal_verbs": {
+          "type": "array",
+          "description": "aidu SENTENCE_SCHEMA.phrasal_verbs; indices 必须指向 segments 物理下标",
+          "items": {
+            "type": "object",
+            "required": [
+              "text",
+              "indices",
+              "lemma",
+              "translation"
+            ],
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "indices": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "lemma": {
+                "type": "string"
+              },
+              "translation": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "audio": {
+          "type": "object",
+          "description": "aidulc 新增: 整章一条流的区间",
+          "required": [
+            "chapter",
+            "start_ms",
+            "end_ms"
+          ],
+          "properties": {
+            "chapter": {
+              "type": "integer"
+            },
+            "start_ms": {
+              "type": "integer"
+            },
+            "end_ms": {
+              "type": "integer"
+            }
+          }
+        },
+        "words": {
+          "type": "array",
+          "description": "aidulc 新增: 词级时间轴。seg_idx 指向 segments 下标 (词级高亮与点词查词共用同一套下标)",
+          "items": {
+            "type": "object",
+            "required": [
+              "seg_idx",
+              "start_ms",
+              "end_ms"
+            ],
+            "properties": {
+              "seg_idx": {
+                "type": "integer"
+              },
+              "start_ms": {
+                "type": "integer"
+              },
+              "end_ms": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "partial",
+            "failed"
+          ],
+          "description": "aidulc 新增: 单句状态。翻译失败 ≠ TTS 失败 ≠ 对齐失败, 分别记 failedStages"
+        },
+        "failedStages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "aidulc 新增: 失败阶段名 (nlp/translate/explain/tts/align)"
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

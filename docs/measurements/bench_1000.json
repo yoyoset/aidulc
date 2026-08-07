@@ -1,0 +1,23 @@
+{
+  "text": "F:\\my_ai\\aidulc\\contracts\\fixtures\\perf\\perf_1000.txt",
+  "env": {
+    "python": "3.13.14",
+    "platform": "win32"
+  },
+  "python": {
+    "loader_secs": 0.017,
+    "nlp_secs": 11.689,
+    "chapters": 18,
+    "sentences": 1224,
+    "nlp_sentences_per_sec": 104.7
+  },
+  "bookpack": {
+    "bookpack_json_bytes": 47042,
+    "audio_bytes": 184337
+  },
+  "build": {
+    "tauri_exe": 18448384,
+    "prep_sidecar": 6574859354,
+    "reader_frontend": 77572
+  }
+}

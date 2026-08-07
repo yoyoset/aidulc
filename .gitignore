@@ -1,0 +1,28 @@
+# Python 侧车
+prep/.venv/
+prep/build/
+prep/dist/
+prep/__pycache__/
+prep/aidulc_prep/__pycache__/
+prep/.pytest_cache/
+**/__pycache__/
+*.pyc
+
+# Rust
+src-tauri/target/
+Cargo.lock.bak
+
+# 打包产物
+dist/
+
+# Phase 0 spike 产物(35000+ 临时 checkpoint + 311MB 模型文件 + 重复 fixtures;
+# 有长期价值的 bench_*.json / job_phase3.json 已归档到 docs/measurements/)
+.spikes/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# 系统
+.DS_Store
+Thumbs.db

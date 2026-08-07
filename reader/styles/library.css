@@ -1,0 +1,26 @@
+/* library.css —— 书库 */
+.book-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+.book-card {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-md);
+  padding: 16px;
+  background: var(--md-sys-color-surface);
+  box-shadow: var(--md-sys-elevation-1);
+  transition: box-shadow 0.15s ease;
+}
+.book-card:hover { box-shadow: var(--md-sys-elevation-2); }
+.book-card-title { font-weight: 600; margin-bottom: 6px; }
+.book-card-meta { font-size: 0.82rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 12px; }
+.book-card-actions { display: flex; gap: 8px; }
+.book-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--md-sys-color-on-surface-variant);
+  padding: 60px 20px;
+  border: 2px dashed var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-md);
+}

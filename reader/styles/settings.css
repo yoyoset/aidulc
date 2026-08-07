@@ -1,0 +1,18 @@
+/* settings.css —— 设置 */
+.settings-form { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.92rem;
+}
+.settings-row input[type="number"], .settings-row select {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-sm);
+  padding: 7px 10px;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-sys-font-sans);
+  width: 130px;
+}

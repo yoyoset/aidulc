@@ -1,0 +1,12 @@
+# prep/pyproject.toml —— 直接依赖固定精确版本 + 锁文件策略 (照抄 comic-gen)
+[project]
+name = "aidulc-prep"
+version = "0.1.0"
+description = "aidulc 离线批处理侧车: loader → nlp → llm → tts → align → pack"
+requires-python = ">=3.13"
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

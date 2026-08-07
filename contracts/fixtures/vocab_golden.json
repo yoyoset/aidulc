@@ -1,0 +1,52 @@
+{
+  "_comment": "Golden fixtures 从 aidu JS 侧导出 (R3 结构性防漂移: Python/Rust 各写 conformance 测试对这份文件)。来源: aidu/src/utils/schema_constants.js 的 normalizeVocabEntry / normalizeDictionaryEntry 语义。",
+  "vocab_entry_canonical": {
+    "word": "break",
+    "lemma": "break",
+    "pos": "VERB",
+    "meaning": "打破, 弄碎; 违背",
+    "senseId": "break:verb:1",
+    "phonetic": "/breɪk/",
+    "context": "He broke the news to her carefully.",
+    "level": "B1",
+    "collocations": ["break the news", "break a promise"],
+    "deepData": {},
+    "stage": "new",
+    "interval": 0,
+    "easeFactor": 2.5,
+    "nextReview": 1700000000000,
+    "reviews": 0,
+    "lastReview": null,
+    "lastGrade": null,
+    "addedAt": 1700000000000,
+    "updatedAt": 1700000000000
+  },
+  "vocab_entry_minimal": {
+    "word": "break"
+  },
+  "vocab_entry_bad": {
+    "meaning": "没有 word 也没有 lemma 的条目"
+  },
+  "dict_entry_canonical": {
+    "word": "bank",
+    "lemma": "bank",
+    "pos": "NOUN",
+    "meanings": ["河岸", "银行"],
+    "meaning": "河岸",
+    "senses": [
+      { "id": "bank:noun:river", "pos": "NOUN", "meaning": "河岸", "examples": ["They sat on the river bank."] },
+      { "id": "bank:noun:finance", "pos": "NOUN", "meaning": "银行", "examples": ["She works at a bank."] }
+    ],
+    "selectedSenseId": "bank:noun:river",
+    "phonetic": "/bæŋk/",
+    "level": "A2",
+    "collocations": ["river bank"],
+    "examples": ["They sat on the river bank."],
+    "source": "ai",
+    "confidence": 0.8,
+    "context": "They sat on the river bank.",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000
+  },
+  "_pos_enum_aidu": ["NOUN", "VERB", "ADJ", "ADV", "PRON", "PREP", "CONJ", "PART", "INTJ", "DET", "NUM", "PUNCT", "STOP"]
+}

@@ -1,0 +1,18 @@
+{
+  "job_id": "phase3-e2e-001",
+  "book_path": "F:/my_ai/aidulc/contracts/fixtures/sample_book/alice_sample.epub",
+  "out_dir": "F:/my_ai/aidulc/.spikes/out/phase3_bookpack",
+  "profile": {
+    "id": "self",
+    "explain_strategy": "brief",
+    "voice": "af_heart",
+    "speed": 1.0,
+    "highlight_granularity": "sentence"
+  },
+  "models": {
+    "llm": "F:/hf_cache/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "tts": "F:/hf_cache/models--hexgrad--Kokoro-82M/snapshots/f3ff3571791e39611d31c381e3a41a3af07b4987/kokoro-v1_0.pth",
+    "spacy": "en_core_web_sm"
+  },
+  "tokens": { "temperature": 0.3, "max_tokens": 400 }
+}

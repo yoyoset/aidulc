@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aidulc.local/contracts/progress.schema.json",
+  "title": "aidulc 进度行 (Python → Rust, NDJSON 每行一条)",
+  "description": "Python 侧车写 stdout 的 NDJSON 进度行, Rust 解析后经 Tauri event 广播给备料台 UI。",
+  "type": "object",
+  "required": ["type", "ts"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["stage_start", "stage_progress", "stage_done", "stage_failed", "sentence_done", "job_done", "error"]
+    },
+    "ts": { "type": "number", "description": "epoch ms" },
+    "stage": { "type": "string", "enum": ["parse", "nlp", "translate", "explain", "tts", "align", "pack"] },
+    "current": { "type": "integer" },
+    "total": { "type": "integer" },
+    "message": { "type": "string", "description": "人话摘要" },
+    "detail": { "type": "string", "description": "技术细节 (进 run.log)" },
+    "sentence_index": { "type": "integer" },
+    "status": { "type": "string", "enum": ["ok", "partial", "failed"] },
+    "exit_code": { "type": "integer" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "stage_start" } } },
+      "then": { "required": ["stage"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "stage_progress" } } },
+      "then": { "required": ["stage", "current", "total"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "sentence_done" } } },
+      "then": { "required": ["sentence_index", "status"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "error" } } },
+      "then": { "required": ["message"] }
+    }
+  ]
+}

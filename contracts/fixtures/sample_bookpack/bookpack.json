@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "title": "Sample Bookpack (Alice 第一章前 3 句)",
+  "profile": { "id": "self", "name": "成人自读", "explainStrategy": "brief", "voice": "af_heart", "speed": 1.0 },
+  "generatedAt": 1700000000000,
+  "prepVersion": "0.1.0",
+  "chapters": [
+    {
+      "index": 0,
+      "title": "Chapter I. Down the Rabbit-Hole",
+      "audioFile": "audio/ch_000.opus",
+      "sentences": [
+        {
+          "original_text": "Alice was beginning to get very tired of sitting by her sister on the bank.",
+          "translation": "爱丽丝开始感到非常厌倦, 坐在姐姐身边河岸上。",
+          "explanation": "be beginning to get + 形容词 表示'开始变得……'的渐进过程。",
+          "segments": [
+            ["Alice", "PROPN", "alice"], ["was", "AUX", "be"], ["beginning", "VERB", "begin"],
+            ["to", "PART", "to"], ["get", "VERB", "get"], ["very", "ADV", "very"],
+            ["tired", "ADJ", "tired"], ["of", "ADP", "of"], ["sitting", "VERB", "sit"],
+            ["by", "ADP", "by"], ["her", "PRON", "her"], ["sister", "NOUN", "sister"],
+            ["on", "ADP", "on"], ["the", "DET", "the"], ["bank", "NOUN", "bank"],
+            [".", "PUNCT", "."]
+          ],
+          "phrasal_verbs": [],
+          "audio": { "chapter": 0, "start_ms": 0, "end_ms": 5120 },
+          "words": [
+            { "seg_idx": 0, "start_ms": 0, "end_ms": 320 },
+            { "seg_idx": 1, "start_ms": 320, "end_ms": 480 },
+            { "seg_idx": 2, "start_ms": 480, "end_ms": 960 },
+            { "seg_idx": 3, "start_ms": 960, "end_ms": 1120 },
+            { "seg_idx": 4, "start_ms": 1120, "end_ms": 1360 },
+            { "seg_idx": 5, "start_ms": 1360, "end_ms": 1520 },
+            { "seg_idx": 6, "start_ms": 1520, "end_ms": 1920 },
+            { "seg_idx": 7, "start_ms": 1920, "end_ms": 2080 },
+            { "seg_idx": 8, "start_ms": 2080, "end_ms": 2640 },
+            { "seg_idx": 9, "start_ms": 2640, "end_ms": 2800 },
+            { "seg_idx": 10, "start_ms": 2800, "end_ms": 3040 },
+            { "seg_idx": 11, "start_ms": 3040, "end_ms": 3600 },
+            { "seg_idx": 12, "start_ms": 3600, "end_ms": 3760 },
+            { "seg_idx": 13, "start_ms": 3760, "end_ms": 3840 },
+            { "seg_idx": 14, "start_ms": 3840, "end_ms": 4480 },
+            { "seg_idx": 15, "start_ms": 4480, "end_ms": 5120 }
+          ],
+          "status": "ok",
+          "failedStages": []
+        },
+        {
+          "original_text": "and of having nothing to do: once or twice she had peeped into the book her sister was reading.",
+          "translation": "而且无事可做: 她曾经一两次偷看姐姐正在读的书。",
+          "explanation": "having nothing to do 是动名词短语作 of 的宾语, 表示'无事可做'。",
+          "segments": [
+            ["and", "CCONJ", "and"], ["of", "ADP", "of"], ["having", "VERB", "have"],
+            ["nothing", "PRON", "nothing"], ["to", "PART", "to"], ["do", "VERB", "do"],
+            [":", "PUNCT", ":"], ["once", "ADV", "once"], ["or", "CCONJ", "or"],
+            ["twice", "ADV", "twice"], ["she", "PRON", "she"], ["had", "AUX", "have"],
+            ["peeped", "VERB", "peep"], ["into", "ADP", "into"], ["the", "DET", "the"],
+            ["book", "NOUN", "book"], ["her", "PRON", "her"], ["sister", "NOUN", "sister"],
+            ["was", "AUX", "be"], ["reading", "VERB", "read"], [".", "PUNCT", "."]
+          ],
+          "phrasal_verbs": [],
+          "audio": { "chapter": 0, "start_ms": 5120, "end_ms": 11360 },
+          "words": [],
+          "status": "partial",
+          "failedStages": ["align"]
+        },
+        {
+          "original_text": "but it had no pictures or conversations in it, and what is the use of a book without pictures or conversations?",
+          "translation": "但那本书里没有图画也没有对话, 而没有图画或对话的书有什么用呢?",
+          "explanation": "what is the use of...? 是反问句, 表示'……有什么用?'",
+          "segments": [
+            ["but", "CCONJ", "but"], ["it", "PRON", "it"], ["had", "AUX", "have"],
+            ["no", "DET", "no"], ["pictures", "NOUN", "picture"], ["or", "CCONJ", "or"],
+            ["conversations", "NOUN", "conversation"], ["in", "ADP", "in"], ["it", "PRON", "it"],
+            [",", "PUNCT", ","], ["and", "CCONJ", "and"], ["what", "PRON", "what"],
+            ["is", "AUX", "be"], ["the", "DET", "the"], ["use", "NOUN", "use"],
+            ["of", "ADP", "of"], ["a", "DET", "a"], ["book", "NOUN", "book"],
+            ["without", "ADP", "without"], ["pictures", "NOUN", "picture"],
+            ["or", "CCONJ", "or"], ["conversations", "NOUN", "conversation"],
+            ["?", "PUNCT", "?"]
+          ],
+          "phrasal_verbs": [],
+          "audio": { "chapter": 0, "start_ms": 11360, "end_ms": 17800 },
+          "words": [],
+          "status": "failed",
+          "failedStages": ["tts", "align"]
+        }
+      ]
+    }
+  ],
+  "quality": {
+    "stages": {
+      "parse": { "done": 1, "failed": 0, "successRate": 1.0 },
+      "nlp": { "done": 3, "failed": 0, "successRate": 1.0 },
+      "translate": { "done": 3, "failed": 0, "successRate": 1.0 },
+      "explain": { "done": 3, "failed": 0, "successRate": 1.0 },
+      "tts": { "done": 2, "failed": 1, "successRate": 0.67 },
+      "align": { "done": 1, "failed": 2, "successRate": 0.33 }
+    },
+    "summary": "3 句中 2 句有部分阶段失败 (tts/align)。",
+    "failedSentences": [
+      { "index": 1, "chapter": 0, "stages": ["align"], "reason": "时长/字符数比值异常" },
+      { "index": 2, "chapter": 0, "stages": ["tts", "align"], "reason": "TTS 时长/字符数比值超区间" }
+    ]
+  },
+  "models": {
+    "llm": "F:\\hf_cache\\Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "tts": "F:\\hf_cache\\models--hexgrad--Kokoro-82M\\snapshots\\f3ff3571791e39611d31c381e3a41a3af07b4987\\kokoro-v1_0.pth"
+  }
+}

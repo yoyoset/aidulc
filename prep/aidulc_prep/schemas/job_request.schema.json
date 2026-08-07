@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aidulc.local/contracts/job_request.schema.json",
+  "title": "aidulc 任务快照 (Rust → Python)",
+  "description": "Rust 组装的一次任务的不可变快照。Python 侧只读这一份, 不做任何配置发现 (3.1 纪律)。",
+  "type": "object",
+  "required": ["job_id", "book_path", "out_dir", "profile", "models", "tokens"],
+  "properties": {
+    "job_id": { "type": "string" },
+    "book_path": { "type": "string", "description": "EPUB/PDF/TXT 绝对路径" },
+    "out_dir": { "type": "string", "description": "书包输出目录" },
+    "profile": {
+      "type": "object",
+      "required": ["id", "explain_strategy", "voice", "speed", "highlight_granularity"],
+      "properties": {
+        "id": { "type": "string" },
+        "explain_strategy": { "type": "string", "enum": ["none", "brief", "deep"] },
+        "voice": { "type": "string" },
+        "speed": { "type": "number" },
+        "highlight_granularity": { "type": "string", "enum": ["word", "sentence"] }
+      }
+    },
+    "models": {
+      "type": "object",
+      "description": "模型 key → 绝对路径 (模型绑定快照, 任务运行中改设置不影响正在跑的任务)",
+      "required": ["llm", "tts"],
+      "properties": {
+        "llm": { "type": "string", "description": "GGUF 路径" },
+        "tts": { "type": "string", "description": "Kokoro 模型路径 (kokoro-v1_0.pth)" },
+        "spacy": { "type": "string", "description": "spaCy 模型名, 默认 en_core_web_sm" }
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "description": "LLM 采样参数",
+      "properties": {
+        "temperature": { "type": "number" },
+        "max_tokens": { "type": "integer" }
+      }
+    }
+  }
+}

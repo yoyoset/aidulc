@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>aidulc 精读工作站</title>
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/app.css" />
+  <link rel="stylesheet" href="styles/library.css" />
+  <link rel="stylesheet" href="styles/prep.css" />
+  <link rel="stylesheet" href="styles/reader.css" />
+  <link rel="stylesheet" href="styles/settings.css" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- core (纯逻辑) -->
+  <script src="core/timeline.js"></script>
+  <script src="core/shadow.js"></script>
+  <script src="core/search_index.js"></script>
+
+  <!-- ipc (唯一 invoke 出口) -->
+  <script src="ipc/bridge.js"></script>
+
+  <!-- services (用例层) -->
+  <script src="services/job_service.js"></script>
+  <script src="services/library_service.js"></script>
+  <script src="services/model_service.js"></script>
+  <script src="services/dictionary_service.js"></script>
+  <script src="services/sync_service.js"></script>
+  <script src="services/import_service.js"></script>
+  <script src="services/settings_service.js"></script>
+  <script src="services/reading_service.js"></script>
+  <script src="services/misc_service.js"></script>
+
+  <!-- app 层 -->
+  <script src="app/store.js"></script>
+  <script src="app/router.js"></script>
+
+  <!-- components -->
+  <script src="components/atomic_block.js"></script>
+  <script src="components/reader_renderer.js"></script>
+  <script src="components/dictionary_panel.js"></script>
+  <script src="components/toast.js"></script>
+  <script src="components/modal.js"></script>
+
+  <!-- views -->
+  <script src="views/shell_view.js"></script>
+  <script src="views/wizard_view.js"></script>
+  <script src="views/models_view.js"></script>
+  <script src="views/vocab_view.js"></script>
+  <script src="views/library_view.js"></script>
+  <script src="views/prep_view.js"></script>
+  <script src="views/reader_view.js"></script>
+  <script src="views/settings_view.js"></script>
+
+  <!-- 入口 -->
+  <script src="main.js"></script>
+</body>
+</html>

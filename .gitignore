@@ -12,6 +12,9 @@ prep/.pytest_cache/
 src-tauri/target/
 Cargo.lock.bak
 
+# 前端(reader/)
+reader/node_modules/
+
 # 打包产物
 dist/
 

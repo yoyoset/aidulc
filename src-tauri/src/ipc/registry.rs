@@ -46,7 +46,12 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         path: "commands::library::load_bookpack",
         domain: "书库",
-        desc: "加载书包(book_id)",
+        desc: "加载书包元信息(每章只带 original_text, 不含译文/讲解/时间轴; 修复大书 IPC 卡死)",
+    },
+    CommandInfo {
+        path: "commands::library::load_bookpack_chapter",
+        domain: "书库",
+        desc: "按需加载单章完整内容(译文/讲解/segments/时间轴)",
     },
     CommandInfo {
         path: "commands::library::read_audio",

@@ -22,6 +22,7 @@
       this._activeWordSeg = -1;
     }
 
+    /** 返回 Promise, resolve 时全部句子已建好 DOM(见 renderSentences 分帧建 DOM 的说明)。 */
     render(state, handlers) {
       const { sentences, showTranslations, savedSet, bookmarkIndices } = state;
       const container = document.createElement('div');
@@ -30,16 +31,15 @@
       const content = document.createElement('div');
       content.className = 'reader-content';
       this.contentArea = content;
+      container.appendChild(content);
+      this.root.appendChild(container);
 
       if (!sentences || sentences.length === 0) {
         this.renderEmptyState(content);
-      } else {
-        this.renderSentences(content, sentences, showTranslations, savedSet, handlers, bookmarkIndices);
+        return Promise.resolve({ contentArea: content });
       }
-
-      container.appendChild(content);
-      this.root.appendChild(container);
-      return { contentArea: content };
+      return this.renderSentences(content, sentences, showTranslations, savedSet, handlers, bookmarkIndices)
+        .then(() => ({ contentArea: content }));
     }
 
     renderEmptyState(container) {
@@ -49,26 +49,47 @@
       container.appendChild(hint);
     }
 
+    /**
+     * 分批建 DOM, 每批之间让出一帧(rAF)。
+     * 修复(2026-08-07 用真实书撞见): 原来一次 forEach 同步建完整章, 真实数据里
+     * 《The Ultimate Hitchhiker's Guide》单章 5351 句, 每句还要按 segments 逐词建
+     * bubble span, 一次性同步建下来是 10 万+ DOM 节点, 界面会冻结好几秒甚至更久,
+     * 表现就是"点开始阅读没反应"。分批后用户能立刻看到内容陆续出现, 界面全程可交互。
+     */
     renderSentences(container, sentences, showTranslations, savedSet, handlers, bookmarkIndices) {
-      sentences.forEach((sentence, index) => {
-        const block = AtomicBlock.create(sentence, index, {
-          onPlay: handlers.onPlay,
-          onSelect: handlers.onSelect,
-          onBubbleClick: handlers.onBubbleClick,
-          onBookmark: handlers.onBookmark,
-        }, {
-          showTranslations,
-          savedSet,
-          bookmarkIndices,
-        });
-        container.appendChild(block);
-        // 缓存句块内 seg_idx → bubble (P0: 避免 60Hz 全量查询)
-        const bubbles = new Map();
-        block.querySelectorAll('.bubble[data-seg-idx]').forEach(b => {
-          const idx = parseInt(b.dataset.segIdx, 10);
-          if (!Number.isNaN(idx)) bubbles.set(idx, b);
-        });
-        this._blockCache.set(index, { block, bubbles });
+      const BATCH = 200;
+      let i = 0;
+      return new Promise((resolve) => {
+        const buildBatch = () => {
+          const end = Math.min(i + BATCH, sentences.length);
+          for (; i < end; i++) {
+            const sentence = sentences[i];
+            const block = AtomicBlock.create(sentence, i, {
+              onPlay: handlers.onPlay,
+              onSelect: handlers.onSelect,
+              onBubbleClick: handlers.onBubbleClick,
+              onBookmark: handlers.onBookmark,
+            }, {
+              showTranslations,
+              savedSet,
+              bookmarkIndices,
+            });
+            container.appendChild(block);
+            // 缓存句块内 seg_idx → bubble (P0: 避免 60Hz 全量查询)
+            const bubbles = new Map();
+            block.querySelectorAll('.bubble[data-seg-idx]').forEach(b => {
+              const idx = parseInt(b.dataset.segIdx, 10);
+              if (!Number.isNaN(idx)) bubbles.set(idx, b);
+            });
+            this._blockCache.set(i, { block, bubbles });
+          }
+          if (i < sentences.length) {
+            requestAnimationFrame(buildBatch);
+          } else {
+            resolve();
+          }
+        };
+        buildBatch();
       });
     }
 

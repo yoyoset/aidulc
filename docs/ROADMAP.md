@@ -127,6 +127,11 @@ S3.1(2026-08-07)在 `reader/styles/tokens.css` 建了 `--md-sys-font-size-*`(15 
   (来源:`docs/archive/PACK_RELIABILITY_PHASE.md` §6)。
 - **translate 阶段无完整性校验**(explain 阶段已有的 skipped_fatal 校验,translate 阶段还没有),
   优先级低(来源:同上)。
+- **章节渲染只做了分帧, 没做虚拟滚动**(`reader/components/reader_renderer.js`):
+  5000+ 句的超大章节分帧建 DOM 后不再冻结界面, 但 DOM 节点总数仍然很大, 滚动这类
+  章节理论上仍可能不够流畅。真正的虚拟滚动需要重写 `highlightAt`/书签/搜索跳转依赖
+  "所有句子 DOM 都已存在"的假设, 是更大的改动, 留到实测证明分帧不够用时再做
+  (来源: `docs/BASELINE.md` 2026-08-07"新发现"一节)。
 - **explain 失败句无限重试,没有失败次数上限**:重试时 `failedStages` 里的句子每次都会再试,
   LLM 持续失败则永远失败,靠 quality 报告兜底可见但不会停止重试。当前是有意为之(用户需要"补"),
   但如果要限制资源消耗,后续可加一个失败次数上限(来源:`docs/archive/PACK_RELIABILITY_PHASE.md`
@@ -139,3 +144,7 @@ S3.1(2026-08-07)在 `reader/styles/tokens.css` 建了 `--md-sys-font-size-*`(15 
 - 2026-08-07:建立版本控制(此前零历史)、聚合门禁 `scripts/check.ps1`、CLAUDE.md 强制规约、
   前端测试基建(0→32 测试)、清 Rust lint 债务(clippy 41→8 警告)、schema 同步改为可校验、
   文档收口(本文件)。
+- 2026-08-07:书库位置可见可改 + 书包导出导入 zip(P1 全部完成)。
+- 2026-08-07:修复大书打开阅读器卡死——用户实测撞见"点开始阅读没反应", 根因是
+  `load_bookpack` 整本书(92MB, Hitchhiker's Guide)一次性 IPC 传给前端 + 章节渲染无分帧,
+  改为按需拉取单章内容 + 分帧建 DOM, 详见 `docs/BASELINE.md`"新发现"一节。

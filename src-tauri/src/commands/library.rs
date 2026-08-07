@@ -100,7 +100,56 @@ pub fn library_open(db: State<store::Db>, id: String) -> Result<serde_json::Valu
     serde_json::to_value(book).map_err(|e| e.to_string())
 }
 
-/// 加载书包 (book_id)
+/// book_id → 书包所在目录(登记过的书查 DB; 否则按路径/兜底目录猜)。
+/// 从 load_bookpack 提取, load_bookpack_chapter 复用同一套解析规则(两个命令必须
+/// 找到同一个目录, 不能一个走 DB、一个走猜测导致"元信息"和"章节内容"不是同一本书)。
+fn resolve_book_pack_dir(
+    db: &store::Db,
+    cfg: &crate::PrepConfig,
+    book_id: &str,
+) -> std::path::PathBuf {
+    let repo = store::books_repo::BooksRepo::new(db);
+    if let Some(book) = repo.get(book_id) {
+        std::path::PathBuf::from(&book.pack_dir)
+    } else {
+        let p = std::path::PathBuf::from(book_id);
+        if p.is_dir() && p.join("bookpack.json").exists() {
+            p
+        } else {
+            // 兜底: book_id 当作书库根目录下的直接子目录名(未登记进 DB 的场景)。
+            // 沿用此前 library_dir 分支的相对语义, 只是指向的根换成了合并后的 out_dir。
+            cfg.out_dir.join(book_id)
+        }
+    }
+}
+
+/// 把书包里每章的 sentences 换成只含 original_text 的轻量占位(供全文搜索/章节列表用)。
+///
+/// 修复(2026-08-07 用真实书撞见): `load_bookpack` 曾经把整本书(含每句的译文/讲解/
+/// 逐词时间轴)一次性通过 IPC 传给前端。真实的《The Ultimate Hitchhiker's Guide》
+/// bookpack.json 有 92MB, 92MB 字符串在前端 JS 侧 `JSON.parse` 是同步的, 会把界面主
+/// 线程整个卡死好几秒甚至更久, 表现就是"点开始阅读没反应/渲染不出来"。现在只回元信息,
+/// 具体某一章的完整内容(译文/讲解/时间轴)按需另调 `load_bookpack_chapter`。
+fn strip_chapters_to_meta(bookpack: &mut serde_json::Value) {
+    let Some(chapters) = bookpack.get_mut("chapters").and_then(|c| c.as_array_mut()) else {
+        return;
+    };
+    for chapter in chapters.iter_mut() {
+        let Some(sentences) = chapter.get_mut("sentences").and_then(|s| s.as_array_mut()) else {
+            continue;
+        };
+        for sentence in sentences.iter_mut() {
+            let text = sentence
+                .get("original_text")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            *sentence = serde_json::json!({ "original_text": text });
+        }
+    }
+}
+
+/// 加载书包元信息 (book_id) —— 每章只带 original_text(供全文搜索), 不含译文/讲解/
+/// 时间轴; 具体章节内容按需调 load_bookpack_chapter。
 #[tauri::command]
 pub fn load_bookpack(
     app: tauri::AppHandle,
@@ -111,18 +160,7 @@ pub fn load_bookpack(
     use tauri::Emitter;
 
     let repo = store::books_repo::BooksRepo::new(db.inner());
-    let target = if let Some(book) = repo.get(&book_id) {
-        std::path::PathBuf::from(&book.pack_dir)
-    } else {
-        let p = std::path::PathBuf::from(&book_id);
-        if p.is_dir() && p.join("bookpack.json").exists() {
-            p
-        } else {
-            // 兜底: book_id 当作书库根目录下的直接子目录名(未登记进 DB 的场景)。
-            // 沿用此前 library_dir 分支的相对语义, 只是指向的根换成了合并后的 out_dir。
-            cfg.out_dir.join(&book_id)
-        }
-    };
+    let target = resolve_book_pack_dir(db.inner(), &cfg, &book_id);
 
     let bp_path = target.join("bookpack.json");
     let data = std::fs::read_to_string(&bp_path).map_err(|e| {
@@ -131,7 +169,7 @@ pub fn load_bookpack(
             target.display()
         )
     })?;
-    let bookpack: serde_json::Value =
+    let mut bookpack: serde_json::Value =
         serde_json::from_str(&data).map_err(|e| format!("书包 JSON 解析失败: {e}"))?;
     crate::domain::bookpack::check_version(&bookpack)?;
 
@@ -164,11 +202,75 @@ pub fn load_bookpack(
     }
     let _ = app.emit("library-changed", serde_json::json!({}));
 
+    strip_chapters_to_meta(&mut bookpack);
+
     Ok(serde_json::json!({
         "bookpack": bookpack,
         "basePath": target.to_string_lossy(),
         "bookId": auto_id,
     }))
+}
+
+/// 按需加载单章完整内容(译文/讲解/segments/时间轴), 配合 load_bookpack 的元信息用。
+#[tauri::command]
+pub fn load_bookpack_chapter(
+    db: State<store::Db>,
+    cfg: State<crate::PrepConfig>,
+    book_id: String,
+    chapter_index: usize,
+) -> Result<serde_json::Value, String> {
+    let target = resolve_book_pack_dir(db.inner(), &cfg, &book_id);
+    let bp_path = target.join("bookpack.json");
+    let data = std::fs::read_to_string(&bp_path)
+        .map_err(|e| format!("读书包失败: {e} (book_id={book_id})"))?;
+    let bookpack: serde_json::Value =
+        serde_json::from_str(&data).map_err(|e| format!("书包 JSON 解析失败: {e}"))?;
+    bookpack
+        .get("chapters")
+        .and_then(|c| c.as_array())
+        .and_then(|arr| arr.get(chapter_index))
+        .cloned()
+        .ok_or_else(|| format!("章节下标越界: {chapter_index}"))
+}
+
+#[cfg(test)]
+mod meta_tests {
+    use super::*;
+
+    #[test]
+    fn strips_heavy_fields_keeps_original_text() {
+        let mut bp = serde_json::json!({
+            "chapters": [{
+                "title": "Ch1",
+                "sentences": [
+                    { "original_text": "Hello.", "translation": "你好。", "segments": [["Hello","INTJ","hello"]], "audio": {"start_ms": 0, "end_ms": 500} },
+                    { "original_text": "Bye.", "translation": "再见。" }
+                ]
+            }]
+        });
+        strip_chapters_to_meta(&mut bp);
+        let s0 = &bp["chapters"][0]["sentences"][0];
+        assert_eq!(s0["original_text"], "Hello.");
+        assert!(s0.get("translation").is_none(), "译文应被剥离");
+        assert!(s0.get("segments").is_none(), "segments 应被剥离");
+        assert!(s0.get("audio").is_none(), "audio 应被剥离");
+        assert_eq!(bp["chapters"][0]["sentences"][1]["original_text"], "Bye.");
+        assert_eq!(
+            bp["chapters"][0]["title"], "Ch1",
+            "非 sentences 字段不受影响"
+        );
+    }
+
+    #[test]
+    fn missing_chapters_or_sentences_is_noop() {
+        let mut bp = serde_json::json!({ "title": "empty" });
+        strip_chapters_to_meta(&mut bp); // 不 panic
+        assert_eq!(bp["title"], "empty");
+
+        let mut bp2 = serde_json::json!({ "chapters": [{ "title": "no sentences field" }] });
+        strip_chapters_to_meta(&mut bp2); // 不 panic
+        assert_eq!(bp2["chapters"][0]["title"], "no sentences field");
+    }
 }
 
 /// 读音频文件 (兼容单次整读)

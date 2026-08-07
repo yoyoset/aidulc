@@ -349,6 +349,7 @@ fn main() {
             commands::library::library_remove,
             commands::library::library_open,
             commands::library::load_bookpack,
+            commands::library::load_bookpack_chapter,
             commands::library::read_audio,
             commands::library::read_audio_range,
             commands::library::pick_files,

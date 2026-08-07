@@ -9,6 +9,7 @@
     open(id) { return AiduBridge.library.open(id); },
     remove(id, deleteFiles) { return AiduBridge.library.remove(id, deleteFiles); },
     loadBookpack(bookId) { return AiduBridge.bookpack.load(bookId); },
+    loadBookpackChapter(bookId, chapterIndex) { return AiduBridge.bookpack.loadChapter(bookId, chapterIndex); },
     readAudioRange(basePath, file, offset, length) {
       return AiduBridge.invoke('read_audio_range', { basePath, file, offset, length });
     },

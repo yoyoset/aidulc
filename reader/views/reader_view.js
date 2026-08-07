@@ -27,7 +27,8 @@
       this._saveTimer = null;
       this._searchIndex = new SearchIndex(); // G3
       this._blobUrl = null; // G3: 追踪待 revoke 的音频 blob
-      this._generation = 0; // G3: 章节异步竞态防护
+      this._generation = 0; // G3: 章节异步竞态防护(书打开/音频)
+      this._chapterGen = 0; // 章节内容拉取+渲染的竞态防护(与 _generation 分开, 见 _loadChapter 注释)
     }
 
     async open(bookId) {
@@ -40,7 +41,8 @@
       this.bookpack = res.data.bookpack;
       this.basePath = res.data.basePath;
       this.chapterIndex = 0;
-      // G3: 全书搜索索引 (一次构建)
+      // G3: 全书搜索索引 (一次构建; bookpack.chapters[*].sentences 现在只带 original_text
+      // 元信息, 修复大书 IPC 卡死用的, 恰好就是 SearchIndex.build 需要的最小字段)
       this._searchIndex.build(this.bookpack.chapters);
       // 应用该 profile 的阅读设置 (P2: 字体/主题/粒度)
       const profileId = (this.bookpack.profile && this.bookpack.profile.id) || 'default';
@@ -51,9 +53,14 @@
       }
       // 离开阅读器后 DOM 已被清理 → 中止 (审查确认: 写 null DOM 抛 TypeError)
       if (!document.getElementById('reader-content')) return;
-      this._loadChapter();
+      await this._loadChapter();
+      // 注意: 这里不能再判 `gen !== this._generation` 才继续——_loadChapter 内部会
+      // fire-and-forget 调 _setupAudio, 而 _setupAudio 自己的第一行就会 this._generation++
+      // (用同一个计数器做音频竞态防护), 所以 _loadChapter 一返回, _generation 几乎必然
+      // 已经变了; 加这个判断会导致 _restoreState 100% 被跳过(书签/阅读位置永远恢复不了,
+      // 2026-08-07 改成按需加载章节时曾经这么写、被浏览器实测撞见)。
       // 恢复书签 + 阅读位置 (只一次, 防死循环)
-      this._restoreState();
+      await this._restoreState();
     }
 
     _applySettings(s) {
@@ -215,23 +222,53 @@
       };
     }
 
-    _loadChapter() {
-      const ch = this.bookpack.chapters[this.chapterIndex];
-      if (!ch) return;
+    /**
+     * 修复(2026-08-07): 章节内容不再随整本书一次性传来(见 load_bookpack 注释),
+     * 这里按需拉取当前章完整内容(译文/讲解/segments/时间轴), 再分帧建 DOM。
+     * 返回 Promise, resolve 时该章已经渲染完(书签恢复/搜索跳转等需要 DOM 已存在的
+     * 逻辑必须等它, 否则会在 querySelector 时扑空 —— 见 _restoreState/_search)。
+     */
+    async _loadChapter() {
+      const chMeta = this.bookpack.chapters[this.chapterIndex];
+      if (!chMeta) return;
       // 修复: 防重入 (同章加载中跳过 — 无限循环防护)
       if (this._loadingChapter === this.chapterIndex) return;
       this._loadingChapter = this.chapterIndex;
-      this.sentences = ch.sentences;
+      this._chapterGen++;
+      const gen = this._chapterGen;
+
       const content = document.getElementById('reader-content');
+      if (!content) { this._loadingChapter = null; return; }
+      content.innerHTML = '';
+      const loading = document.createElement('div');
+      loading.className = 'chapter-loading';
+      loading.textContent = '加载中…';
+      content.appendChild(loading);
+
+      const res = await AiduLibraryService.loadBookpackChapter(this.bookId, this.chapterIndex);
+      if (gen !== this._chapterGen) return; // 加载期间又切了章, 丢弃这次结果
+      if (!res.ok) {
+        content.innerHTML = '';
+        const err = document.createElement('div');
+        err.className = 'global-error';
+        err.textContent = '加载章节失败: ' + res.error;
+        content.appendChild(err);
+        this._loadingChapter = null;
+        return;
+      }
+      const ch = res.data; // { index, title, audioFile, sentences }
+      this.sentences = ch.sentences;
       content.innerHTML = '';
       this.renderer = new ReaderRenderer(content);
       const savedSet = new Set();
-      this.renderer.render({ sentences: this.sentences, showTranslations: false, savedSet, bookmarkIndices: this.bookmarks }, {
+      await this.renderer.render({ sentences: this.sentences, showTranslations: false, savedSet, bookmarkIndices: this.bookmarks }, {
         onPlay: (i) => this._playFrom(i),
         onSelect: () => {},
         onBubbleClick: (bubble, seg) => { this._onWordClick(seg); },
         onBookmark: () => {},
       });
+      if (gen !== this._chapterGen) return; // 渲染期间又切了章, 丢弃这次结果
+
       // 修复: 粒度用户选择持久; 仅首次用默认 (原每次切章强制重置导致"词级跳回句级")
       if (!this._granularity) {
         this._setGranularity(this._defaultGranularity || 'word');
@@ -239,7 +276,7 @@
         this._setGranularity(this._granularity);
       }
       document.querySelector('.reader-book-title').textContent =
-        `${this.bookpack.title} · ${ch.title || ('第' + (this.chapterIndex + 1) + '章')}`;
+        `${this.bookpack.title} · ${chMeta.title || ('第' + (this.chapterIndex + 1) + '章')}`;
       // 章节下拉: 填充所有章节 + 高亮当前
       const chSelect = document.getElementById('reader-chapter-select');
       if (chSelect) {
@@ -256,6 +293,7 @@
       }
       this._setupAudio(ch);
       this._updateStatus();
+      this._loadingChapter = null;
     }
 
     async _setupAudio(ch) {
@@ -330,28 +368,29 @@
 
     // 修复: _restoreState 只在 open() 后调一次 (原在 _setupAudio 里 → 死循环:
     // _setupAudio → _restoreState → _loadChapter → _setupAudio → ... 无限)
-    _restoreState() {
-      AiduReadingService.get(this.bookId).then((res) => {
-        if (!res.ok || !res.data) return;
-        const state = res.data;
-        const chapter = state.chapter != null ? state.chapter : state.chapter_index;
-        if (chapter != null && chapter < this.bookpack.chapters.length && chapter >= 0) {
-          this.chapterIndex = chapter;
-          this._loadChapter();
-        }
-        const bookmarks = state.bookmarks || state.bm;
-        if (Array.isArray(bookmarks)) {
-          this.bookmarks = new Set(bookmarks);
-          this.bookmarks.forEach(i => {
-            const block = document.querySelector(`.atomic-block[data-index="${i}"]`);
-            if (block) block.classList.add('bookmark-active');
-          });
-        }
-        const pos = state.position_ms != null ? state.position_ms : 0;
-        if (this.audio && pos && chapter === this.chapterIndex) {
-          this.audio.currentTime = pos / 1000;
-        }
-      });
+    async _restoreState() {
+      const res = await AiduReadingService.get(this.bookId);
+      if (!res.ok || !res.data) return;
+      const state = res.data;
+      const chapter = state.chapter != null ? state.chapter : state.chapter_index;
+      if (chapter != null && chapter < this.bookpack.chapters.length && chapter >= 0 && chapter !== this.chapterIndex) {
+        this.chapterIndex = chapter;
+        // 修复(2026-08-07): 章节内容现在按需异步拉取, 必须等渲染完再摸 DOM 做书签恢复,
+        // 否则大章节还没建完 DOM, querySelector 直接扑空(原来同步渲染时不会有这个问题)。
+        await this._loadChapter();
+      }
+      const bookmarks = state.bookmarks || state.bm;
+      if (Array.isArray(bookmarks)) {
+        this.bookmarks = new Set(bookmarks);
+        this.bookmarks.forEach(i => {
+          const block = document.querySelector(`.atomic-block[data-index="${i}"]`);
+          if (block) block.classList.add('bookmark-active');
+        });
+      }
+      const pos = state.position_ms != null ? state.position_ms : 0;
+      if (this.audio && pos && chapter === this.chapterIndex) {
+        this.audio.currentTime = pos / 1000;
+      }
     }
 
     _saveProgress() {
@@ -534,7 +573,7 @@
       this.dictPanel.show(word, profileId, context);
     }
 
-    _search(query) {
+    async _search(query) {
       if (!query) return;
       // G3: 用全书索引 (跨章节搜索), 不线性扫当前章
       const hits = this._searchIndex.search(query);
@@ -544,15 +583,13 @@
       }
       const first = hits[0];
       if (first.chapter !== this.chapterIndex) {
-        // 命中在其它章节 → 切章
+        // 命中在其它章节 → 切章; 章节内容现在是异步按需拉取的(见 _loadChapter 注释),
+        // 必须等它渲染完, 目标句的 DOM 才存在, 否则 _setSentenceVisible 会扑空。
         this.chapterIndex = first.chapter;
-        this._loadChapter();
+        await this._loadChapter();
       }
-      // 等渲染后滚动
-      requestAnimationFrame(() => {
-        this._setSentenceVisible(first.index);
-        document.getElementById('reader-status').textContent = `找到 ${hits.length} 处: ${first.text.slice(0, 60)}…`;
-      });
+      this._setSentenceVisible(first.index);
+      document.getElementById('reader-status').textContent = `找到 ${hits.length} 处: ${first.text.slice(0, 60)}…`;
     }
 
     _setSentenceVisible(index) {

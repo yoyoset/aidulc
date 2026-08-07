@@ -57,6 +57,8 @@
   // ---- 书包 ----
   const bookpack = {
     load: (bookId) => invoke('load_bookpack', { bookId }),
+    // 修复(2026-08-07): 大书(90MB+)不能整本传, 按需只要当前章
+    loadChapter: (bookId, chapterIndex) => invoke('load_bookpack_chapter', { bookId, chapterIndex }),
     readAudio: (basePath, file) => invoke('read_audio', { basePath, file }),
   };
 

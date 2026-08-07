@@ -46,6 +46,11 @@
 
       const header = el('div', 'page-header');
       header.appendChild(el('h1', null, isOriginal ? '书库' : '我的书'));
+      // P1.5: 书包是资产, 支持跨设备导入(zip); 两个视图都放, 导入的书直接进"我的书"
+      const importBookBtn = el('button', 'btn-small', '导入书包(.zip)');
+      importBookBtn.title = '导入之前从别的设备导出的书包 zip, 免重新处理直接可读';
+      importBookBtn.onclick = () => this._importBookZip();
+      header.appendChild(importBookBtn);
 
       // 导入成功提示 (导入完成后停留书库, 提示去备料台看进度)
       const notice = this.store.state.importedNotice;
@@ -175,8 +180,11 @@
 
         const actions = el('div', 'book-card-actions');
         if (this.kind === 'product') {
-          // 成品架: 只负责阅读 + 删除
+          // 成品架: 阅读 + 导出(资产可跨设备迁移) + 删除
           actions.append(openBtn);
+          const exportBtn = el('button', 'btn-small', '导出');
+          exportBtn.onclick = () => this._exportBookZip(book);
+          actions.appendChild(exportBtn);
           const delBtn = el('button', 'btn-small btn-danger', '删除');
           delBtn.onclick = () => {
             AiduModal.confirm({
@@ -400,6 +408,29 @@
         });
       };
       cancelBtn.focus();
+    }
+
+    /** P1.5: 导出书包为 zip (成品资产, 跨设备迁移) */
+    _exportBookZip(book) {
+      AiduLibraryService.exportBook(book.id).then((r) => {
+        if (!r.ok) { AiduToast.show('导出失败: ' + r.error, 'error'); return; }
+        const d = r.data || {};
+        if (d.cancelled) return;
+        AiduToast.show('已导出到 ' + d.path, 'success');
+      });
+    }
+
+    /** P1.5: 导入 zip 书包 (免重新处理, 直接进"我的书") */
+    _importBookZip() {
+      AiduLibraryService.importBook().then((r) => {
+        if (!r.ok) { AiduToast.show('导入失败: ' + r.error, 'error'); return; }
+        const d = r.data || {};
+        if (d.cancelled) return;
+        AiduToast.show('已导入《' + d.id + '》, 可在"我的书"里打开', 'success');
+        AiduLibraryService.list(this.kind).then((lr) => {
+          if (lr.ok) this.store.set({ books: lr.data || [] });
+        });
+      });
     }
 
     /** 导入卡片: 拖拽 + 文件选择; 不要求用户输入任何路径 (易用性审查: 删除手动路径输入) */

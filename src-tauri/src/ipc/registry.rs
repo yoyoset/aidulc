@@ -68,6 +68,16 @@ pub const COMMANDS: &[CommandInfo] = &[
         domain: "书库",
         desc: "预览原书章节/句子(不需要已处理书包)",
     },
+    CommandInfo {
+        path: "commands::library::book_export",
+        domain: "书库",
+        desc: "书包导出为 zip(成品资产, 跨设备迁移)",
+    },
+    CommandInfo {
+        path: "commands::library::book_import",
+        domain: "书库",
+        desc: "导入 zip 书包(解到 out_dir 下新 id, 登记进 books 表)",
+    },
     // ---- 阅读/生词/词典/同步/书签/日志 (commands/reader.rs) ----
     CommandInfo {
         path: "commands::reader::word_lookup",

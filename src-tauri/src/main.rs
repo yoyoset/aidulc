@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod application {
+    pub mod book_transfer_service;
     pub mod dictionary_service;
     pub mod job_orchestrator;
     pub mod library_service;
@@ -352,6 +353,8 @@ fn main() {
             commands::library::read_audio_range,
             commands::library::pick_files,
             commands::library::library_preview,
+            commands::library::book_export,
+            commands::library::book_import,
             commands::reader::word_lookup,
             commands::reader::add_vocab,
             commands::reader::dict_list,

@@ -236,6 +236,94 @@ pub fn pick_files(extensions: Vec<String>) -> Result<Vec<String>, String> {
     Ok(paths)
 }
 
+/// P1.3: 书包导出为 zip (用户明确要求的产品能力: 成品是资产, 可跨设备迁移)
+#[tauri::command]
+pub fn book_export(db: State<store::Db>, id: String) -> Result<serde_json::Value, String> {
+    let repo = store::books_repo::BooksRepo::new(db.inner());
+    let book = repo.get(&id).ok_or("书不存在")?;
+    let pack_dir = std::path::PathBuf::from(&book.pack_dir);
+    let picked = rfd::FileDialog::new()
+        .set_title("导出书包为 zip")
+        .set_file_name(format!("{}.zip", book.id))
+        .add_filter("Zip", &["zip"])
+        .save_file();
+    let dest = match picked {
+        Some(p) => p,
+        None => return Ok(serde_json::json!({ "cancelled": true })),
+    };
+    crate::application::book_transfer_service::export_book_zip(&pack_dir, &dest)?;
+    Ok(serde_json::json!({ "cancelled": false, "path": dest.to_string_lossy() }))
+}
+
+/// P1.4: 导入 zip 书包 (解到 out_dir 下新 id, 登记进 books 表; id 冲突自动加序号)
+#[tauri::command]
+pub fn book_import(
+    db: State<store::Db>,
+    cfg: State<crate::PrepConfig>,
+) -> Result<serde_json::Value, String> {
+    let picked = rfd::FileDialog::new()
+        .set_title("选择要导入的书包 zip")
+        .add_filter("Zip", &["zip"])
+        .pick_file();
+    let zip_path = match picked {
+        Some(p) => p,
+        None => return Ok(serde_json::json!({ "cancelled": true })),
+    };
+
+    let base_id = zip_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "book".into())
+        .to_lowercase()
+        .replace(|c: char| !c.is_alphanumeric(), "_");
+    let repo = store::books_repo::BooksRepo::new(db.inner());
+    let mut new_id = base_id.clone();
+    let mut n = 1;
+    while cfg.out_dir.join(&new_id).exists() || repo.get(&new_id).is_some() {
+        n += 1;
+        new_id = format!("{base_id}_{n}");
+    }
+
+    let pack_dir = crate::application::book_transfer_service::import_book_zip(
+        &zip_path,
+        &cfg.out_dir,
+        &new_id,
+    )?;
+
+    let text = std::fs::read_to_string(pack_dir.join("bookpack.json"))
+        .map_err(|e| format!("读 bookpack.json 失败: {e}"))?;
+    let bookpack: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("bookpack.json JSON 解析失败: {e}"))?;
+    crate::domain::bookpack::check_version(&bookpack)?;
+    let profile_id = bookpack
+        .get("profile")
+        .and_then(|p| p.get("id"))
+        .and_then(|i| i.as_str())
+        .unwrap_or("default")
+        .to_string();
+
+    crate::application::library_service::register_book(
+        db.inner(),
+        new_id.clone(),
+        &pack_dir.to_string_lossy(),
+        String::new(),
+        new_id.clone(),
+        profile_id,
+        "en".into(),
+        "zh-CN".into(),
+        None,
+        None,
+        None,
+    )
+    .ok_or("登记书失败(bookpack.json 缺少必要字段)")?;
+
+    Ok(serde_json::json!({
+        "cancelled": false,
+        "id": new_id,
+        "pack_dir": pack_dir.to_string_lossy(),
+    }))
+}
+
 /// S4: 原版书预览 (书库"查看原文") — spawn 侧车 preview 模式读原书纯文本
 /// 返回 { title, chapters: [{index, title, sentences: [原文]}], format }
 #[tauri::command]

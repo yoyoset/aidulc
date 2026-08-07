@@ -13,6 +13,9 @@
       return AiduBridge.invoke('read_audio_range', { basePath, file, offset, length });
     },
     preview(bookId) { return AiduBridge.invoke('library_preview', { bookId }); },
+    // P1.5: 书包导出/导入(zip, 跨设备迁移的产品成品资产)
+    exportBook(id) { return AiduBridge.invoke('book_export', { id }); },
+    importBook() { return AiduBridge.invoke('book_import'); },
   };
 
   global.AiduLibraryService = LibraryService;

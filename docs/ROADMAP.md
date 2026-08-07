@@ -34,7 +34,7 @@
 
 ---
 
-## P1(产品需求,用户已明确提出)——进行中
+## P1(产品需求,用户已明确提出)——已完成
 
 ### 书库位置可见可改 + 书包导出导入
 
@@ -53,11 +53,18 @@
   迁移中/成功(含失败明细)/取消/被拒绝(任务处理中)四种场景都有对应文案。
   用真实 `SettingsView` 类(mock 其余依赖服务, 不是复制一份渲染逻辑)在浏览器里
   过了成功/部分失败/被拒绝三种场景, 确认渲染和交互与设计一致。
-- [ ] **P1.3 后端**:`book_export` 命令, 打包某本书的 pack_dir 成 zip(需加 `zip` crate 依赖)。
-- [ ] **P1.4 后端**:`book_import` 命令, 解压 zip 到 out_dir 下新建书 id, 登记进 books 表。
-  `src-tauri/src/application/transfer_service.rs` 现在只做 `.aidu-data`(词典/生词)的导入
-  导出, 不覆盖书包这个更大的资产类型, 是独立的新命令不是复用它。
-- [ ] **P1.5 前端**:书库/成品卡"导出"按钮 + 工具条"导入书包"入口。
+- [x] **P1.3 后端**(2026-08-07):`commands::library::book_export` 命令, 用 `zip` crate
+  (新增依赖)把某本书的 pack_dir 打包成 zip, 压缩方式选 Stored(不压缩)——音频已是
+  Opus 编码, 再走 Deflate 只白费 CPU。实现在 `application/book_transfer_service.rs`
+  (4 个测试: 往返/源目录缺失/zip 里没 bookpack.json 拒绝/目标已存在拒绝覆盖)。
+- [x] **P1.4 后端**(2026-08-07):`commands::library::book_import` 命令, 解压 zip 到
+  `out_dir/<new_id>/`(id 冲突自动加序号), 校验 `enclosed_name()` 防路径穿越, 校验含
+  `bookpack.json` 才登记(否则清理残留目录返回错误), 复用 `library_service::register_book`
+  完成入库。`application/transfer_service.rs` 现在只做 `.aidu-data`(词典/生词)的导入
+  导出, 不覆盖书包这个更大的资产类型, 是独立实现不是复用它。
+- [x] **P1.5 前端**(2026-08-07):"我的书"卡片新增"导出"按钮(product kind), 书库/我的书
+  两个视图头部都加"导入书包(.zip)"入口。用真实 `LibraryView` 类(mock 其余依赖服务)
+  在浏览器里验证了两个按钮存在且点击后正确调用后端命令、正确处理成功响应。
 
 来源:用户在审计 S0.4 阶段的明确反馈 + 2026-08-07 后续实现中的架构发现。
 

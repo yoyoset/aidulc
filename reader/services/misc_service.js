@@ -13,6 +13,8 @@
     // P1.2: 书库位置("...存放在哪"的产品化入口, 见 docs/ROADMAP.md P1)
     libraryDirGet() { return AiduBridge.invoke('library_dir_get'); },
     libraryDirPickAndSet() { return AiduBridge.invoke('library_dir_pick_and_set'); },
+    // R3.4: 一键安装文档解析器 PyMuPDF
+    docParserInstall() { return AiduBridge.invoke('doc_parser_install'); },
   };
 
   global.AiduMiscService = MiscService;

@@ -13,6 +13,8 @@
     readAudioRange(basePath, file, offset, length) {
       return AiduBridge.invoke('read_audio_range', { basePath, file, offset, length });
     },
+    // R4: 读原书插图 (base64)
+    readImage(basePath, file) { return AiduBridge.bookpack.readImage(basePath, file); },
     preview(bookId) { return AiduBridge.invoke('library_preview', { bookId }); },
     // P1.5: 书包导出/导入(zip, 跨设备迁移的产品成品资产)
     exportBook(id) { return AiduBridge.invoke('book_export', { id }); },

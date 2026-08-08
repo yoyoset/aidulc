@@ -44,10 +44,14 @@
 
 ## 测试门禁
 
-- Python: `prep\.venv\Scripts\python.exe -m pytest prep\tests` → 126 全绿
-- Rust: `cargo test --release -p aidulc -- --test-threads=1` → 100 全绿 (并行有隔离问题)
-- 前端: `cd reader && npx vitest run` → 32 全绿 (2026-08-07 审计前是 0——"29 个测试"是把
-  reader/ 下的 JS 文件数误记成测试数, 当时既无 package.json 也无测试运行器)
+- Python: `prep\.venv\Scripts\python.exe -m pytest prep\tests` → **154 全绿**
+  (2026-08-08 实测; 含 R3/R4 新增的 test_epub2_ncx.py 等)
+- Rust: `cargo test --release -p aidulc -- --test-threads=1` → **121 全绿** (并行有隔离问题)
+- 前端: `cd reader && npx vitest run` → **39 全绿** (含 R1 新增的 render_plan.test.js;
+  2026-08-07 审计前是 0——"29 个测试"是把 reader/ 下的 JS 文件数误记成测试数,
+  当时既无 package.json 也无测试运行器)
+- **计数会随 R0-R4 未提交改动增长**: 以上为 2026-08-08 在含 R0-R4 工作区实测的数字,
+  历史版本(126/100/32)是 R0-R4 之前的基准。
 - 打包: `pyinstaller --clean --noconfirm build_exe.spec` → `prep\dist\aidulc-prep\aidulc-prep.exe` → 复制到 `dist\aidulc-portable\prep\`; `cargo build --release` → `aidulc.exe` → 复制到 `dist\aidulc-portable\`。**应用运行时 exe 被锁定, 需先关应用再构建**。
 
 ## 交付状态 (2026-08-07 17:41)
@@ -56,6 +60,14 @@
 - Breath: done (20 章, 讲解 97.5%, 156 句碎片缺失 — 已确认为无价值碎片: 尾注 URL/标点)
 - Hitchhikers: done (38 章, 21972 句, 讲解 99.9%, 音频 100%, 27.6h 音频)
 - portable: sidecar 17:41 打包完成; **release exe 待用户关闭应用后重建** (quality_summary error 字段改动, 应用运行时被锁)
+- **⚠️ 2026-08-08 实测(F36)**: **整个便携版都是 R0-R4 之前构建** —— aidulc.exe(08-07 17:51,
+  嵌旧前端)与 aidulc-prep.exe(18:03, 旧侧车)都早于 R0-R4: 侧车无 `--pymupdf-version`、无预览
+  体检 health、不含 EPUB2 NCX/[[HEADING]]/插图提取; exe 嵌旧前端。**R0-R4 交付必须整体重新打包
+  便携版(先 cargo build 嵌前端, 再打包侧车, 整包替换)**, 否则便携版处理旧格式书仍会分章错乱。
+  详见 docs/ARCHITECTURE.md §9.5 F36。
+- **⚠️ 2026-08-08 实测(F37)**: `dist/aidulc-portable/config.toml` 是开发机残留 —— 含
+  `F:/hf_cache`、`F:/my_ai/subgen` 绝对路径 + 旧字段(library_dir/llm_model_path/tts_model_path)。
+  换机器上 ffmpeg_path 指向不存在路径 → 误报缺失。打包时必须用干净默认 config.toml。
 
 ## 2026-08-07 算法审查第二轮 (修复 2 bug)
 
@@ -63,3 +75,66 @@
 2. **explain 完整性校验误报 (A2, 必修)**: 首次跑时 translate 失败句 (status=failed/无翻译) 在 explain 阶段被跳过, 但校验没排除 → 翻译失败 >5% 会误报 "explain 阶段不完整"。修复: skipped_fatal 统计 (status failed / 无 translation / translate in failedStages), expected = total - skipped_fatal。
 3. 清理: pack.py 重复 out_path 定义 + 未用 import shlex; pack_book job profile 用 .get() 防御 (KeyError 兜底)。
 4. 审查结论 (观察项, 未修): explain 逐句 LLM 调用可批量 (性能 2-4x 但改 prompt 有风险); translate 无完整性校验 (优先级低); 空文本句当次运行 bookpack 有 audio (静音段) 重试后无 (checkpoint audio=None 不 hydrate) — 小不一致可接受。
+
+## 2026-08-08 R0-R4 (阅读逻辑修复 + 格式兼容 + 插图链路)
+
+### R0: "改前端不生效"的根修
+- **根因**: exe 里嵌的是旧前端——`generate_context!` 编译期嵌 `../reader`, 但 cargo 不
+  rerun-if-changed 那些文件, 只改 JS/CSS 不重编 → exe 永远旧前端。`build.rs` 现在递归
+  emit `cargo:rerun-if-changed=` 覆盖 `../reader` 每个文件+目录, 实测 touch 一个 JS 即触发重编。
+- `scripts/check.ps1` 新增 `cargo build --release`, "门禁全绿"蕴含"exe 最新"。
+- `scripts/run.ps1`: 先构建再启动 (UTF-8 BOM, PS 5.1 中文注释必需)。
+- **契约漂移测试**: `ipc/registry.rs` 新增 `every_frontend_invoke_is_registered`, 扫描
+  reader/**/*.js 的 `invoke('cmd')` 字面量 (排除 plugin:*) 断言都在 COMMANDS。这次回归
+  正是"前端调不存在的命令"型 (旧 reader_view 不知道 load_bookpack_chapter), 这条才闭环。
+
+### R1: 渐进式滚动渲染 (reader_renderer.js)
+- 不再一次建完整章。初始 50 句 + 底部 IntersectionObserver 哨兵 (rootMargin 400px 预取),
+  滚到哪建到哪, 已建不回收。
+- `ensureRendered(index)` 是唯一补渲染入口 (书签/搜索/播放定位统一走它), 远跳分帧。
+- 纯边界决策抽到 `reader/core/render_plan.js` (零 DOM, 可单测), `reader/tests/render_plan.test.js`。
+
+### R2: 阅读器模块化 (reader_view.js 600+ 行 → 组合根)
+- 拆分目录 `reader/views/reader/`: topbar / player / chapter_loader / bookmarks / search。
+  reader_view 只做组装; 竞态防护拆两层 (chapterLoader 管 fetch, reader_view 管渲染期)。
+- 音频全部进 player (`loadChapter` 分块读→Blob→ObjectURL), 进度条/时间/跟读动作都在模块内。
+
+### R3: 格式兼容 (epub.py / pdf.py / loader / cli)
+- **EPUB2 toc.ncx 支持** (银河系真实撞见): `_find_toc_source` 先 nav.xhtml 后 toc.ncx
+  (spine toc 属性→manifest id→media-type→文件名)。此前只认 nav.xhtml, 认不出就退化成
+  spine 每文件一章 → 1 句碎片章 + 5351 句巨章。`_parse_ncx` 递归展平 navPoint。
+- **[[HEADING]] 二次切分**: `_strip_tags` 早就有 `[[HEADING]]` 标记但被当垃圾过滤; 现在
+  按它切分大文件 (≥LARGE_FILE_SPLIT_THRESHOLD=200 句), 每个 heading 段一章。小文件仍整文件一章。
+- **PyMuPDF 兜底**: loader 的 pdf.py 扩展成通用 MuPDF 加载器, SUPPORTED_EXT 加
+  mobi/azw3/fb2。pyproject 声明 `doc = ["pymupdf>=1.24"]`。build_exe.spec 加 pymupdf collect。
+  缺失时懒加载给人话提示 (组件健康页一键安装: `doc_parser_install` 找 prep venv pip install)。
+- **处理前体检**: `--preview-book` 输出加 `health` (format/toc_source/chapter_count/
+  sentence_counts/anomalies)。library_preview 侧车链路透传, 前端预览模态显示红字异常。
+  Rust `preflight_check` 加"不支持格式"检查。
+- **组件健康**: components.rs 加 `check_pymupdf` (探测 `--pymupdf-version`), settings_view
+  对缺失行给"一键安装"按钮。
+
+### R4: 原书插图链路
+- schema: chapter.images `[{file, at}]` 可选字段 (老书包无此字段仍合法, 不升 schemaVersion)。
+- epub.py: `_strip_tags` 把 `<img>` 标成 `[[IMG:src]]` 记号; `_extract_images` 换算
+  `at` = 该图之前累计真实句数; `_img_srcs` 把相对 src 归一化到书根路径。
+- pack.py: `_copy_chapter_images` 从源 EPUB zip 拷图到 `images/ch_NNN_<name>`, 改写 file;
+  图缺失/非 zip 源 → 去掉该条不中断打包。
+- Rust: `read_image` 复用 read_audio 的 canonicalize+startsWith 防越界, 返回 base64。
+- 前端: reader_renderer 按 at 在句块前插 `<figure>`, `setBasePath` 后预取 base64。
+- 实测 Wolf 21: 35 章 48 张图全提取。
+
+## 2026-08-08 需求精化会话实测补充 (本机, 见 docs/ARCHITECTURE.md §9.10)
+
+- **词典查询 5.7-7.4s/次 (F21 实测)**: `word_lookup` 每次 spawn 新侧车加载 2.4GB LLM 模型,
+  冷 7.4s / 热 5.7s。推理本身只 0.7s —— 根因是每次重载模型, 不是推理慢。
+  dict_lookup.py docstring 的"~1-2s"只算了推理, 没算模型加载, 是误导。
+- **LLM 进程内加载 3.2s**(llama_cpp), 2 行翻译推理 0.7s(~44 输出字符/s)。
+- **TTS(kokoro)引擎加载 45.8s**(espeak+misaki+torch CUDA, 每任务一次), 单句合成 ~5.1s
+  (本机高负载 ≈1x 实时; memory 旧记的 x18.1 是空闲机)。
+- **nlp 吞吐**: perf_1000 nlp 12.4s / 98.8 句每秒(可复现, 与历史 104.7 正常方差)。
+- **preview 链路**: 样例 epub `--preview-book` 0.44s。
+- **bench_report.py 的 reader_frontend 指标不可靠**: dir_size 含 node_modules
+  (历史 86KB vs 现在 39MB 都是"reader 目录大小"), 不是前端产物大小。
+
+

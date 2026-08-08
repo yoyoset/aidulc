@@ -62,26 +62,36 @@ Run-Check "cargo clippy (baseline<=$ClippyBaseline)" {
     }
 }
 
-# 4. Rust 测试 (必须单线程, 见 memory/pipeline.md: 并行有共享临时 DB 状态冲突)
+# 4. Rust 产物构建 (R0, 2026-08-07): "门禁全绿"必须蕴含"exe 是最新的"。
+# 前端资源在编译期经 generate_context! 嵌入二进制(build.rs 已把 ../reader 递归声明为
+# rerun-if-changed), 只跑 clippy/test 产不出 release/aidulc.exe —— 之前就是这个洞让
+# "前端改了但用户跑的还是旧界面"成了静默故障。
+Run-Check "cargo build --release" {
+    Push-Location "$root\src-tauri"
+    cargo build --release -p aidulc
+    Pop-Location
+}
+
+# 5. Rust 测试 (必须单线程, 见 memory/pipeline.md: 并行有共享临时 DB 状态冲突)
 Run-Check "cargo test --release -- --test-threads=1" {
     Push-Location "$root\src-tauri"
     cargo test --release -p aidulc -- --test-threads=1
     Pop-Location
 }
 
-# 5. Python 测试
+# 6. Python 测试
 Run-Check "pytest" {
     & "$root\prep\.venv\Scripts\python.exe" -m pytest "$root\prep\tests" -q
 }
 
-# 6. 前端测试
+# 7. 前端测试
 Run-Check "vitest" {
     Push-Location "$root\reader"
     npx vitest run
     Pop-Location
 }
 
-# 7. CSS 令牌纪律: tokens.css 之外的样式文件不得出现裸 #hex 颜色(S3.1, 2026-08-07 清零后
+# 8. CSS 令牌纪律: tokens.css 之外的样式文件不得出现裸 #hex 颜色(S3.1, 2026-08-07 清零后
 # 立即上强约束, 不设豁免——颜色只能来自 var(--md-sys-color-*))。字号/间距暂不做等价约束:
 # 阶梯令牌刚建立, 存量 px/rem 替换是后续工作, 现在加约束会让门禁对着几百处存量代码常年变红。
 Run-Check "css:no-raw-hex(tokens.css 之外)" {

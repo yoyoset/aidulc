@@ -15,6 +15,7 @@ for pkg in [
     "language_tags",
     "espeakng_loader",
     "kokoro",
+    "pymupdf",  # R3.2 (2026-08-08): 文档解析器 (pdf/mobi/azw3/fb2 兜底)
 ]:
     try:
         d, b, h = collect_all(pkg)
@@ -51,6 +52,7 @@ a = Analysis(
         "soundfile",
         "phonemizer",
         "llama_cpp",
+        "pymupdf",
     ] + hiddenimports,
     hookspath=[],
     runtime_hooks=[],

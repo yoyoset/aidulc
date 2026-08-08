@@ -282,8 +282,19 @@
         if (!res.ok) { body.textContent = '预览失败: ' + res.error; return; }
         const d = res.data || {};
         body.innerHTML = '';
-        const meta = el('div', 'preview-meta', `${d.chapters ? d.chapters.length : 0} 章 · ${d.format || ''}`);
+        const h = d.health || {};
+        const meta = el('div', 'preview-meta',
+          `${d.chapters ? d.chapters.length : 0} 章 · ${d.format || ''}${h.toc_source && h.toc_source !== 'n/a' ? ' · 目录: ' + h.toc_source : ''}`);
         body.appendChild(meta);
+        // R3.3: 处理前体检异常信号 (碎片章/巨章/无正文) 红字提示
+        const anomalies = h.anomalies || [];
+        if (anomalies.length) {
+          const warn = el('div', 'preview-anomalies', '⚠ ' + anomalies.join('; '));
+          warn.style.color = 'var(--md-sys-color-error, #b3261e)';
+          warn.style.margin = '8px 0';
+          warn.style.fontSize = '13px';
+          body.appendChild(warn);
+        }
         (d.chapters || []).slice(0, 20).forEach(ch => {
           const sec = el('div', 'preview-chapter');
           const h = el('div', 'preview-ch-title', ch.title || ('Chapter ' + (ch.index + 1)));

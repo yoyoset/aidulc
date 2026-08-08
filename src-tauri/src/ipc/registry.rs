@@ -64,6 +64,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "分块读音频(长章避免整文件跨 IPC)",
     },
     CommandInfo {
+        path: "commands::library::read_image",
+        domain: "书库",
+        desc: "读原书插图(R4, 复用 read_audio 的路径校验)",
+    },
+    CommandInfo {
         path: "commands::library::pick_files",
         domain: "书库",
         desc: "原生文件选择对话框",
@@ -332,6 +337,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         domain: "运行时",
         desc: "boot 探针(开发用: 验证进程活着)",
     },
+    CommandInfo {
+        path: "commands::misc::doc_parser_install",
+        domain: "运行时",
+        desc: "一键安装文档解析器 PyMuPDF(开发环境 venv)",
+    },
     // ---- 设置/Profile/阅读状态/传输 (ipc/commands.rs) ----
     CommandInfo {
         path: "ipc::commands::profile_upsert",
@@ -427,5 +437,108 @@ mod tests {
             assert!(!c.desc.trim().is_empty(), "{} 缺少说明", c.path);
             assert!(!c.domain.trim().is_empty(), "{} 缺少所属域", c.path);
         }
+    }
+
+    /// R0(2026-08-07): 前端调用了不存在的 command 是这次回归的根因之一——
+    /// 旧的 reader_view.js 直接读 `bookpack.chapters[i].sentences`, 根本不知道
+    /// load_bookpack_chapter 这个新命令存在, 而 Rust 端两个命令都注册着, 所以
+    /// `registry_matches_generate_handler` 完全抓不到这个问题(它只管 Rust 内部两份
+    /// 名单一致, 管不到前端)。
+    ///
+    /// 这里扫描 reader/ 下所有 .js 里的 `invoke('command_name')` 字面量, 断言每个
+    /// 都能在 COMMANDS 里找到 —— 前端调一个不存在/改名了的命令会直接测试失败。
+    /// 排除 `plugin:*`(Tauri 插件命令不在本仓库 COMMANDS 清单里)。
+    #[test]
+    fn every_frontend_invoke_is_registered() {
+        use std::path::Path;
+
+        let reader_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../reader");
+        assert!(
+            reader_root.is_dir(),
+            "reader/ 目录不存在: {}",
+            reader_root.display()
+        );
+
+        let mut js_files: Vec<std::path::PathBuf> = Vec::new();
+        let mut stack = vec![reader_root.clone()];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else if p.extension().and_then(|e| e.to_str()) == Some("js") {
+                    js_files.push(p);
+                }
+            }
+        }
+
+        let mut invoked: Vec<String> = Vec::new();
+        for f in &js_files {
+            let Ok(src) = std::fs::read_to_string(f) else {
+                continue;
+            };
+            // invoke('cmd', ...) 或 invoke("cmd", ...) 字面量第一参数
+            for m in regex_like_invoke(&src) {
+                if m.starts_with("plugin:") {
+                    continue;
+                }
+                invoked.push(m);
+            }
+        }
+
+        let listed: Vec<&str> = COMMANDS.iter().map(|c| c.path).collect();
+        // COMMANDS.path 形如 "commands::library::load_bookpack", 前端 invoke 名是最后一段
+        let registered: std::collections::HashSet<&str> = listed
+            .iter()
+            .map(|p| p.rsplit("::").next().unwrap_or(p))
+            .collect();
+
+        let missing: Vec<&str> = invoked
+            .iter()
+            .map(|c| c.as_str())
+            .filter(|c| !registered.contains(c))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "前端 invoke 了未登记的命令: {:?} ({} 个)\n\
+             —— 新增/改名 command 时, 要么同步 ipc/registry.rs 的 COMMANDS,\n\
+             要么前端调用已登记的另一个命令",
+            missing,
+            missing.len()
+        );
+    }
+
+    /// 从 JS 源码里抠 `invoke('xxx'` / `invoke("xxx"` 的字面量命令名 (极简状态机,
+    /// 不引入 regex 依赖)。返回命令名列表。
+    fn regex_like_invoke(src: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let bytes = src.as_bytes();
+        let mut i = 0;
+        while i + 6 < bytes.len() {
+            // 找 "invoke(" 字样
+            if &bytes[i..i + 6] == b"invoke(" {
+                let mut j = i + 6;
+                while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                    j += 1;
+                }
+                if j < bytes.len() && (bytes[j] == b'\'' || bytes[j] == b'"') {
+                    let quote = bytes[j];
+                    let mut k = j + 1;
+                    let mut name = String::new();
+                    while k < bytes.len() && bytes[k] != quote {
+                        name.push(bytes[k] as char);
+                        k += 1;
+                    }
+                    out.push(name);
+                }
+                i = j;
+            } else {
+                i += 1;
+            }
+        }
+        out
     }
 }

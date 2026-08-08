@@ -120,3 +120,99 @@ pub fn boot_ping(message: String) -> String {
     }
     format!("pong: {}", message)
 }
+
+/// R3.4 (2026-08-08): 一键安装文档解析器 (PyMuPDF)。
+///
+/// 往 prep 侧车所在 venv 里 pip install pymupdf (开发环境侧车从 venv 跑); 若
+/// 侧车是打包产物 (便携/发布, 没有 venv), 返回明确指引"重新构建侧车", 不假装装好了。
+#[tauri::command]
+pub fn doc_parser_install(cfg: State<PrepConfig>) -> Result<serde_json::Value, String> {
+    use std::io::Read;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    let prep_path = &cfg.prep_path;
+    // 从侧车路径往上找 venv: .../prep/dist/aidulc-prep/aidulc-prep.exe → .../prep/.venv
+    let venv_python = find_prep_venv_python(prep_path);
+    let Some(python) = venv_python else {
+        return Ok(serde_json::json!({
+            "ok": false,
+            "detail": "当前运行的是打包版侧车, 无法热装依赖。请用 scripts/build_prep.ps1 重新构建 (已把 pymupdf 加入打包清单)。",
+        }));
+    };
+
+    let mut cmd = Command::new(&python);
+    cmd.arg("-m")
+        .arg("pip")
+        .arg("install")
+        .arg("pymupdf")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(0x08000000);
+    let mut child = cmd.spawn().map_err(|e| format!("启动 pip 失败: {e}"))?;
+    let mut out = String::new();
+    let mut err = String::new();
+    if let Some(s) = child.stdout.take() {
+        let mut r = s;
+        let _ = r.read_to_string(&mut out);
+    }
+    if let Some(s) = child.stderr.take() {
+        let mut r = s;
+        let _ = r.read_to_string(&mut err);
+    }
+    let status = child.wait().map_err(|e| format!("等待 pip 失败: {e}"))?;
+    let ok = status.success();
+    let detail = if ok {
+        "PyMuPDF 已安装".to_string()
+    } else {
+        format!("安装失败: {}", err.trim())
+    };
+    Ok(serde_json::json!({ "ok": ok, "detail": detail }))
+}
+
+/// 从 prep 侧车路径定位其 venv 的 python.exe (开发环境)。
+/// 侧车 `.../prep/dist/aidulc-prep/aidulc-prep.exe` → 向上 3 级 = prep/ → prep/.venv。
+fn find_prep_venv_python(prep_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut dir = prep_path.parent()?.to_path_buf();
+    for _ in 0..4 {
+        let venv = dir.join(".venv").join("Scripts").join("python.exe");
+        if venv.is_file() {
+            return Some(venv);
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_prep_venv_python;
+
+    #[test]
+    fn finds_venv_up_the_tree() {
+        // 构造临时目录: root/prep/dist/aidulc-prep/aidulc-prep.exe + root/prep/.venv/Scripts/python.exe
+        let root = std::env::temp_dir().join(format!("aidulc_venv_{}", std::process::id()));
+        let exe_dir = root.join("prep").join("dist").join("aidulc-prep");
+        let venv = root.join("prep").join(".venv").join("Scripts");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        std::fs::create_dir_all(&venv).unwrap();
+        std::fs::write(exe_dir.join("aidulc-prep.exe"), b"x").unwrap();
+        std::fs::write(venv.join("python.exe"), b"x").unwrap();
+        let got = find_prep_venv_python(&exe_dir.join("aidulc-prep.exe"));
+        assert_eq!(got, Some(venv.join("python.exe")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn no_venv_returns_none() {
+        let root = std::env::temp_dir().join(format!("aidulc_novenv_{}", std::process::id()));
+        let exe_dir = root.join("prep").join("dist").join("aidulc-prep");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        std::fs::write(exe_dir.join("aidulc-prep.exe"), b"x").unwrap();
+        let got = find_prep_venv_python(&exe_dir.join("aidulc-prep.exe"));
+        assert_eq!(got, None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}

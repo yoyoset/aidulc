@@ -12,12 +12,13 @@ import zipfile
 from xml.etree import ElementTree as ET
 
 from aidulc_prep.core.errors import InputError
-from aidulc_prep.core.models import Book, Chapter, Sentence
+from aidulc_prep.core.models import Book, Chapter, ChapterImage, Sentence
 
 NS = {
     "opf": "http://www.idpf.org/2007/opf",
     "dc": "http://purl.org/dc/elements/1.1/",
     "xhtml": "http://www.w3.org/1999/xhtml",
+    "ncx": "http://www.daisy.org/z3986/2005/ncx/",
 }
 
 # 非正文 TOC 条目 (封面/目录/地图/图表/索引/尾注/版权等 — 不该成为可读章节)
@@ -29,6 +30,11 @@ NON_BODY_TOC = re.compile(
     re.I,
 )
 
+# 巨章判据: 单个 TOC 条目的文件解析出的候选句数 ≥ 此值 → 按文件内 h1-h6 二次切分。
+# 背景 (2026-08-08, 银河系那本真实撞见): 有的书 TOC 条目对应一个超大 XHTML 文件,
+# 整本正文都在里面 (老正则会解析出 5351 句的"巨章"), 文件内的 h1-h6 才是真实章节边界。
+LARGE_FILE_SPLIT_THRESHOLD = 200
+
 
 def _read_member(zf: zipfile.ZipFile, name: str) -> str:
     try:
@@ -38,16 +44,52 @@ def _read_member(zf: zipfile.ZipFile, name: str) -> str:
 
 
 def _strip_tags(html: str) -> str:
-    """粗剥 XHTML 标签 + 还原常见实体。标题 (h1-h6) 换行并标记为 HEADING 前缀, 段落以换行分隔。"""
+    """粗剥 XHTML 标签 + 还原常见实体。标题 (h1-h6) 换行并标记为 HEADING 前缀, 段落以换行分隔。
+
+    R4 (2026-08-08): `<img>` 不再被剥成空行, 而是换行标成 `[[IMG:<src>]]` 记号,
+    让 _file_sections 能保留图片在段落流中的位置 (at = 之前有多少句)。"""
     html = re.sub(r"<head.*?</head>", " ", html, flags=re.S | re.I)
     html = re.sub(r"<script.*?</script>", " ", html, flags=re.S | re.I)
     html = re.sub(r"<style.*?</style>", " ", html, flags=re.S | re.I)
     html = re.sub(r"<(h[1-6])[^>]*>", "\n[[HEADING]]", html, flags=re.I)
     html = re.sub(r"</(h[1-6])>", "\n", html, flags=re.I)
+    # <img src="..."> → [[IMG:src]] (单双引号都兼容; 无 src 的忽略)
+    html = re.sub(r'<img[^>]*\bsrc\s*=\s*"([^"]+)"[^>]*/?>', "\n[[IMG:\\1]]\n", html, flags=re.I)
+    html = re.sub(r"<img[^>]*\bsrc\s*=\s*'([^']+)'[^>]*/?>", "\n[[IMG:\\1]]\n", html, flags=re.I)
     html = re.sub(r"<[^>]+>", "\n", html)
     for ent, ch in [("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'), ("&apos;", "'")]:
         html = html.replace(ent, ch)
     return html
+
+
+_IMG_MARKER = re.compile(r"^\[\[IMG:(.+?)\]\]$")
+
+
+def _img_srcs(zf: zipfile.ZipFile, phys: str) -> dict[str, str]:
+    """收集一个 XHTML 文件引用的图片: 相对 src → 相对书根的物理路径。
+
+    EPUB 内嵌路径是相对该 xhtml 文件所在目录的 (如 `images/fig1.jpg`), 书根路径
+    需要拼上文件所在目录。返回 {原 src: 书根相对路径} 供 _file_sections 换算。"""
+    html = _read_member(zf, phys)
+    base_dir = os.path.dirname(phys).replace("\\", "/")
+    out: dict[str, str] = {}
+    for m in re.finditer(r'<img[^>]*\bsrc\s*=\s*(["\'])([^"\']+)\1[^>]*/?>', html, re.I):
+        src = m.group(2)
+        if src.startswith(("http://", "https://", "data:")):
+            continue  # 外链/base64 图片不处理
+        if not os.path.isabs(src):
+            src = f"{base_dir}/{src}" if base_dir else src
+        # 归一化 ./ 与 ../ (zip 内部统一用 / 分隔)
+        parts = []
+        for seg in src.split("/"):
+            if seg in ("", "."):
+                continue
+            if seg == ".." and parts:
+                parts.pop()
+            else:
+                parts.append(seg)
+        out[m.group(2)] = "/".join(parts)
+    return out
 
 
 def _parse_toc(nav_html: str) -> list[tuple[str, str]]:
@@ -62,6 +104,219 @@ def _parse_toc(nav_html: str) -> list[tuple[str, str]]:
         if text and href:
             toc.append((text, href))
     return toc
+
+
+def _parse_ncx(ncx_html: str) -> list[tuple[str, str]]:
+    """解析 EPUB2 的 toc.ncx navMap → [(标题, href)] (递归展平嵌套 navPoint)。
+
+    新增 (2026-08-08, 银河系那本真实撞见): 老书是 EPUB2, 目录在 toc.ncx 不在
+    nav.xhtml。此前只认 nav.xhtml, 认不出来就退化成 spine 每文件一章 → 出现
+    1 句的"章"和 5351 句的"巨章"。这里补上标准 navPoint 结构解析。
+    """
+    toc: list[tuple[str, str]] = []
+    ncx_ns = NS["ncx"]
+    try:
+        root = ET.fromstring(ncx_html)
+    except ET.ParseError:
+        return toc
+    # root.iter 会遍历所有层级的 navPoint; navLabel 取该节点直属第一个 (嵌套节点的
+    # 子 navLabel 在文档序里靠后, .find 取不到它), content 取直属子节点。
+    for navpoint in root.iter(f"{{{ncx_ns}}}navPoint"):
+        label = navpoint.find(f"{{{ncx_ns}}}navLabel/{{{ncx_ns}}}text")
+        content = navpoint.find(f"{{{ncx_ns}}}content")
+        if label is None or content is None:
+            continue
+        text = (label.text or "").strip()
+        href = (content.get("src") or "").strip()
+        if text and href:
+            toc.append((text, href))
+    return toc
+
+
+def _file_sections(zf: zipfile.ZipFile, phys: str) -> list[tuple[str | None, list[str]]]:
+    """读一个 XHTML 文件, 按 [[HEADING]] 标记切成 [(标题|None, [段落/图片记号])]。
+
+    _strip_tags 早已把 h1-h6 标成 [[HEADING]] 前缀 (此前被当垃圾过滤掉), 这里
+    改拿它当切分点: 一个文件里若有多个标题, 就是多个真实章节的边界。
+    标题行本身不进段落; 开头的非标题段落 (prelude) 归入标题为 None 的一段。
+    R4: 段落流里保留 `[[IMG:src]]` 记号 (在段落文本中间), 供换算图片位置。
+    """
+    html = _read_member(zf, phys)
+    raw = [p.strip() for p in _strip_tags(html).split("\n") if p.strip()]
+    sections: list[tuple[str | None, list[str]]] = []
+    current_title: str | None = None
+    current_paras: list[str] = []
+    for p in raw:
+        if p.startswith("[[HEADING]]"):
+            if current_paras or current_title is not None:
+                sections.append((current_title, current_paras))
+                current_paras = []
+            current_title = p[len("[[HEADING]]"):].strip()
+        else:
+            current_paras.append(p)
+    if current_paras or current_title is not None:
+        sections.append((current_title, current_paras))
+    return sections
+
+
+def _sentence_candidates(paras: list[str]) -> list[str]:
+    return [p for p in paras if _is_real_sentence(p)]
+
+
+_IMG_MARKER = re.compile(r"^\[\[IMG:(.+?)\]\]$")
+
+
+def _img_srcs(zf: zipfile.ZipFile, phys: str) -> dict[str, str]:
+    """收集一个 XHTML 文件引用的图片: 原 src → 相对书根的物理路径。
+
+    EPUB 内嵌路径相对该 xhtml 所在目录 (如 `images/fig1.jpg`), 拼上文件目录 + 归一化
+    ./ ../ 后得到书根相对路径 (zip 内部统一 / 分隔)。外链/http/data: 跳过。
+    """
+    html = _read_member(zf, phys)
+    base_dir = os.path.dirname(phys).replace("\\", "/")
+    out: dict[str, str] = {}
+    for m in re.finditer(r'<img[^>]*\bsrc\s*=\s*(["\'])([^"\']+)\1[^>]*/?>', html, re.I):
+        src = m.group(2)
+        if src.startswith(("http://", "https://", "data:")):
+            continue
+        full = f"{base_dir}/{src}" if (base_dir and not os.path.isabs(src)) else src
+        parts = []
+        for seg in full.replace("\\", "/").split("/"):
+            if seg in ("", "."):
+                continue
+            if seg == ".." and parts:
+                parts.pop()
+            else:
+                parts.append(seg)
+        out[src] = "/".join(parts)
+    return out
+
+
+def _extract_images(paras: list[str], src_map: dict[str, str]) -> list[ChapterImage]:
+    """从段落流里取图片记号, 换算成 (书根相对路径, 渲染在第 at 句之前)。
+
+    at = 该图片记号之前已经累计的真实句子数 (句子流按 _sentence_candidates 过滤后
+    的位置), 保证图片嵌在正文流里而不是堆到开头。"""
+    images: list[ChapterImage] = []
+    sentence_count = 0
+    for p in paras:
+        m = _IMG_MARKER.match(p)
+        if m:
+            src = m.group(1)
+            # 外链/http/data: 与 _img_srcs 的过滤保持一致, 不进 src_map → 跳过
+            if src in src_map:
+                images.append(ChapterImage(file=src_map[src], at=sentence_count))
+        elif _is_real_sentence(p):
+            sentence_count += 1
+    return images
+
+
+def probe_toc_source(path: str) -> str:
+    """只探测 EPUB 的目录来源, 不解析全文 (处理前体检用)。
+    返回 'nav.xhtml' | 'toc.ncx' | 'none'。"""
+    try:
+        zf = zipfile.ZipFile(path)
+    except zipfile.BadZipFile:
+        return "none"
+    with zf:
+        container = _read_member(zf, "META-INF/container.xml")
+        m = re.search(r'full-path="([^"]+)"', container)
+        if not m:
+            return "none"
+        opf_path = m.group(1)
+        opf = _read_member(zf, opf_path)
+        opf_dir = os.path.dirname(opf_path).replace("\\", "/")
+        manifest: dict[str, str] = {}
+        for item in re.findall(r'<item[^>]*/?>', opf):
+            mid = re.search(r'id="([^"]+)"', item)
+            mhref = re.search(r'href="([^"]+)"', item)
+            if mid and mhref:
+                manifest[mid.group(1)] = mhref.group(1)
+        _items, source = _find_toc_source(zf, opf, manifest, opf_dir)
+        return source
+
+
+def _build_chapters_from_file(
+    zf: zipfile.ZipFile,
+    phys: str,
+    default_title: str,
+) -> list[Chapter]:
+    """把一个 XHTML 文件转成章节列表 (小文件 = 一章; 大文件按 [[HEADING]] 二次切分)。"""
+    sections = _file_sections(zf, phys)
+    src_map = _img_srcs(zf, phys)
+    all_paras = [p for _, paras in sections for p in paras]
+    total_candidates = len(_sentence_candidates(all_paras))
+    if total_candidates < LARGE_FILE_SPLIT_THRESHOLD:
+        # 小文件: 整文件一章, 标题用 TOC 条目名 (旧行为, heading 标记丢弃)
+        sentences = [Sentence(original_text=p) for p in _sentence_candidates(all_paras)]
+        if not sentences:
+            return []
+        return [Chapter(index=0, title=default_title, sentences=sentences,
+                        images=_extract_images(all_paras, src_map))]
+    # 大文件: 每个 heading 段一章, 标题取该段 heading (没有 heading 的 prelude 用 TOC 名)
+    chapters: list[Chapter] = []
+    for sec_title, paras in sections:
+        sentences = [Sentence(original_text=p) for p in _sentence_candidates(paras)]
+        if not sentences:
+            continue
+        chapters.append(
+            Chapter(index=len(chapters), title=sec_title or default_title, sentences=sentences,
+                    images=_extract_images(paras, src_map))
+        )
+    return chapters
+
+
+def _find_toc_source(
+    zf: zipfile.ZipFile,
+    opf: str,
+    manifest: dict[str, str],
+    opf_dir: str,
+) -> tuple[list[tuple[str, str]], str]:
+    """定位目录来源, 返回 (toc_items, source)。source ∈ {nav.xhtml, toc.ncx, none}。
+
+    顺序: 先找 EPUB3 的 nav.xhtml (properties="nav"), 没有再看 EPUB2 的 toc.ncx
+    (spine toc 属性 → manifest id → media-type → 文件名兜底)。
+    """
+    toc_items: list[tuple[str, str]] = []
+    nav_file = None
+    for item in re.findall(r'<item[^>]*/?>', opf):
+        if 'properties="nav"' in item or 'properties="navigation"' in item:
+            mhref = re.search(r'href="([^"]+)"', item)
+            if mhref:
+                nav_file = mhref.group(1)
+                break
+    if nav_file is None:
+        # 兜底: 文件名含 nav 的条目
+        for v in manifest.values():
+            if v.lower().endswith("nav.xhtml"):
+                nav_file = v
+                break
+    if nav_file:
+        nav_full = f"{opf_dir}/{nav_file}" if opf_dir else nav_file
+        return _parse_toc(_read_member(zf, nav_full)), "nav.xhtml"
+
+    # EPUB2 目录 (2026-08-08 补): 老书用 toc.ncx 而非 nav.xhtml。
+    ncx_file = None
+    toc_ref = re.search(r'<spine[^>]*\btoc="([^"]+)"', opf)
+    if toc_ref and toc_ref.group(1) in manifest:
+        ncx_file = manifest[toc_ref.group(1)]
+    if ncx_file is None:
+        for item in re.findall(r'<item[^>]*/?>', opf):
+            if 'application/x-dtbncx+xml' in item:
+                mhref = re.search(r'href="([^"]+)"', item)
+                if mhref:
+                    ncx_file = mhref.group(1)
+                    break
+    if ncx_file is None:
+        for v in manifest.values():
+            if v.lower().endswith(".ncx"):
+                ncx_file = v
+                break
+    if ncx_file:
+        ncx_full = f"{opf_dir}/{ncx_file}" if opf_dir else ncx_file
+        return _parse_ncx(_read_member(zf, ncx_full)), "toc.ncx"
+
+    return toc_items, "none"
 
 
 def load_epub(path: str) -> Book:
@@ -98,26 +353,10 @@ def load_epub(path: str) -> Book:
                 manifest[mid.group(1)] = mhref.group(1)
         files = [manifest.get(i) for i in spine if i in manifest]
 
-        # 质量修复 3 (章节划分): 用 nav.xhtml TOC 划章节 (真实标题 + 过滤非正文)
+        # 质量修复 3 (章节划分): 用 TOC 划章节 (真实标题 + 过滤非正文)
         # 兼容 spine id 与 manifest id 不一致的书 (Wolf 21: spine=nav_00, manifest=nav_1)
         # → 直接从 manifest 里找 nav.xhtml (properties="nav"), 不依赖 spine 映射
-        toc_items: list[tuple[str, str]] = []
-        nav_file = None
-        for item in re.findall(r'<item[^>]*/?>', opf):
-            if 'properties="nav"' in item or 'properties="navigation"' in item:
-                mhref = re.search(r'href="([^"]+)"', item)
-                if mhref:
-                    nav_file = mhref.group(1)
-                    break
-        if nav_file is None:
-            # 兜底: 文件名含 nav 的条目
-            for v in manifest.values():
-                if v.lower().endswith("nav.xhtml"):
-                    nav_file = v
-                    break
-        if nav_file:
-            nav_full = f"{opf_dir}/{nav_file}" if opf_dir else nav_file
-            toc_items = _parse_toc(_read_member(zf, nav_full))
+        toc_items, _toc_source = _find_toc_source(zf, opf, manifest, opf_dir)
 
         # 非正文条目过滤 + 去重 (多个 TOC 链接指向同文件取第一个标题)
         seen_files: set[str] = set()
@@ -137,27 +376,28 @@ def load_epub(path: str) -> Book:
 
         chapters: list[Chapter] = []
         if toc_filtered:
-            # 用 TOC: 每章 = 一个 TOC 条目的文件内容
+            # 用 TOC: 每章 = 一个 TOC 条目的文件 (大文件按 [[HEADING]] 二次切分)
             for text, phys in toc_filtered:
-                html = _read_member(zf, phys)
-                raw_paras = [p.strip() for p in _strip_tags(html).split("\n") if p.strip()]
-                paras = [p for p in raw_paras if not p.startswith("[[HEADING]]")]
-                sentences = [Sentence(original_text=p) for p in paras if _is_real_sentence(p)]
-                if sentences:
-                    chapters.append(Chapter(index=len(chapters), title=text, sentences=sentences))
+                built = _build_chapters_from_file(zf, phys, text)
+                for ch in built:
+                    ch.index = len(chapters)
+                    chapters.append(ch)
         else:
-            # 无 TOC 兜底: 按 spine 顺序 (每文件一章)
+            # 无 TOC 兜底: 按 spine 顺序 (每文件一章, 大文件同样二次切分)
             for f in files:
                 if not f:
                     continue
                 full = f"{opf_dir}/{f}" if opf_dir else f
-                html = _read_member(zf, full)
-                raw_paras = [p.strip() for p in _strip_tags(html).split("\n") if p.strip()]
-                paras = [p for p in raw_paras if not p.startswith("[[HEADING]]")]
-                heading = next((p[len("[[HEADING]]"):] for p in raw_paras if p.startswith("[[HEADING]]")), "")
-                sentences = [Sentence(original_text=p) for p in paras if _is_real_sentence(p)]
-                if sentences and not _looks_like_index(sentences):
-                    chapters.append(Chapter(index=len(chapters), title=heading or f"Chapter {len(chapters) + 1}", sentences=sentences))
+                heading = next(
+                    (t for t, _ in _file_sections(zf, full) if t),
+                    "",
+                )
+                built = _build_chapters_from_file(zf, full, heading or f"Chapter {len(chapters) + 1}")
+                for ch in built:
+                    ch.index = len(chapters)
+                    if _looks_like_index(ch.sentences):
+                        continue
+                    chapters.append(ch)
 
     if not chapters:
         raise InputError("EPUB 里没有解析出任何章节")

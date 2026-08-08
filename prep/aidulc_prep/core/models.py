@@ -78,11 +78,19 @@ class Sentence:
 
 
 @dataclass
+class ChapterImage:
+    """原书插图 (R4, 2026-08-08): at = 渲染在第 at 句之前 (句下标); file = 书包内相对路径"""
+    file: str
+    at: int
+
+
+@dataclass
 class Chapter:
     index: int
     title: str
     sentences: list[Sentence] = field(default_factory=list)
     audio_file: str = ""
+    images: list[ChapterImage] = field(default_factory=list)
 
 
 @dataclass

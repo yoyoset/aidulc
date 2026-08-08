@@ -84,6 +84,58 @@ pub fn check_dir(path: &str, id: &str, name: &str, required_file: &str) -> Compo
     }
 }
 
+/// 检查 Python 侧车里的 PyMuPDF (文档解析器) 是否可用。
+/// 通过调侧车 CLI 探测: `aidulc-prep.exe --pymupdf-version` 输出版本号 → 可用。
+/// 缺失时返回 present=false + 安装指引 (prep/pyproject.toml 的 doc extra)。
+pub fn check_pymupdf(prep_path: &std::path::Path) -> ComponentStatus {
+    let detail_base = "文档解析器 (PyMuPDF, 用于 pdf/mobi/azw3/fb2 兜底解析)".to_string();
+    if !prep_path.exists() {
+        return ComponentStatus {
+            id: "pymupdf".into(),
+            name: "文档解析器 (PyMuPDF)".into(),
+            present: false,
+            healthy: false,
+            detail: format!("{detail_base} — prep 侧车不存在, 无法探测"),
+            size_bytes: 0,
+        };
+    }
+    use std::io::Read;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+    let mut cmd = Command::new(prep_path);
+    cmd.arg("--pymupdf-version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .creation_flags(0x08000000);
+    let Ok(mut child) = cmd.spawn() else {
+        return ComponentStatus {
+            id: "pymupdf".into(),
+            name: "文档解析器 (PyMuPDF)".into(),
+            present: false,
+            healthy: false,
+            detail: format!("{detail_base} — 探测命令无法启动"),
+            size_bytes: 0,
+        };
+    };
+    let mut out = String::new();
+    let _ = child.stdout.take().map(|mut s| s.read_to_string(&mut out));
+    let _ = child.wait();
+    let version = out.trim();
+    let ok = !version.is_empty() && version != "none";
+    ComponentStatus {
+        id: "pymupdf".into(),
+        name: "文档解析器 (PyMuPDF)".into(),
+        present: ok,
+        healthy: ok,
+        detail: if ok {
+            format!("OK (PyMuPDF {version})")
+        } else {
+            format!("{detail_base} — 未安装, 一键安装或 pip install 'pymupdf' (prep 的 doc extra)")
+        },
+        size_bytes: 0,
+    }
+}
+
 /// 全组件健康检查 (首次运行向导用)
 /// M 系列: llm/tts 路径由调用方从 model_registry 解析后传入 (不再读 PrepConfig)
 pub fn health_check(
@@ -119,6 +171,7 @@ pub fn health_check(
         "TTS 模型",
         "kokoro-v1_0.pth",
     ));
+    out.push(check_pymupdf(&cfg.prep_path));
     let _ = lib_dir;
     let _ = hf_home;
     out

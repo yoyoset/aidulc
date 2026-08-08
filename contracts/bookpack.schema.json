@@ -78,6 +78,27 @@
             "type": "string",
             "description": "相对书包根的音频路径, 如 audio/ch_001.opus"
           },
+          "images": {
+            "type": "array",
+            "description": "aidulc 新增 (R4, 2026-08-08): 原书插图。at = 渲染在第 at 句之前 (句下标); file = 书包内相对路径 (images/ch_000_xx.jpg)。可选: 老书包无此字段仍合法, 不升 schemaVersion",
+            "items": {
+              "type": "object",
+              "required": [
+                "file",
+                "at"
+              ],
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            }
+          },
           "sentences": {
             "type": "array",
             "items": {

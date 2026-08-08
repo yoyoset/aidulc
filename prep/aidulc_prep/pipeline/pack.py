@@ -76,6 +76,12 @@ def pack_book(
             raise EngineError("已取消", "pack")
         _encode_chapter(ff, ch, out_dir, audio_dir, bookpack_dir, emit, total_chapters)
 
+    # R4 (2026-08-08): 原书插图拷进书包 images/, chapter.images[].file 改写成书包内路径
+    images_dir = os.path.join(bookpack_dir, "images")
+    os.makedirs(images_dir, exist_ok=True)
+    for ch in book.chapters:
+        _copy_chapter_images(ch, images_dir, job.get("book_path", ""))
+
     # 组装 bookpack.json
     profile = job.get("profile") or {}
     bp = {
@@ -95,6 +101,10 @@ def pack_book(
                 "index": ch.index,
                 "title": ch.title,
                 "audioFile": f"audio/ch_{ch.index:03d}.opus",
+                "images": [
+                    {"file": img.file, "at": img.at}
+                    for img in ch.images
+                ] if ch.images else [],
                 "sentences": [
                     {
                         "original_text": s.original_text,
@@ -143,6 +153,48 @@ def _rm_quiet(path: str):
             os.remove(path)
     except OSError:
         pass
+
+
+def _copy_chapter_images(ch, images_dir: str, source_book: str) -> None:
+    """把一章的插图从源书 (EPUB zip) 拷进书包 images/, 并就地改写 img.file。
+
+    R4 (2026-08-08): ChapterImage.file 在 loader 里是书根相对路径 (如
+    OEBPS/images/fig1.jpg)。这里从源 EPUB 读字节写进 images/, 文件名加章节前缀
+    防跨章重名 (ch_000_fig1.jpg)。源书不是 zip / 图片缺失 → 记日志跳过, 不中断打包。
+    """
+    if not ch.images:
+        return
+    import zipfile
+    from aidulc_prep.core.models import ChapterImage
+
+    zf = None
+    if source_book and os.path.exists(source_book):
+        try:
+            zf = zipfile.ZipFile(source_book)
+        except zipfile.BadZipFile:
+            zf = None
+    for img in list(ch.images):
+        src = img.file.replace("\\", "/")
+        base = os.path.basename(src)
+        dest_name = f"ch_{ch.index:03d}_{base}"
+        dest = os.path.join(images_dir, dest_name)
+        ok = False
+        if zf is not None:
+            # EPUB 内路径是书根相对; 若打不开就跳过
+            try:
+                data = zf.read(src)
+                with open(dest, "wb") as f:
+                    f.write(data)
+                ok = True
+            except KeyError:
+                pass
+        if not ok:
+            # 源文件不是 zip (txt/pdf) 或图片缺失 → 直接去掉这条, 不让打包失败
+            ch.images.remove(img)
+            continue
+        img.file = f"images/{dest_name}"
+    if zf is not None:
+        zf.close()
 
 
 def _chapter_opus_ok(out_dir: str, audio_dir: str, ch_index: int) -> bool:

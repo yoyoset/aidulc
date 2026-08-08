@@ -103,6 +103,21 @@
           const row = el('div', 'component-row',
             `${c.name}: ${c.healthy ? '✓ ' + c.detail : '✗ ' + c.detail}`);
           row.className += c.healthy ? ' component-ok' : ' component-bad';
+          // R3.4: 文档解析器缺失 → 一键安装按钮
+          if (c.id === 'pymupdf' && !c.healthy) {
+            const btn = el('button', 'btn-small', '一键安装');
+            btn.style.marginLeft = '8px';
+            btn.onclick = () => {
+              btn.disabled = true;
+              btn.textContent = '安装中…';
+              AiduMiscService.docParserInstall().then((r) => {
+                const installed = r.ok && r.data && r.data.ok;
+                btn.textContent = installed ? '✓ 已安装' : '安装失败';
+                if (!installed) row.title = (r.data && r.data.detail) || r.error || '';
+              });
+            };
+            row.appendChild(btn);
+          }
           compList.appendChild(row);
         });
       });

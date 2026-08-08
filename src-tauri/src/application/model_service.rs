@@ -189,6 +189,21 @@ pub fn preflight_check(
     ffmpeg: &std::path::Path,
 ) -> Vec<String> {
     let mut problems = Vec::new();
+    // 0. 格式支持 (R3.3, 2026-08-08): 处理前就告知不支持, 不在阅读整理时才报。
+    //    与 prep/pipeline/loader 的 SUPPORTED_EXT 对齐: epub(原生)/pdf/mobi/azw3/fb2(PyMuPDF)/txt。
+    if !book_path.is_empty() {
+        let ext = std::path::Path::new(book_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .unwrap_or_default();
+        const SUPPORTED: &[&str] = &["epub", "pdf", "mobi", "azw3", "fb2", "txt"];
+        if !SUPPORTED.contains(&ext.as_str()) {
+            problems.push(format!(
+                "不支持的文件格式: .{ext} (支持 epub/pdf/mobi/azw3/fb2/txt)"
+            ));
+        }
+    }
     // 1. 原书文件存在
     if !book_path.is_empty() && !std::path::Path::new(book_path).exists() {
         problems.push("原书文件不存在, 请重新导入".into());

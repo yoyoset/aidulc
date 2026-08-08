@@ -139,6 +139,55 @@ S3.1(2026-08-07)在 `reader/styles/tokens.css` 建了 `--md-sys-font-size-*`(15 
 
 ---
 
+## 需求精化产出(2026-08-08 会话, 详细见 docs/requirements.md)
+
+> 需求精化 + 架构记录会话的产出, 摘进这里作为活跃待办。完整任务卡/证据/验收在
+> `docs/requirements.md`(可执行任务卡 + 优先级清单)和 `docs/ARCHITECTURE.md`(§9.5)。
+
+- **候选缺陷(静态取证, 先 exe 复现再立项)**:
+  - R4-1 书签跨章串位: `reader_view.js` 书签 Set 跨章不重置, 旧章下标套新章且覆写 reading_state。
+    复现: ≥2 章书 ch1 打 2 书签 → 切 ch2 → 同序号句被高亮/面板列出错句。
+  - R5-1 重试失败句丢 profile: `job_retry_failed`(job_orchestrator.rs:515-521)用硬编码默认
+    profile, kid 用户重试后音色/策略/速度变默认。正确来源 = 原 job_request.json 快照。
+  - R6-1 重启后"开始阅读准备"报批次不存在: `_startPrepForBook` 的 batch_id 依赖会话内存
+    `_lastBatchId`, 重启后伪造 id 被 `batch_repo.get` 拒绝。复现: 导入不处理→重启→点按钮。
+    若复现成立应 P0/P1(阻断"导入→稍后处理")。
+  - F25 儿童模式对 kid 书无效: 设置页只写 'default', 阅读器按书 profile('kid')读且缺失不回退
+    'default' → kid 书恒 18px/句级。复现: 开儿童模式 → 读 kid 书 → 字号没变。修法: reader_view
+    改读 'default' 或缺失回退。
+  - **F26 CSP 未放行 `data:`, R4 插图可能整条被拦(高置信, 待 exe 实测)**: tauri.conf.json CSP
+    `default-src 'self'` 无 `img-src`, 而插图用 `data:image/*;base64`。若实测成立, R4 插图功能
+    整体失效, 应 P0/P1。修法: CSP 加 `img-src 'self' data:`。
+  - F27 .aidu-data 备份/恢复命令零 UI: transfer_export/transfer_import 注册但无任何前端调用,
+    而 USER_NEEDS item 9("生词备份")因此未兑现。接 UI(如生词本/设置加"备份/恢复")即兑现。
+    同类: bookmarks_list 死命令、boot_ping 开发探针。
+  - F30 library_open 未接线 → "最近阅读"无数据源: 打开书不调 library_open, last_opened_at 恒
+    None。USER_NEEDS item 12 明确要"最近阅读排序"。修法: 打开书时调 library_open。
+  - **F34 拖拽导入监听累积(高置信, 待 exe 实测)**: library_view 每次 render 注册 drag-drop 监听
+    且不注销, 多次访问书库后一次拖拽触发多次导入(重复 batch)。复现: 访问书库 3 次 → 拖一本书 →
+    看是否重复导入。若成立应 P1。
+- **词典查询性能(实测)**: F21 —— 每次点词 spawn 新侧车加载 2.4GB 模型, 实测冷 7.4s / 热 5.7s,
+  用户每次查词等 5-7 秒。修复方向: 常驻词典服务 / 更小模型 / 异步。核心交互, 优先级上调。
+- **便携版整体过期(实测, 高)**: F36 —— `dist/aidulc-portable/` 的 aidulc.exe(17:51, 旧前端)
+  与 aidulc-prep.exe(18:03, 旧侧车)都早于 R0-R4: 侧车无 `--pymupdf-version`(误报 pymupdf 缺失)、
+  `--preview-book` 无 health 字段(体检不显示)、不含 EPUB2 NCX/[[HEADING]]/插图提取; exe 嵌入旧
+  前端(无模块化阅读器/渐进渲染/R4 插图)。**修法: 用 R0-R4 之后的代码整体重新打包便携版
+  (先 cargo build 嵌前端, 再打包侧车, 整包替换), 这是 R0-R4 交付的必要一步。**
+- **便携版 config.toml 是开发机残留(实测, 高)**: F37 —— `dist/aidulc-portable/config.toml` 含
+  `F:/hf_cache`、`F:/my_ai/subgen` 等开发机绝对路径 + 旧字段名(library_dir/llm_model_path/
+  tts_model_path)。换机器上 ffmpeg_path 指向不存在路径 → 误报缺失; 泄露开发目录结构。
+  修法: 打包用干净默认 config.toml(或删除让它首跑生成)。
+- **R3-1 模型下载接线前必修(实测确认)**: ① `Cargo.toml` reqwest `default-features=false` +
+  无 TLS feature → https 下载必然失败(F19, scratch 工程实测); ② `models_download` 固定 60s
+  超时(F4)。修完这两条才能谈下载按钮。
+- **交付体积债(实测)**: 侧车/便携版 6.3GB(F22)—— torch 全量捆绑(约 2.5GB) + CUDA DLL 三重复制
+  (cublasLt ×3 ≈ 1.35GB 浪费) + ggml-cuda 903MB。优化方向(去重/排除 cudnn engines/权衡 CPU build)
+  见 ARCHITECTURE §9.5 F22。
+- **死表面审计(P4 清理包)**: F5(job_id 死字段)/F14(profiles 表无 UI 写)/F17(无调用方命令)/
+  F23(死配置字段)同根, 合并审计一次定去留。
+
+---
+
 ## 已完成(仅作为近期变更记录,超过一个 Phase 周期后清理)
 
 - 2026-08-07:建立版本控制(此前零历史)、聚合门禁 `scripts/check.ps1`、CLAUDE.md 强制规约、

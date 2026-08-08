@@ -286,6 +286,23 @@ pub fn read_audio(base_path: String, file: String) -> Result<Vec<u8>, String> {
     std::fs::read(&canonical_path).map_err(|e| format!("读文件失败: {e}"))
 }
 
+/// 读原书插图 (R4, 2026-08-08): 复用 read_audio 的 canonicalize + 路径包含校验,
+/// 不另写一份防越界逻辑。返回 base64 (与 read_audio_range 的二进制编码一致)。
+#[tauri::command]
+pub fn read_image(base_path: String, file: String) -> Result<serde_json::Value, String> {
+    let path = std::path::Path::new(&base_path).join(file);
+    let canonical_base =
+        std::fs::canonicalize(&base_path).map_err(|e| format!("书包根无效: {e}"))?;
+    let canonical_path = std::fs::canonicalize(&path).map_err(|e| format!("文件不存在: {e}"))?;
+    if !canonical_path.starts_with(&canonical_base) {
+        return Err("路径越界".into());
+    }
+    let data = std::fs::read(&canonical_path).map_err(|e| format!("读文件失败: {e}"))?;
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
+    Ok(serde_json::json!({ "data_b64": b64 }))
+}
+
 /// 分块读音频 (G3: 长章避免整文件跨 IPC)
 #[tauri::command]
 pub fn read_audio_range(

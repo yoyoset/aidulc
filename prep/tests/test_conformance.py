@@ -92,6 +92,29 @@ class TestBookpackConformance:
         errors = validate_bookpack(bp)
         assert any("status" in e for e in errors)
 
+    def test_images_field_optional_and_valid(self):
+        # R4 (2026-08-08): chapter.images 可选 (老书包无此字段仍合法); 有则须 {file, at}
+        bp = _load_fixture("sample_bookpack/bookpack.json")
+        assert "images" not in bp["chapters"][0], "fixture 无 images 字段"
+        assert validate_bookpack(bp) == []
+        bp["chapters"][0]["images"] = [
+            {"file": "images/ch_000_cover.jpg", "at": 0},
+            {"file": "images/ch_000_fig1.jpg", "at": 2},
+        ]
+        assert validate_bookpack(bp) == []
+
+    def test_image_entry_requires_file_and_at(self):
+        bp = _load_fixture("sample_bookpack/bookpack.json")
+        bp["chapters"][0]["images"] = [{"file": "images/x.jpg"}]  # 缺 at
+        errors = validate_bookpack(bp)
+        assert any("at" in e for e in errors)
+
+    def test_unknown_image_field_rejected(self):
+        bp = _load_fixture("sample_bookpack/bookpack.json")
+        bp["chapters"][0]["images"] = [{"file": "a.jpg", "at": 0, "bogus": 1}]
+        errors = validate_bookpack(bp)
+        assert any("bogus" in e for e in errors)
+
 
 class TestJobRequestConformance:
     def test_valid_job_request(self):

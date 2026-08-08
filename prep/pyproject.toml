@@ -7,6 +7,9 @@ requires-python = ">=3.13"
 
 [project.optional-dependencies]
 test = ["pytest"]
+# R3.2 (2026-08-08): 文档解析器 (PyMuPDF)。epub 走原生解析不依赖它; pdf/mobi/azw3/fb2
+# 走它兜底。缺失时 pdf.py 懒加载会给人话提示, 前端组件健康页可一键安装。
+doc = ["pymupdf>=1.24"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

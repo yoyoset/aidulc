@@ -155,9 +155,14 @@ S3.1(2026-08-07)在 `reader/styles/tokens.css` 建了 `--md-sys-font-size-*`(15 
   - F25 儿童模式对 kid 书无效: 设置页只写 'default', 阅读器按书 profile('kid')读且缺失不回退
     'default' → kid 书恒 18px/句级。复现: 开儿童模式 → 读 kid 书 → 字号没变。修法: reader_view
     改读 'default' 或缺失回退。
-  - **F26 CSP 未放行 `data:`, R4 插图可能整条被拦(高置信, 待 exe 实测)**: tauri.conf.json CSP
-    `default-src 'self'` 无 `img-src`, 而插图用 `data:image/*;base64`。若实测成立, R4 插图功能
-    整体失效, 应 P0/P1。修法: CSP 加 `img-src 'self' data:`。
+  - **F26 CSP 未放行 `data:` → R4 插图 100% 显示不出来(✅ 2026-08-08 浏览器实测确认, 不再是"待验证")**:
+    tauri.conf.json CSP `default-src 'self'` 无 `img-src`, 而插图用 `data:image/*;base64`。
+    用逐字一致的 CSP 建测试页实测, 浏览器直接报 `CSP VIOLATION: img-src blocked=data`,
+    **`data:image/*` 和标准的 `data:image/png` 两种写法都被拦** —— 即 R4 插图功能在真实 app 里
+    整条失效(单测和 Rust 侧 read_image 都没问题, 是到浏览器这一步被 CSP 挡掉)。
+    修法两处: ① CSP 加 `img-src 'self' data:`; ② `reader_renderer.js::_loadFigure` 里的
+    `data:image/*` 换成按扩展名给真实 MIME(`image/jpeg`/`image/png`), `image/*` 不是合法 MIME。
+    用户 2026-08-08 决定: **登记为技术债, 本轮不修。**
   - F27 .aidu-data 备份/恢复命令零 UI: transfer_export/transfer_import 注册但无任何前端调用,
     而 USER_NEEDS item 9("生词备份")因此未兑现。接 UI(如生词本/设置加"备份/恢复")即兑现。
     同类: bookmarks_list 死命令、boot_ping 开发探针。
@@ -166,6 +171,34 @@ S3.1(2026-08-07)在 `reader/styles/tokens.css` 建了 `--md-sys-font-size-*`(15 
   - **F34 拖拽导入监听累积(高置信, 待 exe 实测)**: library_view 每次 render 注册 drag-drop 监听
     且不注销, 多次访问书库后一次拖拽触发多次导入(重复 batch)。复现: 访问书库 3 次 → 拖一本书 →
     看是否重复导入。若成立应 P1。
+- **F38 EPUB2(toc.ncx)书丢掉绝大部分正文(✅ 2026-08-08 用新侧车走真实 `--preview-book` 流程实测确认)**:
+  `epub.py` 的 `if toc_filtered:` 分支(load_epub 约 378 行)**只遍历 TOC 引用到的文件**,
+  完整的 `spine`(同函数内的 `files`)只在"没有 TOC"的兜底分支里用。
+  但 **TOC 条目是"锚点"不是"文件清单"** —— 一个 navPoint 指向某部小说的起始文件,
+  正文继续在后续 spine 文件里, 那些文件从头到尾没被打开过。
+
+  《银河系漫游指南》(EPUB2, toc.ncx, 15 个 navPoint / zip 内 119 个条目)实测:
+  ```
+  toc_source: "toc.ncx"   chapter_count: 10
+  sentence_counts: [87, 3, 14, 4, 3, 112, 5, 76, 11, 16]  → 共 331 段
+  ```
+  其中"The Hitchhiker's Guide to the Galaxy"(整部长篇)只剩 **3 段**,
+  "The Restaurant at the End of the Universe" **14 段**, "So Long..." **4 段**,
+  "Mostly Harmless" **3 段** —— 五部长篇的正文全部缺失; 单文件的前言(87)和短篇(112)反而是全的,
+  因为 TOC 条目指向的就是那个文件本身。
+  A/B 佐证: 用 git 取 R3 之前的 `epub.py` 跑同一文件得 11953 段(走的是无 TOC → 全 spine 兜底分支),
+  现在 331 段。**这是 R3 加 toc.ncx 支持时引入的**: 这本书原先因找不到 nav.xhtml 而走全 spine 兜底,
+  反而是对的。
+  修法: **始终按 spine 遍历全部正文**, TOC 只用来给文件赋标题/定边界, 不用来筛选读哪些文件。
+  注意 nav.xhtml 的书(Wolf 21)现状正常(855→903 段), 改的时候不能把它改坏。
+
+- **F39 处理前体检对 F38 这类问题完全无效(同次实测)**: `cli.py` 的异常检测(约 86-94 行)
+  只判三种情况 —— 0 句 / 正好 1 句 / >1000 句。一部长篇只剩 3 段, 三条一条都不撞,
+  所以上面那次体检报的是 `anomalies: []`。**这道防线本来就是为了在花几小时 GPU 之前拦住这种事,
+  现在它拦不住。** 修法: 加"章节正文量与其在书中占比明显不匹配"的检测
+  (如某章 sentence 数远低于全书中位数, 或 TOC 声称是一部作品却只有个位数段落)。
+  与 F38 一起修才有意义 —— 只修 F38 是修了这一本, 加上 F39 才是以后同类问题能被自动拦下。
+
 - **词典查询性能(实测)**: F21 —— 每次点词 spawn 新侧车加载 2.4GB 模型, 实测冷 7.4s / 热 5.7s,
   用户每次查词等 5-7 秒。修复方向: 常驻词典服务 / 更小模型 / 异步。核心交互, 优先级上调。
 - **便携版整体过期(实测, 高)**: F36 —— `dist/aidulc-portable/` 的 aidulc.exe(17:51, 旧前端)
@@ -173,6 +206,9 @@ S3.1(2026-08-07)在 `reader/styles/tokens.css` 建了 `--md-sys-font-size-*`(15 
   `--preview-book` 无 health 字段(体检不显示)、不含 EPUB2 NCX/[[HEADING]]/插图提取; exe 嵌入旧
   前端(无模块化阅读器/渐进渲染/R4 插图)。**修法: 用 R0-R4 之后的代码整体重新打包便携版
   (先 cargo build 嵌前端, 再打包侧车, 整包替换), 这是 R0-R4 交付的必要一步。**
+  **进度(2026-08-08)**: 开发路径的侧车 `prep/dist/aidulc-prep/aidulc-prep.exe` 已用
+  `scripts\build_prep.ps1` 重新打包(10:20, 含全部 R0-R4 prep 改动), F38/F39 那次实测就是
+  用它跑的。`dist/aidulc-portable/` 整包仍未重打, F36 保持未完成。
 - **便携版 config.toml 是开发机残留(实测, 高)**: F37 —— `dist/aidulc-portable/config.toml` 含
   `F:/hf_cache`、`F:/my_ai/subgen` 等开发机绝对路径 + 旧字段名(library_dir/llm_model_path/
   tts_model_path)。换机器上 ffmpeg_path 指向不存在路径 → 误报缺失; 泄露开发目录结构。

@@ -35,12 +35,74 @@ pub fn profile_list(db: State<Db>) -> Result<serde_json::Value, String> {
     serde_json::to_value(repo.list()).map_err(|e| e.to_string())
 }
 
+/// 删除自建档案 (M6). 内建档案 ('default') 不允许删 —— 它是所有书的兜底配置,
+/// 删了会让读不到档案的书静默落到 DB 默认值, 用户困惑。
+#[tauri::command]
+pub fn profile_delete(db: State<Db>, id: String) -> Result<(), String> {
+    if id == "default" {
+        return Err("内建档案「成人自读」不能删除".into());
+    }
+    let repo = crate::store::profile_repo::ProfileRepo::new(db.inner());
+    repo.delete(&id)
+}
+
+// ---- 摘录标注 (M7 R16) ----
+
+/// 某本书的全部摘录 (按 章/句序 排)
+#[tauri::command]
+pub fn highlights_list(db: State<Db>, book_key: String) -> Result<serde_json::Value, String> {
+    let repo = crate::store::highlights_repo::HighlightsRepo::new(db.inner());
+    serde_json::to_value(repo.list_by_book(&book_key)).map_err(|e| e.to_string())
+}
+
+/// 保存摘录 (新增或更新, 同 id 覆盖)
+#[tauri::command]
+pub fn highlights_save(
+    db: State<Db>,
+    highlight: crate::store::highlights_repo::Highlight,
+) -> Result<(), String> {
+    let repo = crate::store::highlights_repo::HighlightsRepo::new(db.inner());
+    repo.upsert(&highlight)
+}
+
+/// 删除摘录
+#[tauri::command]
+pub fn highlights_remove(db: State<Db>, id: String) -> Result<(), String> {
+    let repo = crate::store::highlights_repo::HighlightsRepo::new(db.inner());
+    repo.remove(&id)
+}
+
 // ---- 阅读状态 ----
 
 #[tauri::command]
 pub fn reading_save(db: State<Db>, state: ReadingState) -> Result<(), String> {
+    // M7 R37: 保存阅读状态 + 按日记账 (time_spent_ms 增量记到当天)
     let repo = crate::store::reading_repo::ReadingRepo::new(db.inner());
-    repo.upsert(&state)
+    repo.save_with_daily(&state)
+}
+
+/// M7 R37: 某书近 N 天每日阅读时长 + 今日累计 (前端"今日已读 X 分钟")
+#[tauri::command]
+pub fn reading_stats(
+    db: State<Db>,
+    book_key: String,
+    days: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    let repo = crate::store::reading_repo::ReadingRepo::new(db.inner());
+    let n = days.unwrap_or(7).clamp(1, 60);
+    let today = crate::store::now_ms_for_store() / 86_400_000;
+    let from = today - (n - 1);
+    let daily: Vec<serde_json::Value> = repo
+        .daily_times(&book_key, from, today)
+        .into_iter()
+        .map(|(day, ms)| serde_json::json!({ "day": day, "ms": ms }))
+        .collect();
+    let today_ms = daily
+        .iter()
+        .find(|d| d["day"].as_i64() == Some(today))
+        .map(|d| d["ms"].as_i64().unwrap_or(0))
+        .unwrap_or(0);
+    Ok(serde_json::json!({ "today_ms": today_ms, "days": daily }))
 }
 
 #[tauri::command]

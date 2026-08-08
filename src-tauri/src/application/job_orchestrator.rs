@@ -185,7 +185,31 @@ pub fn batch_start_prep(
 ) -> Result<serde_json::Value, String> {
     use tauri::Emitter;
     let batch_repo = store::batches_repo::BatchesRepo::new(db);
-    let batch = batch_repo.get(&batch_id).ok_or("批次不存在")?;
+    // R6-1 (2026-08-08): 前端"开始阅读准备"的 batch_id 依赖会话内存, 重启后伪造的 id
+    // 在表里不存在 → 原来直接"批次不存在"报错, "导入→稍后处理"主流程断掉。
+    // 修法: 不存在时按单书自动建批次(保留批次语义, 不阻塞入队)。
+    let batch = match batch_repo.get(&batch_id) {
+        Some(b) => b,
+        None => {
+            let now = now_ms();
+            let b = store::batches_repo::Batch {
+                id: batch_id.clone(),
+                profile_id: "default".into(),
+                source_language: "en".into(),
+                target_language: "zh-CN".into(),
+                status: "created".into(),
+                total_books: 0,
+                done_books: 0,
+                failed_books: 0,
+                created_at: now,
+                updated_at: now,
+            };
+            batch_repo
+                .upsert(&b)
+                .map_err(|e| format!("自动建批次失败: {e}"))?;
+            b
+        }
+    };
     let books_repo = store::books_repo::BooksRepo::new(db);
     // 收集要处理的书的元数据
     let mut books = Vec::new();
@@ -512,14 +536,11 @@ pub fn job_retry_failed(
     if !b_nlp.is_empty() {
         book_models["spacy"] = serde_json::json!(b_nlp);
     }
-    let profile_obj = serde_json::json!({
-        "id": job.profile_id,
-        "explain_strategy": "brief",
-        "voice": "af_heart",
-        "speed": 1.0,
-        "highlight_granularity": "sentence",
-    });
+    // F13 (2026-08-08): 重试必须保留原始 profile —— 硬编码 brief/af_heart/1.0 会让
+    // kid(deep/0.9x/词级)重试后换成默认音色/策略/速度。正确来源 = job_dir/job_request.json
+    // 里的原始 profile 快照(job_dir 里仍保留), 从表里查也行, 但快照保留"这本书当年怎么配的"。
     let job_dir = std::path::PathBuf::from(&job.output_dir);
+    let profile_obj = profile_from_snapshot(&job_dir, &job.profile_id);
     let mut job_req = jobs::spawn::build_job_request(
         &job.book_path,
         &job_dir.to_string_lossy(),
@@ -1015,9 +1036,79 @@ fn quality_summary(out_dir: &str) -> Option<String> {
     ))
 }
 
+/// F13 (2026-08-08): 从任务目录的 job_request.json 快照恢复原始 profile 参数。
+/// 重试失败句时保留"这本书当年怎么配的"(音色/策略/速度/粒度), 而不是换回硬编码默认。
+/// 快照缺失/解析失败 → 返回给定默认值。纯函数, 可单测。
+fn profile_from_snapshot(job_dir: &std::path::Path, profile_id: &str) -> serde_json::Value {
+    let mut obj = serde_json::json!({
+        "id": profile_id,
+        "explain_strategy": "brief",
+        "voice": "af_heart",
+        "speed": 1.0,
+        "highlight_granularity": "sentence",
+    });
+    if let Ok(text) = std::fs::read_to_string(job_dir.join("job_request.json")) {
+        if let Ok(req) = serde_json::from_str::<serde_json::Value>(&text) {
+            if let Some(p) = req.get("profile").and_then(|x| x.as_object()) {
+                for k in [
+                    "explain_strategy",
+                    "voice",
+                    "speed",
+                    "highlight_granularity",
+                ] {
+                    if let Some(v) = p.get(k) {
+                        obj[k] = v.clone();
+                    }
+                }
+            }
+        }
+    }
+    obj
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{overall_progress, quality_summary};
+    use super::{overall_progress, profile_from_snapshot, quality_summary};
+
+    #[test]
+    fn retry_profile_from_snapshot_keeps_kid_params() {
+        // F13: job_request.json 快照里有 kid 的 deep/0.9x/词级 → 重试必须保留
+        let dir = std::env::temp_dir().join(format!("aidulc_pfs_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("job_request.json"),
+            serde_json::to_string(&serde_json::json!({
+                "profile": {
+                    "id": "kid",
+                    "explain_strategy": "deep",
+                    "voice": "af_heart",
+                    "speed": 0.9,
+                    "highlight_granularity": "word"
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let p = profile_from_snapshot(&dir, "kid");
+        assert_eq!(p["explain_strategy"], "deep");
+        assert_eq!(p["voice"], "af_heart");
+        assert_eq!(p["speed"], 0.9);
+        assert_eq!(p["highlight_granularity"], "word");
+        assert_eq!(p["id"], "kid");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retry_profile_snapshot_missing_falls_back_to_defaults() {
+        // 快照不存在/解析失败 → 默认 brief/af_heart/1.0/sentence, 不崩溃
+        let dir = std::env::temp_dir().join(format!("aidulc_pfs_m_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = profile_from_snapshot(&dir, "kid");
+        assert_eq!(p["explain_strategy"], "brief");
+        assert_eq!(p["speed"], 1.0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn progress_stage_weighted() {

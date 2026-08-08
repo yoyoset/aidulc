@@ -58,6 +58,7 @@
   router.register('library', (container) => {
     shell.setActiveNav('library');
     readerView.cleanup();
+    prepView.cleanup();
     libraryView.render(container);
     if (libraryView._jobTimer) clearInterval(libraryView._jobTimer);
     libraryView.render(container);
@@ -72,6 +73,7 @@
   router.register('products', (container) => {
     shell.setActiveNav('products');
     readerView.cleanup();
+    prepView.cleanup();
     productsView.render(container);
     if (libraryView._jobTimer) clearInterval(libraryView._jobTimer);
     AiduLibraryService.list('product').then((res) => {
@@ -95,18 +97,21 @@
   router.register('settings', (container) => {
     shell.setActiveNav('settings');
     readerView.cleanup();
+    prepView.cleanup();
     settingsView.render(container);
   });
 
   router.register('models', (container) => {
     shell.setActiveNav('models');
     readerView.cleanup();
+    prepView.cleanup();
     modelsView.render(container);
   });
 
   router.register('vocab', (container) => {
     shell.setActiveNav('vocab');
     readerView.cleanup();
+    prepView.cleanup();
     vocabView.render(container);
   });
 
@@ -135,6 +140,13 @@
   const openBook = (book, backRoute) => {
     store.set({ currentBook: book });
     store.set({ readerBackRoute: backRoute });
+    // F30 (2026-08-08): 登记打开时间 → "最近阅读"有数据源 (last_opened_at)
+    AiduLibraryService.open(book.id).then((r) => {
+      if (r.ok) {
+        const updated = { ...book, last_opened_at: Date.now() };
+        store.set({ books: store.state.books.map((b) => (b.id === book.id ? updated : b)) });
+      }
+    });
     router.navigate('reader');
   };
   libraryView.onOpenBook = (book) => openBook(book, 'library');

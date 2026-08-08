@@ -1,13 +1,14 @@
-/* prep.css —— 备料台 */
+/* prep.css —— 备料台 (M6 打磨: 柔和拖拽区、统一输入、任务卡纸感) */
 .prep-dropzone {
-  border: 2px dashed var(--md-sys-color-outline-variant);
-  border-radius: var(--md-sys-radius-md);
-  padding: 36px 20px;
+  border: 1.5px dashed var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-lg);
+  padding: 40px 20px;
   text-align: center;
   color: var(--md-sys-color-on-surface-variant);
   cursor: pointer;
   margin-bottom: 14px;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  line-height: 1.8;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 .prep-dropzone:hover, .prep-dropzone.drag-over {
   border-color: var(--md-sys-color-primary);
@@ -18,15 +19,17 @@
   flex: 1;
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--md-sys-radius-sm);
-  padding: 8px 12px;
+  padding: 9px 12px;
   background: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
   font-family: var(--md-sys-font-sans);
+  transition: border-color 0.15s ease;
 }
+.prep-input:focus { outline: none; border-color: var(--md-sys-color-primary); }
 .prep-select {
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--md-sys-radius-sm);
-  padding: 8px;
+  padding: 9px;
   background: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
   font-family: var(--md-sys-font-sans);
@@ -34,11 +37,14 @@
 
 .prep-task {
   border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: var(--md-sys-radius-sm);
-  padding: 12px 14px;
+  border-radius: var(--md-sys-radius-md);
+  padding: 14px 16px;
   margin-bottom: 10px;
   background: var(--md-sys-color-surface);
+  box-shadow: var(--md-sys-elevation-1);
+  transition: box-shadow 0.15s ease;
 }
+.prep-task:hover { box-shadow: var(--md-sys-elevation-2); }
 .prep-task-header { display: flex; align-items: center; gap: 12px; }
 .prep-task-title { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prep-task-status { font-size: 0.85rem; color: var(--md-sys-color-primary); min-width: 90px; text-align: right; }
@@ -47,13 +53,24 @@
   height: 5px;
   background: var(--md-sys-color-surface-variant);
   border-radius: var(--md-sys-radius-pill);
-  margin: 10px 0 6px;
+  margin: 12px 0 6px;
   overflow: hidden;
 }
 .prep-bar-fill {
   height: 100%;
   background: var(--md-sys-color-primary);
   border-radius: var(--md-sys-radius-pill);
-  transition: width 0.25s ease;
+  transition: width 0.3s ease;
 }
-.prep-task-log { font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); min-height: 1em; }
+/* M7 R32: 批次组头 */
+.prep-batch-head {
+  margin: 16px 0 8px;
+  padding: 6px 12px;
+  font-size: var(--md-sys-font-size-label-l);
+  letter-spacing: 0.03em;
+  color: var(--md-sys-color-on-surface-variant);
+  background: var(--md-sys-color-surface-variant);
+  border-radius: var(--md-sys-radius-sm);
+}
+.prep-batch-head:first-child { margin-top: 4px; }
+

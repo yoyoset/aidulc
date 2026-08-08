@@ -19,12 +19,28 @@ pub fn word_lookup(
     // M 系列 (单一真相源): LLM 路径从 model_registry 推荐解析
     let (llm_model, _, _) = crate::application::model_service::resolve_paths(db.inner(), "en");
     let lookup_fn = move |w: &str, ctx: &str| {
-        if !llm_model.is_empty() && std::path::Path::new(&llm_model).exists() {
-            if let Ok(v) = llm_dict_lookup(&prep_path, &llm_model, w, ctx) {
-                return Ok(v);
+        let configured = !llm_model.is_empty() && std::path::Path::new(&llm_model).exists();
+        if configured {
+            // F21 (2026-08-08): 常驻词典守护 —— 侧车加载模型一次, 不再每次重载 2.4GB
+            if let Ok(v) =
+                crate::infrastructure::dict_daemon::lookup(&prep_path, &llm_model, w, ctx)
+            {
+                if let Ok(parsed) = daemon_result_to_tuple(&v) {
+                    return Ok(parsed);
+                }
             }
+            // F40 (2026-08-08): 模型在但查询失败 → 明确说"查询失败", 别误导成"未配置"
+            return Ok((
+                "NOUN".into(),
+                String::new(),
+                vec![format!("{w} 的词义查询失败 (模型已配置但未返回结果)")],
+                vec![],
+                vec![],
+                String::new(),
+                vec![],
+            ));
         }
-        // 兜底: 无模型/失败 → 占位 (不阻断查词)
+        // 兜底: 未配置 → 占位 (不阻断查词)
         Ok((
             "NOUN".into(),
             String::new(),
@@ -39,13 +55,9 @@ pub fn word_lookup(
     serde_json::to_value(result).map_err(|e| e.to_string())
 }
 
-/// spawn 侧车 dict-lookup: python -m aidulc_prep.dict_lookup --model <m> --word <w> --context <ctx>
-/// 阻塞读 stdout 一行 JSON (词查询 <2s), 8s 超时兜底。
-fn llm_dict_lookup(
-    prep_path: &std::path::Path,
-    model: &str,
-    word: &str,
-    context: &str,
+/// 词典守护的 result JSON → dictionary_service 的元组。字段缺失给空值, 不报错。
+fn daemon_result_to_tuple(
+    v: &serde_json::Value,
 ) -> Result<
     (
         String,
@@ -58,99 +70,37 @@ fn llm_dict_lookup(
     ),
     String,
 > {
-    use std::io::Read;
-    use std::os::windows::process::CommandExt;
-    use std::process::{Command, Stdio};
-
-    let mut cmd = Command::new(prep_path);
-    cmd.args(["--lookup-model", model, "--lookup-word", word])
-        .args(["--lookup-context", context])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .creation_flags(0x08000000); // CREATE_NO_WINDOW
-    let mut child = cmd.spawn().map_err(|e| format!("启动词典补全失败: {e}"))?;
-    let mut out = String::new();
-    child
-        .stdout
-        .take()
-        .ok_or("无法取得词典补全输出")?
-        .read_to_string(&mut out)
-        .map_err(|e| format!("读词典补全输出失败: {e}"))?;
-    // 等待 + 超时 (8s; 单词查询应 <2s)
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if std::time::Instant::now() > deadline => {
-                let _ = child.kill();
-                return Err("词典补全超时".into());
-            }
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
-            Err(e) => return Err(format!("等待词典补全失败: {e}")),
-        }
-    }
-    let line = out
-        .lines()
-        .find(|l| l.trim_start().starts_with('{'))
-        .ok_or("词典补全无输出")?;
-    let v: serde_json::Value =
-        serde_json::from_str(line).map_err(|e| format!("词典补全输出非法: {e}"))?;
-    let pos = v
-        .get("pos")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .to_string();
-    let phonetic = v
-        .get("phonetic")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .to_string();
-    let meanings: Vec<String> = v
-        .get("meanings")
-        .and_then(|a| a.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|m| m.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-    let examples: Vec<String> = v
-        .get("examples")
-        .and_then(|a| a.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|m| m.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-    let example_zh: Vec<String> = v
-        .get("example_zh")
-        .and_then(|a| a.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|m| m.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-    let usage = v
-        .get("usage")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .to_string();
-    let phrases: Vec<String> = v
-        .get("phrases")
-        .and_then(|a| a.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|m| m.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
+    let str_vec = |key: &str| -> Vec<String> {
+        v.get(key)
+            .and_then(|a| a.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|m| m.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let meanings = str_vec("meanings");
     if meanings.is_empty() {
-        return Err("词典补全无释义".into());
+        return Err("词典守护无释义".into());
     }
     Ok((
-        pos, phonetic, meanings, examples, example_zh, usage, phrases,
+        v.get("pos")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        v.get("phonetic")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        meanings,
+        str_vec("examples"),
+        str_vec("example_zh"),
+        v.get("usage")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        str_vec("phrases"),
     ))
 }
 
@@ -292,6 +242,37 @@ pub fn sync_config_set(
     *svc.cf_worker_url.lock().unwrap() = worker_url;
     *svc.cf_token.lock().unwrap() =
         crate::services::credentials::get_cf_token().unwrap_or_default();
+    Ok(())
+}
+
+/// R2-1 (2026-08-08): 断开同步 —— 三处一起清, 否则语义不干净:
+/// 只删 token 的话 sync_status 会回 unconfigured, 但 config.toml 残留旧 URL,
+/// 日后重配 token 会"复活"旧地址; 内存态不清则当前会话仍显示已配置。
+#[tauri::command]
+pub fn sync_disconnect(services: State<crate::AppServices>) -> Result<(), String> {
+    use crate::services::config;
+    // 1. 删 Credential Manager 里的 token (没配置时无可删, 忽略)
+    let _ = crate::services::credentials::delete_cf_token();
+    // 2. 清 config.toml 的 cf_worker_url
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_default();
+    let mut cfg = config::Config::load(&exe_dir);
+    cfg.cf_worker_url = String::new();
+    std::fs::write(
+        exe_dir.join("config.toml"),
+        toml::to_string_pretty(&cfg).unwrap_or_default(),
+    )
+    .map_err(|e| {
+        format!("清 config.toml 失败 (token 已删但 URL 残留, 请手动删除 config.toml): {e}")
+    })?;
+    // 3. 清内存态 (即时生效)
+    let svc = services.inner();
+    *svc.cf_worker_url.lock().unwrap() = String::new();
+    *svc.cf_token.lock().unwrap() = String::new();
+    // 4. 清上次同步结果 (防断开后旧的 "synced 时间" 残留展示)
+    crate::application::sync_service::reset_last_sync();
     Ok(())
 }
 

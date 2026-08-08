@@ -24,6 +24,8 @@ pub fn runtime_config(
         "llm_model": llm,
         "tts_model": tts,
         "ffmpeg": cfg.ffmpeg.to_string_lossy(),
+        // M7 R8 (2026-08-08): 首次下载模型的目标目录 —— 尚未有任何模型时用 exe 同级 models/
+        "default_model_dir": current_exe_dir().join("models").to_string_lossy(),
     }))
 }
 

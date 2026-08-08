@@ -91,6 +91,14 @@ Run-Check "vitest" {
     Pop-Location
 }
 
+# 7.5 (S5, 2026-08-08): 阅读器渲染路径冒烟测试 (最小 DOM stub 驱动 AtomicBlock +
+# ReaderRenderer, 不引入 jsdom; 覆盖三模式建块/揭示折叠/词级高亮/节奏线/当前句切换)。
+Run-Check "node smoke (reader DOM 渲染路径)" {
+    Push-Location "$root\reader"
+    node tests\_smoke_dom.mjs
+    Pop-Location
+}
+
 # 8. CSS 令牌纪律: tokens.css 之外的样式文件不得出现裸 #hex 颜色(S3.1, 2026-08-07 清零后
 # 立即上强约束, 不设豁免——颜色只能来自 var(--md-sys-color-*))。字号/间距暂不做等价约束:
 # 阶梯令牌刚建立, 存量 px/rem 替换是后续工作, 现在加约束会让门禁对着几百处存量代码常年变红。
@@ -104,6 +112,15 @@ Run-Check "css:no-raw-hex(tokens.css 之外)" {
         Write-Output "干净: 除 tokens.css 外无裸 hex 颜色"
         $global:LASTEXITCODE = 0
     }
+}
+
+# 8.5 (M7 Round 6, 2026-08-08): 令牌对比度门禁 —— 直接解析 tokens.css 计算每个
+# palette × mode 的关键前景/背景对, WCAG AA 正文 ≥ 4.5 不达标即失败。
+# 防"以后改了某个令牌把无障碍做坏"静默发生。
+Run-Check "contrast (WCAG AA >= 4.5, 解析 tokens.css)" {
+    Push-Location "$root"
+    node scripts\check_contrast.mjs
+    Pop-Location
 }
 
 Write-Output ""

@@ -13,6 +13,23 @@
     return e;
   }
 
+  // M7 R8 (2026-08-08): 已知可下载模型目录 —— URL/sha256/大小全部实测验证过
+  // (HF API 2026-08-08 查得), 不是猜的。
+  const DOWNLOAD_CATALOG = [
+    {
+      family: 'llm', label: '翻译/讲解引擎', name: 'Qwen3-4B', file: 'Qwen3-4B-Q4_K_M.gguf',
+      url: 'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf',
+      sha256: '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5',
+      sizeBytes: 2497280256, version: 'Q4_K_M',
+    },
+    {
+      family: 'tts', label: '语音引擎', name: 'Kokoro-82M', file: 'kokoro-v1_0.pth',
+      url: 'https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/kokoro-v1_0.pth',
+      sha256: '496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4',
+      sizeBytes: 327212226, version: 'v1.0',
+    },
+  ];
+
   class ModelsView {
     constructor(store) {
       this.store = store;
@@ -28,6 +45,10 @@
       header.appendChild(scanBtn);
       wrap.appendChild(header);
 
+      // M7 R8: 一键下载区 (新用户上手: 没模型时不用手动找文件)
+      const downloadSec = el('div', 'model-downloads');
+      wrap.appendChild(downloadSec);
+
       const listEl = el('div', 'models-list');
       wrap.appendChild(listEl);
       container.appendChild(wrap);
@@ -35,7 +56,87 @@
       AiduModelService.list().then((res) => {
         listEl.innerHTML = '';
         if (!res.ok) { listEl.appendChild(el('div', 'global-error', '读模型列表失败: ' + res.error)); return; }
-        this._renderGrouped(listEl, res.data || []);
+        const models = res.data || [];
+        this._renderDownloads(downloadSec, models);
+        this._renderGrouped(listEl, models);
+      });
+    }
+
+    /** 一键下载区: 每个目录项一行动态显示已装/下载中/失败重试 */
+    _renderDownloads(sec, models) {
+      sec.innerHTML = '';
+      const title = el('h2', null, '一键下载');
+      const tip = el('div', 'import-tip',
+        '下载常用引擎, 完成后自动登记。下载在后台进行, 支持断点续传; 中断后重新点即可继续。');
+      const rows = el('div', 'model-download-list');
+      DOWNLOAD_CATALOG.forEach((item) => {
+        const row = el('div', 'model-row');
+        const name = el('span', 'model-name', item.label + ' · ' + item.name);
+        const installed = models.some((m) => m.family === item.family && m.model_id === item.name);
+        if (installed) {
+          const badge = el('span', 'book-badge badge-ok', '已装');
+          badge.style.marginLeft = '8px';
+          name.appendChild(badge);
+        }
+        const size = el('span', 'model-meta', `${(item.sizeBytes / 1e6).toFixed(0)} MB`);
+        const btn = el('button', 'btn-primary', installed ? '已安装' : '下载');
+        btn.disabled = installed;
+        if (!installed) btn.onclick = () => this._downloadModel(item, btn);
+        const actions = el('div', 'model-actions');
+        actions.appendChild(btn);
+        row.append(name, size, actions);
+        rows.appendChild(row);
+      });
+      sec.append(title, tip, rows);
+    }
+
+    /** 后台下载 + 轮询状态 (不冻结 UI) → 完成自动登记 */
+    _downloadModel(item, btn) {
+      btn.disabled = true;
+      btn.textContent = '下载中…';
+      AiduMiscService.runtimeConfig().then((cfg) => {
+        const d = (cfg && cfg.ok && cfg.data) || {};
+        const dir = (d.llm_model || d.tts_model)
+          ? (d.llm_model || d.tts_model).replace(/[\\/][^\\/]+$/, '')
+          : (d.default_model_dir || '');
+        if (!dir) throw new Error('找不到模型目录');
+        const dest = dir.replace(/[\\/]+$/, '') + '/' + item.file;
+        // F4: 超时按文件规模算 (至少 600s, 1MB/s 下限)
+        const timeout = Math.max(600, Math.round(item.sizeBytes / 1048576));
+        return AiduModelService.download(item.url, dest, item.sha256, timeout).then((r) => {
+          if (!r.ok) throw new Error(r.error);
+          return this._pollDownload(r.data.token, btn, item, dest);
+        });
+      }).catch((e) => {
+        AiduToast.show('下载失败: ' + e.message, 'error');
+        btn.disabled = false;
+        btn.textContent = '重试下载';
+      });
+    }
+
+    _pollDownload(token, btn, item, dest) {
+      return AiduModelService.downloadStatus(token).then((res) => {
+        const d = (res.ok && res.data) || {};
+        if (!d.done) {
+          // M7 R12: 进度可感知 —— 字节数 + 进度条 (大下载不再"只看到下载中…")
+          const readMB = (d.bytes_read || 0) / 1048576;
+          const totalMB = (d.total || item.sizeBytes) / 1048576;
+          const pct = totalMB > 0 ? Math.min(100, Math.round((readMB / totalMB) * 100)) : 0;
+          btn.textContent = `下载中… ${pct}% (${readMB.toFixed(0)}/${totalMB.toFixed(0)} MB)`;
+          return new Promise((resolve) => setTimeout(() => resolve(this._pollDownload(token, btn, item, dest)), 1000));
+        }
+        if (!d.ok) throw new Error(d.error || '未知错误');
+        // 完成 → 自动登记
+        return AiduModelService.register({
+          family: item.family, language: 'en', model_id: item.name, version: item.version,
+          variant: item.version, path: dest, source_type: 'local',
+          source_ref: item.url, sha256: item.sha256, size_bytes: item.sizeBytes, custom: false,
+        }).then((reg) => {
+          if (!reg.ok) throw new Error(reg.error);
+          AiduToast.show('已下载并登记: ' + item.name, 'success');
+          btn.textContent = '已安装';
+          this._reload();
+        });
       });
     }
 

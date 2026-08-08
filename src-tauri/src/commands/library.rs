@@ -33,7 +33,21 @@ pub fn library_list(
         Some(k) if k == "original" || k == "product" => repo.list_by_kind(k),
         _ => repo.list(),
     };
-    serde_json::to_value(books).map_err(|e| e.to_string())
+    // M7 R18: 附阅读进度 (跨表只读 reading_state) —— 书架显示"已读至第几章/共读多久"。
+    // N+1 查询, 但书量级小 (几十本), 可接受。
+    let read_repo = store::reading_repo::ReadingRepo::new(db.inner());
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    for b in books {
+        let mut v = serde_json::to_value(&b).map_err(|e| e.to_string())?;
+        if let Some(rs) = read_repo.get(&b.id) {
+            if let Some(obj) = v.as_object_mut() {
+                obj.insert("reading_chapter".into(), serde_json::json!(rs.chapter));
+                obj.insert("time_spent_ms".into(), serde_json::json!(rs.time_spent_ms));
+            }
+        }
+        out.push(v);
+    }
+    serde_json::to_value(out).map_err(|e| e.to_string())
 }
 
 /// 登记一本书

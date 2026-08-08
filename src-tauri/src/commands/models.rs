@@ -131,14 +131,119 @@ pub fn models_download(
     url: String,
     dest: String,
     sha256: Option<String>,
+    timeout_secs: u64,
 ) -> Result<serde_json::Value, String> {
-    let done = crate::infrastructure::downloader::download(
-        &url,
-        std::path::PathBuf::from(&dest),
-        sha256.as_deref(),
-        60,
-    )?;
-    Ok(serde_json::json!({"path": done.to_string_lossy(), "done": true}))
+    // M7 R8/R12/R20: 后台线程下载不冻结 UI; 进度经 AtomicU64 共享; 防重复 + 清理已完成任务。
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+    {
+        let mut reg = downloads_registry().lock().unwrap();
+        // 清理完成超过 1 小时的任务 (内存不泄漏)
+        let cutoff = (crate::commands::library::now_ms() - 3_600_000) as u64;
+        reg.retain(|_, j| !(j.done && j.done_at.load(Ordering::Relaxed) < cutoff));
+        // 防重复: 同一 dest 已在下载 → 复用 token (两个线程写同一 .part 会损坏)
+        if let Some((token, _)) = reg.iter().find(|(_, j)| !j.done && j.dest == dest) {
+            return Ok(
+                serde_json::json!({ "token": token.clone(), "started": true, "reused": true }),
+            );
+        }
+    }
+    let token = format!("dl-{}", crate::commands::library::now_ms());
+    let bytes_read = Arc::new(AtomicU64::new(0));
+    let total = Arc::new(AtomicU64::new(0));
+    let done_at = Arc::new(AtomicU64::new(0));
+    downloads_registry().lock().unwrap().insert(
+        token.clone(),
+        DownloadJob {
+            done: false,
+            ok: false,
+            path: String::new(),
+            error: String::new(),
+            dest: dest.clone(),
+            done_at: done_at.clone(),
+            bytes_read: bytes_read.clone(),
+            total: total.clone(),
+        },
+    );
+    let token2 = token.clone();
+    std::thread::spawn(move || {
+        let br = bytes_read.clone();
+        let tl = total.clone();
+        let br2 = br.clone();
+        let tl2 = tl.clone();
+        let r = crate::infrastructure::downloader::download_with_progress(
+            &url,
+            std::path::PathBuf::from(&dest),
+            sha256.as_deref(),
+            timeout_secs,
+            move |read, tot| {
+                br2.store(read, Ordering::Relaxed);
+                if tot > 0 {
+                    tl2.store(tot, Ordering::Relaxed);
+                }
+            },
+        );
+        let job = match r {
+            Ok(p) => DownloadJob {
+                done: true,
+                ok: true,
+                path: p.to_string_lossy().to_string(),
+                error: String::new(),
+                dest,
+                done_at: done_at.clone(),
+                bytes_read: br,
+                total: tl,
+            },
+            Err(e) => DownloadJob {
+                done: true,
+                ok: false,
+                path: String::new(),
+                error: e,
+                dest,
+                done_at: done_at.clone(),
+                bytes_read: br,
+                total: tl,
+            },
+        };
+        job.done_at
+            .store(crate::commands::library::now_ms() as u64, Ordering::Relaxed);
+        downloads_registry().lock().unwrap().insert(token2, job);
+    });
+    Ok(serde_json::json!({ "token": token, "started": true }))
+}
+
+#[derive(Clone)]
+struct DownloadJob {
+    done: bool,
+    ok: bool,
+    path: String,
+    error: String,
+    dest: String,
+    done_at: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    bytes_read: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    total: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+fn downloads_registry() -> &'static std::sync::Mutex<std::collections::HashMap<String, DownloadJob>>
+{
+    static REG: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, DownloadJob>>,
+    > = std::sync::OnceLock::new();
+    REG.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// 下载状态 (前端轮询): 下载中返回 bytes_read/total, 完成返回 ok/path/error
+#[tauri::command]
+pub fn models_download_status(token: String) -> Result<serde_json::Value, String> {
+    use std::sync::atomic::Ordering;
+    let map = downloads_registry();
+    let m = map.lock().unwrap();
+    let job = m.get(&token).ok_or("下载任务不存在")?.clone();
+    Ok(serde_json::json!({
+        "done": job.done, "ok": job.ok, "path": job.path, "error": job.error,
+        "bytes_read": job.bytes_read.load(Ordering::Relaxed),
+        "total": job.total.load(Ordering::Relaxed),
+    }))
 }
 
 /// 硬件检测 (向导第 2 步)

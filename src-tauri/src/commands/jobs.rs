@@ -140,6 +140,39 @@ pub fn job_remove(db: State<store::Db>, id: String) -> Result<(), String> {
     repo.remove(&id)
 }
 
+/// M7 R24/R26 (2026-08-08): 任务详情 —— 失败时给用户看"为什么失败"。
+/// 读输出目录的 quality_report.json (侧车异常路径也写, 含 error 摘要/阶段统计/失败句);
+/// run.log 尾部作为补充 (M7 R26 起侧车真正写 run.log)。
+#[tauri::command]
+pub fn job_detail(db: State<store::Db>, id: String) -> Result<serde_json::Value, String> {
+    let repo = store::jobs_repo::JobsRepo::new(db.inner());
+    let job = repo.get(&id).ok_or("任务不存在")?;
+    let dir = std::path::Path::new(&job.output_dir);
+    let mut out = serde_json::json!({});
+    let qr_path = dir.join("quality_report.json");
+    if let Ok(text) = std::fs::read_to_string(&qr_path) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+            out["quality_report"] = v;
+        }
+    }
+    // run.log 尾部 (最多 60 行)
+    if let Ok(text) = std::fs::read_to_string(dir.join("run.log")) {
+        let lines: Vec<&str> = text.lines().collect();
+        let tail: Vec<&str> = if lines.len() > 60 {
+            lines[lines.len() - 60..].to_vec()
+        } else {
+            lines.clone()
+        };
+        out["run_log_tail"] = serde_json::json!(tail.join("\n"));
+    }
+    if out.is_null() || out.get("quality_report").is_none() {
+        if let Some(e) = &job.error {
+            out["error"] = serde_json::json!(e);
+        }
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 pub fn job_retry_failed(
     app: tauri::AppHandle,

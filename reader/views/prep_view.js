@@ -72,6 +72,15 @@
       this._refreshBatches();
     }
 
+    /** F33 (2026-08-08): 路由离开时注销事件订阅, 不残留对游离 DOM 的更新/重复拉取 */
+    cleanup() {
+      if (this._unlisteners) {
+        this._unlisteners.forEach((u) => u && u());
+        this._unlisteners = null;
+      }
+      this._listEl = null;
+    }
+
     _refreshJobs() {
       AiduJobService.list().then((res) => {
         if (!res.ok) return;
@@ -98,97 +107,172 @@
           listEl.appendChild(emptyWrap);
           return;
         }
-        jobs.forEach((job) => {
-          const row = el('div', 'prep-task');
-          row.dataset.jobId = job.id;
-          const header = el('div', 'prep-task-header');
-          const title = el('span', 'prep-task-title', `${job.book_path.split(/[\\/]/).pop()} (${job.profile_id})`);
-          // 易用性审查: 状态显示中文 (用户看不懂 running/done)
-          const statusMeta = {
-            queued: { t: '排队中', cls: 'st-idle' },
-            running: { t: job.stage ? `${stageLabel(job.stage)} ${job.current}/${job.total}` : '处理中', cls: 'st-busy' },
-            done: { t: '完成', cls: 'st-ok' },
-            failed: { t: '失败', cls: 'st-err' },
-            canceled: { t: '已取消', cls: 'st-idle' },
-            partial: { t: '部分完成', cls: 'st-warn' },
-          }[job.status] || { t: job.status, cls: 'st-idle' };
-          const status = el('span', 'prep-task-status ' + statusMeta.cls, statusMeta.t);
-          const actions = el('div', 'prep-task-actions');
-          // R3: 暂停/继续 (处理中/排队可暂停, 已暂停可继续)
-          if (job.status === 'running' || job.status === 'queued') {
-            const btnPause = el('button', 'btn-small', '暂停');
-            btnPause.onclick = () => {
-              AiduJobService.pause(job.id).then((r) => {
-                if (!r.ok) { AiduToast.show('暂停失败: ' + r.error, 'error'); return; }
-                AiduToast.show('已暂停, 可从断点继续', 'info');
-                this._refreshJobs();
-              });
-            };
-            actions.appendChild(btnPause);
-          }
-          if (job.status === 'paused') {
-            const btnResume = el('button', 'btn-small btn-primary', '继续');
-            btnResume.onclick = () => {
-              AiduJobService.resume(job.id).then((r) => {
-                if (!r.ok) { AiduToast.show('继续失败: ' + r.error, 'error'); return; }
-                AiduToast.show('已继续', 'success');
-                this._refreshJobs();
-              });
-            };
-            actions.appendChild(btnResume);
-          }
-          // 失败行: 重试失败句可见 (苹果级: 失败必有恢复路径)
-          if (job.status === 'failed' || job.status === 'partial') {
-            const btnRetry = el('button', 'btn-small', '重试失败句');
-            btnRetry.onclick = () => {
-              btnRetry.disabled = true;
-              btnRetry.textContent = '重试中…';
-              AiduJobService.retryFailed(job.id).then((r) => {
-                if (!r.ok) { btnRetry.disabled = false; btnRetry.textContent = '重试失败句'; AiduToast.show('重试失败: ' + r.error, 'error'); return; }
-                AiduToast.show('已重新排队', 'success');
-                this._refreshJobs();
-              });
-            };
-            actions.appendChild(btnRetry);
-          }
-          const btnRemove = el('button', 'btn-small', '移除');
-          btnRemove.onclick = () => {
-            AiduJobService.remove(job.id).then(() => { this._refreshJobs(); AiduToast.show('已移除任务', 'info'); });
-          };
-          actions.appendChild(btnRemove);
-          // G6: 任务完成后 "打开书籍" 入口
-          if (job.status === 'done' || job.status === 'partial') {
-            const btnOpen = el('button', 'btn-small btn-primary', '打开书籍');
-            btnOpen.onclick = () => {
-              // 从书包目录生成 book_id 并打开 (与 Rust book_id_from_path 同规则)
-              const dir = job.output_dir.replace(/\\/g, '/');
-              const name = dir.split('/').pop() || dir;
-              const profile = job.profile_id || 'default';
-              const bookId = `${name.replace(/[^a-zA-Z0-9_]/g, '_')}_${profile}`;
-              if (this.onOpenBook) this.onOpenBook(bookId, job.output_dir);
-            };
-            actions.insertBefore(btnOpen, actions.firstChild);
-          }
-          header.append(title, status, actions);
-          const bar = el('div', 'prep-bar');
-          const fill = el('div', 'prep-bar-fill');
-          // v9: 全书完成度 (后端阶段权重算好, 前端只显示)
-          const pct = job.progress != null ? Math.round(job.progress) : (job.total > 0 ? Math.round((job.current / job.total) * 100) : 0);
-          fill.style.width = pct + '%';
-          bar.appendChild(fill);
-          // 任务行百分比文本 (苹果级: 进度可见)
-          const pctLabel = el('span', 'prep-pct', `${pct}%`);
-          bar.appendChild(pctLabel);
-          row.append(header, bar);
-          // R5: 阶段流水条 (识别→分词→翻译→讲解→语音→对齐→排版)
-          row.appendChild(this._stagePipeline(job));
-          // I-C: 失败可读 —— 结构化失败详情 (阶段+句数+原因)
-          if (job.status === 'failed') {
-            const fail = el('div', 'prep-failure', (job.error || '任务失败 (无详情)'));
-            row.appendChild(fail);
-          }
-          listEl.appendChild(row);
+        // M7 R32: 按批次分组 (导入多本书成一个批次 → 组头展示), 未分组任务归"单本"
+        const groups = {};
+        const order = [];
+        jobs.forEach((j) => {
+          const key = j.batch_id || '__single__';
+          if (!groups[key]) { groups[key] = []; order.push(key); }
+          groups[key].push(j);
         });
+        order.forEach((key) => {
+          const group = groups[key];
+          if (key !== '__single__') {
+            // M7 R35: 组头完成率 (done/partial = 完成)
+            const done = group.filter((j) => j.status === 'done' || j.status === 'partial').length;
+            const head = el('div', 'prep-batch-head',
+              `批次 ${String(key).replace(/^batch-/, '').slice(0, 16)} · ${done}/${group.length} 完成`);
+            listEl.appendChild(head);
+          }
+          group.forEach((job) => listEl.appendChild(this._buildTaskRow(job)));
+        });
+      });
+    }
+
+    /** 构建单任务行 (暂停/继续/重试/移除/打开书籍 + 进度 + 阶段条 + 失败详情) */
+    _buildTaskRow(job) {
+      const row = el('div', 'prep-task');
+      row.dataset.jobId = job.id;
+      const header = el('div', 'prep-task-header');
+      const title = el('span', 'prep-task-title', `${job.book_path.split(/[\\/]/).pop()} (${job.profile_id})`);
+      // 易用性审查: 状态显示中文 (用户看不懂 running/done)
+      const statusMeta = {
+        queued: { t: '排队中', cls: 'st-idle' },
+        running: { t: job.stage ? `${stageLabel(job.stage)} ${job.current}/${job.total}` : '处理中', cls: 'st-busy' },
+        done: { t: '完成', cls: 'st-ok' },
+        failed: { t: '失败', cls: 'st-err' },
+        canceled: { t: '已取消', cls: 'st-idle' },
+        partial: { t: '部分完成', cls: 'st-warn' },
+      }[job.status] || { t: job.status, cls: 'st-idle' };
+      const status = el('span', 'prep-task-status ' + statusMeta.cls, statusMeta.t);
+      const actions = el('div', 'prep-task-actions');
+      // R3: 暂停/继续 (处理中/排队可暂停, 已暂停可继续)
+      if (job.status === 'running' || job.status === 'queued') {
+        const btnPause = el('button', 'btn-small', '暂停');
+        btnPause.onclick = () => {
+          AiduJobService.pause(job.id).then((r) => {
+            if (!r.ok) { AiduToast.show('暂停失败: ' + r.error, 'error'); return; }
+            AiduToast.show('已暂停, 可从断点继续', 'info');
+            this._refreshJobs();
+          });
+        };
+        actions.appendChild(btnPause);
+      }
+      if (job.status === 'paused') {
+        const btnResume = el('button', 'btn-small btn-primary', '继续');
+        btnResume.onclick = () => {
+          AiduJobService.resume(job.id).then((r) => {
+            if (!r.ok) { AiduToast.show('继续失败: ' + r.error, 'error'); return; }
+            AiduToast.show('已继续', 'success');
+            this._refreshJobs();
+          });
+        };
+        actions.appendChild(btnResume);
+      }
+      // 失败行: 重试失败句可见 (苹果级: 失败必有恢复路径)
+      if (job.status === 'failed' || job.status === 'partial') {
+        const btnRetry = el('button', 'btn-small', '重试失败句');
+        btnRetry.onclick = () => {
+          btnRetry.disabled = true;
+          btnRetry.textContent = '重试中…';
+          AiduJobService.retryFailed(job.id).then((r) => {
+            if (!r.ok) { btnRetry.disabled = false; btnRetry.textContent = '重试失败句'; AiduToast.show('重试失败: ' + r.error, 'error'); return; }
+            AiduToast.show('已重新排队', 'success');
+            this._refreshJobs();
+          });
+        };
+        actions.appendChild(btnRetry);
+      }
+      const btnRemove = el('button', 'btn-small', '移除');
+      btnRemove.onclick = () => {
+        AiduJobService.remove(job.id).then(() => { this._refreshJobs(); AiduToast.show('已移除任务', 'info'); });
+      };
+      actions.appendChild(btnRemove);
+      // G6: 任务完成后 "打开书籍" 入口
+      if (job.status === 'done' || job.status === 'partial') {
+        const btnOpen = el('button', 'btn-small btn-primary', '打开书籍');
+        btnOpen.onclick = () => {
+          // 从书包目录生成 book_id 并打开 (与 Rust book_id_from_path 同规则)
+          const dir = job.output_dir.replace(/\\/g, '/');
+          const name = dir.split('/').pop() || dir;
+          const profile = job.profile_id || 'default';
+          const bookId = `${name.replace(/[^a-zA-Z0-9_]/g, '_')}_${profile}`;
+          if (this.onOpenBook) this.onOpenBook(bookId, job.output_dir);
+        };
+        actions.insertBefore(btnOpen, actions.firstChild);
+      }
+      header.append(title, status, actions);
+      const bar = el('div', 'prep-bar');
+      const fill = el('div', 'prep-bar-fill');
+      // v9: 全书完成度 (后端阶段权重算好, 前端只显示)
+      const pct = job.progress != null ? Math.round(job.progress) : (job.total > 0 ? Math.round((job.current / job.total) * 100) : 0);
+      fill.style.width = pct + '%';
+      bar.appendChild(fill);
+      // 任务行百分比文本 (苹果级: 进度可见)
+      const pctLabel = el('span', 'prep-pct', `${pct}%`);
+      bar.appendChild(pctLabel);
+      row.append(header, bar);
+      // R5: 阶段流水条 (识别→分词→翻译→讲解→语音→对齐→排版)
+      row.appendChild(this._stagePipeline(job));
+      // I-C: 失败可读 —— 结构化失败详情 (阶段+句数+原因) + 详情按钮 (M7 R24)
+      if (job.status === 'failed' || job.status === 'partial') {
+        const fail = el('div', 'prep-failure', (job.error || (job.status === 'partial' ? '部分句子有失败阶段, 可重试失败句。' : '任务失败 (无详情)')));
+        row.appendChild(fail);
+        const detailBtn = el('button', 'btn-small', '查看详情');
+        detailBtn.onclick = () => this._showJobDetail(job, detailBtn);
+        fail.appendChild(detailBtn);
+      }
+      return row;
+    }
+
+    /** M7 R24: 任务详情模态 —— quality_report 的 error/阶段统计/失败句, 失败原因可读 */
+    _showJobDetail(job, btn) {
+      btn.disabled = true;
+      btn.textContent = '读取中…';
+      AiduJobService.detail(job.id).then((res) => {
+        btn.disabled = false;
+        btn.textContent = '查看详情';
+        if (!res.ok) { AiduToast.show('读详情失败: ' + res.error, 'error'); return; }
+        const qr = (res.data && res.data.quality_report) || null;
+        const ov = document.createElement('div');
+        ov.className = 'modal-overlay';
+        const box = document.createElement('div');
+        box.className = 'modal-box';
+        box.setAttribute('role', 'dialog');
+        box.setAttribute('aria-modal', 'true');
+        const title = el('h2', 'modal-title', `任务详情 — ${job.book_path.split(/[\\/]/).pop()}`);
+        const body = el('div', 'book-settings-body');
+        if (qr && qr.error) body.appendChild(el('div', 'prep-failure', '错误: ' + qr.error));
+        if (qr && qr.summary) body.appendChild(el('div', 'preview-meta', '摘要: ' + qr.summary));
+        if (qr && qr.stages) {
+          const stageList = el('div', 'vocab-steps');
+          Object.entries(qr.stages).forEach(([k, v]) => {
+            const s = (v && typeof v === 'object') ? v : {};
+            const done = s.done || 0;
+            const failed = s.failed || 0;
+            stageList.appendChild(el('div', 'vocab-step', `${k}: ${done} 完成${failed ? `, ${failed} 失败` : ''}`));
+          });
+          body.appendChild(stageList);
+        }
+        const failedN = (qr && Array.isArray(qr.failedSentences)) ? qr.failedSentences.length : null;
+        if (failedN != null) body.appendChild(el('div', 'preview-meta', `失败句数: ${failedN}`));
+        // M7 R26: 原始日志尾部 (调试/诊断用)
+        const logTail = res.data && res.data.run_log_tail;
+        if (logTail) {
+          const pre = document.createElement('pre');
+          pre.className = 'job-log-tab';
+          pre.textContent = logTail;
+          body.appendChild(pre);
+        }
+        if (!qr && !logTail) body.appendChild(el('div', 'preview-meta', '没有 quality_report (可能是任务在写报告前中断)。' + (res.data && res.data.error ? '任务错误: ' + res.data.error : '')));
+        const actions = el('div', 'modal-actions');
+        const close = el('button', 'btn-small', '关闭');
+        close.onclick = () => ov.remove();
+        actions.appendChild(close);
+        box.append(title, body, actions);
+        ov.appendChild(box);
+        ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+        document.body.appendChild(ov);
       });
     }
 

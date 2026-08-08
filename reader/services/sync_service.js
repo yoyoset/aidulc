@@ -11,6 +11,7 @@
     configure(workerUrl, token) {
       return AiduBridge.invoke('sync_config_set', { workerUrl, token });
     },
+    disconnect() { return AiduBridge.invoke('sync_disconnect'); },
     statusLabel(s) {
       return {
         unconfigured: '未配置',

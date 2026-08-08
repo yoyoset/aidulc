@@ -29,8 +29,12 @@
     bookBinding(bookId) {
       return AiduBridge.invoke('models_book_binding', { bookId });
     },
-    download(url, dest, sha256) {
-      return AiduBridge.invoke('models_download', { url, dest, sha256 });
+    download(url, dest, sha256, timeoutSecs) {
+      // M7 R8: 返回 { token }, 前端轮询 downloadStatus
+      return AiduBridge.invoke('models_download', { url, dest, sha256, timeoutSecs });
+    },
+    downloadStatus(token) {
+      return AiduBridge.invoke('models_download_status', { token });
     },
     hardware(dir) { return AiduBridge.invoke('hardware_detect', { modelDir: dir }); },
 

@@ -275,6 +275,112 @@ impl Db {
             )
             .map_err(|e| format!("迁移 v9 失败: {e}"))?;
         }
+        // v10 (S5 三模式阅读器, 2026-08-08): reader_settings 加三种显示模式/节奏/跟读预设/
+        // 播放速度; reading_state 加 verified —— 每章"已核对"句子下标, 支持"再次读到已核对过"
+        // 的轻量复习调度。verified 存 JSON 对象 {章下标: [句下标,...]}, 按章隔离避免跨章串位。
+        if version < 10 {
+            conn.execute_batch(
+                "ALTER TABLE reader_settings ADD COLUMN display_mode TEXT NOT NULL DEFAULT 'guess';
+                 ALTER TABLE reader_settings ADD COLUMN pace TEXT NOT NULL DEFAULT 'flow';
+                 ALTER TABLE reader_settings ADD COLUMN preset TEXT NOT NULL DEFAULT 'shadow';
+                 ALTER TABLE reader_settings ADD COLUMN speed REAL NOT NULL DEFAULT 1.0;
+                 ALTER TABLE reading_state ADD COLUMN verified TEXT NOT NULL DEFAULT '{}';
+                 INSERT INTO schema_migrations (version, applied_at) VALUES (10, strftime('%s','now')*1000);
+                 ",
+            )
+            .map_err(|e| format!("迁移 v10 失败: {e}"))?;
+        }
+        // v11 (M6 Profile 系统, 2026-08-08): seed 两个内建档案 —— profiles 表此前是空架子
+        // (F14), 档案管理 UI 需要默认/儿童档案真实存在, 导入卡/书卡才能查到它们的参数。
+        // INSERT OR IGNORE 幂等, 用户已自建的同名档案不被覆盖。
+        if version < 11 {
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO profiles (id, name, explain_strategy, voice, speed, highlight_granularity)
+                   VALUES ('default', '成人自读', 'brief', 'af_heart', 1.0, 'sentence');
+                 INSERT OR IGNORE INTO profiles (id, name, explain_strategy, voice, speed, highlight_granularity)
+                   VALUES ('kid', '陪小孩读', 'deep', 'af_heart', 0.9, 'word');
+                 INSERT INTO schema_migrations (version, applied_at) VALUES (11, strftime('%s','now')*1000);
+                 ",
+            )
+            .map_err(|e| format!("迁移 v11 失败: {e}"))?;
+        }
+        // v12 (M7 主题自定义, 2026-08-08): reader_settings 加 palette —— 主题从
+        // theme(light|dark 单布尔)扩展为 mode(明暗) × palette(色系)两维。默认 clay(陶土)。
+        if version < 12 {
+            conn.execute_batch(
+                "ALTER TABLE reader_settings ADD COLUMN palette TEXT NOT NULL DEFAULT 'clay';
+                 INSERT INTO schema_migrations (version, applied_at) VALUES (12, strftime('%s','now')*1000);
+                 ",
+            )
+            .map_err(|e| format!("迁移 v12 失败: {e}"))?;
+        }
+        // v13 (M7 R16 摘录标注, 2026-08-08): highlights 表 —— 精读时划句留痕。
+        // sentence_index 指向章节内句序 (与 reading_state.bookmarks 同语义);
+        // selected_text 是摘录的文字 (展示用); 精确词范围 span 渲染是后续工作。
+        if version < 13 {
+            conn.execute_batch(
+                "CREATE TABLE highlights (
+                    id TEXT PRIMARY KEY,
+                    book_key TEXT NOT NULL,
+                    chapter INTEGER NOT NULL,
+                    sentence_index INTEGER NOT NULL,
+                    selected_text TEXT NOT NULL DEFAULT '',
+                    note TEXT NOT NULL DEFAULT '',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX idx_highlights_book ON highlights (book_key, chapter);
+                 INSERT INTO schema_migrations (version, applied_at) VALUES (13, strftime('%s','now')*1000);
+                 ",
+            )
+            .map_err(|e| format!("迁移 v13 失败: {e}"))?;
+        }
+        // v14 (M7 R18 阅读时长, 2026-08-08): reading_state 加累计阅读时长 (播放计时),
+        // 书架展示"已读至第几章 · 共读多久"的进度反馈。
+        if version < 14 {
+            conn.execute_batch(
+                "ALTER TABLE reading_state ADD COLUMN time_spent_ms INTEGER NOT NULL DEFAULT 0;
+                 INSERT INTO schema_migrations (version, applied_at) VALUES (14, strftime('%s','now')*1000);
+                 ",
+            )
+            .map_err(|e| format!("迁移 v14 失败: {e}"))?;
+        }
+        // v15 (M7 R21 摘录 span 高亮, 2026-08-08): highlights 加 start_seg/end_seg ——
+        // 记录选区覆盖的 seg 区间, 渲染时精确标出选中的词 (null = 整句标记, 兼容旧数据)。
+        if version < 15 {
+            conn.execute_batch(
+                "ALTER TABLE highlights ADD COLUMN start_seg INTEGER;
+                 ALTER TABLE highlights ADD COLUMN end_seg INTEGER;
+                 INSERT INTO schema_migrations (version, applied_at) VALUES (15, strftime('%s','now')*1000);
+                 ",
+            )
+            .map_err(|e| format!("迁移 v15 失败: {e}"))?;
+        }
+        // v16 (M7 R23 自定义主题色, 2026-08-08): reader_settings 加 custom_color ——
+        // palette='custom' 时用这个 #rrggbb 推导整套强调色 (前端纯函数, 见 reader/core/theme.js)。
+        if version < 16 {
+            conn.execute_batch(
+                "ALTER TABLE reader_settings ADD COLUMN custom_color TEXT NOT NULL DEFAULT '';
+                 INSERT INTO schema_migrations (version, applied_at) VALUES (16, strftime('%s','now')*1000);
+                 ",
+            )
+            .map_err(|e| format!("迁移 v16 失败: {e}"))?;
+        }
+        // v17 (M7 R37 阅读时长按日, 2026-08-08): reading_daily 表 —— reading_save 时把
+        // time_spent_ms 的增量记到当天 (day = epoch 天数), 支持"今日已读 X 分钟/近 N 天"统计。
+        if version < 17 {
+            conn.execute_batch(
+                "CREATE TABLE reading_daily (
+                    book_key TEXT NOT NULL,
+                    day INTEGER NOT NULL,
+                    time_spent_ms INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (book_key, day)
+                );
+                 INSERT INTO schema_migrations (version, applied_at) VALUES (17, strftime('%s','now')*1000);
+                 ",
+            )
+            .map_err(|e| format!("迁移 v17 失败: {e}"))?;
+        }
         Ok(())
     }
 }
@@ -313,6 +419,38 @@ mod tests {
                 .unwrap();
             assert_eq!(n, 1, "表 {table} 应存在");
         }
+        // v10: reader_settings 加三模式字段, reading_state 加 verified 列
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('reader_settings') WHERE name IN
+                    ('display_mode','pace','preset','speed','palette')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 5, "reader_settings 应有 S5/M7 五个新列");
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('reading_state') WHERE name='verified'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "reading_state 应有 verified 列");
+        // v11: 两个内建档案已 seed
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM profiles", [], |r| r.get(0))
+            .unwrap();
+        assert!(n >= 2, "应 seed default + kid 两个内建档案, 实得 {n}");
+        // v13: highlights 表存在
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='highlights'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "highlights 表应存在");
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}-wal"));
@@ -342,6 +480,24 @@ mod tests {
                     key TEXT PRIMARY KEY,
                     word TEXT NOT NULL, lemma TEXT NOT NULL,
                     pos TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL
+                );
+                -- v1 的真实 schema 含 profiles 与 reading_state (v10 迁移会 ALTER 它,
+                -- 旧 fixture 缺这两张表是 fixture 不完整, 不是真实 v1 的样子)
+                CREATE TABLE profiles (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    explain_strategy TEXT NOT NULL DEFAULT 'brief',
+                    voice TEXT NOT NULL DEFAULT 'af_heart',
+                    speed REAL NOT NULL DEFAULT 1.0,
+                    highlight_granularity TEXT NOT NULL DEFAULT 'sentence'
+                );
+                CREATE TABLE reading_state (
+                    book_key TEXT NOT NULL,
+                    chapter INTEGER NOT NULL DEFAULT 0,
+                    position_ms INTEGER NOT NULL DEFAULT 0,
+                    bookmarks TEXT NOT NULL DEFAULT '[]',
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (book_key)
                 );
                 CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
                 INSERT INTO schema_migrations (version, applied_at) VALUES (1, 0);

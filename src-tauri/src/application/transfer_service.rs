@@ -52,12 +52,29 @@ pub fn export_aidu_data(db: &Db) -> Result<serde_json::Value, String> {
         );
     }
 
+    // M7 R31: 摘录 (按书分组 highights_<book_key>)。纯增量键 —— aidu 只读 vocab/dictionaries,
+    // 未知键忽略, 版本不升 (v3 兼容不破)。
+    let mut highlights = serde_json::Map::new();
+    {
+        let hrepo = crate::store::highlights_repo::HighlightsRepo::new(db);
+        for h in hrepo.list_all() {
+            let key = format!("highlights_{}", h.book_key);
+            let arr = highlights
+                .entry(key)
+                .or_insert_with(|| serde_json::json!([]));
+            if let Some(list) = arr.as_array_mut() {
+                list.push(serde_json::to_value(&h).unwrap_or(serde_json::Value::Null));
+            }
+        }
+    }
+
     Ok(serde_json::json!({
         "version": 3,
         "timestamp": crate::store::now_ms_for_store(),
         "data": {
             "vocab": vocab,
             "dictionaries": dictionaries,
+            "highlights": highlights,
         }
     }))
 }
@@ -118,9 +135,30 @@ pub fn import_aidu_data(db: &Db, backup: &serde_json::Value) -> Result<serde_jso
         }
     }
 
+    // M7 R31: 摘录 (data.highlights["highlights_<book_key>"] = [Highlight...])
+    // upsert 按 id 覆盖, 重复备份幂等。
+    let mut imported_hl = 0usize;
+    if let Some(hl_map) = data.get("highlights").and_then(|v| v.as_object()) {
+        let hrepo = crate::store::highlights_repo::HighlightsRepo::new(db);
+        for (_key, arr) in hl_map {
+            if let Some(items) = arr.as_array() {
+                for item in items {
+                    if let Ok(h) = serde_json::from_value::<crate::store::highlights_repo::Highlight>(
+                        item.clone(),
+                    ) {
+                        if hrepo.upsert(&h).is_ok() {
+                            imported_hl += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(serde_json::json!({
         "imported_vocab": imported_vocab,
         "imported_dictionary": imported_dict,
+        "imported_highlights": imported_hl,
     }))
 }
 
@@ -251,5 +289,39 @@ mod tests {
         assert!(!s.contains("settings"), "不应导出 settings");
         assert!(!s.contains("token"), "不应导出 token");
         assert!(!s.contains("cf_worker"), "不应导出 worker 配置");
+    }
+
+    #[test]
+    fn highlights_export_import_roundtrip() {
+        // M7 R31: 摘录随 .aidu-data 备份/恢复 (纯增量键, aidu 只读 vocab/dictionaries)
+        let db = temp_db();
+        let hrepo = crate::store::highlights_repo::HighlightsRepo::new(&db);
+        let h = crate::store::highlights_repo::Highlight {
+            id: "hl-1".into(),
+            book_key: "book_a".into(),
+            chapter: 0,
+            sentence_index: 3,
+            selected_text: "the quick fox".into(),
+            note: "重点".into(),
+            start_seg: Some(1),
+            end_seg: Some(2),
+            created_at: 100,
+            updated_at: 100,
+        };
+        hrepo.upsert(&h).unwrap();
+
+        let backup = export_aidu_data(&db).unwrap();
+        let key = format!("highlights_{}", h.book_key);
+        let arr = backup["data"]["highlights"][&key].as_array().unwrap();
+        assert_eq!(arr.len(), 1, "摘录应按书分组导出");
+
+        let db2 = temp_db();
+        let r = import_aidu_data(&db2, &backup).unwrap();
+        assert_eq!(r["imported_highlights"], 1);
+        let got = crate::store::highlights_repo::HighlightsRepo::new(&db2).list_by_book("book_a");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].selected_text, "the quick fox");
+        assert_eq!(got[0].start_seg, Some(1));
+        assert_eq!(got[0].end_seg, Some(2));
     }
 }

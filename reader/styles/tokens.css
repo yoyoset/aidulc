@@ -1,57 +1,61 @@
 /* tokens.css —— 颜色/圆角/字号/间距的唯一来源(CLAUDE.md 强制: 新代码不得写裸 #hex/裸 px)。
  *
- * 色板是 Material Design 3 官方 baseline 紫色种子(#6750a4)方案, 不是自定义品牌色
- * ——浅色 27 个 role 此前就已是这份参考色板的值, 深色此前只覆盖了 17 个(见 app.css 旧版),
- * 这次把剩余 10 个(secondary 系 4 个 + on-tertiary/on-error/outline/shadow/scrim/
- * inverse-primary)按同一份官方参考色板补全, 不是新发明的颜色, 只是把没抄完的抄完。
- * 深色令牌原来散落在 app.css 的 body[data-theme="dark"] 里, 现在整体迁回这里
- * ——颜色只能有一个来源, 不能一半在这一半在那。
+ * M6 设计语言重建 (2026-08-08): 从 MD3 紫色 baseline 换成「纸张温暖 · 简约柔和 ·
+ * 低饱和度 · 保持专注」的阅读语汇 —— 暖米纸面 + 陶土(clay)强调 + 墨灰文字。
+ * 理由: 紫色是通用 UI 框架样, 不是阅读软件的语言; 暖纸降低屏幕刺激、陶土强调
+ * 克制不抢戏, 让正文与书成为视觉中心。27 个 color role 名称保留(MD3 语义),
+ * 只重定取值, 全仓 CSS 无需改名即可换肤。
+ *
+ * 关键取舍:
+ * - primary = clay 陶土(暖、书卷气、与 success 绿色不撞色); 深浅色都降饱和。
+ * - surface = 暖米纸(非纯白, 长读护眼); on-surface = 暖墨(非纯黑, 对比柔和)。
+ * - elevation 阴影带暖调(深棕半透明), 不用纯黑, 避免生硬。
+ * - state-hover 用 clay 的低透明度 rgba, 与强调色同源。
  */
 :root {
-  /* ---- color roles (MD3 27个, 浅色) ---- */
-  --md-sys-color-primary: #6750a4;
+  /* ---- color roles (MD3 27个, 浅色 · 暖纸陶土) ---- */
+  --md-sys-color-primary: #9c6a4a;
   --md-sys-color-on-primary: #ffffff;
-  --md-sys-color-primary-container: #eaddff;
-  --md-sys-color-on-primary-container: #21005d;
-  --md-sys-color-secondary: #625b71;
+  --md-sys-color-primary-container: #f2e3d7;
+  --md-sys-color-on-primary-container: #4a2f1c;
+  --md-sys-color-secondary: #7a7268;
   --md-sys-color-on-secondary: #ffffff;
-  --md-sys-color-secondary-container: #e8def8;
-  --md-sys-color-on-secondary-container: #1d192b;
-  --md-sys-color-tertiary: #7d5260;
+  --md-sys-color-secondary-container: #eae3d8;
+  --md-sys-color-on-secondary-container: #2e2922;
+  --md-sys-color-tertiary: #7d6b63;
   --md-sys-color-on-tertiary: #ffffff;
-  --md-sys-color-tertiary-container: #ffd8e4;
-  --md-sys-color-on-tertiary-container: #31111d;
-  --md-sys-color-error: #b3261e;
+  --md-sys-color-tertiary-container: #f1e6e1;
+  --md-sys-color-on-tertiary-container: #3a2a24;
+  --md-sys-color-error: #a94e3a;
   --md-sys-color-on-error: #ffffff;
-  --md-sys-color-error-container: #f9dedc;
-  --md-sys-color-on-error-container: #410e0b;
-  --md-sys-color-surface: #fef7ff;
-  --md-sys-color-on-surface: #1d1b20;
-  --md-sys-color-surface-variant: #e7e0ec;
-  --md-sys-color-on-surface-variant: #49454f;
-  --md-sys-color-outline: #79747e;
-  --md-sys-color-outline-variant: #cac4d0;
+  --md-sys-color-error-container: #f4dfd8;
+  --md-sys-color-on-error-container: #4a1f14;
+  --md-sys-color-surface: #faf7f1;
+  --md-sys-color-on-surface: #3b352c;
+  --md-sys-color-surface-variant: #ede7db;
+  --md-sys-color-on-surface-variant: #6b6559;
+  --md-sys-color-outline: #8a8376;
+  --md-sys-color-outline-variant: #d9d2c4;
   --md-sys-color-shadow: #000000;
-  --md-sys-color-scrim: #000000;
-  --md-sys-color-inverse-surface: #322f35;
-  --md-sys-color-inverse-on-surface: #f5eff7;
-  --md-sys-color-inverse-primary: #d0bcff;
+  --md-sys-color-scrim: #2a2620;
+  --md-sys-color-inverse-surface: #3b352c;
+  --md-sys-color-inverse-on-surface: #f1ede4;
+  --md-sys-color-inverse-primary: #e0b795;
 
-  /* ---- 语义状态色(MD3 标准角色之外, 本项目自己的四态词汇: 完成/警示/进行中/中性;
-     现有值原样保留, 只是从 app.css 的裸 hex 提升成令牌, 不是新颜色) ---- */
-  --md-sys-color-success: #2e7d32;
+  /* ---- 语义状态色(完成/警示/进行中/中性): 全部换成暖调低饱和, 与纸面协调 ---- */
+  --md-sys-color-success: #5d7a58;
   --md-sys-color-on-success: #ffffff;
-  --md-sys-color-warning: #f9a825;
-  --md-sys-color-on-warning: #3e2723;
-  --md-sys-color-info: #1565c0;
+  --md-sys-color-warning: #a5812f;
+  --md-sys-color-on-warning: #ffffff;
+  --md-sys-color-info: #5a7687;
   --md-sys-color-on-info: #ffffff;
-  --md-sys-color-neutral: #9e9e9e;
+  --md-sys-color-neutral: #9a9387;
   --md-sys-color-on-neutral: #ffffff;
   /* 固定深色, 不随主题反转(toast 默认态用): 不能用 inverse-surface——inverse-surface
-     语义是"和当前主题相反", 深色模式下会变浅, 反而对比度变差。这个颜色原来就是不跟随
-     主题切换的固定值, 刻意只在 :root 定义一次、深色 body[data-theme="dark"] 块不覆盖它。 */
-  --md-sys-color-scrim-surface: #2d2a31;
-  --md-sys-color-on-scrim-surface: #ffffff;
+     语义是"和当前主题相反", 深色模式下会变浅, 反而对比度变差。这个颜色刻意只在
+     :root 定义一次、深色 body[data-theme="dark"] 块不覆盖它。 */
+  --md-sys-color-scrim-surface: #37322a;
+  --md-sys-color-on-scrim-surface: #f5f0e7;
 
   /* ---- radius ---- */
   --md-sys-radius-xs: 4px;
@@ -61,24 +65,22 @@
   --md-sys-radius-xl: 28px;
   --md-sys-radius-pill: 999px;
 
-  /* ---- elevation ---- */
-  --md-sys-elevation-1: 0 1px 2px rgba(0,0,0,.3), 0 1px 3px 1px rgba(0,0,0,.15);
-  --md-sys-elevation-2: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15);
-  --md-sys-elevation-3: 0 1px 3px rgba(0,0,0,.3), 0 4px 8px 3px rgba(0,0,0,.15);
+  /* ---- elevation (暖调阴影, 深棕半透明而非纯黑, 柔和不生硬) ---- */
+  --md-sys-elevation-1: 0 1px 2px rgba(74, 47, 28, 0.08), 0 1px 3px rgba(74, 47, 28, 0.05);
+  --md-sys-elevation-2: 0 1px 2px rgba(74, 47, 28, 0.10), 0 2px 6px rgba(74, 47, 28, 0.07);
+  --md-sys-elevation-3: 0 2px 4px rgba(74, 47, 28, 0.12), 0 6px 14px rgba(74, 47, 28, 0.10);
 
-  /* ---- state layers ---- */
-  --md-sys-state-hover: rgba(103, 80, 164, 0.08);
-  --md-sys-state-focus: rgba(103, 80, 164, 0.12);
-  --md-sys-state-pressed: rgba(103, 80, 164, 0.12);
+  /* ---- state layers (与陶土强调色同源的低透明度) ---- */
+  --md-sys-state-hover: rgba(156, 106, 74, 0.08);
+  --md-sys-state-focus: rgba(156, 106, 74, 0.12);
+  --md-sys-state-pressed: rgba(156, 106, 74, 0.14);
 
   /* ---- typography ---- */
   --md-sys-font-sans: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
   --md-sys-font-serif: Georgia, "Times New Roman", serif;
 
   /* 字号阶梯(MD3 type scale 简化版: display/headline/title/body/label × L/M/S)。
-     现有代码里大量裸 rem 值(1.4rem 标题/0.9rem 正文/0.78rem 标签等)散落各处,
-     取值凌乱不成阶梯——这里先建立阶梯供新代码使用, 存量替换是后续工作,
-     不在这次令牌层地基搭建范围内(改一个数字要核对几十处调用点, 风险和收益不对等)。 */
+     存量裸 rem 值的迁移是独立工作(见 ROADMAP P4), 新代码优先用阶梯。 */
   --md-sys-font-size-display-l: 2rem;
   --md-sys-font-size-display-m: 1.75rem;
   --md-sys-font-size-display-s: 1.6rem;
@@ -103,42 +105,196 @@
   --md-sys-space-6: 24px;
   --md-sys-space-8: 32px;
   --md-sys-space-12: 48px;
+
+  /* ---- 阅读器专用令牌 --rd-* (S5.1, 2026-08-08 三模式阅读器) ----
+     设计理由(设计文档 §5): MD3 的 27 个 color role 是通用 UI 语汇, 不表达
+     「纸面 / 墨色 / 正在朗读 / 压暗比例」这些阅读专有语义; 硬套会让取值失去含义。
+     M6 后 --rd-* 与 --md-sys-* 同源(M6 重定取值时已让两者协调): 阅读器内用
+     --rd-*, 库/备料台用 --md-sys-*, 观感统一。 */
+  --rd-surface: #fbf8f3;         /* 纸面 (比应用面略暖, 阅读正文的背景) */
+  --rd-surface-sunken: #f1ebe0;  /* 章节尺、右栏 */
+  --rd-surface-raised: #ffffff;  /* 卡片、跟读条、设置浮层 */
+  --rd-ink: #28241e;             /* 正文墨色 (暖深棕, 非纯黑) */
+  --rd-ink-2: #5d574e;           /* 译文 */
+  --rd-ink-3: #746f63;           /* 讲解与元信息 (Round 6 对比度实测: #9a9287 只有 2.90, 加深到 4.72) */
+  --rd-accent: #9c6a4a;          /* 当前句标线、节奏线、选中态 (陶土, 与应用 primary 同源) */
+  --rd-reading-bg: #f0e7da;      /* 正在朗读的词底色 (暖纸淡陶土) */
+  --rd-mark: #a8792e;            /* 短语动词连结线 (暖琥珀, 与 accent 区分) */
+
+  /* 用户可调, 写回 reader_settings (JS 端写 inline 覆盖) */
+  --rd-text: 19px;
+  --rd-lh: 1.85;
+  --rd-measure: 660px;
+  --rd-zh: 14.5px;
+  --rd-dim: 0.24;                /* 逐句模式下非当前句透明度(浅色) */
+
+  /* 非颜色通道的状态标记 —— 颜色只给"正在朗读", 其余一律不用颜色(设计 §2.5) */
+  --rd-saved-line: 1px;          /* 已在生词本: 词下 1px 实线 */
+  --rd-phrasal-line: 2px;        /* 短语动词: 词下 2px 强调色线(hover 两词联动) */
+
+  /* M7 主题色块 (设置/阅读器浮层的色系选择器用): 各色系主色, hex 只在 tokens.css */
+  --swatch-clay: #9c6a4a;
+  --swatch-sage: #61764c;
+  --swatch-ocean: #4a6a80;
+  --swatch-rose: #96626d;
+  --swatch-slate: #5a6673;
 }
 
-/* 深色: 与 JS 端 document.body.dataset.theme = 'dark' 对应(views/reader_view.js、
-   views/settings_view.js 写入)。缺的 10 个 role(secondary 系 4 个、on-tertiary、
-   on-error、outline、shadow、scrim、inverse-primary)按 MD3 官方同一份参考色板补全
-   ——之前只覆盖了 17/27, 未覆盖的在深色模式下会静默显示浅色数值, 是真实的对比度问题
-   (例如 on-tertiary 未覆盖时, 深色下 tertiary 背景变浅粉但文字仍是白色, 对比度不足)。 */
+/* 深色(夜晚纸/墨纸): 暖深炭色而非纯黑, 眼睛长时间不疲劳。与浅色同一陶土强调的明度
+   适配: primary 提亮保持对比度, surface 保持暖调。 */
 body[data-theme="dark"] {
-  --md-sys-color-primary: #d0bcff;
-  --md-sys-color-on-primary: #381e72;
-  --md-sys-color-primary-container: #4f378b;
-  --md-sys-color-on-primary-container: #eaddff;
-  --md-sys-color-secondary: #ccc2dc;
-  --md-sys-color-on-secondary: #332d41;
-  --md-sys-color-secondary-container: #4a4458;
-  --md-sys-color-on-secondary-container: #e8def8;
-  --md-sys-color-tertiary: #efb8c8;
-  --md-sys-color-on-tertiary: #492532;
-  --md-sys-color-tertiary-container: #633b48;
-  --md-sys-color-on-tertiary-container: #ffd8e4;
-  --md-sys-color-error: #f2b8b5;
-  --md-sys-color-on-error: #601410;
-  --md-sys-color-error-container: #8c1d18;
-  --md-sys-color-on-error-container: #f9dedc;
-  --md-sys-color-surface: #141218;
-  --md-sys-color-on-surface: #e6e0e9;
-  --md-sys-color-surface-variant: #49454f;
-  --md-sys-color-on-surface-variant: #cac4d0;
-  --md-sys-color-outline: #938f99;
-  --md-sys-color-outline-variant: #49454f;
-  --md-sys-color-inverse-surface: #e6e0e9;
-  --md-sys-color-inverse-on-surface: #322f35;
-  --md-sys-color-inverse-primary: #6750a4;
-  /* shadow/scrim 在 MD3 baseline 深浅色下取值相同(都是纯黑), 不需要覆盖。 */
+  --md-sys-color-primary: #d9ae8c;
+  --md-sys-color-on-primary: #452c1b;
+  --md-sys-color-primary-container: #5c3e28;
+  --md-sys-color-on-primary-container: #f2e3d7;
+  --md-sys-color-secondary: #c5bbae;
+  --md-sys-color-on-secondary: #2e2922;
+  --md-sys-color-secondary-container: #4a443b;
+  --md-sys-color-on-secondary-container: #eae3d8;
+  --md-sys-color-tertiary: #c6a99c;
+  --md-sys-color-on-tertiary: #3a2a24;
+  --md-sys-color-tertiary-container: #59453d;
+  --md-sys-color-on-tertiary-container: #f1e6e1;
+  --md-sys-color-error: #e2927e;
+  --md-sys-color-on-error: #4a1f14;
+  --md-sys-color-error-container: #6e3a2a;
+  --md-sys-color-on-error-container: #f4dfd8;
+  --md-sys-color-surface: #211f1b;
+  --md-sys-color-on-surface: #e6e0d4;
+  --md-sys-color-surface-variant: #3a352c;
+  --md-sys-color-on-surface-variant: #c2bba9;
+  --md-sys-color-outline: #8a8376;
+  --md-sys-color-outline-variant: #4a443b;
+  --md-sys-color-inverse-surface: #e6e0d4;
+  --md-sys-color-inverse-on-surface: #2b2722;
+  --md-sys-color-inverse-primary: #9c6a4a;
+  /* shadow/scrim 深浅色取值相同(纯黑/暖深), 不覆盖。语义状态色深色下原样使用:
+     已调成暖调低饱和, 在暖深背景上仍有足够对比度(与文字均为白字, 达标)。 */
 
-  /* 语义状态色深色模式: 提高背景饱和度对比度的同时保持"这是同一种状态"的可辨识度
-     ——不是每种状态都需要换色, 这四种在深色背景上原样使用已有足够对比度
-     (深色背景 #141218 上, #2e7d32/#f9a825/#1565c0/#9e9e9e 与白/深色文字对比度均达标)。 */
+  /* 阅读器专用令牌 --rd-* 深色取值 (暖墨纸) */
+  --rd-surface: #201e1a;
+  --rd-surface-sunken: #171512;
+  --rd-surface-raised: #292621;
+  --rd-ink: #e8e2d6;
+  --rd-ink-2: #aca598;
+  --rd-ink-3: #a29c8f;           /* Round 6 对比度实测: #746d61 只有 3.25, 提亮到 6.09 */
+  --rd-accent: #d9ae8c;
+  --rd-reading-bg: #4a3a28;
+  --rd-mark: #d3ae6e;
+  --rd-dim: 0.30;
+}
+
+/* 儿童取值(设计 §2.8): 不是第二套 CSS, 是同一批令牌的另一组取值。应用在
+   <html data-kid="1"> 上, 由 reader_view 按 child_mode 写入。不新增选择器分支。 */
+:root[data-kid="1"] {
+  --rd-text: 27px;
+  --rd-lh: 2.1;
+  --rd-measure: 780px;
+  --rd-dim: 0.42;
+}
+
+/* ---- M7 主题色系 (2026-08-08) ----
+   主题 = mode(明暗, body[data-theme]) × palette(色系, body[data-palette]) 两维。
+   纸面/墨色等中性色全色系共享 —— 纸的底色就是品牌, 每个色系只换强调色家族
+   (primary + state + 阅读器 accent)。默认 clay(陶土)已在 :root / dark 块定义。
+   切换只写 data-palette, 无需动 JS 逻辑。 */
+
+/* sage 青苔绿 —— 自然沉静, 长时间阅读不累 */
+body[data-palette="sage"] {
+  --md-sys-color-primary: #61764c;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #e3ead6;
+  --md-sys-color-on-primary-container: #2d3a1f;
+  --md-sys-color-inverse-primary: #b3c79a;
+  --md-sys-state-hover: rgba(106, 127, 84, 0.08);
+  --md-sys-state-focus: rgba(106, 127, 84, 0.12);
+  --md-sys-state-pressed: rgba(106, 127, 84, 0.14);
+  --rd-accent: #6a7f54;
+  --rd-reading-bg: #e6ecd9;
+  --rd-mark: #8a8a3e;
+}
+body[data-theme="dark"][data-palette="sage"] {
+  --md-sys-color-primary: #b3c79a;
+  --md-sys-color-on-primary: #2d3a1f;
+  --md-sys-color-primary-container: #47593a;
+  --md-sys-color-on-primary-container: #e3ead6;
+  --md-sys-color-inverse-primary: #6a7f54;
+  --rd-accent: #b3c79a;
+  --rd-reading-bg: #3a462e;
+  --rd-mark: #b8b76b;
+}
+
+/* ocean 海蓝 —— 冷静专注, 深海般的稳定感 */
+body[data-palette="ocean"] {
+  --md-sys-color-primary: #4a6a80;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #d9e4ec;
+  --md-sys-color-on-primary-container: #22384a;
+  --md-sys-color-inverse-primary: #a3c1d6;
+  --md-sys-state-hover: rgba(74, 106, 128, 0.08);
+  --md-sys-state-focus: rgba(74, 106, 128, 0.12);
+  --md-sys-state-pressed: rgba(74, 106, 128, 0.14);
+  --rd-accent: #4a6a80;
+  --rd-reading-bg: #dce7ee;
+  --rd-mark: #b0713a;
+}
+body[data-theme="dark"][data-palette="ocean"] {
+  --md-sys-color-primary: #a3c1d6;
+  --md-sys-color-on-primary: #22384a;
+  --md-sys-color-primary-container: #38546a;
+  --md-sys-color-on-primary-container: #d9e4ec;
+  --md-sys-color-inverse-primary: #4a6a80;
+  --rd-accent: #a3c1d6;
+  --rd-reading-bg: #2c3d4c;
+  --rd-mark: #c9a06a;
+}
+
+/* rose 蔷薇 —— 温柔温暖, 玫瑰色调不张扬 */
+body[data-palette="rose"] {
+  --md-sys-color-primary: #96626d;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #f0dfe3;
+  --md-sys-color-on-primary-container: #4a2a31;
+  --md-sys-color-inverse-primary: #d3a6b1;
+  --md-sys-state-hover: rgba(150, 98, 109, 0.08);
+  --md-sys-state-focus: rgba(150, 98, 109, 0.12);
+  --md-sys-state-pressed: rgba(150, 98, 109, 0.14);
+  --rd-accent: #96626d;
+  --rd-reading-bg: #f2e3e6;
+  --rd-mark: #a8792e;
+}
+body[data-theme="dark"][data-palette="rose"] {
+  --md-sys-color-primary: #d3a6b1;
+  --md-sys-color-on-primary: #4a2a31;
+  --md-sys-color-primary-container: #5f3f48;
+  --md-sys-color-on-primary-container: #f0dfe3;
+  --md-sys-color-inverse-primary: #96626d;
+  --rd-accent: #d3a6b1;
+  --rd-reading-bg: #4a3438;
+  --rd-mark: #d3ae6e;
+}
+
+/* slate 灰蓝 —— 中性冷静, 最克制的选择 */
+body[data-palette="slate"] {
+  --md-sys-color-primary: #5a6673;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #dfe3e8;
+  --md-sys-color-on-primary-container: #2a323c;
+  --md-sys-color-inverse-primary: #b0bac5;
+  --md-sys-state-hover: rgba(90, 102, 115, 0.08);
+  --md-sys-state-focus: rgba(90, 102, 115, 0.12);
+  --md-sys-state-pressed: rgba(90, 102, 115, 0.14);
+  --rd-accent: #5a6673;
+  --rd-reading-bg: #e2e6ea;
+  --rd-mark: #a8792e;
+}
+body[data-theme="dark"][data-palette="slate"] {
+  --md-sys-color-primary: #b0bac5;
+  --md-sys-color-on-primary: #2a323c;
+  --md-sys-color-primary-container: #3f4854;
+  --md-sys-color-on-primary-container: #dfe3e8;
+  --md-sys-color-inverse-primary: #5a6673;
+  --rd-accent: #b0bac5;
+  --rd-reading-bg: #303945;
+  --rd-mark: #d3ae6e;
 }

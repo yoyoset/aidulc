@@ -9,13 +9,14 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-/// 下载文件: 断点续传 + 可选 sha256 校验 + 原子改名
-/// 返回最终路径; Err = 失败 (保留 .part 供续传)
-pub fn download(
+/// 下载文件: 断点续传 + 可选 sha256 校验 + 原子改名 + 进度回调 (bytes_read, total)。
+/// 返回最终路径; Err = 失败 (保留 .part 供续传)。M7 R12 起统一走带进度版本。
+pub fn download_with_progress(
     url: &str,
     dest: PathBuf,
     expected_sha256: Option<&str>,
     timeout_secs: u64,
+    mut on_progress: impl FnMut(u64, u64),
 ) -> Result<PathBuf, String> {
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("建目录失败: {e}"))?;
@@ -74,8 +75,23 @@ pub fn download(
         .append(true)
         .open(&part_path)
         .map_err(|e| format!("打开 .part 失败: {e}"))?;
-    resp.copy_to(&mut file)
-        .map_err(|e| format!("写入失败: {e}"))?;
+    // R12: 手动 Read 循环替代 copy_to —— 才能拿到进度
+    use std::io::Read;
+    let total = resp.content_length().unwrap_or(0) + existing;
+    let mut buf = [0u8; 128 * 1024];
+    let mut written = existing;
+    loop {
+        let n = resp
+            .read(&mut buf)
+            .map_err(|e| format!("读响应失败: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n])
+            .map_err(|e| format!("写入失败: {e}"))?;
+        written += n as u64;
+        on_progress(written, total);
+    }
     file.flush().ok();
     drop(file);
 

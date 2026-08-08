@@ -8,11 +8,14 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 toml = "0.8"
-reqwest = { version = "0.12", features = ["json", "blocking"], default-features = false }
+# F19 (2026-08-08): reqwest 此前 default-features=false + 无 TLS feature → https 下载在
+# TLS 层必断 (实测)。补 native-tls (Windows 走 schannel) 修复下载链路。
+reqwest = { version = "0.12", features = ["json", "blocking", "native-tls"], default-features = false }
 win32job = "2.0"
 keyring = { version = "3", features = ["windows-native"] }
 sha2 = "0.10"

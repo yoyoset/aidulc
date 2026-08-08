@@ -152,7 +152,12 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         path: "commands::reader::sync_config_set",
         domain: "同步",
-        desc: "同步配置(URL+token; token 存 Credential Manager)",
+        desc: "配置 CF Worker 同步 (URL + token 存凭据库)",
+    },
+    CommandInfo {
+        path: "commands::reader::sync_disconnect",
+        domain: "同步",
+        desc: "断开同步 (删 token + 清 config.toml URL + 内存态)",
     },
     CommandInfo {
         path: "commands::reader::bookmarks_list",
@@ -213,7 +218,12 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         path: "commands::jobs::job_retry_failed",
         domain: "任务",
-        desc: "只重跑失败的部分",
+        desc: "重试失败句",
+    },
+    CommandInfo {
+        path: "commands::jobs::job_detail",
+        domain: "任务",
+        desc: "任务详情 (quality_report.json, 失败原因可读)",
     },
     CommandInfo {
         path: "commands::jobs::cancel_prep_job",
@@ -289,7 +299,12 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         path: "commands::models::models_download",
         domain: "模型",
-        desc: "下载模型(阻塞式, 大文件前端分步调用)",
+        desc: "下载模型(后台线程, 返回 token 前端轮询状态)",
+    },
+    CommandInfo {
+        path: "commands::models::models_download_status",
+        domain: "模型",
+        desc: "查询下载任务状态 (done/ok/path/error)",
     },
     CommandInfo {
         path: "commands::models::hardware_detect",
@@ -354,6 +369,26 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "profile 列表",
     },
     CommandInfo {
+        path: "ipc::commands::profile_delete",
+        domain: "Profile",
+        desc: "删除自建档案 (内建 default 不允许删)",
+    },
+    CommandInfo {
+        path: "ipc::commands::highlights_list",
+        domain: "摘录",
+        desc: "某本书的全部摘录 (按 章/句序 排)",
+    },
+    CommandInfo {
+        path: "ipc::commands::highlights_save",
+        domain: "摘录",
+        desc: "保存摘录 (同 id 覆盖)",
+    },
+    CommandInfo {
+        path: "ipc::commands::highlights_remove",
+        domain: "摘录",
+        desc: "删除摘录",
+    },
+    CommandInfo {
         path: "ipc::commands::reading_save",
         domain: "阅读状态",
         desc: "保存阅读进度/书签/播放位置",
@@ -362,6 +397,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         path: "ipc::commands::reading_get",
         domain: "阅读状态",
         desc: "读取阅读进度",
+    },
+    CommandInfo {
+        path: "ipc::commands::reading_stats",
+        domain: "阅读状态",
+        desc: "某书近 N 天每日阅读时长 (今日已读 X 分钟)",
     },
     CommandInfo {
         path: "ipc::commands::settings_upsert",
@@ -467,7 +507,11 @@ mod tests {
             };
             for e in entries.flatten() {
                 let p = e.path();
+                // M7 R38: 跳过 node_modules —— 校验只针对应用代码, 不扫第三方库
                 if p.is_dir() {
+                    if p.file_name().and_then(|n| n.to_str()) == Some("node_modules") {
+                        continue;
+                    }
                     stack.push(p);
                 } else if p.extension().and_then(|e| e.to_str()) == Some("js") {
                     js_files.push(p);
@@ -509,6 +553,236 @@ mod tests {
             missing,
             missing.len()
         );
+
+        // F29 (2026-08-08): 补参数名校验 —— 前端 invoke 的 arg 键 (camelCase) 经 camel→snake
+        // 后必须覆盖 Rust 命令函数的每个非 State 参数。拼错键会静默传 undefined, 命令名测试
+        // 照常绿, 运行时行为错。
+        let arg_mismatches = check_arg_keys(&js_files, &listed);
+        assert!(
+            arg_mismatches.is_empty(),
+            "前端 invoke 参数与 Rust 函数签名不一致:\n{}\n—— 检查前端 invoke 的 arg 键拼写",
+            arg_mismatches.join("\n")
+        );
+    }
+
+    /// F29: 解析 Rust fn 的参数名 (跳过 State/AppHandle 注入参数)。
+    fn rust_fn_params(src: &str, fn_name: &str) -> Vec<String> {
+        let needle = format!("fn {fn_name}(");
+        let Some(pos) = src.find(&needle) else {
+            return vec![];
+        };
+        let after = &src[pos + needle.len()..];
+        let Some(end) = after.find(')') else {
+            return vec![];
+        };
+        after[..end]
+            .split(',')
+            .filter_map(|p| {
+                let p = p.trim();
+                if p.is_empty() {
+                    return None;
+                }
+                let Some(colon) = p.find(':') else {
+                    return None;
+                };
+                let ty = p[colon + 1..].trim();
+                let name = p[..colon].trim().trim_start_matches("mut ").trim();
+                // Tauri 注入的 State/AppHandle 参数不来自前端; Option 参数可省略
+                if ty.contains("State")
+                    || name == "app"
+                    || ty.contains("AppHandle")
+                    || ty.contains("Option")
+                {
+                    return None;
+                }
+                if name.is_empty() {
+                    return None;
+                }
+                Some(name.to_string())
+            })
+            .collect()
+    }
+
+    /// F29: 前端 camelCase 键 → Rust snake_case
+    fn camel_to_snake(s: &str) -> String {
+        let mut out = String::new();
+        for (i, c) in s.chars().enumerate() {
+            if c.is_uppercase() {
+                if i > 0 {
+                    out.push('_');
+                }
+                out.push(c.to_ascii_lowercase());
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    /// F29: 对所有 invoke 调用, 校验其字面量参数对象键覆盖 Rust fn 的非 State 参数。
+    /// 返回不一致清单 (空 = 一致)。
+    fn check_arg_keys(js_files: &[std::path::PathBuf], listed: &[&str]) -> Vec<String> {
+        let src_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut problems: Vec<String> = Vec::new();
+        for f in js_files {
+            let Ok(src) = std::fs::read_to_string(f) else {
+                continue;
+            };
+            for (cmd, keys) in invoke_with_args(&src) {
+                if cmd.starts_with("plugin:") {
+                    continue;
+                }
+                // 找 COMMANDS 里的 path
+                let Some(path) = listed
+                    .iter()
+                    .find(|p| p.rsplit("::").next().map(|n| n == &cmd).unwrap_or(false))
+                else {
+                    continue; // 命令名本身已在上一个测试校验
+                };
+                let Some((rel, fn_name)) = command_path_to_file(path) else {
+                    continue;
+                };
+                let rs_path = src_root.join(rel);
+                let Ok(rs) = std::fs::read_to_string(&rs_path) else {
+                    continue;
+                };
+                let params = rust_fn_params(&rs, &fn_name);
+                let js_snake: std::collections::HashSet<String> =
+                    keys.iter().map(|k| camel_to_snake(k)).collect();
+                for p in &params {
+                    if !js_snake.contains(p) {
+                        problems.push(format!(
+                            "  {}: 前端 invoke('{cmd}') 缺参数 '{p}' (JS 键: {:?})",
+                            f.file_name().unwrap_or_default().to_string_lossy(),
+                            keys
+                        ));
+                    }
+                }
+            }
+        }
+        problems
+    }
+
+    /// F29: COMMANDS.path → (相对 src 的 .rs 文件, fn 名)
+    fn command_path_to_file(path: &str) -> Option<(String, String)> {
+        let mut parts: Vec<&str> = path.split("::").collect();
+        let fn_name = parts.pop()?.to_string();
+        let rel = format!("{}.rs", parts.join("/"));
+        Some((rel, fn_name))
+    }
+
+    /// F29: 从 JS 源码抠 `invoke('cmd', { key1, key2: v, ... })` 的命令名 + 参数对象键。
+    fn invoke_with_args(src: &str) -> Vec<(String, Vec<String>)> {
+        let mut out = Vec::new();
+        let bytes = src.as_bytes();
+        let mut i = 0;
+        // 实测坑 (M7 R38): b"invoke(" 是 7 字节, 原切片 [i..i+6] 恒不相等 → 空转
+        while i + 7 <= bytes.len() {
+            if &bytes[i..i + 7] == b"invoke(" {
+                let mut j = i + 7;
+                while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                    j += 1;
+                }
+                let mut cmd = String::new();
+                if j < bytes.len() && (bytes[j] == b'\'' || bytes[j] == b'"') {
+                    let quote = bytes[j];
+                    let mut k = j + 1;
+                    while k < bytes.len() && bytes[k] != quote {
+                        cmd.push(bytes[k] as char);
+                        k += 1;
+                    }
+                    j = k + 1;
+                }
+                // 跳过到逗号, 找参数对象
+                while j < bytes.len() && bytes[j] != b',' {
+                    j += 1;
+                }
+                j += 1;
+                while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                    j += 1;
+                }
+                let mut keys = Vec::new();
+                if j < bytes.len() && bytes[j] == b'{' {
+                    // 解析顶层对象键: 标识符 (后跟 ':' 则跳过其值, 或 ',' 或 '}')
+                    let mut k = j + 1;
+                    loop {
+                        if k >= bytes.len() {
+                            break;
+                        }
+                        let c = bytes[k];
+                        if c == b'}' {
+                            break;
+                        }
+                        if c.is_ascii_whitespace() || c == b',' {
+                            k += 1;
+                            continue;
+                        }
+                        // 键标识符
+                        let start = k;
+                        while k < bytes.len()
+                            && (bytes[k].is_ascii_alphanumeric()
+                                || bytes[k] == b'_'
+                                || bytes[k] == b'$')
+                        {
+                            k += 1;
+                        }
+                        if k > start {
+                            keys.push(String::from_utf8_lossy(&bytes[start..k]).to_string());
+                        } else {
+                            k += 1; // 跳过非标识符 (如字符串键, 跳过)
+                            continue;
+                        }
+                        // 跳过 ':' 后的值 (到下一个顶层 ',' 或 '}', 兼容嵌套/字符串)
+                        while k < bytes.len() && bytes[k].is_ascii_whitespace() {
+                            k += 1;
+                        }
+                        if k < bytes.len() && bytes[k] == b':' {
+                            k += 1;
+                            let mut depth = 0usize;
+                            let mut in_str = false;
+                            let mut quote = 0u8;
+                            while k < bytes.len() {
+                                let cc = bytes[k];
+                                if in_str {
+                                    if cc == quote && bytes.get(k.wrapping_sub(1)) != Some(&b'\\') {
+                                        in_str = false;
+                                    }
+                                    k += 1;
+                                    continue;
+                                }
+                                match cc {
+                                    b'\'' | b'"' => {
+                                        in_str = true;
+                                        quote = cc;
+                                    }
+                                    b'{' | b'[' | b'(' => depth += 1,
+                                    b'}' | b']' | b')' => {
+                                        if depth == 0 {
+                                            break; // 对象结束
+                                        }
+                                        depth -= 1;
+                                    }
+                                    b',' => {
+                                        if depth == 0 {
+                                            break;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                                k += 1;
+                            }
+                        }
+                    }
+                }
+                if !cmd.is_empty() {
+                    out.push((cmd, keys));
+                }
+                i = j;
+            } else {
+                i += 1;
+            }
+        }
+        out
     }
 
     /// 从 JS 源码里抠 `invoke('xxx'` / `invoke("xxx"` 的字面量命令名 (极简状态机,
@@ -517,10 +791,12 @@ mod tests {
         let mut out = Vec::new();
         let bytes = src.as_bytes();
         let mut i = 0;
-        while i + 6 < bytes.len() {
+        // 实测坑 (M7 R38): b"invoke(" 是 7 字节, 原代码切片 [i..i+6] 是 6 字节,
+        // 恒不相等 → 校验一直空转。必须 [i..i+7] + i+7<=len。
+        while i + 7 <= bytes.len() {
             // 找 "invoke(" 字样
-            if &bytes[i..i + 6] == b"invoke(" {
-                let mut j = i + 6;
+            if &bytes[i..i + 7] == b"invoke(" {
+                let mut j = i + 7;
                 while j < bytes.len() && bytes[j].is_ascii_whitespace() {
                     j += 1;
                 }
@@ -540,5 +816,23 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn f29_parser_extracts_args_and_params() {
+        // F29: 解析器不是空转 —— 必须真能抠出参数键和 Rust 参数
+        let calls = invoke_with_args(
+            "AiduBridge.invoke('settings_get', { profileId }); invoke('batch_import', { bookPaths: p, profile, sourceLanguage: 'en' });",
+        );
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].0, "settings_get");
+        assert_eq!(calls[0].1, vec!["profileId"]);
+        assert_eq!(calls[1].0, "batch_import");
+        assert_eq!(calls[1].1, vec!["bookPaths", "profile", "sourceLanguage"]);
+        assert_eq!(camel_to_snake("profileId"), "profile_id");
+        assert_eq!(camel_to_snake("bookPaths"), "book_paths");
+
+        let rs = "pub fn settings_get(db: State<Db>, profile_id: String) -> Result<ReaderSettings, String> { }";
+        assert_eq!(rust_fn_params(rs, "settings_get"), vec!["profile_id"]);
     }
 }

@@ -9,6 +9,7 @@
     list() { return AiduBridge.invoke('job_list'); },
     remove(id) { return AiduBridge.invoke('job_remove', { id }); },
     retryFailed(id) { return AiduBridge.invoke('job_retry_failed', { id }); },
+    detail(id) { return AiduBridge.invoke('job_detail', { id }); }, // M7 R24
     cancel() { return AiduBridge.invoke('cancel_prep_job'); },
     // R3: 暂停/继续
     pause(id) { return AiduBridge.invoke('job_pause', { id }); },

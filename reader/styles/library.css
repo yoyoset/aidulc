@@ -1,26 +1,50 @@
-/* library.css —— 书库 */
+/* library.css —— 书库 (M6 打磨: 卡片纸感、克制阴影、hover 微抬) */
 .book-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 14px;
+  gap: 16px;
 }
 .book-card {
   border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: var(--md-sys-radius-md);
-  padding: 16px;
+  border-radius: var(--md-sys-radius-lg);
+  padding: 18px;
   background: var(--md-sys-color-surface);
   box-shadow: var(--md-sys-elevation-1);
-  transition: box-shadow 0.15s ease;
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-.book-card:hover { box-shadow: var(--md-sys-elevation-2); }
-.book-card-title { font-weight: 600; margin-bottom: 6px; }
-.book-card-meta { font-size: 0.82rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 12px; }
-.book-card-actions { display: flex; gap: 8px; }
+.book-card:hover {
+  box-shadow: var(--md-sys-elevation-2);
+  transform: translateY(-1px);
+  border-color: var(--md-sys-color-outline);
+}
+.book-card-title {
+  font-weight: 650;
+  font-size: 1.02rem;
+  line-height: 1.4;
+  color: var(--md-sys-color-on-surface);
+}
+.book-card-meta {
+  font-size: 0.82rem;
+  color: var(--md-sys-color-on-surface-variant);
+  line-height: 1.6;
+}
+.book-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 6px;
+}
 .book-empty {
   grid-column: 1 / -1;
   text-align: center;
   color: var(--md-sys-color-on-surface-variant);
-  padding: 60px 20px;
-  border: 2px dashed var(--md-sys-color-outline-variant);
-  border-radius: var(--md-sys-radius-md);
+  padding: 72px 20px;
+  border: 1.5px dashed var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-lg);
+  background: color-mix(in srgb, var(--md-sys-color-surface) 40%, transparent);
+  line-height: 2;
 }

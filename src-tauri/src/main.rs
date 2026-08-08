@@ -31,6 +31,7 @@ mod store {
     pub mod batches_repo;
     pub mod books_repo;
     pub mod dict_repo;
+    pub mod highlights_repo;
     pub mod jobs_repo;
     pub mod model_repo;
     pub mod profile_repo;
@@ -47,6 +48,7 @@ mod jobs {
 }
 mod infrastructure {
     pub mod aidu_worker_client;
+    pub mod dict_daemon;
     pub mod dir_migration;
     pub mod downloader;
     pub mod log;
@@ -309,6 +311,7 @@ fn main() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .manage(db)
         .manage(svc)
         .manage(PrepState {
@@ -370,6 +373,7 @@ fn main() {
             commands::reader::sync_now,
             commands::reader::sync_pull_now,
             commands::reader::sync_config_set,
+            commands::reader::sync_disconnect,
             commands::reader::bookmarks_list,
             commands::reader::log_from_frontend,
             commands::reader::log_path,
@@ -382,6 +386,7 @@ fn main() {
             commands::jobs::job_list,
             commands::jobs::job_remove,
             commands::jobs::job_retry_failed,
+            commands::jobs::job_detail,
             commands::jobs::cancel_prep_job,
             commands::jobs::job_pause,
             commands::jobs::job_resume,
@@ -397,6 +402,7 @@ fn main() {
             commands::models::models_bind_book,
             commands::models::models_book_binding,
             commands::models::models_download,
+            commands::models::models_download_status,
             commands::models::hardware_detect,
             commands::models::wizard_state,
             commands::models::wizard_submit,
@@ -409,13 +415,24 @@ fn main() {
             commands::misc::doc_parser_install,
             ipc::commands::profile_upsert,
             ipc::commands::profile_list,
+            ipc::commands::profile_delete,
+            ipc::commands::highlights_list,
+            ipc::commands::highlights_save,
+            ipc::commands::highlights_remove,
             ipc::commands::reading_save,
             ipc::commands::reading_get,
+            ipc::commands::reading_stats,
             ipc::commands::settings_upsert,
             ipc::commands::settings_get,
             ipc::commands::transfer_export,
             ipc::commands::transfer_import,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            // M7 R29: 应用退出时主动杀掉常驻词典守护, 不留 2.4GB 模型的后台进程
+            if let tauri::RunEvent::Exit = event {
+                crate::infrastructure::dict_daemon::stop();
+            }
+        });
 }

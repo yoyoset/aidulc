@@ -137,11 +137,25 @@
         if (!res.ok) { content.appendChild(el('p', 'global-error', '扫描失败: ' + res.error)); return; }
         const found = res.data || [];
         if (found.length === 0) {
-          content.appendChild(el('p', null, '没有找到可复用的模型文件, 下一步会显示需要下载的引擎。'));
+          content.appendChild(el('p', null, '没有找到可复用的模型文件, 下一步会显示引擎状态。'));
         } else {
-          content.appendChild(el('p', null, `找到 ${found.length} 个可复用的模型文件 (将直接使用, 不重复下载):`));
-          found.slice(0, 8).forEach(m => {
-            content.appendChild(el('div', 'wizard-found', `✓ ${m.file_name} (${Math.round(m.size_bytes / 1e6)} MB)`));
+          // F16 (2026-08-08): 扫描命中即自动登记, 不再只是展示 —— 否则下一步的"已就绪"
+          // 是假承诺, 导入时照样 preflight 报缺引擎。
+          const jobs = found.map(m => AiduModelService.register({
+            family: m.file_name.endsWith('.gguf') ? 'llm' : 'tts',
+            language: 'en',
+            model_id: m.file_name.replace(/\.[^.]+$/, ''),
+            version: 'scanned',
+            path: m.path,
+            source_type: 'local',
+            size_bytes: m.size_bytes,
+            custom: true,
+          }));
+          content.appendChild(el('p', null, `找到 ${found.length} 个可复用的模型文件, 已自动登记:`));
+          Promise.all(jobs).then(() => {
+            found.slice(0, 8).forEach(m => {
+              content.appendChild(el('div', 'wizard-found', `✓ ${m.file_name} (${Math.round(m.size_bytes / 1e6)} MB)`));
+            });
           });
         }
         const next = el('button', 'btn-primary', '下一步');
@@ -151,20 +165,37 @@
     }
 
     _stepDeps(content) {
-      content.appendChild(el('p', null, '以下引擎会在第一次处理书籍时自动就绪:'));
-      [
-        ['翻译/讲解引擎', 'Qwen3-4B (2.4 GB) — 已就绪'],
-        ['语音引擎', 'Kokoro-82M 美音 (327 MB) — 已就绪'],
-        ['词法引擎', '英文词法包 — 已就绪'],
-        ['处理引擎', '文档处理组件 — 已就绪'],
-      ].forEach(([name, status]) => {
-        content.appendChild(el('div', 'wizard-deps', `${name}: ${status}`));
+      content.appendChild(el('p', null, '正在检查本机引擎状态...'));
+      AiduMiscService.componentsHealth().then((res) => {
+        content.innerHTML = '';
+        if (!res.ok) { content.appendChild(el('p', 'global-error', '检查失败: ' + res.error)); return; }
+        const list = res.data || [];
+        const byId = {};
+        list.forEach((c) => { byId[c.id] = c; });
+        const rows = [
+          ['翻译/讲解引擎', byId.llm],
+          ['语音引擎', byId.tts],
+          ['词法引擎', byId.spacy],
+          ['文档处理', byId.pymupdf],
+        ];
+        // F16 (2026-08-08): 不再硬编码"已就绪" —— 用真实健康状态, 缺的明确说缺
+        const missing = [];
+        rows.forEach(([name, c]) => {
+          const ok = c && c.healthy;
+          if (!ok) missing.push(name);
+          content.appendChild(el('div', 'wizard-deps' + (ok ? '' : ' wizard-deps-missing'),
+            `${name}: ${ok ? '✓ 已就绪' : (c ? c.detail : '未检测到')}`));
+        });
+        if (missing.length) {
+          content.appendChild(el('p', 'settings-warn',
+            `还需要 ${missing.join('、')}。可以先继续, 之后在"模型中心"里配置或下载。`));
+        }
+        const next = el('button', 'btn-primary', '完成设置');
+        next.onclick = () => {
+          AiduModelService.wizardFinish().then(() => this.onDone && this.onDone());
+        };
+        content.appendChild(next);
       });
-      const next = el('button', 'btn-primary', '完成设置');
-      next.onclick = () => {
-        AiduModelService.wizardFinish().then(() => this.onDone && this.onDone());
-      };
-      content.appendChild(next);
     }
 
     _stepDone(content) {

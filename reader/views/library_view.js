@@ -44,6 +44,12 @@
       const wrap = el('div', 'library-view');
       const isOriginal = this.kind === 'original';
 
+      // M6: 加载档案表, 书卡/导入卡显示真实档案名 (自建档案从这里开始有名字)
+      AiduBridge.profiles.list().then((res) => {
+        this._profiles = (res.ok && res.data) || [];
+        this._renderBooks(listEl, this.store.state.books || [], searchInput, filterSel);
+      });
+
       const header = el('div', 'page-header');
       header.appendChild(el('h1', null, isOriginal ? '书库' : '我的书'));
       // P1.5: 书包是资产, 支持跨设备导入(zip); 两个视图都放, 导入的书直接进"我的书"
@@ -84,6 +90,8 @@
       // Bug fix (审查确认): 注销旧监听 (每次 render 叠加导致 listener 累积)
       this._off && this._off();
       this._off = this.store.on('change', (s) => this._renderBooks(listEl, s.books, searchInput, filterSel));
+      // F34 (2026-08-08): 拖拽导入监听也是每次 render 叠加 → 注销旧订阅
+      if (this._offDrag) { this._offDrag(); this._offDrag = null; }
       // v7: 按 kind 拉数据 (书库=原版 | 成品架=product); 书库才轮询 job 进度
       const loadBooks = () => AiduLibraryService.list(this.kind).then((res) => {
         if (res.ok) this.store.set({ books: res.data || [] });
@@ -125,7 +133,14 @@
       // I-D: 搜索 + 筛选
       const q = (searchInput && searchInput.value || '').toLowerCase();
       const filter = filterSel ? filterSel.value : 'all';
-      const filtered = books.filter(b => {
+      // F30: "最近阅读"排序 —— 打开过的书在前 (last_opened_at 降序), 未打开过按标题
+      const sorted = books.slice().sort((a, b) => {
+        const la = a.last_opened_at || 0;
+        const lb = b.last_opened_at || 0;
+        if (la !== lb) return lb - la;
+        return (a.title || a.id).localeCompare(b.title || b.id);
+      });
+      const filtered = sorted.filter(b => {
         if (q && !(b.title || b.id).toLowerCase().includes(q)) return false;
         if (filter !== 'all' && b.status !== filter) return false;
         return true;
@@ -137,13 +152,16 @@
       filtered.forEach(book => {
         const card = el('div', 'book-card');
         const name = el('div', 'book-card-title', book.title || book.id);
-        const profileLabel = book.profile_id === 'kid' ? '儿童模式' : '成人自读';
+        const profileLabel = this._profileName(book.profile_id);
         const langLabel = { en: '英文', ja: '日文' }[book.source_language] || book.source_language || '英文';
         const st = this._bookStatus(book);
         const badge = el('span', 'book-badge ' + st.cls, st.label);
         const meta = el('div', 'book-card-meta',
           `${book.chapter_count || 0} 章 · ${langLabel}→中文 · ${profileLabel}` +
-          (book.failed_count ? ` · ${book.failed_count} 句失败` : ''));
+          (book.failed_count ? ` · ${book.failed_count} 句失败` : '') +
+          // M7 R18: 阅读进度反馈 (微信读书/kindle 书架同款)
+          (book.reading_chapter != null ? ` · 已读至第 ${book.reading_chapter + 1} 章` : '') +
+          (book.time_spent_ms > 60000 ? ` · 已读 ${Math.round(book.time_spent_ms / 60000)} 分钟` : ''));
         meta.prepend(badge);
         // S5 资产模型: 成品卡显示用了什么模型 (不同模型=不同资产)
         if (this.kind === 'product') {
@@ -225,14 +243,22 @@
       });
     }
 
+    /** M6: 档案 id → 显示名 (自建档案查表, 内建兜底, 查不到显示未知) */
+    _profileName(id) {
+      const p = (this._profiles || []).find((x) => x.id === id);
+      if (p && p.name) return p.name;
+      if (id === 'kid') return '陪小孩读';
+      if (id === 'default' || !id) return '成人自读';
+      return '未知档案';
+    }
+
     /** R1/R2: 开始阅读准备 — 前置检查 → 通过入队; 未通过 → 书卡标原因 */
     _startPrepForBook(book) {
       const profileId = book.profile_id || 'default';
-      const profile = AiduImportService.buildProfile(profileId);
       // 需要 batch_id: 导入时记录的; 若无 (旧书) → 单本批处理
       const batchId = this._lastBatchId || ('batch-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
       AiduToast.show('正在检查《' + (book.title || book.id) + '》…', 'info');
-      AiduJobService.startPrep(batchId, [book.id], profile).then((res) => {
+      AiduImportService.startPrep(batchId, [book.id], profileId).then((res) => {
         if (!res.ok) { AiduToast.show('开始失败: ' + res.error, 'error'); return; }
         const d = res.data || {};
         if (d.skipped && d.skipped.length) {
@@ -364,11 +390,13 @@
       ]).then(([bindRes, listRes]) => {
         body.querySelector('.settings-loading').remove();
         if (!bindRes.ok || !listRes.ok) {
+          // F18 (2026-08-08): 原实现 `appendChild(el(...).textContent && null)` 恒为 null,
+          // 必然抛 TypeError 落入 catch, 错误详情与重试入口都丢失。直接挂错误块。
           body.appendChild(el('div', 'global-error',
-            '加载失败: ' + ((bindRes.error) || (listRes.error)) + ' ').textContent && null);
+            '加载失败: ' + ((bindRes.error) || (listRes.error) || '未知错误')));
           const retry = el('button', 'btn-small', '重试');
           retry.onclick = () => { ov.remove(); this._openBookSettings(book); };
-          body.appendChild(el('div', 'settings-error', '加载失败')).appendChild(retry);
+          body.appendChild(retry);
           return;
         }
         const bind = bindRes.data || {};
@@ -453,7 +481,7 @@
       dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); };
       dropZone.ondragleave = () => dropZone.classList.remove('drag-over');
       if (window.AiduBridge && window.__TAURI__?.event) {
-        window.AiduBridge.listen('tauri://drag-drop', (ev) => {
+        this._offDrag = window.AiduBridge.listen('tauri://drag-drop', (ev) => {
           dropZone.classList.remove('drag-over');
           const paths = ev.payload && ev.payload.paths;
           if (paths && paths.length) this._startBatchImport(paths);
@@ -476,10 +504,18 @@
 
       const optsRow = el('div', 'prep-row');
       const profileSelect = el('select', 'prep-select');
-      ['default:成人自读', 'kid:陪小孩读'].forEach(p => {
-        const opt = el('option', null, p.split(':')[1]);
-        opt.value = p.split(':')[0];
-        profileSelect.appendChild(opt);
+      profileSelect.title = '用哪个学习档案处理 (音色/讲解策略/语速在设置里管理)';
+      // M6: 档案从表里动态加载 (内建 default/kid + 用户自建), 不再硬编码两个
+      AiduBridge.profiles.list().then((res) => {
+        const profiles = (res.ok && Array.isArray(res.data) ? res.data : []).slice();
+        if (!profiles.some((p) => p.id === 'default')) profiles.unshift({ id: 'default', name: '成人自读' });
+        if (!profiles.some((p) => p.id === 'kid')) profiles.push({ id: 'kid', name: '陪小孩读' });
+        profileSelect.innerHTML = '';
+        profiles.forEach((p) => {
+          const opt = el('option', null, p.name);
+          opt.value = p.id;
+          profileSelect.appendChild(opt);
+        });
       });
       const langSelect = el('select', 'prep-select');
       langSelect.id = 'prep-source-lang';

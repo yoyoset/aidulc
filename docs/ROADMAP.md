@@ -224,8 +224,110 @@ S3.1(2026-08-07)在 `reader/styles/tokens.css` 建了 `--md-sys-font-size-*`(15 
 
 ---
 
+## S5/M6 遗留(2026-08-08 三模式 + 成熟度工程落地后的开放项)
+
+- ~~F25 儿童模式对 kid 书无效~~ **已修 (M6, 2026-08-08)**: 阅读器设置一律读 'default'。
+- ~~F13 重试失败句丢 profile~~ **已修 (M6)**: `job_retry_failed` 读 job_request.json 快照。
+- **M7 主题自定义的级联候选 (2026-08-08, 来源 = 需求扩展引擎)**: ① 主题选择色块可视化
+  (文字下拉 → 色块 chips + 即时预览, 对标 VS Code 主题选择); ② 自定义主题色(自由选色 →
+  色盘 UI + 持久化自定义值覆盖); ③ 主题导入/导出(跨设备迁移自己的配色); ④ 深浅色对比度
+  校验(每 palette 都要过 WCAG AA, 现状是人工挑的近似值, 未用工具算过)。
+- **对照台「结构骨架」是降级实现**: prep 未把讲解拆成「骨架一行 + 详解正文」两层, 右栏
+  当前常显讲解全文。要真正落地骨架需 prep 侧拆分讲解输出(改 prompt/结构, 会触发重跑或
+  版本兼容, 本轮明确不做)。
+- **命令面板(Ctrl+K)具体条目与排序未设计**: 当前只有搜索 + 书签入口, 面板内部设计留待后续。
+- **原书插图在对照台模式的排版**: 插图按原位插入正文流, 对照台右栏(330px)下是否需要跨栏
+  未验证。
+- **F21 词典守护的残余风险 (M6 已主体修复, 留痕)**: 守护进程读响应是阻塞 `read_line`, 侧车
+  若挂死会阻塞查词线程(理论风险, 侧车单次查询 ~1s, 进程异常退出时 EOF 转 Err)。可选加固:
+  读响应包超时线程/异步。另: 档案音色下拉是人工精选的 kokoro 常用音色, 具体可用性取决于
+  已装语音模型, 处理时若报错会给出具体原因。
+- **R3-1 模型下载最小闭环仍未做**: F19(TLS)已修, 但下载按钮/URL 表/动态超时(models_view)
+  未接 —— 新用户仍要靠"扫描已有模型"或手动放置模型文件。
+
+---
+
 ## 已完成(仅作为近期变更记录,超过一个 Phase 周期后清理)
 
+- 2026-08-08:**M7 Round 5-11**: 生词本掌握度概览(四阶段 pill);
+  **对比度门禁** `scripts/check_contrast.mjs`(解析 tokens.css, 46 项, 修 3 处不达标);
+  **R2-1 同步断开**(删 token + 清 URL + 内存态, 断开按钮) + **同步状态显示 Worker URL**
+  (SyncStatus 加 configured/worker_url, 顺带修 R4 的潜伏 bug: configured 字段当时不存在 → 按钮永禁);
+  **R3-1 模型下载最小闭环**(后台线程下载不冻结 UI + 轮询状态 + 断点续传 + sha256, 一键下载区
+  Qwen3-4B/Kokoro 两个实测可用 URL, 完成自动登记; F4 动态超时);
+  **R1-1 阅读位置恢复(P0)**(audioReady Promise + 恢复锚点 + F11 切章锚点归零 + F8 关窗口落盘);
+  **R2-2 删死代码**(is_done/bundle_complete/book_bundle_complete 三处仅测试引用, 已删);
+  **README 刷新**(功能亮点/结构/启动/测试)。
+- 2026-08-08:**M7 Round 39**: 本周阅读条形图(命令面板入口, 近 7 天分钟图 + 周总分钟)。
+- 2026-08-08:**M7 Round 38**: 修空转契约测试(F29) —— `b"invoke("` 7 字节 vs `[i..i+6]` 6 字节恒不相等,
+  命令名校验一直空转; 修长度 + 排 node_modules + 新增参数名校验(非 State/Option 参数必须覆盖),
+  现在命令名与 arg 键都真实校验(全仓零不一致)。
+- 2026-08-08:**M7 Round 37**: 阅读时长按日记录(迁移 v17 reading_daily, save_with_daily 增量分账,
+  reading_stats 命令, 顶栏"今日 X 分钟")。
+- 2026-08-08:**M7 Round 35**: 批次组头完成率(done/N 完成)。
+- 2026-08-08:**M7 Round 34**: 生词本每日积累条形图(core/vocab_stats.js 纯函数 + 14 天 CSS 图)。
+- 2026-08-08:**M7 Round 33**: 词典守护主动空闲回收(gen 代际 + watchdog 线程, 空闲 120s 自动杀)。
+- 2026-08-08:**M7 Round 32**: 备料台按批次分组(batch_id 组头 + _buildTaskRow 抽方法)。
+- 2026-08-08:**M7 Round 31**: 摘录跨设备同步(.aidu-data v3 加 data.highlights 纯增量键,
+  按书分组导出/按 id upsert 导入, aidu 兼容不破; 恢复 toast 计数)。
+- 2026-08-08:**M7 Round 29-30**: 词典守护应用退出主动停止(RunEvent::Exit → dict_daemon::stop);
+  便携版重打(R13 轮功能后, 新 aidulc.exe + 侧车含 run.log/dict_server)。
+- 2026-08-08:**M7 Round 27-28**: 通篇自动跟随滚动(当前句掉出视口才滚回 40%); 工作树一致性
+  审计(清 3 处死引用: setForChapter/_showTranslations/.prep-task-log)。
+- 2026-08-08:**M7 Round 26**: 侧车 run.log 兑现(`runner.py` 配 FileHandler 写 out_dir/run.log,
+  aidulc logger 下, 失败路径落堆栈; `job_detail` 返回 run_log_tail, prep_view 详情模态展示)。
+- 2026-08-08:**M7 Round 24-25**: 任务失败日志可读(`job_detail` 读 quality_report, prep_view
+  failed+partial 显示 error + 详情模态); F32 加词即时高亮(onVocabAdded 接线, 正文立即下划线)。
+- 2026-08-08:**M7 Round 22-23**: 摘录备注(面板加备注编辑); 主题自定义色(迁移 v16
+  custom_color, 纯函数 `deriveCustomPalette` 从单色推导整套强调色, WCAG on-primary 自动黑/白,
+  设置页 + 阅读器浮层自定义色 chip + 色盘)。
+- 2026-08-08:**M7 Round 19-21**: 打开书并行化(4 个 IPC 改 Promise.all); 下载任务硬化
+  (防重复同 dest + 完成 >1h 自动清理); 摘录精确 span 高亮(迁移 v15 start_seg/end_seg,
+  选中的词在正文直接标黄 + 句级琥珀标)。
+- 2026-08-08:**M7 Round 16-18**: 摘录标注(迁移 v13 `highlights` 表 + repo + 3 命令;
+  前端选中文字→浮动"摘录"→句块琥珀标 + Ctrl+K 摘录面板跨章跳转/删除);
+  阅读进度+时长上架(迁移 v14 `time_spent_ms`, player 播放计时, library_list 逐书附
+  reading_chapter/time_spent, 书架卡显示"已读至第 X 章 · 已读 Y 分钟")。
+- 2026-08-08:**M7 Round 12-15**: 模型下载进度(手动 Read 循环 + Arc<AtomicU64> 共享,
+  status 返回 bytes_read/total, 前端百分比+MB); F26 CSP 放行 `data:` 修 R4 插图 + 真实 MIME;
+  R1-2 生词高亮 lemma+word 双键(变位词修复, DOM 冒烟锁定);
+  **F36/F37 便携版重打包**(新侧车含 dict_server/PyMuPDF 1.28.2 + 新 aidulc.exe + 干净
+  config.toml)。
+- 2026-08-08:**M7 Round 3/4**: 设置页字号/行距/栏宽改图形化档位(与阅读器浮层一致,消灭裸数字
+  输入框); R2-1 CF 同步断开出口(`sync_disconnect` 删 token + 清 config.toml URL + 清内存态 +
+  清 LAST_SYNC, 设置页"断开同步"按钮, 未配置时禁用)。同步配置从此可彻底撤销。
+- 2026-08-08:**M7 主题自定义**(你给的级联示例的第一条落地)。`ReaderSettings` 加 `palette`
+  (clay/sage/ocean/rose/slate 五色系, 迁移 v12, serde 默认函数引用); `tokens.css` 按
+  `body[data-palette]` + `[data-theme=dark][data-palette]` 覆盖强调色家族(primary/state/阅读器
+  accent, 纸面墨色中性色全色系共享); 设置页 + 阅读器页面设置浮层都能换色系, 与明暗正交,
+  重启保持。**踩坑**: serde 裸 `#[serde(default)]` 对 String 落空串而非语义默认, 导致 deserialize
+  测试失败 + 死函数告警 —— 必须 `default = "fn"` 引用默认函数。
+- 2026-08-08:**M6 成熟度工程**(设计语言 + Profile 系统 + 平台修复 + F21 词典守护)。
+  ① **设计语言重建**: tokens 从 MD3 紫色 → 暖纸陶土低饱和体系(浅色暖米纸面/陶土强调/暖墨文字,
+  深色暖炭纸; elevation 暖调阴影; state 与强调色同源), 全应用视觉统一, 阅读器 `--rd-*` 同步协调;
+  导航改文字页签+下划线, 按钮/卡片/输入/空态/向导/生词本打磨。② **Profile 系统**: 设置页
+  "学习档案"管理(新建/编辑/删除, 内建 default 不可删), 导入卡/书卡用真实档案名, 修 F13(重试失败句
+  读 job_request.json 快照保留 kid 参数, 抽 `profile_from_snapshot` 纯函数+测试)、F25(阅读器设置
+  一律读 'default'), 迁移 v11 seed default+kid 档案。③ **平台修复**: F30(打开书调 library_open +
+  最近阅读排序)、F34(拖拽监听注销)、F33(prep_view cleanup)、F16(向导第 4/5 步真实状态+自动登记)、
+  F18(书设置弹窗死代码分支)、F27(生词本 .aidu-data 备份/恢复 UI)、F42(装 tauri-plugin-opener,
+  "打开日志文件"恢复)、F19(reqwest 补 native-tls, https 下载链路打通)、F41(落盘失败提示)。
+  ④ **F21 词典查询常驻守护**: 侧车 `--lookup-server` 模式(加载 2.4GB 模型一次, stdin/stdout 服务
+  多次查词, 消灭每次 5-8s 冷启动), Rust `infrastructure/dict_daemon.rs` 全局注册表懒启动/120s
+  空闲回收/任务启动时 `spawn_prep` 释放显存, `word_lookup` 改走守护。Python 4 个协议测试 + Rust
+  128 全绿。详见 `memory/maturity.md`。
+  ⑤ **候选缺陷防修 (未 exe 复现, 按静态取证直接修, 低风险)**: R4-1 书签跨章串位(切章/搜索跨章
+  清空书签集)、R6-1 单书"开始阅读准备"依赖会话内存 batch_id(批次不存在时自动建, "导入→稍后
+  处理"重启不断流)、F40(词典查询失败不再误导成"未配置")。
+- 2026-08-08:**S5 阅读器三模式重写**(先答后核/静默正文/对照台 × 通篇/逐句跟读)。落地:
+  `core/reader_state.js`(模式/节奏/揭示/已核对状态机,纯逻辑)、`core/follow_presets.js`
+  (初听/跟读/盲跟三预设)、atomic_block 重写(三开关句内控件 + 开关式揭示 + 2px 折叠细痕
+  + 词四通道,去掉高斯模糊)、renderer 模式感知(对照台节奏线 = 预测量 + transform,盲跟
+  只亮当前词)、六个新 view 模块(章节尺/对照台右栏/页面设置浮层/跟读条/静默卡片/命令面板)、
+  reader_view 重写(键盘 1/2/3、J/K、Space、Enter、T/Esc、S、Ctrl+K;顶栏撤销)、
+  数据库迁移 v10(reader_settings 加 display_mode/pace/preset/speed, reading_state 加
+  verified)、`--rd-*` 阅读器令牌层 + `[data-kid]` 覆盖、DOM 冒烟测试接入门禁
+  (`node tests\_smoke_dom.mjs`,30 项)。详见 `memory/reader.md`。
 - 2026-08-07:建立版本控制(此前零历史)、聚合门禁 `scripts/check.ps1`、CLAUDE.md 强制规约、
   前端测试基建(0→32 测试)、清 Rust lint 债务(clippy 41→8 警告)、schema 同步改为可校验、
   文档收口(本文件)。

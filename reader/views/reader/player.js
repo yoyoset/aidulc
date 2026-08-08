@@ -15,9 +15,11 @@
       this.playing = false;
       this.speed = 1.0;
       this.anchorIndex = -1; // 锚点句: 三角/全局键停止后, 重新开始时从这里播
+      this.timeSpentMs = 0;  // M7 R18: 累计阅读时长 (播放计时, ms)
+      this._lastTickTs = null;
 
-      this.slider = null;      // <input type=range>
-      this.timeLabel = null;   // <span>
+      this.slider = null;      // <input type=range> (S5: 由 view 的外部进度轨注入)
+      this.timeLabel = null;   // <span> (S5: 不再显示数字, 保留字段防旧调用)
       this.shadow = null;      // ShadowMachine 实例 (bindDOM 时注入)
       this.renderer = null;    // ReaderRenderer (loadChapter 时注入, 供 tick 高亮)
       this.sentences = [];
@@ -25,41 +27,36 @@
       this._onStatus = null;      // (text) => void
       this._onSaveProgress = null; // () => void
       this._onSentenceEnded = null; // (sentenceIndex) => void
+      this._onAnchorChange = null;  // (sentenceIndex) => void (S5: 朗读句变化, 供 view 追锚点)
+      this._onShadowAction = null;  // (action) => void (S5: 跟读动作, 供 view 刷节拍点)
+      this._onPlayingChange = null; // (playing: bool) => void (S5: 供 view 复位 ▶/❙❙)
+      this._lastAnchorSi = -1;
     }
 
     /**
-     * @param {object} deps { shadow, statusEl, onSaveProgress }
-     *   shadow: ShadowMachine
-     *   statusEl: () => HTMLElement|null  (状态行)
-     *   onSaveProgress: () => void (播放暂停/离开时落盘)
+     * @param {object} deps { shadow, onStatus, onSaveProgress, onAnchorChange, onShadowAction, onPlayingChange }
      */
     bindDOM(deps) {
       this.shadow = deps.shadow;
       this._onStatus = deps.onStatus || (() => {});
       this._onSaveProgress = deps.onSaveProgress || (() => {});
       this._onSentenceEnded = deps.onSentenceEnded || (() => {});
+      this._onAnchorChange = deps.onAnchorChange || (() => {});
+      this._onShadowAction = deps.onShadowAction || (() => {});
+      this._onPlayingChange = deps.onPlayingChange || (() => {});
+      this._lastAnchorSi = -1;
+    }
 
-      const bar = document.createElement('div');
-      bar.className = 'player-bar';
-      const slider = document.createElement('input');
-      slider.type = 'range';
-      slider.min = 0;
-      slider.max = 100;
-      slider.value = 0;
-      slider.id = 'audio-slider';
-      const timeLabel = document.createElement('span');
-      timeLabel.className = 'player-time';
-      timeLabel.id = 'audio-time';
-      timeLabel.textContent = '0:00 / 0:00';
-      slider.addEventListener('input', () => {
-        if (this.audio && this.audio.duration) {
-          this.audio.currentTime = (slider.value / 100) * this.audio.duration;
-        }
-      });
-      bar.append(slider, timeLabel);
+    /** S5: 注入外部进度轨 (view 建的底部 3px rail 的 <input type=range>) */
+    attachSlider(slider) {
       this.slider = slider;
-      this.timeLabel = timeLabel;
-      return bar;
+      if (slider) {
+        slider.addEventListener('input', () => {
+          if (this.audio && this.audio.duration) {
+            this.audio.currentTime = (parseFloat(slider.value) / 100) * this.audio.duration;
+          }
+        });
+      }
     }
 
     /**
@@ -69,6 +66,12 @@
     async loadChapter(ch) {
       this._generation++;
       const gen = this._generation;
+      // R1-1 (2026-08-08): audioReady —— 供 _restoreState await, 位置恢复不再被
+      // "audio 还没就绪"静默跳过。在所有出口 resolve (成功/失败/竞态), 绝不挂死。
+      let resolveReady;
+      this.audioReady = new Promise((resolve) => { resolveReady = resolve; });
+      const finishReady = () => { if (resolveReady) { resolveReady(); resolveReady = null; } };
+
       const audio = new Audio();
       audio.preload = 'auto';
       // 修复: 只在 blob 创建后设 this.audio; 旧调用 (gen 过时) 不碰全局状态
@@ -84,7 +87,7 @@
       try {
         for (;;) {
           // Bug fix (审查确认): 切章后立即中止旧章节读取循环
-          if (gen !== this._generation) return;
+          if (gen !== this._generation) { finishReady(); return; }
           const r = await AiduLibraryService.readAudioRange(this.basePath, ch.audioFile, offset, CHUNK);
           if (!r.ok) throw new Error(r.error);
           // base64 → Uint8Array (修复: JSON 数字数组序列化开销大/截断 → blob 空, 无声音)
@@ -98,16 +101,19 @@
           if (r.data.end || r.data.read === 0) break;
         }
       } catch (e) {
-        if (gen !== this._generation) return;
+        if (gen !== this._generation) { finishReady(); return; }
         this._onStatus('音频加载失败: ' + (e && e.message || e));
+        finishReady();
         return;
       }
-      if (gen !== this._generation) return; // 旧章节结果丢弃
+      if (gen !== this._generation) { finishReady(); return; } // 旧章节结果丢弃
       const blob = new Blob(parts, { type: 'audio/ogg; codecs=opus' });
       this._blobUrl = URL.createObjectURL(blob);
       this.audio = audio;  // 修复: blob 就绪后才设 this.audio (旧调用不覆盖)
       audio.src = this._blobUrl;
       audio.load();
+      audio.addEventListener('loadedmetadata', finishReady, { once: true });
+      audio.addEventListener('error', finishReady, { once: true });
       // 修复: audio 挂到 reader-page; 替换旧实例 (否则 DOM 残留空 src 旧 audio)
       audio.id = 'reader-audio';
       audio.style.display = 'none';
@@ -127,6 +133,7 @@
         } else if (action.type === 'next') {
           if (action.sentenceIndex < this.sentences.length) this.playFrom(action.sentenceIndex);
         }
+        this._onShadowAction(action);
       };
       audio.addEventListener('ended', () => {
         const idx = this.sentences.findIndex(s =>
@@ -135,10 +142,13 @@
       });
       audio.addEventListener('play', () => {
         this.playing = true;
+        this._onPlayingChange(true);
         requestAnimationFrame(() => this._tick());
       });
       audio.addEventListener('pause', () => {
         this.playing = false;
+        this._lastTickTs = null;
+        this._onPlayingChange(false);
         this._onSaveProgress();
       });
     }
@@ -156,6 +166,8 @@
         this.renderer.ensureRendered(index);
       }
       this.shadow.sentenceStarted(index);
+      this._lastAnchorSi = index;
+      this._onAnchorChange(index);
       this.audio.currentTime = s.audio.start_ms / 1000;
       this.audio.playbackRate = this.speed;
       this.audio.play().catch(e => {
@@ -188,7 +200,11 @@
 
     _tick() {
       if (!this.playing || !this.audio) return;
-      if (this.audio.paused) { this.playing = false; return; }
+      if (this.audio.paused) { this.playing = false; this._lastTickTs = null; return; }
+      // M7 R18: 播放计时 (rAF 每帧累加, 暂停即停)
+      const now = Date.now();
+      if (this._lastTickTs != null) this.timeSpentMs += now - this._lastTickTs;
+      this._lastTickTs = now;
       const ms = this.audio.currentTime * 1000;
       if (this.shadow.shouldLoopBack(ms)) {
         this.audio.currentTime = this.shadow.loopBackPoint() / 1000;
@@ -196,16 +212,19 @@
         this.renderer.highlightAt(ms, this.sentences);
         // 锚点跟随当前正在播的句 (句间留白时保持上一句)
         const si = AiduTimeline.findSentenceIndex(this.sentences, ms);
-        if (si >= 0) this.anchorIndex = si;
+        if (si >= 0) {
+          this.anchorIndex = si;
+          if (si !== this._lastAnchorSi) {
+            this._lastAnchorSi = si;
+            this._onAnchorChange(si);
+          }
+        }
       }
-      // 进度条同步
-      const slider = this.slider;
-      const timeLabel = this.timeLabel;
-      if (slider && this.audio.duration) {
-        slider.value = String((this.audio.currentTime / this.audio.duration) * 100);
-        const t = Math.floor(this.audio.currentTime);
-        const d = Math.floor(this.audio.duration || 0);
-        timeLabel.textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')} / ${Math.floor(d / 60)}:${String(d % 60).padStart(2, '0')}`;
+      // 进度轨同步 (3px, 无数字; 用 CSS 变量画已播放填充)
+      if (this.slider && this.audio.duration) {
+        const pct = (this.audio.currentTime / this.audio.duration) * 100;
+        this.slider.value = String(pct);
+        this.slider.style.setProperty('--rd-pos', pct + '%');
       }
       requestAnimationFrame(() => this._tick());
     }
@@ -233,6 +252,7 @@
 
     cleanup() {
       this._generation++;
+      this._lastTickTs = null;
       // 离开前 flush 进度
       if (this.audio) {
         this._onSaveProgress();

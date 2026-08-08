@@ -97,6 +97,15 @@ impl<'a> ProfileRepo<'a> {
         .filter_map(|r| r.ok())
         .collect()
     }
+
+    /// 删除档案 (M6). 调用方已 guard 内建档案; 引用该档案的旧书保留 id 字符串,
+    /// 书卡对找不到的档案显示"未知档案"而非崩溃。
+    pub fn delete(&self, id: &str) -> Result<(), String> {
+        let conn = self.db.conn.lock().unwrap();
+        conn.execute("DELETE FROM profiles WHERE id = ?1", [id])
+            .map_err(|e| format!("删除档案失败: {e}"))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -149,5 +158,33 @@ mod tests {
         .unwrap();
         assert_eq!(repo.get("self").unwrap().name, "新");
         assert_eq!(repo.get("self").unwrap().explain_strategy, "deep");
+    }
+
+    #[test]
+    fn delete_removes_only_target() {
+        let db = temp_db();
+        let repo = ProfileRepo::new(&db);
+        // 建库后先确保有默认档案 (迁移 v11 会 seed, 这里显式造一个"他人档案"作对照)
+        repo.upsert(&Profile {
+            id: "default".into(),
+            name: "成人自读".into(),
+            explain_strategy: "brief".into(),
+            voice: "af_heart".into(),
+            speed: 1.0,
+            highlight_granularity: "sentence".into(),
+        })
+        .unwrap();
+        repo.upsert(&Profile {
+            id: "me".into(),
+            name: "我的".into(),
+            explain_strategy: "brief".into(),
+            voice: "v".into(),
+            speed: 1.0,
+            highlight_granularity: "sentence".into(),
+        })
+        .unwrap();
+        repo.delete("me").unwrap();
+        assert!(repo.get("me").is_none());
+        assert!(repo.get("default").is_some(), "其余档案不受影响");
     }
 }

@@ -38,6 +38,8 @@ pub fn spawn_prep(
     job_request_path: &std::path::Path,
     out_dir: &std::path::Path,
 ) -> Result<(Child, Box<dyn Iterator<Item = String> + Send>), String> {
+    // F21 (2026-08-08): 任务要独占显存 → 先杀掉常驻词典守护, 避免 LLM 双份驻留
+    crate::infrastructure::dict_daemon::stop();
     let mut cmd = Command::new(prep_path);
     cmd.args(["--job"])
         .arg(job_request_path)

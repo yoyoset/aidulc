@@ -68,6 +68,7 @@
   const profiles = {
     list: () => invoke('profile_list'),
     upsert: (profile) => invoke('profile_upsert', { profile }),
+    remove: (id) => invoke('profile_delete', { id }),
   };
   const settings = {
     get: (profileId) => invoke('settings_get', { profileId }),
@@ -79,9 +80,26 @@
     save: (s) => invoke('reading_save', { state: {
       book_key: s.bookKey, chapter: s.chapter,
       position_ms: s.position_ms, bookmarks: s.bookmarks,
+      // S5: 每章"已核对"句下标 {章: [句,...]}
+      verified: s.verified || {},
+      // M7 R18: 累计阅读时长 (ms)
+      time_spent_ms: s.time_spent_ms || 0,
     } }),
     get: (bookKey) => invoke('reading_get', { bookKey }),
   };
 
-  global.AiduBridge = { invoke, listen, pickFiles, openPath, library, bookpack, profiles, settings, reading };
+  // ---- .aidu-data 备份/恢复 (F27, 2026-08-08 接 UI) ----
+  const transfer = {
+    exportData: () => invoke('transfer_export'),
+    importData: (backup) => invoke('transfer_import', { backup }),
+  };
+
+  // ---- 摘录标注 (M7 R16, 2026-08-08) ----
+  const highlights = {
+    list: (bookKey) => invoke('highlights_list', { bookKey }),
+    save: (h) => invoke('highlights_save', { highlight: h }),
+    remove: (id) => invoke('highlights_remove', { id }),
+  };
+
+  global.AiduBridge = { invoke, listen, pickFiles, openPath, library, bookpack, profiles, settings, reading, transfer, highlights };
 })(window);

@@ -6,6 +6,7 @@ pipeline/runner.py —— 编排 + 逐句 try + 每句落盘 + 协作式取消
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 
@@ -28,6 +29,24 @@ class Runner:
         self.emit = emit or (lambda e: None)
         self.cancel = cancel or (lambda: False)
         self.quality = QualityReport()
+        self._setup_file_logging()
+
+    def _setup_file_logging(self):
+        """M7 R26: run.log 兑现 —— 注释承诺"日志→run.log"但从未配置 logging, 实际从不写。
+        配 FileHandler 到 out_dir/run.log (挂在 aidulc logger 下, 不污染 root),
+        任务失败诊断从此有原始堆栈可查 (Rust job_detail 也读它)。"""
+        try:
+            os.makedirs(self.out_dir, exist_ok=True)
+            log_path = os.path.join(self.out_dir, "run.log")
+            handler = logging.FileHandler(log_path, encoding="utf-8")
+            handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+            logger = logging.getLogger("aidulc")
+            logger.setLevel(logging.INFO)
+            # 防重复挂 (同进程多任务复用时不叠 handler)
+            if not any(getattr(h, "baseFilename", "") == log_path for h in logger.handlers):
+                logger.addHandler(handler)
+        except OSError:
+            pass
 
     def run(self) -> Book:
         t0 = time.time()
@@ -35,10 +54,14 @@ class Runner:
             book = self._run_pipeline()
             self._tts_pack(book)
         except EngineError as e:
+            logging.getLogger("aidulc").exception("任务失败: %s", e.human)
             self.emit({"type": "error", "ts": int(time.time() * 1000), "message": e.human, "detail": e.detail})
             # I-C: 失败可读 —— 异常路径也落盘 quality_report (含 error 摘要),
             # Rust 侧 quality_summary 读它填充 jobs.error (否则只显示"无详情报告")
             self._write_quality_report(error=e.human, detail=e.detail)
+            raise
+        except Exception:
+            logging.getLogger("aidulc").exception("任务意外失败")
             raise
         elapsed = time.time() - t0
         # I-C: 失败可读 —— 质量报告落盘, Rust 侧读它填充 jobs.error

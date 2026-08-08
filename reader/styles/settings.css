@@ -1,18 +1,60 @@
-/* settings.css —— 设置 */
-.settings-form { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+/* settings.css —— 设置 (M6 打磨) */
+.settings-form { display: flex; flex-direction: column; gap: 14px; max-width: 480px; }
 .settings-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   font-size: 0.92rem;
+  color: var(--md-sys-color-on-surface);
 }
 .settings-row input[type="number"], .settings-row select {
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--md-sys-radius-sm);
-  padding: 7px 10px;
+  padding: 8px 10px;
   background: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
   font-family: var(--md-sys-font-sans);
   width: 130px;
 }
+.settings-row input[type="number"]:focus, .settings-row select:focus {
+  outline: none;
+  border-color: var(--md-sys-color-primary);
+}
+
+/* ---- M6 学习档案 ---- */
+.profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+  max-width: 560px;
+}
+.profile-row {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-md);
+  padding: 12px 14px;
+  background: var(--md-sys-color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.profile-row:hover {
+  border-color: var(--md-sys-color-outline);
+  box-shadow: var(--md-sys-elevation-1);
+}
+.profile-head { display: flex; align-items: center; gap: 8px; }
+.profile-name { font-weight: 650; color: var(--md-sys-color-on-surface); }
+.profile-badge {
+  font-size: var(--md-sys-font-size-label-m);
+  color: var(--md-sys-color-on-surface-variant);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-pill);
+  padding: 0 8px;
+}
+.profile-meta {
+  font-size: var(--md-sys-font-size-body-s);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.profile-actions { display: flex; gap: 6px; }

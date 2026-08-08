@@ -44,12 +44,12 @@
 
 ## 测试门禁
 
-- Python: `prep\.venv\Scripts\python.exe -m pytest prep\tests` → **154 全绿**
-  (2026-08-08 实测; 含 R3/R4 新增的 test_epub2_ncx.py 等)
-- Rust: `cargo test --release -p aidulc -- --test-threads=1` → **121 全绿** (并行有隔离问题)
-- 前端: `cd reader && npx vitest run` → **39 全绿** (含 R1 新增的 render_plan.test.js;
-  2026-08-07 审计前是 0——"29 个测试"是把 reader/ 下的 JS 文件数误记成测试数,
-  当时既无 package.json 也无测试运行器)
+- Python: `prep\.venv\Scripts\python.exe -m pytest prep\tests` → **158 全绿**
+  (2026-08-08 实测; 含 test_dict_server.py 4 个 M6 新增)
+- Rust: `cargo test --release -p aidulc -- --test-threads=1` → **128 全绿** (并行有隔离问题)
+- 前端: `cd reader && npx vitest run` → **57 全绿** (S5 新增 reader_state/follow_presets);
+  另有 `node tests\_smoke_dom.mjs` → **30 项全过** (最小 DOM stub 驱动 AtomicBlock+ReaderRenderer,
+  已接入 scripts/check.ps1 的 `node smoke` 项, 2026-08-08)
 - **计数会随 R0-R4 未提交改动增长**: 以上为 2026-08-08 在含 R0-R4 工作区实测的数字,
   历史版本(126/100/32)是 R0-R4 之前的基准。
 - 打包: `pyinstaller --clean --noconfirm build_exe.spec` → `prep\dist\aidulc-prep\aidulc-prep.exe` → 复制到 `dist\aidulc-portable\prep\`; `cargo build --release` → `aidulc.exe` → 复制到 `dist\aidulc-portable\`。**应用运行时 exe 被锁定, 需先关应用再构建**。

@@ -7,6 +7,7 @@
   const ReadingService = {
     save(state) { return AiduBridge.reading.save(state); },
     get(bookKey) { return AiduBridge.reading.get(bookKey); },
+    stats(bookKey, days) { return AiduBridge.invoke('reading_stats', { bookKey, days }); }, // M7 R37
   };
 
   global.AiduReadingService = ReadingService;

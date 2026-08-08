@@ -6,8 +6,8 @@
   'use strict';
 
   const ImportService = {
-    /** 组装完整 profile (schema 要求 5 字段) */
-    buildProfile(id) {
+    /** 内建档案兜底 (查不到档案 / 档案表为空时用) */
+    _builtinProfile(id) {
       const pid = id || 'default';
       return {
         id: pid,
@@ -17,6 +17,36 @@
         speed: pid === 'kid' ? 0.9 : 1.0,
         highlight_granularity: pid === 'kid' ? 'word' : 'sentence',
       };
+    },
+
+    /**
+     * M6 (2026-08-08): 从档案表取真实 profile (音色/策略/速度/粒度由用户自建档案决定),
+     * 查不到回退内建默认。之前 buildProfile 是硬编码的 —— "每个人不同的英文库"从这里开始。
+     */
+    async getProfile(id) {
+      const pid = id || 'default';
+      try {
+        const res = await AiduBridge.profiles.list();
+        if (res.ok && Array.isArray(res.data)) {
+          const found = res.data.find((p) => p.id === pid);
+          if (found) {
+            return {
+              id: found.id,
+              name: found.name || pid,
+              explain_strategy: found.explain_strategy || 'brief',
+              voice: found.voice || 'af_heart',
+              speed: typeof found.speed === 'number' ? found.speed : 1.0,
+              highlight_granularity: found.highlight_granularity || 'sentence',
+            };
+          }
+        }
+      } catch (e) { /* 档案查询失败不阻断导入, 落内建默认 */ }
+      return this._builtinProfile(pid);
+    },
+
+    /** 组装完整 profile (schema 要求 5 字段; 同步版本, 只用于非关键路径) */
+    buildProfile(id) {
+      return this._builtinProfile(id);
     },
 
     /** 组装 models 快照 (从运行时配置取 llm/tts 路径; 缺失返回 null 由调用方提示) */
@@ -32,7 +62,7 @@
 
     /** 启动批量导入: 组装完整参数 → batch_import (R1: 只登记书, 不开始处理) */
     async importBooks(paths, profileId, languages) {
-      const profile = this.buildProfile(profileId);
+      const profile = await this.getProfile(profileId);
       return AiduBridge.invoke('batch_import', {
         bookPaths: paths, profile,
         sourceLanguage: (languages && languages.source) || 'en',
@@ -42,7 +72,7 @@
 
     /** 开始阅读准备: 前置检查 → 通过入队 (R2) */
     async startPrep(batchId, bookIds, profileId) {
-      const profile = this.buildProfile(profileId);
+      const profile = await this.getProfile(profileId);
       return AiduBridge.invoke('batch_start_prep', {
         batchId, bookIds, profile, models: {},
       });

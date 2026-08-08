@@ -30,14 +30,6 @@ pub fn set_step(db: &Db, step: i64, status: &str) -> Result<(), String> {
     Ok(())
 }
 
-// TODO(未接线): 写了测试但没有调用方 —— main.rs 启动流程未查询是否已完成向导,
-// 已完成向导的用户重启后可能仍会看到首次运行向导重复弹出。
-#[allow(dead_code)]
-pub fn is_done(db: &Db) -> bool {
-    let (_, status) = get_state(db);
-    status == "done"
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,7 +46,6 @@ mod tests {
         let (step, status) = get_state(&db);
         assert_eq!(step, 0);
         assert_eq!(status, "not_started");
-        assert!(!is_done(&db));
     }
 
     #[test]
@@ -63,7 +54,7 @@ mod tests {
         set_step(&db, 3, "in_progress").unwrap();
         assert_eq!(get_state(&db).0, 3);
         set_step(&db, 6, "done").unwrap();
-        assert!(is_done(&db));
+        assert_eq!(get_state(&db).1, "done");
     }
 
     #[test]

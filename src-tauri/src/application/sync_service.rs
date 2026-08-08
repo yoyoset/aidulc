@@ -12,36 +12,56 @@ use crate::store::Db;
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SyncStatus {
     pub status: String,
+    pub configured: bool,
+    pub worker_url: String, // M7 R7: 已配置的 Worker URL (masked, 前端展示/断开确认用)
     pub last_sync_at: Option<i64>,
     pub last_error: Option<String>,
     pub pending_count: usize,
 }
 
-fn status(configured: bool, last: Option<(i64, Result<(), String>)>, pending: usize) -> SyncStatus {
+fn mask_url(url: &str) -> String {
+    // 保留下划线/域名可辨但藏长串: 前 24 字符 + "..."
+    if url.len() > 28 {
+        format!("{}…", &url[..24])
+    } else {
+        url.to_string()
+    }
+}
+
+fn status(
+    configured: bool,
+    url: &str,
+    last: Option<(i64, Result<(), String>)>,
+    pending: usize,
+) -> SyncStatus {
+    let base = SyncStatus {
+        status: String::new(),
+        configured,
+        worker_url: mask_url(url),
+        last_sync_at: None,
+        last_error: None,
+        pending_count: pending,
+    };
     match (configured, last) {
         (false, _) => SyncStatus {
             status: "unconfigured".into(),
-            last_sync_at: None,
-            last_error: None,
-            pending_count: pending,
+            ..base
         },
         (true, None) => SyncStatus {
             status: "offline".into(),
-            last_sync_at: None,
-            last_error: None,
-            pending_count: pending,
+            ..base
         },
         (true, Some((ts, Ok(())))) => SyncStatus {
             status: "synced".into(),
             last_sync_at: Some(ts),
-            last_error: None,
             pending_count: 0,
+            ..base
         },
         (true, Some((ts, Err(e)))) => SyncStatus {
             status: "failed".into(),
             last_sync_at: Some(ts),
             last_error: Some(e),
-            pending_count: pending,
+            ..base
         },
     }
 }
@@ -58,7 +78,7 @@ pub fn get_status(db: &Db, worker_url: &str, token: &str) -> SyncStatus {
     };
     // 上次结果存内存全局 (进程内足够; 持久化后续)
     let last = get_last_sync();
-    status(configured, last, pending)
+    status(configured, worker_url, last, pending)
 }
 
 use std::sync::Mutex;
@@ -67,6 +87,13 @@ static LAST_SYNC: OnceLock<Mutex<Option<(i64, Result<(), String>)>>> = OnceLock:
 
 fn get_last_sync() -> Option<(i64, Result<(), String>)> {
     LAST_SYNC.get().and_then(|m| m.lock().unwrap().clone())
+}
+
+/// R2-1 (2026-08-08): 断开同步时清空进程内上次同步结果, 防断开后旧的
+/// "synced 时间"残留展示 (status 只认配置态, 但清掉更干净)。
+pub fn reset_last_sync() {
+    let slot = LAST_SYNC.get_or_init(|| Mutex::new(None));
+    *slot.lock().unwrap() = None;
 }
 
 fn record_sync(result: Result<(), String>) {
@@ -78,13 +105,7 @@ fn record_sync(result: Result<(), String>) {
 /// 立即同步 (push 当前 profile 生词)
 pub fn sync_now(db: &Db, worker_url: &str, token: &str) -> Result<SyncStatus, String> {
     if worker_url.is_empty() || token.is_empty() {
-        let s = SyncStatus {
-            status: "unconfigured".into(),
-            last_sync_at: None,
-            last_error: Some("未配置同步".into()),
-            pending_count: 0,
-        };
-        return Ok(s);
+        return Ok(status(false, worker_url, None, 0));
     }
     let repo = crate::store::vocab_repo::VocabRepo::new(db);
     let entries = repo.list("default");
@@ -102,6 +123,7 @@ pub fn sync_now(db: &Db, worker_url: &str, token: &str) -> Result<SyncStatus, St
     record_sync(result.clone());
     Ok(status(
         true,
+        worker_url,
         Some((crate::store::now_ms_for_store(), result)),
         0,
     ))
@@ -112,12 +134,7 @@ pub fn sync_now(db: &Db, worker_url: &str, token: &str) -> Result<SyncStatus, St
 /// 不再内联 updatedAt 比较 (历史: 三套重复实现之一)。
 pub fn sync_pull(db: &Db, worker_url: &str, token: &str) -> Result<SyncStatus, String> {
     if worker_url.is_empty() || token.is_empty() {
-        return Ok(SyncStatus {
-            status: "unconfigured".into(),
-            last_sync_at: None,
-            last_error: None,
-            pending_count: 0,
-        });
+        return Ok(status(false, worker_url, None, 0));
     }
     let remote = sync::pull_profile(worker_url, token, "default");
     match remote {
@@ -168,6 +185,7 @@ pub fn sync_pull(db: &Db, worker_url: &str, token: &str) -> Result<SyncStatus, S
             record_sync(Err(e.clone()));
             Ok(status(
                 true,
+                worker_url,
                 Some((crate::store::now_ms_for_store(), Err(e))),
                 0,
             ))
@@ -181,21 +199,31 @@ mod tests {
 
     #[test]
     fn unconfigured_when_no_url() {
-        let s = status(false, None, 0);
+        let s = status(false, "", None, 0);
         assert_eq!(s.status, "unconfigured");
+        assert!(!s.configured);
+        assert!(s.worker_url.is_empty());
     }
 
     #[test]
     fn synced_when_success() {
-        let s = status(true, Some((100, Ok(()))), 5);
+        let s = status(true, "https://me.workers.dev", Some((100, Ok(()))), 5);
         assert_eq!(s.status, "synced");
         assert_eq!(s.pending_count, 0);
+        assert!(s.configured);
+        assert!(s.worker_url.contains("https://me"), "URL 应透传供前端展示");
     }
 
     #[test]
     fn failed_when_error() {
-        let s = status(true, Some((100, Err("网络错误".into()))), 3);
+        let s = status(true, "", Some((100, Err("网络错误".into()))), 3);
         assert_eq!(s.status, "failed");
         assert!(s.last_error.is_some());
+    }
+
+    #[test]
+    fn url_masked_when_long() {
+        assert!(mask_url("https://very-long-name-abc-def-ghi.workers.dev/path").ends_with('…'));
+        assert_eq!(mask_url("https://me.workers.dev"), "https://me.workers.dev");
     }
 }

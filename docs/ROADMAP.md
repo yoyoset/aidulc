@@ -13,6 +13,106 @@
 
 ---
 
+## 下一阶段任务卡(STAGE-2026-08-10,按此顺序执行)
+
+> 上一阶段(STAGE-2026-08-09)已验收:`scripts/check.ps1` 12 项全绿(154 Rust / 160 pytest /
+> 91 vitest / clippy 8 未调高),工作树干净,报告与代码逐条核对无出入(核对记录见本节末)。
+> 下面 N1-N7 是在此基础上排的下一阶段,**一条做完提交一条,不要攒成一个大提交**。
+
+### N1(P0,数据正确性)F38:EPUB 正文必须按 spine 全遍历
+
+- 位置:`prep/aidulc_prep/pipeline/loader/epub.py:378` 的 `if toc_filtered:` 分支。
+- 现状(2026-08-09 复核仍然如此):有 TOC 时只遍历 TOC 引用到的文件,同函数里算好的
+  `files`(spine 全量)只在无 TOC 的兜底分支用。TOC 条目是**锚点**不是文件清单,长篇正文
+  在后续 spine 文件里,从头到尾没被打开过 → 《银河系漫游指南》五部长篇各只剩 3-14 段。
+- 改法:遍历基准换成 `files`(spine 全量);TOC 退化为 `phys → 标题` 的映射表,只用来给
+  文件赋真实标题、划边界;`NON_BODY_TOC` 过滤只作用于**标题**不再用于筛文件;TOC 里出现
+  但不在 spine 的文件补在末尾(保守,别丢);`_looks_like_index` 过滤保留。
+- 验收(缺一不可):
+  1. 新增 pytest:合成 EPUB2(toc.ncx,navPoint 只指前 2 个文件,spine 5 个文件)断言
+     5 个文件的正文都进了章节,且章标题来自 TOC。
+  2. nav.xhtml 的书(Wolf 21 形状)不回归——现有 `test_epub2_ncx.py` / `test_loader_nlp.py`
+     全绿,章数与标题与改前一致。
+  3. 真实书实测:用 `--preview-book` 跑《银河系漫游指南》,**把改前 331 段 / 改后实际段数
+     写进提交信息**(写实际数字,不许写"约"/"大幅提升")。
+- 禁止:为了让某本书好看去调 `NON_BODY_TOC` 或 `_looks_like_index` 的启发式阈值。
+
+### N2(P0,防线)F39:体检要能拦住 N1 这类问题
+
+- 位置:`prep/aidulc_prep/cli.py:93-102` 的 `anomalies` 检测。
+- 现状:只判 0 句 / 正好 1 句 / >1000 句。一部长篇只剩 3 段三条一条都不撞,F38 那次体检
+  报的是 `anomalies: []`——**这道防线本来就是为了在烧几小时 GPU 之前拦住这种事**。
+- 改法:抽成可单测的纯函数,至少加两条:① **spine 覆盖率**——有文件没被任何章节覆盖时
+  显式报出来(判定确定,直接针对 F38 类问题);② 章节句数**远低于全书中位数**的离群检测。
+- 验收:用 N1 那份合成 EPUB 的"修复前"章节结构喂检测函数,断言两条都能报;正常书(全覆盖、
+  句数分布正常)不误报。**与 N1 同一批做,只修 N1 是修了这一本,加上 N2 才是以后能自动拦下。**
+
+### N3(P1,一行 bug)批次状态中文映射漏 `completed`
+
+- 位置:`reader/views/prep_view.js:353` 的 `statusText` 映射写的是 `done: '完成'`,
+  而 `store/batches_repo.rs:114` 实际写入的是 `'completed'` → 批次行显示英文。
+- 改法:补 `completed` 键;顺手核对 jobs 与 batches 两套状态词集合,映射表与 DB 实际写入值
+  逐个对上(两者状态词不同,别互相抄)。
+- 验收:`reader/tests/_smoke_views.mjs` 加一条断言(completed 批次显示"完成")。
+
+### N4(P1,幻觉治理第二轮)ROADMAP 主体自身的过期开放项
+
+上一阶段只对账了 `CLAUDE.md` / `ARCHITECTURE.md` 的"未接线"清单,**本文件主体没对账**。
+以下几条挂在开放区但代码里已经落地(2026-08-09 逐条 grep 确认):
+
+| 本文开放条目 | 代码现状 |
+|---|---|
+| 「词典查询性能 F21,每次点词 5-7s」 | `infrastructure/dict_daemon.rs` 常驻守护已落地(M6) |
+| F26 CSP 未放行 `data:`「登记为技术债,本轮不修」 | `tauri.conf.json:20` 已含 `img-src 'self' data: blob:`,renderer 已按扩展名给真实 MIME |
+| F36/F37 便携版整体过期 / config.toml 残留 | 2026-08-08 已重打包(见 N5,现在是**新的**滞后问题,不是原问题) |
+| R3-1 模型下载最小闭环未做(两处) | 下载闭环已落地(后台线程 + 断点续传 + sha256 + 动态超时) |
+| F34 拖拽监听累积 | `library_view.js` 已改 `AiduListenerSlot`,注册前先 clear |
+| F46 每切一章 419ms 整文件重解析 | `BookpackCache`(LRU cap=6)已接进 `load_bookpack_chapter`;**残余见 N7** |
+
+- 改法:逐条**先 grep 代码确认、再改文档**——不许照抄本文件"已完成"区的文字对账
+  (那正是上一轮幻觉的来源)。已落地的从开放区删掉,只在"已完成"区留一行;
+  部分落地的(F46)改写成剩余部分。
+- 验收:改完后随机抽 3 条开放项,能在代码里找到对应的未落地证据。
+
+### N5(P2,交付)便携版又落后一个阶段
+
+- 现状:`dist/aidulc-portable/aidulc.exe` 时间戳 2026-08-08 16:37,**不含 08-09 三个提交**
+  (UX 审计落地 / LRU 缓存 / 启动清孤儿目录)。用户拿便携版复测会测到旧行为,上一轮 F36 的
+  教训会原样重演。
+- 改法:重打包(先 `cargo build --release` 嵌前端,再打侧车,整包替换),并把
+  **"阶段收尾必须重打便携版"写成固定动作**(加进 `docs/BOOK_WORKFLOW.md` 或 check 清单),
+  否则每个阶段都要再发现一次。
+- 注意:`aidulc.exe` 运行中会锁文件,构建前先结束进程(上一阶段踩过)。
+
+### N6(P2)`batches`/`jobs` 表行无限累积
+
+- 现状:上一阶段只收口了磁盘侧(`out_dir/jobs/` 目录),表行仍每导入/每备料一行不清理;
+  `store/batches_repo.rs:82` 的 `list()` 无 LIMIT(UI 侧 `.slice(0,5)` 只是遮住了)。
+- 改法:`list()` 加 LIMIT + 完成 N 天后的批次可删。行很小,优先级不高,但别再往后拖成
+  "反正一直没事"。
+
+### N7(P3)F46 残余:meta 响应仍含全部 `original_text`
+
+- 现状:`commands/library.rs` 的 meta 已 strip 重字段但**保留 original_text**
+  (测试 `strips_heavy_fields_keeps_original_text` 锁的就是这个行为),Wolf 21 实测 1.3MB
+  随每次打开走 IPC。
+- 改法:确认前端首屏是否真需要全书 original_text(章节尺/搜索?),不需要就改成按需拉取,
+  需要就在文档里写清"这 1.3MB 是有意保留的"并注明消费方——**别留成没人知道为什么的现状**。
+
+### 真人在 exe 里最终确认(代码侧已就位,只差人点)
+
+暂停→继续(checkpoint 续跑)、档案新建/编辑模态表单、儿童模式读 kid 书的字号、
+单次拖拽只产生一个 batch(F45 的剩余复现路径)。
+
+### 上一阶段核对记录(2026-08-09,本次逐条 grep/运行确认)
+
+`scripts/check.ps1` 全绿(12/12);`BookpackCache` `DEFAULT_CAP=6` 属实;
+`cleanup_orphan_job_dirs` 确在 `main.rs:338` 启动期调用;`books` 表裸 SQL 只剩迁移与测试
+(符合所有权表);`builtin_profiles.js` 三处消费方确已收敛;报告自陈的两个未修项
+(`completed` 映射、表行无界)属实未修——**报告没有夸大**,已分别立为 N3 / N6。
+
+---
+
 ## P0(阻断可用性)——空,已清
 
 ~~书库路径未锚定 exe_dir~~ 已修(2026-08-07)。`main.rs` 新增 `resolve_out_dir` 纯函数

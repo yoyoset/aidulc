@@ -34,3 +34,7 @@ dist/
 # 系统
 .DS_Store
 Thumbs.db
+
+# cloud/worker 部署配置(含本机 KV namespace id; 模板 wrangler.toml.template 入库)
+cloud/worker/wrangler.toml
+cloud/worker/node_modules/

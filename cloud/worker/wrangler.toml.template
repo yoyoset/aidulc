@@ -1,0 +1,21 @@
+# aidulc 同步 Worker 配置模板 (V5, 2026-08-09)
+#
+# 使用: 复制本文件为 wrangler.toml, 填你的 KV namespace id 与部署名。
+#   wrangler kv namespace create AIDULC_SYNC
+#   把返回的 id 填到下面的 [[kv_namespaces]]
+#
+# 免费路径 = 用户拿自己的 CF 额度自建 (V0② 实测: 读 100k/天 / 写 1000/天 / 值 25MiB)。
+# ROOT_SECRET 是"这个家的空间"的钥匙: 部署时设, 首台桌面端用它换第一个 user。
+
+name = "aidulc-sync"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+workers_dev = true
+
+# KV 绑定 (AIDULC_SYNC namespace)
+[[kv_namespaces]]
+binding = "DB"
+id = "PASTE_YOUR_KV_NAMESPACE_ID"
+
+# 部署时的密钥: 换"家的钥匙" (npx wrangler secret put ROOT_SECRET)
+# [vars] 里不要放 ROOT_SECRET —— 用 secret, 不进 git。

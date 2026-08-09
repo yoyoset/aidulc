@@ -108,6 +108,14 @@ Run-Check "node smoke (视图层: prep/settings/library)" {
     Pop-Location
 }
 
+# 7.7 (V5, 2026-08-09): 服务端协议本地实测 —— 文件 KV 驱动同一份 worker 代码,
+# 覆盖 鉴权失败/越权/正常推拉/新者胜/一次性码/限速。30 项断言。
+Run-Check "node smoke (worker 协议 v1 本地实测)" {
+    Push-Location "$root\cloud\worker"
+    node test\local_test.mjs
+    Pop-Location
+}
+
 # 8. CSS 令牌纪律: tokens.css 之外的样式文件不得出现裸 #hex 颜色(S3.1, 2026-08-07 清零后
 # 立即上强约束, 不设豁免——颜色只能来自 var(--md-sys-color-*))。字号/间距暂不做等价约束:
 # 阶梯令牌刚建立, 存量 px/rem 替换是后续工作, 现在加约束会让门禁对着几百处存量代码常年变红。

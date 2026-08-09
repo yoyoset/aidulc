@@ -84,10 +84,15 @@
 
 ## 已知未接线的功能(写了测试但没有 command/前端调用)
 
-2026-08-07 清 clippy 死代码警告时发现,`#[allow(dead_code)]` + `TODO(未接线)` 标注在源码里,任务列表
-里也各有登记:model bundle 完整性检查(`model_service.rs`)、首次运行向导完成状态判断
-(`wizard_service.rs::is_done`)、CF 同步断开连接(`credentials.rs::delete_cf_token`)、首次下载 URL 构造
-(`infrastructure/downloader/mod.rs`)。改这几处附近代码前先看 `TODO(未接线)` 注释, 别假设它们已经在跑。
+`#[allow(dead_code)]` + `TODO(未接线)` 标注在源码里,2026-08-09 复核后剩余:
+CF 同步断开连接(`credentials.rs::delete_cf_token`)、首次下载 URL 构造
+(`infrastructure/downloader/mod.rs::github_release_asset_url`/`hf_resolve_url`)、
+profile 单条查询(`store/profile_repo.rs::get`)。改这几处附近代码前先看 `TODO(未接线)` 注释,
+别假设它们已经在跑。
+
+历史清单里另两项——model bundle 完整性检查(`model_service.rs::bundle_complete`/`book_bundle_complete`)
+和首次运行向导完成状态判断(`wizard_service.rs::is_done`)——已按 R2-2 作为"仅测试引用的死代码"删除
+(`memory/maturity.md` 有记录),不再列出;不要回去找不存在的函数。
 
 ## 项目记忆
 

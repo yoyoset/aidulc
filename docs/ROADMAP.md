@@ -78,12 +78,12 @@
 
 | 功能 | 代码位置 | 说明 |
 |---|---|---|
-| model bundle 完整性检查 | `application/model_service.rs::bundle_complete` / `book_bundle_complete` | "这本书需要的模型是否齐全"——判断逻辑存在但没有界面出口。注意可能与 `preflight_check` 语义重复,接线前先确认 |
-| 首次运行向导完成状态 | `application/wizard_service.rs::is_done` | 未接入 `main.rs` 启动流程,已完成向导的用户重启后可能仍会重复看到向导 |
 | CF 同步断开连接 | `services/credentials.rs::delete_cf_token` | 界面上没有"登出/断开同步"的入口 |
-| 首次下载 URL 构造 | `infrastructure/downloader/mod.rs::github_release_asset_url` / `hf_resolve_url` | 需确认"首次运行自动下载缺失模型"这条路径是否真的跑通,还是只有 URL 构造函数、没有编排下载流程的调用方——如果没有,是相对 subgen/comic-gen 的明显倒退,优先级应提高 |
+| 首次下载 URL 构造 | `infrastructure/downloader/mod.rs::github_release_asset_url` / `hf_resolve_url` | 下载链路本身已通(`models_download` → `download_with_progress`); 这两个 URL 构造函数无调用方, 接线前先确认是否复用或直接删 |
+| profile 单条查询 | `store/profile_repo.rs::get` | 界面只走 list, 无 command 调用单条查询 |
 
 来源:2026-08-07 lint 清理时代码实测发现(不是猜测,已逐个 grep 全仓库确认零调用方,仅测试引用)。
+2026-08-09 复核:剔除已按 R2-2 删除的两项(model bundle 完整性检查、wizard_service::is_done, 见 memory/maturity.md);补入 profile_repo::get。
 
 ---
 

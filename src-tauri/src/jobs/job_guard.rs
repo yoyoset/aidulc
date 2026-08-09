@@ -6,6 +6,7 @@
 //! 且 Python 进程也被绑定 (Windows Job Object 默认子进程继承, Python 的孙进程会进同一个 Job)。
 
 use std::os::windows::io::AsRawHandle;
+use std::os::windows::process::CommandExt;
 use std::process::Child;
 use std::sync::OnceLock;
 use win32job::Job;
@@ -46,6 +47,10 @@ mod tests {
 
         let mut child = std::process::Command::new("cmd")
             .args(["/C", "ping -n 31 127.0.0.1 >nul"])
+            // CREATE_NO_WINDOW (2026-08-09): 不弹 cmd 控制台窗口。此前裸 spawn 控制台
+            // 子进程, 每次 cargo test 都弹一个窗口; 部分终端/管道环境下还会偶发
+            // 0x800700E8 (ERROR_NO_DATA) 的 spawn 失败报错。
+            .creation_flags(0x08000000)
             .spawn()
             .expect("无法拉起测试用的长命令");
         let handle = child.as_raw_handle() as isize;

@@ -275,6 +275,28 @@ console.log('== 2. settings_view 直达"模型中心" tab ==');
   check('无 settingsTab 时第二次 render 不抛错', true);
 }
 
+console.log('== 2b. settings 同步区: 邀请新成员 (invite-user, 三项已定 ①) ==');
+{
+  const makeCalls = [];
+  globalThis.AiduSyncService.makeCode = async (userId, type, name) => { makeCalls.push([type, name]); return { ok: true, data: { code: '123456' } }; };
+  globalThis.window.prompt = () => '孩子';
+  const sv2 = new globalThis.SettingsView(store);
+  const container2 = makeElement('div');
+  sv2.render(container2);
+  // 找到"邀请新成员"按钮
+  const buttons = queryAll(container2, 'button');
+  const inviteBtn = buttons.find((b) => b.textContent.includes('邀请新成员'));
+  check('设置页有"邀请新成员"按钮', !!inviteBtn, 'buttons=' + buttons.map((b) => b.textContent).join(','));
+  if (inviteBtn) {
+    inviteBtn.onclick();
+    await new Promise((r) => setTimeout(r, 30));
+    check('点击邀请 → 调 makeCode(invite-user, 名字)', makeCalls.some(([t, n]) => t === 'invite-user' && n === '孩子'), JSON.stringify(makeCalls));
+  }
+  // 还原 makeCode (后续测试可能用到默认行为)
+  globalThis.window.prompt = undefined;
+  globalThis.AiduSyncService.makeCode = async () => ({ ok: true, data: { code: '654321' } });
+}
+
 console.log('== 3. library_view 导入卡: 无隐藏 input, 点击走 pickFiles ==');
 {
   const lv = new globalThis.LibraryView(store, 'original');

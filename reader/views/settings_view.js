@@ -197,10 +197,12 @@
       const pullBtn = el('button', 'btn-small', '拉取合并');
       const codeBtn = el('button', 'btn-small', '生成邀请码');
       codeBtn.title = '给另一台设备: 绑到当前 user (add-device)';
+      const inviteBtn = el('button', 'btn-small', '邀请新成员');
+      inviteBtn.title = '给另一个人: 服务端新建成员, 对方填名字 (invite-user, 三项已定 ①)';
       const disconnectBtn = el('button', 'btn-small btn-danger', '断开同步');
       disconnectBtn.title = '删除当前 user 的 token, 本机不再同步';
       disconnectBtn.disabled = true;
-      syncSec.append(syncStatus, urlInput, secretInput, authBtn, syncBtn, pullBtn, codeBtn, disconnectBtn);
+      syncSec.append(syncStatus, urlInput, secretInput, authBtn, syncBtn, pullBtn, codeBtn, inviteBtn, disconnectBtn);
        syncPane.appendChild(syncSec);
 
       const refreshStatus = (d) => {
@@ -247,6 +249,17 @@
           if (!r.ok) { syncStatus.textContent = '生成失败: ' + r.error; return; }
           AiduToast.show('邀请码: ' + r.data.code + ' (10 分钟有效)', 'info');
           syncStatus.textContent = '邀请码已复制: ' + r.data.code;
+        });
+      };
+      // 三项已定 ①: invite-user —— 服务端新建成员, 对方填名字 (两种码类型完整暴露)
+      inviteBtn.onclick = () => {
+        const name = (window.prompt('新成员名字 (如"孩子"):', '') || '').trim();
+        if (!name) { AiduToast.show('已取消', 'info'); return; }
+        syncStatus.textContent = '生成邀请码中…';
+        AiduSyncService.makeCode(null, 'invite-user', name).then((r) => {
+          if (!r.ok) { syncStatus.textContent = '生成失败: ' + r.error; return; }
+          AiduToast.show('邀请码: ' + r.data.code + ' (10 分钟有效)', 'info');
+          syncStatus.textContent = '邀请码: ' + r.data.code + ' · 新成员 "' + name + '"';
         });
       };
       disconnectBtn.onclick = () => {

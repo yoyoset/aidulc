@@ -9,7 +9,35 @@ use tauri::State;
 #[tauri::command]
 pub fn models_list(db: State<store::Db>) -> Result<serde_json::Value, String> {
     let repo = store::model_repo::ModelRepo::new(db.inner());
-    serde_json::to_value(repo.list_all()).map_err(|e| e.to_string())
+    let mut out = Vec::new();
+    let conn = db.inner().conn.lock().unwrap();
+    for model in repo.list_all() {
+        let bound: i64 = conn
+            .query_row(
+                "SELECT
+                    (SELECT COUNT(*) FROM editions WHERE llm_id=?1 OR tts_id=?1 OR nlp_id=?1) +
+                    (SELECT COUNT(*) FROM books WHERE llm_id=?1 OR tts_id=?1 OR nlp_id=?1)",
+                [&model.id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let mut value = serde_json::to_value(&model).map_err(|e| e.to_string())?;
+        if let Some(object) = value.as_object_mut() {
+            object.insert(
+                "asset_status".into(),
+                serde_json::json!(if bound > 0 {
+                    "bound"
+                } else if model.active {
+                    "recommended"
+                } else {
+                    "registered"
+                }),
+            );
+            object.insert("bound_count".into(), serde_json::json!(bound));
+        }
+        out.push(value);
+    }
+    Ok(serde_json::Value::Array(out))
 }
 
 /// 某语言某家族的模型 (供书级选择)

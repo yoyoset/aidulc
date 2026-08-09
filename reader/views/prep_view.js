@@ -192,11 +192,15 @@
       if (job.status === 'done' || job.status === 'partial') {
         const btnOpen = el('button', 'btn-small btn-primary', '打开书籍');
         btnOpen.onclick = () => {
-          // 从书包目录生成 book_id 并打开 (与 Rust book_id_from_path 同规则)
-          const dir = job.output_dir.replace(/\\/g, '/');
-          const name = dir.split('/').pop() || dir;
-          const profile = job.profile_id || 'default';
-          const bookId = `${name.replace(/[^a-zA-Z0-9_]/g, '_')}_${profile}`;
+          // 阶段7 (F1): 优先用 job 关联的 edition_id(后端完成时已 attach), 不重算 book_id。
+          // 旧逻辑按输出目录名 + profile 重算, 与 Rust book_id_from_path 的 lowercase 规则
+          // 不同步, 输出目录一旦含字母会静默算错。edition_id 才是可靠真相。
+          const bookId = job.edition_id || (() => {
+            const dir = job.output_dir.replace(/\\/g, '/');
+            const name = dir.split('/').pop() || dir;
+            const profile = job.profile_id || 'default';
+            return `${name.replace(/[^a-zA-Z0-9_]/g, '_')}_${profile}`;
+          })();
           if (this.onOpenBook) this.onOpenBook(bookId, job.output_dir);
         };
         actions.insertBefore(btnOpen, actions.firstChild);
@@ -266,6 +270,16 @@
         }
         if (!qr && !logTail) body.appendChild(el('div', 'preview-meta', '没有 quality_report (可能是任务在写报告前中断)。' + (res.data && res.data.error ? '任务错误: ' + res.data.error : '')));
         const actions = el('div', 'modal-actions');
+        // 阶段6 设计交付 §03: 失败动作含"复制日志" (反馈排查贴给开发者)
+        if (logTail) {
+          const copyBtn = el('button', 'btn-small', '复制日志');
+          copyBtn.onclick = () => {
+            navigator.clipboard.writeText(logTail).then(() => {
+              AiduToast.show('日志已复制到剪贴板', 'success');
+            }).catch(() => { AiduToast.show('复制失败, 请手动选中复制', 'error'); });
+          };
+          actions.appendChild(copyBtn);
+        }
         const close = el('button', 'btn-small', '关闭');
         close.onclick = () => ov.remove();
         actions.appendChild(close);

@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Job {
     pub id: String,
+    #[serde(default)]
+    pub edition_id: Option<String>,
+    #[serde(default)]
+    pub source_id: Option<String>, // BOOK_WORKFLOW §2.3: job 显式关联 source
     pub book_path: String,
     pub profile_id: String,
     pub output_dir: String,
@@ -43,18 +47,19 @@ impl<'a> JobsRepo<'a> {
     pub fn upsert(&self, j: &Job) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO jobs (id, book_path, profile_id, output_dir, status, stage,
+            "INSERT INTO jobs (id, edition_id, source_id, book_path, profile_id, output_dir, status, stage,
                                current, total, failed_count, batch_id, source_language, target_language,
                                error, progress, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
              ON CONFLICT(id) DO UPDATE SET
                 status = excluded.status, stage = excluded.stage,
                 current = excluded.current, total = excluded.total,
                 failed_count = excluded.failed_count, batch_id = excluded.batch_id,
                 error = excluded.error, progress = excluded.progress,
+                edition_id = excluded.edition_id, source_id = excluded.source_id,
                 updated_at = excluded.updated_at",
             params![
-                j.id, j.book_path, j.profile_id, j.output_dir, j.status, j.stage,
+                j.id, j.edition_id, j.source_id, j.book_path, j.profile_id, j.output_dir, j.status, j.stage,
                 j.current, j.total, j.failed_count, j.batch_id, j.source_language, j.target_language,
                 j.error, j.progress, j.created_at, j.updated_at
             ],
@@ -66,25 +71,27 @@ impl<'a> JobsRepo<'a> {
     fn row_to_job(r: &rusqlite::Row) -> rusqlite::Result<Job> {
         Ok(Job {
             id: r.get(0)?,
-            book_path: r.get(1)?,
-            profile_id: r.get(2)?,
-            output_dir: r.get(3)?,
-            status: r.get(4)?,
-            stage: r.get(5)?,
-            current: r.get(6)?,
-            total: r.get(7)?,
-            failed_count: r.get(8)?,
-            batch_id: r.get(9)?,
-            source_language: r.get(10)?,
-            target_language: r.get(11)?,
-            error: r.get(12)?,
-            progress: r.get(13)?,
-            created_at: r.get(14)?,
-            updated_at: r.get(15)?,
+            edition_id: r.get(1)?,
+            source_id: r.get(2)?,
+            book_path: r.get(3)?,
+            profile_id: r.get(4)?,
+            output_dir: r.get(5)?,
+            status: r.get(6)?,
+            stage: r.get(7)?,
+            current: r.get(8)?,
+            total: r.get(9)?,
+            failed_count: r.get(10)?,
+            batch_id: r.get(11)?,
+            source_language: r.get(12)?,
+            target_language: r.get(13)?,
+            error: r.get(14)?,
+            progress: r.get(15)?,
+            created_at: r.get(16)?,
+            updated_at: r.get(17)?,
         })
     }
 
-    const COLS: &'static str = "id, book_path, profile_id, output_dir, status, stage,
+    const COLS: &'static str = "id, edition_id, source_id, book_path, profile_id, output_dir, status, stage,
                                 current, total, failed_count, batch_id, source_language, target_language,
                                 error, progress, created_at, updated_at";
 
@@ -133,6 +140,16 @@ impl<'a> JobsRepo<'a> {
         Ok(())
     }
 
+    pub fn attach_edition(&self, job_id: &str, edition_id: &str) -> Result<(), String> {
+        let conn = self.db.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE jobs SET edition_id=?1, updated_at=?2 WHERE id=?3",
+            params![edition_id, crate::store::now_ms_for_store(), job_id],
+        )
+        .map_err(|e| format!("关联成品失败: {e}"))?;
+        Ok(())
+    }
+
     /// 重启恢复: 把 running 状态的任务标记为 queued (侧车已死), 允许重新拉起
     pub fn reset_stale(&self) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
@@ -160,6 +177,8 @@ mod tests {
     fn job(id: &str, status: &str) -> Job {
         Job {
             id: id.into(),
+            edition_id: None,
+            source_id: Some("source-b".into()),
             book_path: "C:/b.epub".into(),
             profile_id: "default".into(),
             output_dir: format!("out/{id}"),

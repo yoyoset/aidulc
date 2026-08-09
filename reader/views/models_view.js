@@ -36,6 +36,7 @@
     }
 
     render(container) {
+      this.host = container;
       container.innerHTML = '';
       const wrap = el('div', 'models-view');
       const header = el('div', 'page-header');
@@ -59,6 +60,12 @@
         const models = res.data || [];
         this._renderDownloads(downloadSec, models);
         this._renderGrouped(listEl, models);
+      }).catch((err) => {
+        listEl.innerHTML = '';
+        const error = el('div', 'global-error', '读模型列表失败: ' + String(err));
+        const retry = el('button', 'btn-small', '重试');
+        retry.onclick = () => this.render(this.host);
+        listEl.append(error, retry);
       });
     }
 
@@ -72,16 +79,17 @@
       DOWNLOAD_CATALOG.forEach((item) => {
         const row = el('div', 'model-row');
         const name = el('span', 'model-name', item.label + ' · ' + item.name);
-        const installed = models.some((m) => m.family === item.family && m.model_id === item.name);
-        if (installed) {
-          const badge = el('span', 'book-badge badge-ok', '已装');
-          badge.style.marginLeft = '8px';
-          name.appendChild(badge);
-        }
+         const registeredModel = models.find((m) => m.family === item.family && m.model_id === item.name);
+         if (registeredModel) {
+           const statusLabel = { registered: '已登记', recommended: '已绑定推荐', bound: '已绑定使用' };
+           const badge = el('span', 'book-badge badge-ok', statusLabel[registeredModel.asset_status] || '已登记');
+           badge.style.marginLeft = '8px';
+           name.appendChild(badge);
+         }
         const size = el('span', 'model-meta', `${(item.sizeBytes / 1e6).toFixed(0)} MB`);
-        const btn = el('button', 'btn-primary', installed ? '已安装' : '下载');
-        btn.disabled = installed;
-        if (!installed) btn.onclick = () => this._downloadModel(item, btn);
+         const btn = el('button', 'btn-primary', registeredModel ? '已登记' : '下载');
+         btn.disabled = !!registeredModel;
+         if (!registeredModel) btn.onclick = () => this._downloadModel(item, btn);
         const actions = el('div', 'model-actions');
         actions.appendChild(btn);
         row.append(name, size, actions);
@@ -234,8 +242,8 @@
     }
 
     _reload() {
-      // 重新渲染当前容器
-      this.render(document.querySelector('.app-view'));
+      // Embedded model center must refresh only its own host, not the whole settings page.
+      if (this.host) this.render(this.host);
     }
   }
 

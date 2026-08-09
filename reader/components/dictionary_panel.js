@@ -143,7 +143,8 @@
       addBtn.textContent = d.in_vocab ? '✓ 已在生词本' : '+ 加入生词本';
       addBtn.disabled = !!d.in_vocab;
       addBtn.onclick = () => {
-        AiduDictionaryService.addToVocab(d.word, this._profileId).then((r) => {
+        // 阶段6 设计交付 §04: 记录来源句上下文 (this._context = 原文句)
+        AiduDictionaryService.addToVocab(d.word, this._profileId, this._context).then((r) => {
           if (r.ok) {
             addBtn.textContent = '✓ 已加入生词本';
             addBtn.disabled = true;

@@ -20,6 +20,39 @@
       container.innerHTML = '';
       const wrap = el('div', 'settings-view');
       wrap.appendChild(el('h1', null, '设置'));
+      const tabbar = el('div', 'settings-tabs');
+      const panes = el('div', 'settings-panes');
+      const paneMap = {};
+      const addTab = (id, label) => {
+        const pane = el('div', 'settings-pane');
+        pane.dataset.tab = id;
+        paneMap[id] = pane;
+        panes.appendChild(pane);
+        const tab = el('button', 'settings-tab', label);
+        tab.type = 'button';
+        tab.onclick = () => {
+          tabbar.querySelectorAll('.settings-tab').forEach((x) => x.classList.remove('active'));
+          panes.querySelectorAll('.settings-pane').forEach((x) => x.classList.remove('active'));
+          tab.classList.add('active');
+          pane.classList.add('active');
+        };
+        tabbar.appendChild(tab);
+        return pane;
+      };
+      const systemPane = addTab('system', '系统与书库');
+      const readingPane = addTab('reading', '阅读显示');
+      const learningPane = addTab('learning', '学习档案');
+      const syncPane = addTab('sync', '同步与数据');
+      // 阶段6 设计交付 §10 item 8: 模型中心并入设置为一个分区 (模块本身不改, 只换挂载点)
+      const modelsPane = addTab('models', '模型中心');
+      if (global.ModelsView) {
+        new global.ModelsView(this.store).render(modelsPane);
+      }
+      tabbar.querySelector('.settings-tab').classList.add('active');
+      paneMap.system.classList.add('active');
+      const settingsLayout = el('div', 'settings-layout');
+      settingsLayout.append(tabbar, panes);
+      wrap.appendChild(settingsLayout);
 
       // 日志区: 反馈排查入口
       const logSec = el('div', 'settings-section');
@@ -41,7 +74,7 @@
       };
       logRow.append(logInfo, openLogBtn);
       logSec.appendChild(logRow);
-      wrap.appendChild(logSec);
+       systemPane.appendChild(logSec);
 
       // P1.2: 书库位置(用户明确要求的产品能力, 见 docs/ROADMAP.md P1)
       const libSec = el('div', 'settings-section');
@@ -53,7 +86,7 @@
       libSec.appendChild(libRow);
       const libMsg = el('div', 'import-tip');
       libSec.appendChild(libMsg);
-      wrap.appendChild(libSec);
+       systemPane.appendChild(libSec);
 
       const refreshLibPath = () => {
         AiduMiscService.libraryDirGet().then((r) => {
@@ -91,11 +124,14 @@
       };
 
       // G5: 组件中心 (健康检查)
-      const compSec = el('div', 'settings-section');
-      compSec.appendChild(el('h2', null, '组件与模型'));
-      const compList = el('div', 'component-list');
-      compSec.appendChild(compList);
-      wrap.appendChild(compSec);
+       const compSec = el('div', 'settings-section');
+       compSec.appendChild(el('h2', null, '组件与模型'));
+       const modelHost = el('div', 'settings-model-center');
+       compSec.appendChild(modelHost);
+       const compList = el('div', 'component-list');
+       compSec.appendChild(compList);
+       systemPane.appendChild(compSec);
+       if (global.ModelsView) new global.ModelsView(this.store).render(modelHost);
       AiduMiscService.componentsHealth().then((res) => {
         compList.innerHTML = '';
         if (!res.ok) { compList.appendChild(el('div', 'global-error', '检查失败: ' + res.error)); return; }
@@ -132,7 +168,7 @@
       const addBtn = el('button', 'btn-small', '+ 新建档案');
       addBtn.onclick = () => this._editProfileModal(null, () => this._renderProfiles(profList));
       profSec.appendChild(addBtn);
-      wrap.appendChild(profSec);
+       learningPane.appendChild(profSec);
       this._renderProfiles(profList);
 
       // I-C: 同步配置与状态
@@ -151,7 +187,7 @@
       disconnectBtn.title = '删除凭据里的 token 并清空 Worker URL, 彻底停止同步';
       disconnectBtn.disabled = true;
       syncSec.append(syncStatus, urlInput, tokenInput, saveBtn, syncBtn, pullBtn, disconnectBtn);
-      wrap.appendChild(syncSec);
+       syncPane.appendChild(syncSec);
 
       AiduSyncService.status().then((res) => {
         if (res.ok && res.data) {
@@ -264,7 +300,7 @@
         childRow.append(el('span', null, '儿童模式 (更大字号/更高对比度/默认词级高亮)'), childBox);
         form.appendChild(childRow);
 
-        wrap.appendChild(form);
+         readingPane.appendChild(form);
         this._applyCss(s);
       });
       container.appendChild(wrap);

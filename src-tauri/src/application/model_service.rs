@@ -94,6 +94,17 @@ pub fn bind_book(
     tts_id: Option<String>,
     nlp_id: Option<String>,
 ) -> Result<(), String> {
+    let editions = crate::store::editions_repo::EditionsRepo::new(db);
+    if let Some(mut e) = editions.get(book_id) {
+        e.source_language = source_lang.into();
+        e.target_language = target_lang.into();
+        e.llm_id = llm_id;
+        e.tts_id = tts_id;
+        e.nlp_id = nlp_id;
+        e.updated_at = crate::store::now_ms_for_store();
+        return editions.upsert(&e);
+    }
+    // Legacy source-only records remain readable; new product records never use this path.
     let repo = crate::store::books_repo::BooksRepo::new(db);
     let mut book = repo.get(book_id).ok_or("书不存在")?;
     book.source_language = source_lang.into();
@@ -107,17 +118,21 @@ pub fn bind_book(
 
 /// 读书的语言+模型绑定 (无绑定返回默认值, 供书设置弹窗回显)
 pub fn book_binding(db: &Db, book_id: &str) -> serde_json::Value {
-    let repo = crate::store::books_repo::BooksRepo::new(db);
-    match repo.get(book_id) {
-        Some(b) => serde_json::json!({
-            "book_id": b.id,
-            "source_language": b.source_language,
-            "target_language": b.target_language,
-            "llm_id": b.llm_id,
-            "tts_id": b.tts_id,
-            "nlp_id": b.nlp_id,
+    let editions = crate::store::editions_repo::EditionsRepo::new(db);
+    match editions.get(book_id) {
+        Some(e) => serde_json::json!({
+            "book_id": e.id, "source_language": e.source_language, "target_language": e.target_language,
+            "llm_id": e.llm_id, "tts_id": e.tts_id, "nlp_id": e.nlp_id,
         }),
-        None => serde_json::json!({"book_id": book_id}),
+        None => {
+            let repo = crate::store::books_repo::BooksRepo::new(db);
+            match repo.get(book_id) {
+                Some(b) => {
+                    serde_json::json!({"book_id":b.id,"source_language":b.source_language,"target_language":b.target_language,"llm_id":b.llm_id,"tts_id":b.tts_id,"nlp_id":b.nlp_id})
+                }
+                None => serde_json::json!({"book_id": book_id}),
+            }
+        }
     }
 }
 
@@ -125,13 +140,30 @@ pub fn book_binding(db: &Db, book_id: &str) -> serde_json::Value {
 /// 书级绑定 (llm_id/tts_id) 优先; 未绑定的家族回落到该书语言的全局推荐。
 /// M5 单一真相源 + 书级覆盖层。
 pub fn resolve_for_book(db: &Db, book_id: &str, lang: &str) -> (String, String, String) {
+    let edition = crate::store::editions_repo::EditionsRepo::new(db).get(book_id);
     let repo = crate::store::books_repo::BooksRepo::new(db);
     let book = repo.get(book_id);
     let mut llm = String::new();
     let mut tts = String::new();
     let mut nlp = String::new();
     let model_repo = ModelRepo::new(db);
-    if let Some(b) = book {
+    if let Some(b) = edition.as_ref() {
+        if let Some(id) = &b.llm_id {
+            if let Some(m) = model_repo.get(id) {
+                llm = m.path;
+            }
+        }
+        if let Some(id) = &b.tts_id {
+            if let Some(m) = model_repo.get(id) {
+                tts = m.path;
+            }
+        }
+        if let Some(id) = &b.nlp_id {
+            if let Some(m) = model_repo.get(id) {
+                nlp = m.path;
+            }
+        }
+    } else if let Some(b) = book {
         if let Some(id) = &b.llm_id {
             if let Some(m) = model_repo.get(id) {
                 llm = m.path;

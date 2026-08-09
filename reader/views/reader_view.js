@@ -110,15 +110,56 @@
       this._statusTimer = setTimeout(() => statusEl.classList.remove('show'), 2600);
     }
 
+    // ---------------- 阶段3 (F46): 加载/错误/重试/返回书库 可见态 ----------------
+
+    /** 在 reader-content 里放一个全区域状态块: loading / error(带重试 + 返回书库)。 */
+    _showReaderState(kind, message, retry) {
+      const content = document.getElementById('reader-content');
+      if (!content) return;
+      content.innerHTML = '';
+      const box = document.createElement('div');
+      box.className = 'reader-state-box';
+      if (kind === 'error') box.classList.add('reader-state-error');
+      const text = document.createElement('div');
+      text.textContent = message || (kind === 'loading' ? '加载中…' : '出错了');
+      text.className = 'reader-state-text';
+      box.appendChild(text);
+      if (kind === 'error') {
+        const row = document.createElement('div');
+        row.className = 'reader-state-actions';
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'btn-small btn-primary';
+        retryBtn.textContent = '重试';
+        retryBtn.onclick = () => retry && retry();
+        row.appendChild(retryBtn);
+        const backBtn = document.createElement('button');
+        backBtn.className = 'btn-small';
+        backBtn.textContent = '返回书库';
+        backBtn.onclick = () => this.onBack && this.onBack();
+        row.appendChild(backBtn);
+        box.appendChild(row);
+      }
+      content.appendChild(box);
+    }
+
     // ---------------- 打开/设置 ----------------
 
     async open(bookId) {
       this.bookId = bookId;
       this._generation++;
       const gen = this._generation;
+      // 阶段3 (F46): 打开即显示加载态, 后端失败不再落到空白页
+      this._showReaderState('loading', '正在加载书包…');
       const res = await AiduLibraryService.loadBookpack(bookId);
       if (gen !== this._generation) return;
-      if (!res.ok) throw new Error('加载书包失败: ' + res.error);
+      if (!res.ok) {
+        // 可读错误 + 重试/返回书库
+        this._showReaderState('error', '加载书包失败: ' + res.error, () => {
+          this._generation++;
+          this.open(bookId).catch(() => {});
+        });
+        return;
+      }
       this.bookpack = res.data.bookpack;
       this.basePath = res.data.basePath;
       this.chapterIndex = 0;
@@ -428,11 +469,11 @@
       if (!res) return;
       if (gen !== this._chapterGen) return;
       if (!res.ok) {
-        content.innerHTML = '';
-        const err = document.createElement('div');
-        err.className = 'global-error';
-        err.textContent = '加载章节失败: ' + res.error;
-        content.appendChild(err);
+        // 阶段3 (F46): 章节加载失败可见 + 重试 + 返回书库 (不再只是红字)
+        this._showReaderState('error', '加载章节失败: ' + res.error, () => {
+          this._chapterGen++;
+          this._loadChapter();
+        });
         return;
       }
       const ch = res.data;

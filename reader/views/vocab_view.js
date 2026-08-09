@@ -89,8 +89,11 @@
       const max = Math.max(1, ...buckets.map((b) => b.count));
       const chart = el('div', 'vocab-chart');
       chart.title = '近 14 天每日新增生词';
-      buckets.forEach((b) => {
+      // 阶段6 设计交付 §04: 只有当天用强调色, 其余中性灰 (一屏一色)。
+      // dailyBuckets 最后一个元素就是今天 (i=0)。
+      buckets.forEach((b, bi) => {
         const bar = el('div', 'vocab-chart-bar');
+        if (bi === buckets.length - 1) bar.classList.add('today');
         bar.style.height = Math.max(2, Math.round((b.count / max) * 42)) + 'px';
         bar.title = new Date(b.day).toLocaleDateString() + ' 新增 ' + b.count;
         chart.appendChild(bar);
@@ -145,12 +148,20 @@
       }
       items.forEach(e => {
         const row = el('div', 'vocab-row');
+        const head = el('div', 'vocab-row-head');
         const word = el('span', 'vocab-word', e.word);
         const meaning = el('span', 'vocab-meaning', e.meaning || '—');
         const stageLabel = { new: '新词', learning: '学习中', review: '复习中', mastered: '已掌握' }[e.stage] || e.stage;
         const stage = el('span', 'vocab-stage', stageLabel);
         const added = el('span', 'vocab-added',
           new Date(e.added_at || Date.now()).toLocaleDateString());
+        head.append(word, meaning, stage, added);
+        row.appendChild(head);
+        // 阶段6 设计交付 §04: 来源句上下文 —— 原句, 左侧 2px 强调竖线 (苹果级: 词脱离句子背不下来)
+        if (e.context && String(e.context).trim()) {
+          const ctx = el('div', 'vocab-context', String(e.context).trim());
+          row.appendChild(ctx);
+        }
         const del = el('button', 'btn-small btn-danger', '删除');
         del.onclick = () => {
           AiduModal.confirm({
@@ -162,7 +173,7 @@
               .then(() => { this._load(); AiduToast.show('已删除 ' + e.word, 'info'); }),
           });
         };
-        row.append(word, meaning, stage, added, del);
+        row.appendChild(del);
         this.listEl.appendChild(row);
       });
     }

@@ -158,12 +158,24 @@ pub fn lookup(
 }
 
 /// 加入生词本 (显式用户动作)
-pub fn add_to_vocab(db: &Db, profile_id: &str, word: &str) -> Result<serde_json::Value, String> {
+/// context: 来源句原文 (阶段6 设计交付 §04 生词本: 词条卡显示原句上下文)。可选,
+/// 为空时保留已存 context(重加不覆盖旧上下文)。
+pub fn add_to_vocab(
+    db: &Db,
+    profile_id: &str,
+    word: &str,
+    context: Option<String>,
+) -> Result<serde_json::Value, String> {
     let repo = DictRepo::new(db);
     let key = word.trim().to_lowercase();
     let payload = repo
         .get(&key, profile_id)
         .unwrap_or_else(|| serde_json::json!({"word": key, "lemma": key}));
+    // 阶段6: 旧 context 从已有生词条目读 (重加不覆盖旧上下文), 不从词典 payload 读
+    let old_context = VocabRepo::new(db)
+        .get(profile_id, &key)
+        .map(|e| e.context)
+        .unwrap_or_default();
     let entry = crate::domain::vocab::VocabEntry {
         word: payload
             .get("word")
@@ -195,7 +207,10 @@ pub fn add_to_vocab(db: &Db, profile_id: &str, word: &str) -> Result<serde_json:
             .and_then(|p| p.as_str())
             .unwrap_or("")
             .to_string(),
-        context: String::new(),
+        // 阶段6: 来源句优先用本次传入; 没有则保留旧的
+        context: context
+            .filter(|c| !c.trim().is_empty())
+            .unwrap_or(old_context),
         level: String::new(),
         collocations: vec![],
         deep_data: serde_json::Value::Null,
@@ -219,7 +234,11 @@ mod tests {
     use super::*;
 
     fn temp_db() -> Db {
-        let path = std::env::temp_dir().join(format!("aidulc_ds_test_{}.db", std::process::id()));
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let n = N.fetch_add(1, Ordering::Relaxed);
+        let path =
+            std::env::temp_dir().join(format!("aidulc_ds_test_{}_{n}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
         Db::open(path.to_str().unwrap()).unwrap()
     }
@@ -293,11 +312,34 @@ mod tests {
         let db = temp_db();
         let r = lookup(&db, "default", "zebra", "ctx", &fake_llm).unwrap();
         assert!(!r.in_vocab);
-        add_to_vocab(&db, "default", "zebra").unwrap();
+        add_to_vocab(&db, "default", "zebra", None).unwrap();
         let vocab = VocabRepo::new(&db);
         assert!(
             vocab.get("default", "zebra").is_some(),
             "显式加入后才进生词本"
+        );
+    }
+
+    #[test]
+    fn add_to_vocab_stores_source_context() {
+        // 阶段6 设计交付 §04: 加词记录来源句上下文, 生词本词条卡能显示"从哪里读到的"
+        let db = temp_db();
+        add_to_vocab(
+            &db,
+            "default",
+            "gutter",
+            Some("She watched the water in the gutters.".into()),
+        )
+        .unwrap();
+        let vocab = VocabRepo::new(&db);
+        let got = vocab.get("default", "gutter").expect("词应在");
+        assert_eq!(got.context, "She watched the water in the gutters.");
+        // 再次加词不带 context → 保留旧上下文 (不覆盖成空)
+        add_to_vocab(&db, "default", "gutter", None).unwrap();
+        let got2 = vocab.get("default", "gutter").expect("词应在");
+        assert_eq!(
+            got2.context, "She watched the water in the gutters.",
+            "空 context 不覆盖旧值"
         );
     }
 

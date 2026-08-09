@@ -35,9 +35,18 @@
       blind: true,
       desc: '脱离文字, 靠耳朵',
     },
+    kid: {
+      key: 'kid',
+      name: '孩子',
+      repeat: 3,
+      gapMs: 1500,
+      speed: 0.7,
+      blind: false,
+      desc: '慢速多遍, 留白更长, 陪读友好',
+    },
   };
 
-  const PRESET_ORDER = ['first', 'shadow', 'blind'];
+  const PRESET_ORDER = ['first', 'shadow', 'blind', 'kid'];
 
   /**
    * 应用预设到 ShadowMachine 兼容对象 (需有 setRepeat/setGap/setSpeed)。

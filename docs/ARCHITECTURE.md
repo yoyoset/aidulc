@@ -69,7 +69,8 @@
 | `dictionary` | `dict_repo.rs` | 个人词典资产(LLM 查询的沉淀缓存, 不自动进生词本) |
 | `profiles` | `profile_repo.rs` | 讲解策略/音色/语速/高亮粒度 |
 | `reading_state` | `reading_repo.rs` | 阅读进度/书签/播放位置 |
-| `books` | `books_repo.rs` | 书库登记 |
+| `books` | `books_repo.rs` | 原书(source)登记；不承载可阅读成品 |
+| `editions` | `editions_repo.rs` | 译本/成品(edition)及生成参数快照 |
 | `reader_settings` | `settings_repo.rs` | 阅读器设置(字体/行距/宽度/主题/儿童模式) |
 | `jobs` | `jobs_repo.rs` | 备料任务 |
 | `batches` | `batches_repo.rs` | 批量任务 |
@@ -77,7 +78,7 @@
 | `wizard_state` | `application/wizard_service.rs` | **例外**: 唯一不走 store/*_repo.rs 模式、直接发 SQL 的表(现状, 改这里前先考虑补 wizard_repo.rs) |
 
 跨表只读查询允许(如 `transfer_service.rs` 导出 `SELECT DISTINCT profile_id FROM vocab UNION ...`); 禁止跨 repo 写同一张表。
-DB 模式演进: `store_mod.rs` 用 `schema_migrations` 表, 目前 9 个迁移版本(含 M1 的 `profile:lemma` key 重建)。
+DB 模式演进: `store_mod.rs` 用 `schema_migrations` 表, 目前 19 个迁移版本(含 v18 的 source/edition 拆分和 jobs 显式 edition_id; v19 的 jobs 显式 source_id)。
 
 ### 迁移史(v1-v9, 摘自 store_mod.rs 注释, 2026-08-08 核实)
 
@@ -92,6 +93,8 @@ DB 模式演进: `store_mod.rs` 用 `schema_migrations` 表, 目前 9 个迁移�
 | v7 | books.kind: original(导入管理)/product(AI 成品可读); 存量 ready/partial→product | 架构分离 |
 | v8 | books.source_book_id: 成品关联原书(不同模型=不同资产) | 资产模型 |
 | v9 | jobs.progress: 后端算全书完成度(阶段权重 0-100) | 进度算法 |
+| v18 | editions 表承载成品；legacy product 无损迁移；jobs 增加 edition_id | 书籍资产模型 |
+| v19 | jobs 增加 source_id(显式关联原书, BOOK_WORKFLOW §2.3); 删除 source 按 source_id 级联清 job | 书籍主流程重构 |
 
 ## 3. contracts 三端链路
 
@@ -526,6 +529,14 @@ bookpack.json + audio/ + images/; 导入时校验含 bookpack.json 才登记, `e
   失败**, 只落"已复制到剪贴板"兜底(功能退化为复制路径)。契约漂移测试排除 `plugin:*`, 所以没被
   抓到。修法: 装 tauri-plugin-opener 并注册, 或改走应用内 `log_path` + 原生 open 命令, 或干脆
   改文案为"复制路径"。
+
+- **F43 legacy product 可能共享同一 `pack_dir`(v18 后仍待物理收口)**: 旧版 `books` 的
+  original/product 行曾实测共用目录。v18 已把 product 行迁移为 editions 并保留字段，但迁移本身
+  尚未复制共享目录；因此历史 editions 仍可能违反"每个 edition 独占 pack_dir"。后续必须在迁移或
+  一次性修复工具中校验并复制目录，不能只改数据库字符串。
+- **F44 历史 jobs 无法全部可靠回填 edition_id**: v18 按 `output_dir=pack_dir` 回填；无法匹配的
+  旧任务保留原数据，启动孤儿清理只删除既无 source 路径又无 edition 目录关联的记录。需要为无法
+  匹配的任务提供可追溯人工处理/明确保留策略，不能静默猜测。
 
 ## 9.6 阅读器交互模型(2026-08-08 取证, R2 拆分后)
 

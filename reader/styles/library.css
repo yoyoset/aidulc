@@ -1,4 +1,39 @@
 /* library.css —— 书库 (M6 打磨: 卡片纸感、克制阴影、hover 微抬) */
+/* 阶段6 设计交付 §01: 状态分段控件 —— 是筛选不是导航, 带计数 */
+.library-segmented {
+  display: inline-flex;
+  background: var(--md-sys-color-surface-variant);
+  border-radius: var(--md-sys-radius-pill);
+  padding: 3px;
+  gap: 2px;
+}
+.lib-seg {
+  border: none;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-font-size-body-s);
+  font-family: var(--md-sys-font-sans);
+  padding: 4px 12px;
+  border-radius: var(--md-sys-radius-pill);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background var(--md-sys-motion-base) ease, color var(--md-sys-motion-base) ease;
+}
+.lib-seg:hover { background: var(--md-sys-state-hover); }
+.lib-seg.active {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  font-weight: 600;
+}
+.lib-seg-count {
+  font-family: Consolas, monospace;
+  font-size: 0.72em;
+  opacity: 0.85;
+  min-width: 1.4em;
+  text-align: center;
+}
 .book-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

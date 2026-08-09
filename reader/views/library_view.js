@@ -25,12 +25,17 @@
       this.onOpenBook = null;   // (book) => void
       this.onImported = null;   // (count) => void
       this.onImportError = null; // (err) => void
+      // 阶段2 (F45): 拖拽监听用单一槽位管理, 重渲染不累积; 导入用短窗口去重, 单次动作只导一次
+      this._dragSlot = new AiduListenerSlot();
+      this._importDedup = new AiduImportDedup(2000);
     }
 
     /** 书状态 → { label, badgeClass } (苹果级: 状态可视) */
     _bookStatus(book) {
       const map = {
         ready: { label: '就绪', cls: 'badge-ok' },
+        // mark_original_done 把源书标成 done: 已生成译本, 展示为"已就绪"
+        done: { label: '已就绪', cls: 'badge-ok' },
         partial: { label: '部分失败', cls: 'badge-warn' },
         processing: { label: '处理中', cls: 'badge-busy' },
         pending: { label: '待处理', cls: 'badge-idle' },
@@ -39,15 +44,50 @@
       return map[book.status] || { label: book.status, cls: 'badge-idle' };
     }
 
+    /** 阶段6 设计交付 §01: 状态分段映射 —— 未处理 = pending/failed; 已就绪 = ready/done/partial */
+    _inStatusBucket(book, bucket) {
+      switch (bucket) {
+        case 'ready': return ['ready', 'done', 'partial'].includes(book.status);
+        case 'processing': return book.status === 'processing';
+        case 'pending': return ['pending', 'failed'].includes(book.status);
+        default: return true;
+      }
+    }
+
+    /** 阶段6 设计交付 §01: 分段计数 (苹果级: 数量可见, 空分段不误导) */
+    _updateSegCounts(books, segBar) {
+      if (!segBar) return;
+      segBar.querySelectorAll('.lib-seg').forEach((seg) => {
+        const bucket = seg.dataset.bucket;
+        const n = bucket === 'all' ? (books || []).length
+          : (books || []).filter((b) => this._inStatusBucket(b, bucket)).length;
+        seg.dataset.count = String(n);
+        const countEl = seg.querySelector('.lib-seg-count');
+        if (countEl) countEl.textContent = String(n);
+      });
+    }
+
+    /** F33/F34 (2026-08-09): 路由离开时注销事件订阅, 不残留拖拽监听/轮询 (与 prep_view 对称) */
+    cleanup() {
+      if (this._dragSlot) this._dragSlot.clear();
+      if (this._offLibChanged) { this._offLibChanged(); this._offLibChanged = null; }
+      if (this._off) { this._off(); this._off = null; }
+      if (this._jobTimer) { clearInterval(this._jobTimer); this._jobTimer = null; }
+    }
+
     render(container) {
       container.innerHTML = '';
+      // 阶段2 (F45): 注销上一轮拖拽监听 (单一槽位, 重渲染不累积)。在 _buildImportCard()
+      // 注册新监听之前执行 —— 原来写在这之后, `this._offDrag()` 杀掉的是刚注册的新
+      // listener(拖拽导入每次 render 后即失效)。顺序先清后注册。
+      this._dragSlot.clear();
       const wrap = el('div', 'library-view');
       const isOriginal = this.kind === 'original';
 
       // M6: 加载档案表, 书卡/导入卡显示真实档案名 (自建档案从这里开始有名字)
       AiduBridge.profiles.list().then((res) => {
         this._profiles = (res.ok && res.data) || [];
-        this._renderBooks(listEl, this.store.state.books || [], searchInput, filterSel);
+        this._renderBooks(listEl, this.store.state.books || [], searchInput);
       });
 
       const header = el('div', 'page-header');
@@ -58,11 +98,11 @@
       importBookBtn.onclick = () => this._importBookZip();
       header.appendChild(importBookBtn);
 
-      // 导入成功提示 (导入完成后停留书库, 提示去备料台看进度)
+      // 导入成功提示 (阶段2: 导入的是原书, 下一步创建译本)
       const notice = this.store.state.importedNotice;
       if (notice && (Date.now() - notice.ts) < 8000) {
         const tip = el('div', 'import-notice',
-          `已加入 ${notice.count} 本到处理队列。进度请到"阅读准备"查看。`);
+          `已导入 ${notice.count} 本原书。下一步: 在书卡上点击"创建译本"生成可阅读版本。`);
         wrap.appendChild(tip);
       }
 
@@ -74,32 +114,52 @@
       const listEl = el('div', 'book-list');
       wrap.append(listEl);
 
-      // I-D: 搜索 + 筛选工具条
+      // I-D: 搜索 + 筛选工具条 (设计交付 §01: 状态分段控件是筛选不是导航, 带计数)
       const toolbar = el('div', 'library-toolbar');
       const searchInput = el('input', 'prep-input');
       searchInput.placeholder = '搜索书名…';
-      const filterSel = el('select', 'prep-select');
-      ['all:全部', 'ready:就绪', 'partial:有失败句', 'processing:处理中', 'pending:待处理', 'failed:失败'].forEach(f => {
-        const opt = el('option', null, f.split(':')[1]);
-        opt.value = f.split(':')[0];
-        filterSel.appendChild(opt);
+      const segBar = el('div', 'library-segmented');
+      // 状态分段: 全部 / 已就绪 / 处理中 / 未处理 (映射见 _inStatusBucket)
+      const buckets = [
+        { key: 'all', label: '全部' },
+        { key: 'ready', label: '已就绪' },
+        { key: 'processing', label: '处理中' },
+        { key: 'pending', label: '未处理' },
+      ];
+      buckets.forEach((b) => {
+        const seg = el('button', 'lib-seg', null);
+        seg.dataset.bucket = b.key;
+        const labelSpan = el('span', null, b.label);
+        const countSpan = el('span', 'lib-seg-count', '0');
+        seg.append(labelSpan, countSpan);
+        if (b.key === (this._statusFilter || 'all')) seg.classList.add('active');
+        seg.addEventListener('click', () => {
+          this._statusFilter = b.key;
+          segBar.querySelectorAll('.lib-seg').forEach((s) => s.classList.toggle('active', s === seg));
+          this._renderBooks(listEl, this.store.state.books || [], searchInput, segBar);
+        });
+        segBar.appendChild(seg);
       });
-      toolbar.append(searchInput, filterSel);
+      toolbar.append(searchInput, segBar);
       wrap.insertBefore(toolbar, listEl);
 
       // Bug fix (审查确认): 注销旧监听 (每次 render 叠加导致 listener 累积)
       this._off && this._off();
-      this._off = this.store.on('change', (s) => this._renderBooks(listEl, s.books, searchInput, filterSel));
-      // F34 (2026-08-08): 拖拽导入监听也是每次 render 叠加 → 注销旧订阅
-      if (this._offDrag) { this._offDrag(); this._offDrag = null; }
-      // v7: 按 kind 拉数据 (书库=原版 | 成品架=product); 书库才轮询 job 进度
-      const loadBooks = () => AiduLibraryService.list(this.kind).then((res) => {
-        if (res.ok) this.store.set({ books: res.data || [] });
+      this._off = this.store.on('change', (s) => this._renderBooks(listEl, s.books, searchInput, segBar));
+      // 阶段7 (UX 3.3): 备料完成/导入后 library-changed 事件即时刷新书库, 译本子卡不用等 5s 轮询
+      if (this._offLibChanged) { this._offLibChanged(); this._offLibChanged = null; }
+      this._offLibChanged = AiduBridge.listen('library-changed', () => {
+        loadBooks();
       });
+      // v7: 按 kind 拉数据 (书库=原版 | 成品架=product); 书库才轮询 job 进度
+       const loadBooks = () => AiduLibraryService.list(this.kind).then((res) => {
+         if (res.ok) this.store.set({ books: res.data || [] });
+         else AiduToast.show('读取书库失败: ' + res.error, 'error');
+       }).catch((err) => AiduToast.show('读取书库失败: ' + err, 'error'));
       if (this.kind === 'original') {
         const loadJobs = () => AiduJobService.list().then((res) => {
           this._jobs = (res.ok && res.data) || [];
-          this._renderBooks(listEl, this.store.state.books || [], searchInput, filterSel);
+          this._renderBooks(listEl, this.store.state.books || [], searchInput, segBar);
         });
         if (this._jobTimer) clearInterval(this._jobTimer);
         this._jobTimer = setInterval(loadJobs, 5000);
@@ -114,14 +174,13 @@
           : '还没有完成的书。书库导入 → 阅读准备处理完成后, 会出现在这里。');
         listEl.appendChild(empty);
       } else {
-        this._renderBooks(listEl, books, searchInput, filterSel);
+        this._renderBooks(listEl, books, searchInput, segBar);
       }
-      searchInput.oninput = () => this._renderBooks(listEl, this.store.state.books || [], searchInput, filterSel);
-      filterSel.onchange = () => this._renderBooks(listEl, this.store.state.books || [], searchInput, filterSel);
+      searchInput.oninput = () => this._renderBooks(listEl, this.store.state.books || [], searchInput, segBar);
       container.appendChild(wrap);
     }
 
-    _renderBooks(listEl, books, searchInput, filterSel) {
+    _renderBooks(listEl, books, searchInput, segBar) {
       listEl.innerHTML = '';
       if (!books || books.length === 0) {
         const empty = el('div', 'book-empty', this.kind === 'original'
@@ -130,9 +189,11 @@
         listEl.appendChild(empty);
         return;
       }
-      // I-D: 搜索 + 筛选
+      // 阶段6 设计交付 §01: 状态分段带计数 (已就绪/处理中/未处理)
+      this._updateSegCounts(books, segBar);
+      // I-D: 搜索 + 筛选 (分段状态映射见 _statusBuckets)
       const q = (searchInput && searchInput.value || '').toLowerCase();
-      const filter = filterSel ? filterSel.value : 'all';
+      const filter = this._statusFilter || 'all';
       // F30: "最近阅读"排序 —— 打开过的书在前 (last_opened_at 降序), 未打开过按标题
       const sorted = books.slice().sort((a, b) => {
         const la = a.last_opened_at || 0;
@@ -142,7 +203,7 @@
       });
       const filtered = sorted.filter(b => {
         if (q && !(b.title || b.id).toLowerCase().includes(q)) return false;
-        if (filter !== 'all' && b.status !== filter) return false;
+        if (filter !== 'all' && !this._inStatusBucket(b, filter)) return false;
         return true;
       });
       if (!filtered.length) {
@@ -216,30 +277,69 @@
           };
           actions.appendChild(delBtn);
         } else {
-          // 原版书库: 预览原文/设置/开始准备/删除
+          // 原版书库 (source): 阶段2 —— 原书不可直接阅读, 主动作是"创建译本"
           const previewBtn = el('button', 'btn-small', '预览原文');
           previewBtn.onclick = () => this._openPreview(book);
           const setBtn = el('button', 'btn-small', '设置');
           setBtn.onclick = () => this._openBookSettings(book);
-          const needsPrep = book.status === 'pending' || book.status === 'failed';
-          const prepBtn = el('button', 'btn-small btn-primary', '开始阅读准备');
-          if (!needsPrep) prepBtn.style.display = 'none';
-          prepBtn.onclick = () => this._startPrepForBook(book);
+           // 阶段2 (F45/BOOK_WORKFLOW): 原书没有 pack/进度/书签, 不可打开阅读。
+           // 统一主动作 = 创建/新增译本; 处理中时不伪装可操作(有译本的处理中也可再增)。
+           const hasEditions = Array.isArray(book.editions) && book.editions.length > 0;
+           const createBtn = el('button', 'btn-small btn-primary', hasEditions ? '新增译本' : '创建译本');
+           createBtn.onclick = () => this._chooseEditionProfile(book);
+           if (book.status === 'processing' && !hasEditions) {
+             // 首次备料中: 还没译本可展示, 隐藏主动作, 用状态徽章表示"处理中"
+             createBtn.style.display = 'none';
+           }
           const delBtn = el('button', 'btn-small btn-danger', '删除');
           delBtn.onclick = () => {
             AiduModal.confirm({
               title: `删除《${book.title}》?`,
-              message: '这本书的内容和音频都会移除, 无法恢复。',
+               message: '原书及其全部译本、阅读进度、书签和处理任务都会移除，无法恢复。',
               confirmText: '删除',
               danger: true,
               onConfirm: () => AiduLibraryService.remove(book.id, true)
                 .then(() => { this.store.emit('change', this.store.state); AiduToast.show('已删除《' + book.title + '》', 'success'); }),
             });
           };
-          actions.append(openBtn, previewBtn, setBtn, prepBtn, delBtn);
+           actions.append(previewBtn, setBtn, createBtn, delBtn);
         }
-        card.append(name, meta, actions);
-        listEl.appendChild(card);
+         card.append(name, meta, actions);
+         if (this.kind === 'original' && Array.isArray(book.editions) && book.editions.length) {
+           const editions = el('div', 'edition-list');
+           editions.appendChild(el('div', 'settings-hint', `译本/成品 (${book.editions.length})`));
+           book.editions.forEach((edition) => {
+             const child = el('div', 'edition-card');
+             const childTitle = el('div', 'book-card-title', edition.title || edition.id);
+             const childProfile = this._profileName(edition.profile_id);
+             // 模型快照是路径, 卡片只显示文件名 (苹果级: 不把 F:/hf_cache/... 长路径糊在卡上)
+             const shortModel = (p) => {
+               if (!p) return '';
+               const s = String(p);
+               return s.split(/[\\/]/).pop() || s;
+             };
+             const childModel = [edition.llm_id, edition.tts_id].map(shortModel).filter(Boolean).join(' / ') || '默认模型';
+             const childMeta = el('div', 'book-card-meta',
+               `${childProfile} · ${edition.source_language || 'en'}→${edition.target_language || 'zh-CN'} · ${childModel}`);
+             const childActions = el('div', 'book-card-actions');
+             const childOpen = el('button', 'btn-small', '打开阅读');
+             childOpen.disabled = !['ready', 'partial'].includes(edition.status);
+             childOpen.onclick = () => this.onOpenBook && this.onOpenBook(edition);
+             const childDelete = el('button', 'btn-small btn-danger', '删除译本');
+             childDelete.onclick = () => AiduModal.confirm({
+               title: `删除译本《${edition.title || edition.id}》?`,
+               message: '只删除这个译本，原书和其它译本保留。',
+               confirmText: '删除', danger: true,
+               onConfirm: () => AiduLibraryService.remove(edition.id, true)
+                 .then(() => { this.store.emit('change', this.store.state); AiduToast.show('译本已删除', 'success'); }),
+             });
+             childActions.append(childOpen, childDelete);
+             child.append(childTitle, childMeta, childActions);
+             editions.appendChild(child);
+           });
+           card.appendChild(editions);
+         }
+         listEl.appendChild(card);
       });
     }
 
@@ -253,17 +353,18 @@
     }
 
     /** R1/R2: 开始阅读准备 — 前置检查 → 通过入队; 未通过 → 书卡标原因 */
-    _startPrepForBook(book) {
-      const profileId = book.profile_id || 'default';
-      // 需要 batch_id: 导入时记录的; 若无 (旧书) → 单本批处理
+    _startPrepForBook(book, selectedProfileId, cbs) {
+      const profileId = selectedProfileId || book.profile_id || 'default';
       const batchId = this._lastBatchId || ('batch-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
+      const onSkipped = (cbs && cbs.onSkipped) || null;
+      const onStarted = (cbs && cbs.onStarted) || null;
       AiduToast.show('正在检查《' + (book.title || book.id) + '》…', 'info');
       AiduImportService.startPrep(batchId, [book.id], profileId).then((res) => {
         if (!res.ok) { AiduToast.show('开始失败: ' + res.error, 'error'); return; }
         const d = res.data || {};
         if (d.skipped && d.skipped.length) {
-          // 前置检查未通过 → 可读原因 + 跳转模型中心
           const reasons = (d.skipped[0].reasons || []).join('; ');
+          if (onSkipped) { onSkipped(d.skipped[0].reasons || []); return; }
           AiduToast.show('无法开始: ' + reasons, 'error');
           if (reasons.includes('模型')) {
             AiduModal.confirm({
@@ -275,9 +376,163 @@
           }
           return;
         }
+        if (onStarted) { onStarted(); return; }
         AiduToast.show('已加入处理队列', 'success');
         this.store.emit('change', this.store.state);
       });
+    }
+
+    /**
+     * 阶段4 (BOOK_WORKFLOW): source → 配置面板 → 开始备料 → edition。
+     * 面板必须完成 profile/语言/模型配置后才允许开始; preflight 失败留在面板显示原因和下一步。
+     */
+    _chooseEditionProfile(book) {
+      const ov = document.createElement('div');
+      ov.className = 'modal-overlay';
+      const box = el('div', 'modal-box');
+      box.setAttribute('role', 'dialog');
+      box.setAttribute('aria-modal', 'true');
+      const title = el('h2', 'modal-title', `为《${book.title || book.id}》创建译本`);
+      // 阶段2 (BOOK_WORKFLOW): 说清原书 vs 译本边界 —— 原书只是来源, 译本才是可读成品。
+      const hint = el('div', 'settings-hint',
+        '译本是从这本原书生成的可阅读版本。配置好档案、语言和模型后, 系统会生成译文、讲解和音频。' +
+        '同一本原书可以用不同参数生成多个译本; 相同参数重新生成会覆盖原译本。');
+      const body = el('div', 'book-settings-body');
+
+      // 档案
+      body.appendChild(el('div', 'settings-hint', '学习档案'));
+      const profileSelect = el('select', 'prep-select');
+      (this._profiles || [{ id: 'default', name: '成人自读' }]).forEach((p) => {
+        const opt = el('option', null, p.name || p.id);
+        opt.value = p.id;
+        profileSelect.appendChild(opt);
+      });
+
+      // 语言 (source → target)
+      body.appendChild(el('div', 'settings-hint', '语言'));
+      const langRow = el('div', 'prep-row');
+      const srcSel = el('select', 'prep-select');
+      [['en', '英文'], ['ja', '日文 (即将支持)']].forEach(([c, l]) => {
+        const opt = el('option', null, l); opt.value = c;
+        if (c !== 'en') opt.disabled = true;
+        srcSel.appendChild(opt);
+      });
+      const tgtSel = el('select', 'prep-select');
+      [['zh-CN', '中文']].forEach(([c, l]) => {
+        const opt = el('option', null, l); opt.value = c;
+        tgtSel.appendChild(opt);
+      });
+      langRow.append(srcSel, tgtSel);
+
+      // 模型 (阶段4: 不配置就用全局推荐; 统一从后端 models_list 取状态)
+      body.appendChild(el('div', 'settings-hint', '模型 (不选就跟随模型中心的全局推荐)'));
+      const modelRow = el('div', 'prep-row');
+      const llmSel = el('select', 'prep-select');
+      const ttsSel = el('select', 'prep-select');
+      modelRow.append(llmSel, ttsSel);
+
+      // preflight 结果区 (失败显示原因 + 下一步, 不关面板)
+      const result = el('div', 'prep-preflight-result');
+      result.style.display = 'none';
+
+      const actions = el('div', 'modal-actions');
+      const cancel = el('button', 'btn-small', '取消');
+      const start = el('button', 'btn-small btn-primary', '开始备料');
+      actions.append(cancel, start);
+      box.append(title, hint, body, result, actions);
+      ov.appendChild(box);
+      document.body.appendChild(ov);
+
+      function close() { document.removeEventListener('keydown', onKey); ov.remove(); }
+      function onKey(e) { if (e.key === 'Escape') close(); }
+      cancel.onclick = close;
+      ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+      document.addEventListener('keydown', onKey);
+
+      // 载入档案/模型状态 (阶段4: 四个状态已扫描/已登记/可用/已绑定由后端返回, 前端只渲染)
+      body.appendChild(el('div', 'settings-loading', '加载中…'));
+      Promise.all([AiduModelService.list(), AiduModelService.bookBinding(book.id)])
+        .then(([listRes, bindRes]) => {
+          const loading = body.querySelector('.settings-loading');
+          if (loading) loading.remove();
+          const models = (listRes.ok && Array.isArray(listRes.data)) ? listRes.data : [];
+          const bind = (bindRes.ok && bindRes.data) || {};
+          srcSel.value = bind.source_language || 'en';
+
+          const llmOpt = el('option', null, '跟随全局推荐'); llmOpt.value = '';
+          llmSel.appendChild(llmOpt);
+          models.filter(m => m.family === 'llm').forEach(m => {
+            const opt = el('option', null, m.model_id); opt.value = m.id;
+            opt.title = '已登记' + (m.recommended ? ' · 全局推荐' : '');
+            llmSel.appendChild(opt);
+          });
+          const ttsOpt = el('option', null, '跟随全局推荐'); ttsOpt.value = '';
+          ttsSel.appendChild(ttsOpt);
+          models.filter(m => m.family === 'tts').forEach(m => {
+            const opt = el('option', null, m.model_id); opt.value = m.id;
+            opt.title = '已登记' + (m.recommended ? ' · 全局推荐' : '');
+            ttsSel.appendChild(opt);
+          });
+          if (bind.llm_id) llmSel.value = bind.llm_id;
+          if (bind.tts_id) ttsSel.value = bind.tts_id;
+          if (models.filter(m => m.family === 'llm').length === 0 ||
+              models.filter(m => m.family === 'tts').length === 0) {
+            body.appendChild(el('div', 'settings-hint settings-warn',
+              '模型中心还没有完整的模型组合。请先到模型中心配置翻译引擎和语音引擎, 再回来创建译本。'));
+          }
+          body.appendChild(modelRow);
+          // 重新挂回: body 是空容器, 顺序追加即可
+          body.appendChild(profileSelect);
+          body.appendChild(langRow);
+        }).catch((e) => {
+          const loading = body.querySelector('.settings-loading');
+          if (loading) loading.remove();
+          body.appendChild(el('div', 'global-error', '加载配置失败: ' + e));
+        });
+
+      // 阶段4: 配置完成前不创建 edition; preflight 失败留在面板显示原因和下一步
+      start.onclick = () => {
+        start.disabled = true;
+        start.textContent = '正在检查…';
+        result.style.display = 'none';
+        // 先持久化书级模型绑定 (不同模型 = 不同 edition 的参数快照来源)
+        AiduModelService.bindBook(
+          book.id, srcSel.value, tgtSel.value, llmSel.value || null, ttsSel.value || null, null
+        ).then((bindRes) => {
+          if (!bindRes.ok) {
+            start.disabled = false; start.textContent = '开始备料';
+            result.style.display = '';
+            result.className = 'prep-preflight-result prep-failure';
+            result.textContent = '保存模型配置失败: ' + bindRes.error + '。请重试。';
+            return;
+          }
+          const profileId = profileSelect.value;
+          return this._startPrepForBook(book, profileId, {
+            onSkipped: (reasons) => {
+              // preflight 未通过: 留在面板, 显示原因 + 下一步
+              start.disabled = false;
+              start.textContent = '开始备料';
+              result.style.display = '';
+              result.className = 'prep-preflight-result prep-failure';
+              result.textContent = '暂时无法开始: ' + reasons.join('; ');
+              const goModels = el('button', 'btn-small btn-primary', '去模型中心');
+              goModels.onclick = () => { close(); window.location.hash = '#/models'; };
+              result.appendChild(goModels);
+            },
+            onStarted: () => {
+              close();
+              AiduToast.show('已加入处理队列, 完成后自动生成译本', 'success');
+              this.store.emit('change', this.store.state);
+            },
+          });
+        }).catch((e) => {
+          start.disabled = false; start.textContent = '开始备料';
+          result.style.display = '';
+          result.className = 'prep-preflight-result prep-failure';
+          result.textContent = '开始失败: ' + e;
+        });
+      };
+      cancel.focus();
     }
 
     /** S4: 预览原文 (模态: 书库打开的是原始书籍) */
@@ -481,11 +736,12 @@
       dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); };
       dropZone.ondragleave = () => dropZone.classList.remove('drag-over');
       if (window.AiduBridge && window.__TAURI__?.event) {
-        this._offDrag = window.AiduBridge.listen('tauri://drag-drop', (ev) => {
+        // 阶段2 (F45): 单一槽位注册, 重渲染时旧的会被新注册自动注销, 不累积
+        this._dragSlot.set(window.AiduBridge.listen('tauri://drag-drop', (ev) => {
           dropZone.classList.remove('drag-over');
           const paths = ev.payload && ev.payload.paths;
           if (paths && paths.length) this._startBatchImport(paths);
-        });
+        }));
       }
       const fileInput = el('input', null);
       fileInput.type = 'file';
@@ -531,10 +787,12 @@
       return card;
     }
 
-    /** 导入 (R1: 只登记书到书库, 不自动开始处理; 用户确认后再开始) */
+    /** 导入 (R1: 只登记 source 到书库, 不开始处理; 下一步由 source 卡"创建译本"触发) */
     _startBatchImport(paths) {
       const profileSel = document.querySelector('.import-card .prep-select');
       const profileId = profileSel ? profileSel.value : 'default';
+      // 阶段2 (F45): 单次动作只导一次 —— 拖拽事件与文件选择同时命中/快速连点都只放行第一次
+      if (this._importDedup && !this._importDedup.shouldFire(paths, profileId)) return;
       const langSel = document.getElementById('prep-source-lang');
       const sourceLang = langSel ? langSel.value : 'en';
       // 苹果级: 立即反馈"正在登记"
@@ -546,10 +804,20 @@
             AiduToast.show('导入失败: ' + res.error, 'error');
             return;
           }
-          // 记录 batch → 书卡出现后"开始阅读准备"用它
-          this._lastBatchId = res.data;
-          if (this.onImported) this.onImported(paths.length, res.data);
-          AiduToast.show(`已导入 ${paths.length} 本书到书库`, 'success');
+          const d = res.data || {};
+          // 记录 batch → 书卡出现后"创建译本"用它 (全跳过时为空串, 由创建译本流程自行处理)
+          this._lastBatchId = d.batch_id || '';
+          const registered = (d.registered || []).length;
+          const skipped = (d.skipped || []).length;
+          if (this.onImported) this.onImported(registered, d.batch_id);
+          // 阶段2 (F45): 明确"导入的是原书, 下一步创建译本", 不是"已加入处理队列"
+          if (registered === 0) {
+            AiduToast.show('这些原书之前已导入, 可直接为它们创建译本', 'success');
+          } else if (skipped > 0) {
+            AiduToast.show(`已导入 ${registered} 本原书 (${skipped} 个文件之前已导入, 跳过)。下一步: 为原书创建译本。`, 'success');
+          } else {
+            AiduToast.show(`已导入 ${registered} 本原书。下一步: 为原书创建译本。`, 'success');
+          }
           // 刷新书列表
           this.store.emit('change', this.store.state);
           AiduLibraryService.list().then((lr) => {

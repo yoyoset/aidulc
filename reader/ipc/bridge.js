@@ -5,15 +5,19 @@
 (function (global) {
   'use strict';
 
-  const core = (window.__TAURI__?.core) || null;
+  function getCore() {
+    return window.__TAURI__?.core || null;
+  }
 
   function requireTauri() {
+    const core = getCore();
     if (!core) throw new Error('Tauri 环境不可用 (请从 aidulc.exe 启动)');
+    return core;
   }
 
   /** 统一 invoke 封装: 错误归一化为 { ok:false, error } */
   async function invoke(cmd, args) {
-    requireTauri();
+    const core = requireTauri();
     try {
       const r = await core.invoke(cmd, args || {});
       return { ok: true, data: r };

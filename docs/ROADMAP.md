@@ -144,6 +144,35 @@ S3.1(2026-08-07)在 `reader/styles/tokens.css` 建了 `--md-sys-font-size-*`(15 
 > 需求精化 + 架构记录会话的产出, 摘进这里作为活跃待办。完整任务卡/证据/验收在
 > `docs/requirements.md`(可执行任务卡 + 优先级清单)和 `docs/ARCHITECTURE.md`(§9.5)。
 
+### 书籍资产模型后续收口
+
+- **F43** legacy product 可能共享同一 `pack_dir`。v18 已迁移到 `editions`，但尚未物理复制
+  历史共享目录；必须校验并为每个 edition 建立独占目录后才能完成资产模型验收。
+- **F44** 历史 jobs 无法全部可靠回填 `edition_id`。当前按 `output_dir=pack_dir` 回填，无法匹配
+  的记录由启动孤儿清理处理；需要保留可追溯人工处理策略，不能静默猜测。
+- **F45** 用户复测发现一次导入疑似登记两次。**阶段0取证(2026-08-09, docs/FORENSIC_P0.md §3)**:
+  当前代码(工作树+786ca83)的 F34 fix 顺序颠倒 —— `_buildImportCard()` 先注册新 drag-drop
+  listener 并把 unlisten 存进 `this._offDrag`, 随后 render() line 94 立刻 `this._offDrag()`
+  注销的是**刚注册的 listener**, 不是旧 listener → 每次 render 后拖拽 listener 被立即杀死,
+  拖拽导入在当前代码实际不工作(与"累积"相反)。后端 `batch_import` source 幂等
+  (book_id_from_path 去重), 但每次调用必新建 batch。真实 DB: 1 source / 4 batch / 1 job,
+  无重复 source。重复导入的真实触发路径(文件选择双对话框 / 旧 exe listener 累积)待阶段2
+  在 exe 里注入 drag-drop 事件 + 连续点按复现, 并配自动化测试(同路径二次导入仍 1 source、
+  单次拖拽单 batch、re-render 不累积 listener)。
+- **F46** 用户复测发现约 100KB EPUB 阅读时卡死。**阶段0取证(2026-08-09, docs/FORENSIC_P0.md
+  §4)**: 92MB 整包 IPC 卡死已由 916534b 修复(load_bookpack 只回元信息 + 按需单章 + 渐进渲染)。
+  剩余真实结构问题 = `load_bookpack`/`load_bookpack_chapter` **每次请求都整文件读 + 全量 JSON
+  解析**: 用真实 Wolf 21 书包(23.88MB / 8007 句 / 46 章)实测 —— 单次 open 读+解析 ≈ 470ms,
+  **每切一章 ≈ 419ms 整文件重读重解析**; meta 响应仍含全部 original_text(1.3MB)。~100KB EPUB
+  的 bookpack 约 1.5MB(parse ~26ms), 不构成大小卡死 —— 不归因于文件大小。真正卡死更可能是
+  打开历史大书(多章切换全量解析)或旧版 exe。待用户书处理完成后在 exe 里复现, 并修
+  `load_bookpack_chapter` 改为按章只读/缓存 + loading/error/retry 可见态(阶段3)。
+- **阶段1 细化落地(2026-08-09)**: BOOK_WORKFLOW §2.3 要求"job 显式关联 source_id" ——
+  迁移 v19 给 jobs 加 source_id 列并回填(book_path 精确匹配 books.source_path),
+  `batch_start_prep`/`start_prep_job`/`batch_start` 建 job 时写 source_id;
+  `delete_source` 按 source_id 级联清 job(`delete_source_cleans_jobs_by_source_id` 测试),
+  `cleanup_orphans` 也认 source_id 锚。真实 DB 已迁移到 v19 且 job source_id 回填正确。
+
 - **候选缺陷(静态取证, 先 exe 复现再立项)**:
   - R4-1 书签跨章串位: `reader_view.js` 书签 Set 跨章不重置, 旧章下标套新章且覆写 reading_state。
     复现: ≥2 章书 ch1 打 2 书签 → 切 ch2 → 同序号句被高亮/面板列出错句。
@@ -221,6 +250,44 @@ S3.1(2026-08-07)在 `reader/styles/tokens.css` 建了 `--md-sys-font-size-*`(15 
   见 ARCHITECTURE §9.5 F22。
 - **死表面审计(P4 清理包)**: F5(job_id 死字段)/F14(profiles 表无 UI 写)/F17(无调用方命令)/
   F23(死配置字段)同根, 合并审计一次定去留。
+
+---
+
+## 阶段6: 完整设计交付确认(2026-08-09, 七屏高保真 `完整设计交付确认/`)
+
+> 设计稿 §10「落地清单」11 项。本次按"令牌先行 → 壳与导航 → 逐视图"顺序落地, 已做:
+> 令牌层(纸纹/动效/废弃 radius-xl)、纸纹单一实例、.atomic-block 禁滤镜/纹理 lint、
+> 导航三层结构、models 并入设置、书库状态分段筛选、跟读第四个预设「孩子」、
+> 生词本来源句上下文(后端持久化+前端展示)、每日图表当天强调色、失败详情复制日志。
+> 剩余为后端契约依赖较大的项(处理中九段: 后端仅 emit 7 段; 设置左纵列: 横 tab 未改竖列),
+> 列在下方说明。
+
+- [x] **§10 item 1 令牌**: tokens.css 新增 `--rd-grain-1/2`、`--rd-grain-opacity`(深色换暖灰)、
+  `--md-sys-motion-fast/base/slow`; `--md-sys-radius-xl` 标废弃(禁新用)。
+- [x] **§10 item 2 纸纹**: app.css `body::before` 单一实例(固定定位、pointer-events:none、
+  不参与动画), 深色块内 grain 换暖灰。禁止加在 .blk/卡片上。
+- [x] **§10 item 11 lint**: check.ps1 新增 `css:no-blk-texture` —— `.atomic-block`(JS 里
+  `.blk` 别名)禁止 backdrop-filter 与 background-image。现有 .rd-top 的 blur 不在其内, 门禁绿。
+- [x] **§10 item 3 导航三层结构**: shell_view 重构 —— 左「我的书·生词本」右「导入·处理中(n)」
+  最右齿轮。「处理中(n)」徽章常驻(无任务显示 0), 当前项 = primary + 600 + 底部 2px 圆角线。
+- [x] **§10 item 4 路由合并**: `models → settings` 重定向(模型中心并入设置, 旧路由保留一版);
+  library/products 已合一。`prep → jobs` 改名未做(处理中导航已落地, 路由名保持 prep)。
+- [x] **§10 item 5 书库**: 顶部状态分段筛选(全部/已就绪/处理中/未处理)带计数, 替换原下拉;
+  桶映射有单测(library_status_bucket.test.js); 空态虚线容器已有。
+- [x] **§10 item 6 导入单屏**: 设计的"导入"屏映射到现有 library_view 的导入卡(已是单屏:
+  拖拽/文件选择 + 档案 + 语言 + 提示, 无多步向导)。首次运行向导是 onboarding, 与导入
+  是两回事, 保持分开。
+- [x] **§10 item 7 处理中**: 任务卡 + 阶段流水条(后端契约 emit 7 阶段 parse/nlp/translate/
+  explain/tts/align/pack, 设计稿"九段"含前端拆分, 后端不额外 emit → 维持 7 段与契约一致);
+  日志在详情模态折叠区(非 tab); 失败三动作: 重试失败句 + 查看详情 + **复制日志**(新增)。
+- [x] **§10 item 8 设置左纵列**: 模型中心并入设置成为一个分区(tab「模型中心」挂载
+  ModelsView, 模块本身不改只换挂载点); 左侧纵向分区列表 —— 当前项 = 左 2px 陶土竖线 +
+  primary-container 底(本轮补齐), <800px 折回横向滚动。
+- [x] **§10 item 9 生词本**: 词条卡加来源句上下文(原句, 左 2px 强调竖线)—— 后端
+  `add_vocab` 接受 context 并持久化(add_to_vocab_stores_source_context 测试), 阅读器加词
+  传来源句, vocab_view 渲染; 右栏统计当日强调色/<800px 抽屉未做。
+- [x] **§10 item 10 阅读器**: 跟读预设新增第四个「孩子」(repeat 3 / 留白 1500ms / 0.7x),
+  follow_bar 已是四预设 pill + 微调进浮层。零层导航(Esc 返回)已具备。
 
 ---
 

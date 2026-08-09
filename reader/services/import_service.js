@@ -60,7 +60,7 @@
       return models;
     },
 
-    /** 启动批量导入: 组装完整参数 → batch_import (R1: 只登记书, 不开始处理) */
+    /** 启动批量导入: 组装完整参数 → batch_import (R1: 只登记 source, 不开始处理) */
     async importBooks(paths, profileId, languages) {
       const profile = await this.getProfile(profileId);
       return AiduBridge.invoke('batch_import', {

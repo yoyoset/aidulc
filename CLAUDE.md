@@ -16,7 +16,8 @@
 | `dictionary` | `dict_repo.rs` | 个人词典资产 |
 | `profiles` | `profile_repo.rs` | 讲解策略/音色/语速/高亮粒度 |
 | `reading_state` | `reading_repo.rs` | 阅读进度/书签/播放位置 |
-| `books` | `books_repo.rs` | 书库登记 |
+| `books` | `books_repo.rs` | 原书(source)登记；不承载可阅读成品 |
+| `editions` | `editions_repo.rs` | 译本/成品(edition)及生成参数快照 |
 | `reader_settings` | `settings_repo.rs` | 阅读器设置 |
 | `jobs` | `jobs_repo.rs` | 备料任务 |
 | `batches` | `batches_repo.rs` | 批量任务 |

@@ -110,8 +110,9 @@ pub fn add_vocab(
     db: State<store::Db>,
     word: String,
     profile_id: String,
+    context: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    dictionary_service::add_to_vocab(db.inner(), &profile_id, &word)
+    dictionary_service::add_to_vocab(db.inner(), &profile_id, &word, context)
 }
 
 /// 词典列表 (某 profile)

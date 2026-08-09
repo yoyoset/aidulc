@@ -27,22 +27,26 @@
   const store = new AiduStore();
   const shell = new ShellView(app);
   shell.render();
+  const startupLoading = document.createElement('div');
+  startupLoading.className = 'app-loading';
+  startupLoading.textContent = '正在启动 aidulc…';
+  shell.getViewContainer().appendChild(startupLoading);
 
   const router = new AiduRouter(shell.getViewContainer());
   shell.setRouter(router);
 
   // ---- 视图实例 ----
   const libraryView = new LibraryView(store, 'original');
-  const productsView = new LibraryView(store, 'product');
   const prepView = new PrepView(store);
   const settingsView = new SettingsView(store);
   const readerView = new ReaderView(store);
   const wizardView = new WizardView(store);
-  const modelsView = new ModelsView(store);
   const vocabView = new VocabView(store);
 
   // ---- 首次运行: 向导拦截 ----
   AiduModelService.wizardState().then((res) => {
+    startupLoading.remove();
+    if (!res.ok) throw new Error(res.error || '无法读取首次启动状态');
     if (res.ok && res.data && res.data.status === 'done') {
       router.start();
     } else {
@@ -52,6 +56,13 @@
       wizardView.onDone = () => router.navigate('library');
       wizardView.render(shell.getViewContainer());
     }
+  }).catch((err) => {
+    startupLoading.remove();
+    shell.getViewContainer().innerHTML = '';
+    const error = document.createElement('div');
+    error.className = 'global-error';
+    error.textContent = '应用启动失败：' + String(err && err.message || err);
+    shell.getViewContainer().appendChild(error);
   });
 
   // ---- 路由 ----
@@ -59,37 +70,26 @@
     shell.setActiveNav('library');
     readerView.cleanup();
     prepView.cleanup();
-    libraryView.render(container);
     if (libraryView._jobTimer) clearInterval(libraryView._jobTimer);
     libraryView.render(container);
-    if (productsView._jobTimer) clearInterval(productsView._jobTimer);
     AiduLibraryService.list('original').then((res) => {
       if (res.ok) store.set({ books: res.data });
       else shell.showError('读书库失败: ' + res.error);
     });
   });
 
-  // v7: 成品架 (AI 跑完的书, 可阅读)
-  router.register('products', (container) => {
-    shell.setActiveNav('products');
-    readerView.cleanup();
-    prepView.cleanup();
-    productsView.render(container);
-    if (libraryView._jobTimer) clearInterval(libraryView._jobTimer);
-    AiduLibraryService.list('product').then((res) => {
-      if (res.ok) store.set({ books: res.data });
-      else shell.showError('读成品失败: ' + res.error);
-    });
-  });
+  // 旧成品架路由只做兼容重定向；译本现在统一显示在“我的书”的原书卡下。
+  router.register('products', () => router.navigate('library'));
 
   router.register('prep', (container) => {
     shell.setActiveNav('prep');
     readerView.cleanup();
+    libraryView.cleanup();
     prepView.render(container);
     prepView.onOpenBook = (bookId, packDir) => {
-      // G6: 任务完成 → 打开书籍 (成品架路由)
-      store.set({ currentBook: { id: bookId, title: packDir.split(/[\\/]/).pop() || bookId } });
-      store.set({ readerBackRoute: 'products' });
+       // G6: 任务完成 → 打开书籍 (译本现在归属于“我的书”中的原书)
+       store.set({ currentBook: { id: bookId, title: packDir.split(/[\\/]/).pop() || bookId } });
+       store.set({ readerBackRoute: 'library' });
       router.navigate('reader');
     };
   });
@@ -98,20 +98,18 @@
     shell.setActiveNav('settings');
     readerView.cleanup();
     prepView.cleanup();
+    libraryView.cleanup();
     settingsView.render(container);
   });
 
-  router.register('models', (container) => {
-    shell.setActiveNav('models');
-    readerView.cleanup();
-    prepView.cleanup();
-    modelsView.render(container);
-  });
+  // 阶段6 设计交付 §10 item 4/8: 模型中心并入设置 → 旧 models 路由重定向到设置
+  router.register('models', () => router.navigate('settings'));
 
   router.register('vocab', (container) => {
     shell.setActiveNav('vocab');
     readerView.cleanup();
     prepView.cleanup();
+    libraryView.cleanup();
     vocabView.render(container);
   });
 
@@ -128,7 +126,7 @@
     readerView.open(current.id).catch(err => shell.showError(String(err)));
   });
 
-  // 导入成功 → 提示去备料台看进度 (区隔: 书库只管导入, 备料台只管进度)
+  // 导入成功 → 提示下一步是"创建译本" (阶段2: 原书 ≠ 可阅读成品)
   libraryView.onImported = (count) => {
     store.set({ importedNotice: { count, ts: Date.now() } });
   };
@@ -150,5 +148,4 @@
     router.navigate('reader');
   };
   libraryView.onOpenBook = (book) => openBook(book, 'library');
-  productsView.onOpenBook = (book) => openBook(book, 'products');
 })();

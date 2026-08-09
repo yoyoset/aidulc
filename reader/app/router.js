@@ -42,7 +42,9 @@
     }
 
     start() {
-      this._dispatch();
+      // Initial hash is usually empty while current defaults to library.
+      // Force the first render instead of treating startup as a duplicate route.
+      this._dispatch('library');
     }
   }
 

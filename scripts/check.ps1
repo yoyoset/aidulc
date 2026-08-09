@@ -114,6 +114,22 @@ Run-Check "css:no-raw-hex(tokens.css 之外)" {
     }
 }
 
+# 8.4 (完整设计交付确认 §10 item 11): .atomic-block(JS 里的 .blk 别名)及其子元素禁止
+# backdrop-filter 与 background-image —— 3000+ span 的章节里逐块纹理/滤镜重绘代价成倍上升。
+# 纸纹只能是 body::before 单一实例(tokens 里的 --rd-grain-*)。reader.css 顶栏的
+# backdrop-filter 在 .rd-top 上, 不是 atomic-block, 不受影响。
+Run-Check "css:no-blk-texture(.atomic-block 禁 backdrop-filter/background-image)" {
+    $offenders = Get-ChildItem "$root\reader\styles\*.css" |
+        Select-String -Pattern '\.atomic-block[^{]*\{[\s\S]*?(backdrop-filter|background-image)'
+    if ($offenders) {
+        Write-Output "违反: .atomic-block 上使用了 backdrop-filter 或 background-image"
+        $global:LASTEXITCODE = 1
+    } else {
+        Write-Output "干净: .atomic-block 未使用滤镜/纹理"
+        $global:LASTEXITCODE = 0
+    }
+}
+
 # 8.5 (M7 Round 6, 2026-08-08): 令牌对比度门禁 —— 直接解析 tokens.css 计算每个
 # palette × mode 的关键前景/背景对, WCAG AA 正文 ≥ 4.5 不达标即失败。
 # 防"以后改了某个令牌把无障碍做坏"静默发生。

@@ -4,6 +4,7 @@ mod application {
     pub mod book_transfer_service;
     pub mod dictionary_service;
     pub mod job_orchestrator;
+    pub mod library_asset_service;
     pub mod library_service;
     pub mod model_service;
     pub mod sync_service;
@@ -31,6 +32,7 @@ mod store {
     pub mod batches_repo;
     pub mod books_repo;
     pub mod dict_repo;
+    pub mod editions_repo;
     pub mod highlights_repo;
     pub mod jobs_repo;
     pub mod model_repo;
@@ -48,6 +50,7 @@ mod jobs {
 }
 mod infrastructure {
     pub mod aidu_worker_client;
+    pub mod bookpack_cache;
     pub mod dict_daemon;
     pub mod dir_migration;
     pub mod downloader;
@@ -320,6 +323,8 @@ fn main() {
             queue: Mutex::new(recover_queue),
         })
         .manage(prep_cfg)
+        // 阶段3 (F46): 书包解析缓存, 消除大书每章整文件重读重解析 (实测 419ms/章)
+        .manage(infrastructure::bookpack_cache::BookpackCache::new())
         .setup(|app| {
             // G7: 启动后自动恢复队列任务
             if let (Some(cfg), Some(db), Some(st)) = (
@@ -327,6 +332,7 @@ fn main() {
                 app.try_state::<store::Db>(),
                 app.try_state::<PrepState>(),
             ) {
+                let _ = application::library_asset_service::cleanup_orphans(db.inner());
                 // 修复: 任务死 (进程被强杀) 但书状态卡 processing → 恢复 pending (书库可见可重试)
                 let books_repo = store::books_repo::BooksRepo::new(db.inner());
                 for b in books_repo.list_by_kind("original") {

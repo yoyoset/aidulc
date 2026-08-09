@@ -1,7 +1,23 @@
 //! store/mod.rs —— SQLite 唯一真相源: WAL + busy_timeout + 顺序迁移
 
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
+use std::collections::HashSet;
 use std::sync::Mutex;
+
+fn copy_pack_dir(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if from.is_dir() {
+            copy_pack_dir(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
 
 pub struct Db {
     pub conn: Mutex<Connection>,
@@ -31,6 +47,25 @@ impl Db {
     }
 
     fn migrate(&self) -> Result<(), String> {
+        type LegacyProduct = (
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            i64,
+            i64,
+            Option<i64>,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            i64,
+            i64,
+            Option<String>,
+        );
         let conn = self.conn.lock().unwrap();
         // 版本表
         conn.execute_batch(
@@ -381,6 +416,144 @@ impl Db {
             )
             .map_err(|e| format!("迁移 v17 失败: {e}"))?;
         }
+        // v18: generated assets leave books. The migration is deliberately data-driven:
+        // malformed legacy source links get a stable synthetic source instead of being lost.
+        if version < 18 {
+            conn.execute_batch("BEGIN IMMEDIATE;")
+                .map_err(|e| format!("迁移 v18 开始失败: {e}"))?;
+            let result = (|| -> Result<(), String> {
+                conn.execute_batch("CREATE TABLE IF NOT EXISTS editions (
+                    id TEXT PRIMARY KEY, source_id TEXT NOT NULL, title TEXT NOT NULL,
+                    pack_dir TEXT NOT NULL, profile_id TEXT NOT NULL DEFAULT 'default',
+                    status TEXT NOT NULL DEFAULT 'ready', chapter_count INTEGER NOT NULL DEFAULT 0,
+                    failed_count INTEGER NOT NULL DEFAULT 0, last_opened_at INTEGER,
+                    source_language TEXT NOT NULL DEFAULT 'en', target_language TEXT NOT NULL DEFAULT 'zh-CN',
+                    llm_id TEXT, tts_id TEXT, nlp_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_editions_book_id ON editions(source_id);
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_editions_asset ON editions
+                    (source_id, profile_id, source_language, target_language,
+                     coalesce(llm_id,''), coalesce(tts_id,''), coalesce(nlp_id,''));
+                ALTER TABLE jobs ADD COLUMN edition_id TEXT;")
+                    .map_err(|e| format!("建 editions 失败: {e}"))?;
+                let mut stmt = conn.prepare("SELECT id,title,source_path,pack_dir,profile_id,status,chapter_count,failed_count,last_opened_at,source_language,target_language,llm_id,tts_id,nlp_id,created_at,updated_at,source_book_id FROM books WHERE kind='product'").map_err(|e| e.to_string())?;
+                let rows: Vec<LegacyProduct> = stmt
+                    .query_map([], |r| {
+                        Ok((
+                            r.get(0)?,
+                            r.get(1)?,
+                            r.get(2)?,
+                            r.get(3)?,
+                            r.get(4)?,
+                            r.get(5)?,
+                            r.get(6)?,
+                            r.get(7)?,
+                            r.get(8)?,
+                            r.get(9)?,
+                            r.get(10)?,
+                            r.get(11)?,
+                            r.get(12)?,
+                            r.get(13)?,
+                            r.get(14)?,
+                            r.get(15)?,
+                            r.get(16)?,
+                        ))
+                    })
+                    .map_err(|e| e.to_string())?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                drop(stmt);
+                let mut used_pack_dirs = HashSet::new();
+                for (
+                    id,
+                    title,
+                    path,
+                    pack,
+                    profile,
+                    status,
+                    chap,
+                    failed,
+                    last,
+                    sl,
+                    tl,
+                    llm,
+                    tts,
+                    nlp,
+                    created,
+                    updated,
+                    source,
+                ) in rows
+                {
+                    let source_id = match source.filter(|s| s != &id).filter(|s| {
+                        conn.query_row(
+                            "SELECT 1 FROM books WHERE id=?1 AND kind='original'",
+                            [s],
+                            |_| Ok(()),
+                        )
+                        .is_ok()
+                    }) {
+                        Some(s) => s,
+                        None => {
+                            let sid = format!("synthetic-source-{id}");
+                            conn.execute("INSERT OR IGNORE INTO books (id,title,source_path,pack_dir,profile_id,status,kind,chapter_count,failed_count,created_at,updated_at,source_language,target_language) VALUES (?1,?2,?3,'',?4,'done','original',0,0,?5,?6,?7,?8)", params![sid,title,path,profile,created,updated,sl,tl]).map_err(|e| e.to_string())?;
+                            sid
+                        }
+                    };
+                    let mut edition_pack = pack.clone();
+                    if !pack.is_empty() && !used_pack_dirs.insert(pack.clone()) {
+                        let candidate = format!("{pack}.edition-{id}");
+                        if !std::path::Path::new(&candidate).exists()
+                            && copy_pack_dir(
+                                std::path::Path::new(&pack),
+                                std::path::Path::new(&candidate),
+                            )
+                            .is_ok()
+                        {
+                            edition_pack = candidate;
+                        }
+                    }
+                    conn.execute("INSERT OR IGNORE INTO editions (id,source_id,title,pack_dir,profile_id,status,chapter_count,failed_count,last_opened_at,source_language,target_language,llm_id,tts_id,nlp_id,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)", params![id,source_id,title,edition_pack,profile,status,chap,failed,last,sl,tl,llm,tts,nlp,created,updated]).map_err(|e| e.to_string())?;
+                    conn.execute(
+                        "UPDATE jobs SET edition_id=?1 WHERE edition_id IS NULL AND output_dir=?2",
+                        params![id, pack],
+                    )
+                    .map_err(|e| e.to_string())?;
+                    conn.execute("DELETE FROM books WHERE id=?1 AND kind='product'", [id])
+                        .map_err(|e| e.to_string())?;
+                }
+                conn.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (18, strftime('%s','now')*1000)", []).map_err(|e| e.to_string())?;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => conn
+                    .execute_batch("COMMIT;")
+                    .map_err(|e| format!("迁移 v18 提交失败: {e}"))?,
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK;");
+                    return Err(format!("迁移 v18 失败: {e}"));
+                }
+            }
+        }
+        // v19 (BOOK_WORKFLOW §2.3, 2026-08-09): job 显式关联 source_id。
+        // 此前 job 只存 book_path(源文件路径字符串)间接指到 source; 目标流程要求 job 能
+        // 直接按 source_id 关联(删除 source 时级联清 job、按 source 查历史任务)。
+        // 回填: book_path 精确匹配 books.source_path 的行, 把 source id 填上。
+        if version < 19 {
+            conn.execute_batch("ALTER TABLE jobs ADD COLUMN source_id TEXT;")
+                .map_err(|e| format!("迁移 v19 加列失败: {e}"))?;
+            conn.execute_batch(
+                "UPDATE jobs SET source_id = (
+                     SELECT b.id FROM books b
+                     WHERE b.kind='original' AND b.source_path = jobs.book_path
+                     LIMIT 1
+                 );",
+            )
+            .map_err(|e| format!("迁移 v19 回填失败: {e}"))?;
+            conn.execute_batch(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (19, strftime('%s','now')*1000);",
+            )
+            .map_err(|e| format!("迁移 v19 记录失败: {e}"))?;
+        }
         Ok(())
     }
 }
@@ -407,9 +580,16 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert!(version >= 3, "应迁移到 v3, 实得 {version}");
+        assert!(version >= 18, "应迁移到 v18, 实得 {version}");
         // 关键表存在
-        for table in ["vocab", "dictionary", "books", "jobs", "reader_settings"] {
+        for table in [
+            "vocab",
+            "dictionary",
+            "books",
+            "editions",
+            "jobs",
+            "reader_settings",
+        ] {
             let n: i64 = conn
                 .query_row(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
@@ -451,6 +631,23 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 1, "highlights 表应存在");
+        let job_edition: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name='edition_id'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(job_edition, 1, "jobs 应有 edition_id");
+        // v19 (BOOK_WORKFLOW §2.3): job 显式关联 source_id
+        let job_source: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name='source_id'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(job_source, 1, "jobs 应有 source_id");
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}-wal"));
@@ -543,6 +740,85 @@ mod tests {
             let db = Db::open(&path).expect("重复打开应成功");
             drop(db);
         }
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-wal"));
+        let _ = std::fs::remove_file(format!("{path}-shm"));
+    }
+
+    #[test]
+    fn copy_pack_dir_preserves_nested_assets() {
+        let root = std::env::temp_dir().join(format!("aidulc_pack_copy_{}", std::process::id()));
+        let src = root.join("source");
+        let dst = root.join("edition");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(src.join("audio")).unwrap();
+        std::fs::write(src.join("bookpack.json"), b"pack").unwrap();
+        std::fs::write(src.join("audio").join("ch0.opus"), b"audio").unwrap();
+        copy_pack_dir(&src, &dst).unwrap();
+        assert_eq!(std::fs::read(dst.join("bookpack.json")).unwrap(), b"pack");
+        assert_eq!(
+            std::fs::read(dst.join("audio").join("ch0.opus")).unwrap(),
+            b"audio"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn v18_migrates_legacy_product_without_loss() {
+        let path = temp_path("legacy_product");
+        let _ = std::fs::remove_file(&path);
+        {
+            let db = Db::open(&path).unwrap();
+            let conn = db.conn.lock().unwrap();
+            conn.execute_batch(
+                "DROP TABLE editions;
+                 ALTER TABLE jobs RENAME TO jobs_with_edition;
+                 CREATE TABLE jobs AS SELECT id, book_path, profile_id, output_dir, status, stage,
+                    current, total, failed_count, batch_id, source_language, target_language,
+                    error, progress, created_at, updated_at FROM jobs_with_edition;
+                 DROP TABLE jobs_with_edition;
+                 DELETE FROM schema_migrations WHERE version=18;
+                 DELETE FROM schema_migrations WHERE version=19;
+                 INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,source_book_id,
+                    chapter_count,failed_count,source_language,target_language,llm_id,tts_id,nlp_id,
+                    created_at,updated_at)
+                    VALUES ('source-1','Source','C:/source.epub','','default','done','original',NULL,
+                    0,0,'en','zh-CN',NULL,NULL,NULL,1,1);
+                 INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,source_book_id,
+                    chapter_count,failed_count,source_language,target_language,llm_id,tts_id,nlp_id,
+                    created_at,updated_at)
+                    VALUES ('product-1','Product','C:/source.epub','C:/old-pack','kid','ready','product','source-1',
+                    2,1,'en','zh-CN','llm-1','tts-1','nlp-1',2,2);",
+            )
+            .unwrap();
+        }
+        let db = Db::open(&path).unwrap();
+        let conn = db.conn.lock().unwrap();
+        let edition: (String, String, String, i64) = conn
+            .query_row(
+                "SELECT source_id, pack_dir, profile_id, failed_count FROM editions WHERE id='product-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            edition,
+            ("source-1".into(), "C:/old-pack".into(), "kid".into(), 1)
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM books WHERE kind='product'", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            conn.query_row("SELECT title FROM books WHERE id='source-1'", [], |r| {
+                r.get::<_, String>(0)
+            })
+            .unwrap(),
+            "Source"
+        );
+        drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}-wal"));
         let _ = std::fs::remove_file(format!("{path}-shm"));

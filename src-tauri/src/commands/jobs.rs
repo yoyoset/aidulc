@@ -38,7 +38,7 @@ pub fn start_prep_job(
 }
 
 /// 导入批次 (R1: 只登记书+批次, 不开始处理)
-/// 返回 batch_id。用户稍后在书库点"开始阅读准备" → batch_start_prep。
+/// 返回 { batch_id, registered[], skipped[] }。用户稍后在书库点"创建译本" → batch_start_prep。
 #[tauri::command]
 pub fn batch_import(
     app: tauri::AppHandle,
@@ -47,7 +47,7 @@ pub fn batch_import(
     profile: serde_json::Value,
     source_language: Option<String>,
     target_language: Option<String>,
-) -> Result<String, String> {
+) -> Result<serde_json::Value, String> {
     orch::batch_import(
         app,
         db.inner(),

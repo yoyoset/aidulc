@@ -62,6 +62,7 @@
   --md-sys-radius-sm: 8px;
   --md-sys-radius-md: 12px;
   --md-sys-radius-lg: 16px;
+  /* 已废弃 (完整设计交付确认 §09): 28px 无使用场景, 禁止新用。保留取值兼容历史。 */
   --md-sys-radius-xl: 28px;
   --md-sys-radius-pill: 999px;
 
@@ -105,6 +106,17 @@
   --md-sys-space-6: 24px;
   --md-sys-space-8: 32px;
   --md-sys-space-12: 48px;
+
+  /* 动效时长 (完整设计交付确认 §09): 逐词高亮用 fast, 状态变色用 base, 浮层进出用 slow。 */
+  --md-sys-motion-fast: 0.12s;
+  --md-sys-motion-base: 0.15s;
+  --md-sys-motion-slow: 0.25s;
+
+  /* 纸纹 (完整设计交付确认 §09): 唯一允许的纹理来源。body::before 单一实例使用,
+     禁止加在 .blk 或卡片上(3000+ span 章节重绘代价成倍上升)。对比度 <1.5%, 可关。 */
+  --rd-grain-1: rgba(74, 47, 28, 0.014);
+  --rd-grain-2: rgba(74, 47, 28, 0.008);
+  --rd-grain-opacity: 1;
 
   /* ---- 阅读器专用令牌 --rd-* (S5.1, 2026-08-08 三模式阅读器) ----
      设计理由(设计文档 §5): MD3 的 27 个 color role 是通用 UI 语汇, 不表达
@@ -182,6 +194,10 @@ body[data-theme="dark"] {
   --rd-reading-bg: #4a3a28;
   --rd-mark: #d3ae6e;
   --rd-dim: 0.30;
+
+  /* 深色纸纹: 换成更淡的暖灰, 深色下不刺眼 (完整设计交付确认 §09) */
+  --rd-grain-1: rgba(232, 226, 214, 0.010);
+  --rd-grain-2: rgba(232, 226, 214, 0.006);
 }
 
 /* 儿童取值(设计 §2.8): 不是第二套 CSS, 是同一批令牌的另一组取值。应用在

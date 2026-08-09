@@ -6,7 +6,18 @@
 
 架构与强制规约见 [CLAUDE.md](CLAUDE.md)(存储所有权表、contracts 校验、测试门禁、已知坑)。
 当前待办见 [docs/ROADMAP.md](docs/ROADMAP.md); 历史执行记录(已归档, 仅供追溯)在
-[docs/archive/](docs/archive/)。
+[docs/archive/](docs/archive/)。变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+
+## 书籍主流程(原书 → 译本)
+
+精读工作流拆成两个明确阶段, 详见 [docs/BOOK_WORKFLOW.md](docs/BOOK_WORKFLOW.md):
+
+1. **导入原书**: 拖入/选择一本 EPUB / PDF / TXT, 只登记为"原书"(来源, 不可读)。
+   同一文件重复导入不会产生第二条 source。
+2. **创建译本**: 在原书卡点"创建译本"→ 配置学习档案 / 语言 / LLM / TTS → 开始备料。
+   备料完成生成可阅读的"译本"; 相同参数重跑覆盖原译本, 不同参数生成多个译本。
+3. **阅读**: 只能打开译本; 进度、书签、摘录都归属到具体译本。
+4. **删除**: 删译本只清它自己; 删原书级联删除它的全部译本与数据。
 
 ## 功能亮点
 
@@ -26,8 +37,8 @@
   任务启动/退出时释放显存。
 - **生词积累可见**: 近 14 天每日新增条形图 + 四阶段掌握度概览; .aidu-data 备份/恢复
   (生词/词典/摘录)。
-- **完整闭环**: 书库 → 阅读准备(按批次分组, 暂停/继续/重试失败句/查看详情)→ 成品架 →
-  阅读 → 生词本 → CF 同步(可断开, 显示当前 Worker)。
+- **完整闭环**: 书库(原书 + 译本层级) → 阅读准备(按批次分组, 暂停/继续/重试失败句/查看详情)
+  → 译本 → 阅读 → 生词本 → CF 同步(可断开, 显示当前 Worker)。
 
 ## 结构
 
@@ -38,7 +49,9 @@ prep/       Python 侧车: 一本书跑一次的离线批处理流水线
 contracts/  三端共享的 JSON Schema (唯一权威; prep/aidulc_prep/schemas/ 是打包拷贝)
 memory/     踩过的坑 (配置/外部集成/状态管理/错误反馈/阅读器), 改动前先读
 docs/       BASELINE.md(回滚基准) + ROADMAP.md(活跃待办) + requirements.md(需求账本)
-            + ARCHITECTURE.md(实测现状) + archive/(历史记录) + measurements/(实测数据)
+            + ARCHITECTURE.md(实测现状) + BOOK_WORKFLOW.md(书籍主流程基线)
+            + FORENSIC_P0.md(取证报告) + ACCEPTANCE_P5.md(exe 验收) + UX_REQUIREMENTS.md
+            + archive/(历史记录) + measurements/(实测数据)
 scripts/    check.ps1(全量门禁) + run.ps1(构建并启动) + sync_schema.ps1(契约同步)
 ```
 

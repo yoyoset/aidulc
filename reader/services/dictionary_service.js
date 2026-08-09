@@ -8,8 +8,9 @@
     lookup(word, profileId, context) {
       return AiduBridge.invoke('word_lookup', { word, profileId, context });
     },
-    addToVocab(word, profileId) {
-      return AiduBridge.invoke('add_vocab', { word, profileId });
+    addToVocab(word, profileId, context) {
+      // 阶段6 设计交付 §04: 记录来源句上下文 (词条卡显示"从哪里读到的")
+      return AiduBridge.invoke('add_vocab', { word, profileId, context: context || '' });
     },
     list(profileId) { return AiduBridge.invoke('dict_list', { profileId }); },
     search(profileId, q) { return AiduBridge.invoke('dict_search', { profileId, q }); },

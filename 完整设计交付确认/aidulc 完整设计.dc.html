@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#efe9dd;-webkit-font-smoothing:antialiased}
+a{color:#9c6a4a;text-decoration:none;border-bottom:1px solid rgba(156,106,74,.3)}
+a:hover{color:#7d5439}
+</style>
+</helmet>
+<div style="position:fixed;inset:0;pointer-events:none;z-index:0;background-image:repeating-linear-gradient(90deg,rgba(74,47,28,.014) 0 1px,transparent 1px 3px),repeating-linear-gradient(24deg,rgba(74,47,28,.008) 0 2px,transparent 2px 7px);opacity:{{ grain }}"></div>
+
+<div style="position:relative;z-index:1;font-family:'Segoe UI','Microsoft YaHei',system-ui,sans-serif;color:#28241e;padding:64px 40px 120px;display:flex;flex-direction:column;align-items:flex-start;gap:80px;width:max-content;min-width:100%;box-sizing:border-box">
+
+<header style="width:1120px;display:flex;flex-direction:column;gap:16px">
+  <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.16em;color:#746f63">AIDULC · SCREENS · V1 · 2026-08-08</div>
+  <h1 style="margin:0;font-size:34px;font-weight:650;letter-spacing:-.01em">完整界面设计</h1>
+  <p style="margin:0;max-width:720px;font-size:15px;line-height:1.75;color:#5d574e;text-wrap:pretty">按《aidulc 设计语言 v1》逐屏落地。七屏高保真 + 深色 / 儿童 / 四色系取值 + 令牌与组件规格 + 逐文件改动清单。窗口按 1120×760 绘制（应用默认 1100×800）。每屏下方的灰底方框是实施说明，不是界面的一部分。</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:4px">
+    <a href="#s1" style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;font-size:13px;color:#5d574e;border-bottom:1px solid #d9d2c4">01 我的书</a>
+    <a href="#s2" style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;font-size:13px;color:#5d574e;border-bottom:1px solid #d9d2c4">02 导入</a>
+    <a href="#s3" style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;font-size:13px;color:#5d574e;border-bottom:1px solid #d9d2c4">03 处理中</a>
+    <a href="#s4" style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;font-size:13px;color:#5d574e;border-bottom:1px solid #d9d2c4">04 生词本</a>
+    <a href="#s5" style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;font-size:13px;color:#5d574e;border-bottom:1px solid #d9d2c4">05 设置</a>
+    <a href="#s6" style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;font-size:13px;color:#5d574e;border-bottom:1px solid #d9d2c4">06 阅读器三模式</a>
+    <a href="#s7" style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;font-size:13px;color:#5d574e;border-bottom:1px solid #d9d2c4">07 空态与失败态</a>
+    <a href="#s8" style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;font-size:13px;color:#5d574e;border-bottom:1px solid #d9d2c4">08 深色 / 儿童 / 色系</a>
+    <a href="#s9" style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;font-size:13px;color:#5d574e;border-bottom:1px solid #d9d2c4">09 令牌与组件</a>
+    <a href="#s10" style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;font-size:13px;color:#5d574e;border-bottom:1px solid #d9d2c4">10 落地清单</a>
+  </div>
+</header>
+
+<!-- ============ 01 我的书 ============ -->
+<section id="s1" style="width:1120px;display:flex;flex-direction:column;gap:18px">
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.12em;color:#746f63">01 / 我的书</div>
+    <div style="font-size:20px;font-weight:600">一个列表，用筛选条区分状态</div>
+    <div style="font-size:14px;line-height:1.75;color:#5d574e;max-width:780px">原「书库 · 我的书」两个等权页签合并为一个列表。状态改用分段控件过滤——它是筛选不是导航，不改变地址。顶栏只留两个每日目的地，工作流入口靠右，配置收进齿轮。</div>
+  </div>
+
+  <div style="border:1px solid #d9d2c4;border-radius:12px;overflow:hidden;background:#faf7f1;box-shadow:0 2px 4px rgba(74,47,28,.12),0 6px 14px rgba(74,47,28,.10)">
+    <div style="height:52px;display:flex;align-items:center;padding:0 20px;background:rgba(250,247,241,.86);backdrop-filter:blur(14px);border-bottom:1px solid #d9d2c4">
+      <div style="font-size:13px;font-weight:600;color:#746f63;letter-spacing:.02em;padding-right:24px">aidulc</div>
+      <div style="display:flex;align-items:stretch;align-self:stretch">
+        <div style="display:flex;align-items:center;padding:0 16px;font-size:14px;font-weight:600;color:#9c6a4a;position:relative">我的书<span style="position:absolute;left:12px;right:12px;bottom:0;height:2px;border-radius:2px;background:#9c6a4a"></span></div>
+        <div style="display:flex;align-items:center;padding:0 16px;font-size:14px;color:#5d574e">生词本</div>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:4px">
+        <div style="padding:0 16px;height:52px;display:flex;align-items:center;font-size:14px;color:#5d574e">导入</div>
+        <div style="padding:0 16px;height:52px;display:flex;align-items:center;gap:7px;font-size:14px;color:#5d574e">处理中<span style="min-width:18px;height:18px;padding:0 5px;border-radius:10px;background:#5a7687;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">2</span></div>
+        <div style="width:32px;height:32px;margin-left:12px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:15px;color:#746f63">⚙</div>
+      </div>
+    </div>
+
+    <div style="padding:24px 20px 28px;display:flex;flex-direction:column;gap:20px;min-height:640px">
+      <div style="display:flex;align-items:center;gap:16px">
+        <div style="display:flex;gap:6px">
+          <div style="padding:5px 14px;border-radius:999px;background:#9c6a4a;color:#fff;font-size:13px;font-weight:600">全部 9</div>
+          <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">已就绪 5</div>
+          <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">处理中 2</div>
+          <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">未处理 2</div>
+        </div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:8px;padding:0 12px;height:32px;border:1px solid #d9d2c4;border-radius:8px;width:220px;color:#746f63;font-size:13px">搜索书名或作者</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+        <div style="border:1px solid #d9d2c4;border-radius:16px;background:#fbf8f3;padding:18px;display:flex;flex-direction:column;gap:14px;box-shadow:0 1px 2px rgba(74,47,28,.10),0 2px 6px rgba(74,47,28,.07)">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="width:44px;height:60px;border-radius:4px;background:#f1ebe0;border:1px solid #d9d2c4;flex:none"></div>
+            <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+              <div style="font-size:15px;font-weight:600;line-height:1.4">The Lamp and the Rain</div>
+              <div style="font-size:13px;color:#5d574e">E. Marchetti</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="padding:1px 8px;border-radius:10px;background:#5d7a58;color:#fff;font-size:11.5px;font-weight:600">已就绪</span>
+            <span style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#746f63">12 章 · 3 480 句 · 6h12m</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="height:3px;border-radius:2px;background:#ede7db;overflow:hidden"><div style="width:38%;height:100%;background:#9c6a4a"></div></div>
+            <div style="font-size:12px;color:#746f63">读到第 5 章 · 38%</div>
+          </div>
+          <div style="display:flex;gap:8px;padding-top:2px">
+            <div style="padding:9px 20px;border-radius:999px;background:#9c6a4a;color:#fff;font-size:13px;font-weight:600;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">继续读</div>
+            <div style="padding:9px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">详情</div>
+          </div>
+        </div>
+
+        <div style="border:1px solid #d9d2c4;border-radius:16px;background:#fbf8f3;padding:18px;display:flex;flex-direction:column;gap:14px;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="width:44px;height:60px;border-radius:4px;background:#f1ebe0;border:1px solid #d9d2c4;flex:none"></div>
+            <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+              <div style="font-size:15px;font-weight:600;line-height:1.4">A Country of Small Rooms</div>
+              <div style="font-size:13px;color:#5d574e">H. Nakamura</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="padding:1px 8px;border-radius:10px;background:#5a7687;color:#fff;font-size:11.5px;font-weight:600">处理中</span>
+            <span style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#746f63">G3 语法讲解 · 约 22 分钟</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="height:3px;border-radius:2px;background:#ede7db;overflow:hidden"><div style="width:64%;height:100%;background:#5a7687"></div></div>
+            <div style="font-size:12px;color:#746f63">6 / 9 阶段完成</div>
+          </div>
+          <div style="display:flex;gap:8px;padding-top:2px">
+            <div style="padding:9px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">查看进度</div>
+          </div>
+        </div>
+
+        <div style="border:1px solid #d9d2c4;border-radius:16px;background:#fbf8f3;padding:18px;display:flex;flex-direction:column;gap:14px;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="width:44px;height:60px;border-radius:4px;background:#f1ebe0;border:1px solid #d9d2c4;flex:none"></div>
+            <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+              <div style="font-size:15px;font-weight:600;line-height:1.4">Letters to a Slow Reader</div>
+              <div style="font-size:13px;color:#5d574e">P. Aubry</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="padding:1px 8px;border-radius:10px;background:#9a9387;color:#fff;font-size:11.5px;font-weight:600">未处理</span>
+            <span style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#746f63">EPUB · 1.8 MB</span>
+          </div>
+          <div style="font-size:12.5px;color:#746f63;line-height:1.6">尚未生成译文、讲解与音频。</div>
+          <div style="display:flex;gap:8px;padding-top:2px;margin-top:auto">
+            <div style="padding:9px 20px;border-radius:999px;background:#9c6a4a;color:#fff;font-size:13px;font-weight:600;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">开始处理</div>
+          </div>
+        </div>
+
+        <div style="border:1px solid #d9d2c4;border-radius:16px;background:#fbf8f3;padding:18px;display:flex;flex-direction:column;gap:14px;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="width:44px;height:60px;border-radius:4px;background:#f1ebe0;border:1px solid #d9d2c4;flex:none"></div>
+            <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+              <div style="font-size:15px;font-weight:600;line-height:1.4">The Orchard at Night</div>
+              <div style="font-size:13px;color:#5d574e">R. Söderberg</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="padding:1px 8px;border-radius:10px;background:#5d7a58;color:#fff;font-size:11.5px;font-weight:600">已就绪</span>
+            <span style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#746f63">8 章 · 2 105 句 · 3h48m</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="height:3px;border-radius:2px;background:#ede7db;overflow:hidden"><div style="width:100%;height:100%;background:#5d7a58"></div></div>
+            <div style="font-size:12px;color:#746f63">已读完 · 3 天前</div>
+          </div>
+          <div style="display:flex;gap:8px;padding-top:2px">
+            <div style="padding:9px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">重读</div>
+            <div style="padding:9px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">详情</div>
+          </div>
+        </div>
+
+        <div style="border:1px solid #d9d2c4;border-radius:16px;background:#fbf8f3;padding:18px;display:flex;flex-direction:column;gap:14px;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="width:44px;height:60px;border-radius:4px;background:#f1ebe0;border:1px solid #d9d2c4;flex:none"></div>
+            <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+              <div style="font-size:15px;font-weight:600;line-height:1.4">Winter Term</div>
+              <div style="font-size:13px;color:#5d574e">J. Okonkwo</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="padding:1px 8px;border-radius:10px;background:#a5812f;color:#fff;font-size:11.5px;font-weight:600">缺模型</span>
+            <span style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#746f63">朗读模型未下载</span>
+          </div>
+          <div style="font-size:12.5px;color:#746f63;line-height:1.6">文本与讲解已完成，音频阶段被跳过。</div>
+          <div style="display:flex;gap:8px;padding-top:2px;margin-top:auto">
+            <div style="padding:9px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">去设置下载</div>
+          </div>
+        </div>
+
+        <div style="border:1.5px dashed #d9d2c4;border-radius:16px;background:rgba(251,248,243,.4);padding:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:210px">
+          <div style="font-size:14px;font-weight:600;color:#5d574e">拖入 EPUB 或 TXT</div>
+          <div style="font-size:12.5px;color:#746f63">也可以点「导入」逐本选择</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="border:1px solid #d9d2c4;border-radius:8px;background:#f1ebe0;padding:16px 18px;display:flex;flex-direction:column;gap:8px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;letter-spacing:.1em;color:#746f63">实施说明</div>
+    <div style="font-size:13px;line-height:1.8;color:#5d574e">
+      文件：<code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">views/shell_view.js</code>（导航改三层）、<code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">views/library_view.js</code>（合并两路由 + 顶部筛选条）、<code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">styles/library.css</code>。<br>
+      路由：<code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">library</code> 与 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">products</code> 合并为 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">books</code>，旧路由 301 到新路由保留一版；筛选状态存内存不进 URL。<br>
+      网格 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">repeat(auto-fill,minmax(280px,1fr))</code>，gap 16px；书卡 hover 仅 translateY(-1px) + elevation-2 + 描边加深。每卡至多一个主按钮。徽章不可点。
+    </div>
+  </div>
+</section>
+
+<!-- ============ 02 导入 ============ -->
+<section id="s2" style="width:1120px;display:flex;flex-direction:column;gap:18px">
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.12em;color:#746f63">02 / 导入</div>
+    <div style="font-size:20px;font-weight:600">一屏一色：唯一的彩色是「开始处理」</div>
+    <div style="font-size:14px;line-height:1.75;color:#5d574e;max-width:780px">导入是一次线性动作，不需要向导分步。文件、参数、预估三块纵向排列，参数一律用档位而不是裸输入框。</div>
+  </div>
+
+  <div style="border:1px solid #d9d2c4;border-radius:12px;overflow:hidden;background:#faf7f1;box-shadow:0 2px 4px rgba(74,47,28,.12),0 6px 14px rgba(74,47,28,.10)">
+    <div style="height:52px;display:flex;align-items:center;padding:0 20px;background:rgba(250,247,241,.86);border-bottom:1px solid #d9d2c4">
+      <div style="font-size:13px;font-weight:600;color:#746f63;padding-right:24px">aidulc</div>
+      <div style="display:flex;align-items:stretch;align-self:stretch">
+        <div style="display:flex;align-items:center;padding:0 16px;font-size:14px;color:#5d574e">我的书</div>
+        <div style="display:flex;align-items:center;padding:0 16px;font-size:14px;color:#5d574e">生词本</div>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:4px">
+        <div style="padding:0 16px;height:52px;display:flex;align-items:center;font-size:14px;font-weight:600;color:#9c6a4a;position:relative">导入<span style="position:absolute;left:12px;right:12px;bottom:0;height:2px;border-radius:2px;background:#9c6a4a"></span></div>
+        <div style="padding:0 16px;height:52px;display:flex;align-items:center;gap:7px;font-size:14px;color:#5d574e">处理中<span style="min-width:18px;height:18px;padding:0 5px;border-radius:10px;background:#5a7687;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">2</span></div>
+        <div style="width:32px;height:32px;margin-left:12px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:15px;color:#746f63">⚙</div>
+      </div>
+    </div>
+
+    <div style="padding:32px 0;display:flex;justify-content:center;min-height:640px">
+      <div style="width:640px;display:flex;flex-direction:column;gap:24px">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:19px;font-weight:600">导入一本书</div>
+          <div style="font-size:13.5px;color:#5d574e;line-height:1.75">处理全程离线，可以关掉窗口，任务在后台继续。</div>
+        </div>
+
+        <div style="border:1px solid #d9d2c4;border-radius:12px;background:#fbf8f3;padding:16px;display:flex;align-items:center;gap:14px">
+          <div style="width:42px;height:56px;border-radius:4px;background:#f1ebe0;border:1px solid #d9d2c4;flex:none"></div>
+          <div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+            <div style="font-size:14.5px;font-weight:600">letters-to-a-slow-reader.epub</div>
+            <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">1.8 MB · 检测到 14 章 · 约 2 640 句 · 英文</div>
+          </div>
+          <div style="margin-left:auto;padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">换一个</div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="font-size:13px;font-weight:600;color:#5d574e">处理内容</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid #d9d2c4;border-radius:8px;background:#fbf8f3">
+              <div style="width:16px;height:16px;border-radius:4px;background:#9c6a4a;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;flex:none">✓</div>
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <div style="font-size:14px">中文译文与语法讲解</div>
+                <div style="font-size:12.5px;color:#746f63">本地模型 qwen2.5-7b · 预计 34 分钟</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid #d9d2c4;border-radius:8px;background:#fbf8f3">
+              <div style="width:16px;height:16px;border-radius:4px;background:#9c6a4a;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;flex:none">✓</div>
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <div style="font-size:14px">朗读音频与逐词时间轴</div>
+                <div style="font-size:12.5px;color:#746f63">kokoro-82m · 预计 26 分钟</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid #d9d2c4;border-radius:8px;background:rgba(251,248,243,.5)">
+              <div style="width:16px;height:16px;border-radius:4px;border:1px solid #d9d2c4;flex:none"></div>
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <div style="font-size:14px;color:#5d574e">保留原书插图</div>
+                <div style="font-size:12.5px;color:#746f63">按原位插入正文流</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="font-size:13px;font-weight:600;color:#5d574e">朗读语速</div>
+          <div style="display:flex;gap:6px">
+            <div style="padding:5px 16px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">0.8×</div>
+            <div style="padding:5px 16px;border-radius:999px;background:#9c6a4a;color:#fff;font-size:13px;font-weight:600">1.0×</div>
+            <div style="padding:5px 16px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">1.15×</div>
+            <div style="padding:5px 16px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">1.3×</div>
+          </div>
+        </div>
+
+        <div style="border-top:1px solid #d9d2c4;padding-top:20px;display:flex;align-items:center;gap:16px">
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <div style="font-family:ui-monospace,Consolas,monospace;font-size:13px;color:#28241e">预计 1h02m · 占用 480 MB</div>
+            <div style="font-size:12.5px;color:#746f63">可随时中断，已完成的阶段不会重跑</div>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <div style="padding:9px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">取消</div>
+            <div style="padding:9px 20px;border-radius:999px;background:#9c6a4a;color:#fff;font-size:13px;font-weight:600;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">开始处理</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="border:1px solid #d9d2c4;border-radius:8px;background:#f1ebe0;padding:16px 18px;display:flex;flex-direction:column;gap:8px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;letter-spacing:.1em;color:#746f63">实施说明</div>
+    <div style="font-size:13px;line-height:1.8;color:#5d574e">文件：<code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">views/wizard_view.js</code> 由多步向导改为单屏（保留 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">import_service.js</code> 不动）。语速用 pill 档位替代数字输入框（设计语言 §6.5）。版心 640px 居中，页面外边距 20px。</div>
+  </div>
+</section>
+
+<!-- ============ 03 处理中 ============ -->
+<section id="s3" style="width:1120px;display:flex;flex-direction:column;gap:18px">
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.12em;color:#746f63">03 / 处理中</div>
+    <div style="font-size:20px;font-weight:600">阶段流水条：一眼看出卡在哪一段</div>
+    <div style="font-size:14px;line-height:1.75;color:#5d574e;max-width:780px">九个阶段横向排布，已完成用绿、进行中用蓝灰、待办用中性灰。日志是折叠区不是 tab——只在出问题时看。</div>
+  </div>
+
+  <div style="border:1px solid #d9d2c4;border-radius:12px;overflow:hidden;background:#faf7f1;box-shadow:0 2px 4px rgba(74,47,28,.12),0 6px 14px rgba(74,47,28,.10)">
+    <div style="height:52px;display:flex;align-items:center;padding:0 20px;background:rgba(250,247,241,.86);border-bottom:1px solid #d9d2c4">
+      <div style="font-size:13px;font-weight:600;color:#746f63;padding-right:24px">aidulc</div>
+      <div style="display:flex;align-items:stretch;align-self:stretch">
+        <div style="display:flex;align-items:center;padding:0 16px;font-size:14px;color:#5d574e">我的书</div>
+        <div style="display:flex;align-items:center;padding:0 16px;font-size:14px;color:#5d574e">生词本</div>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:4px">
+        <div style="padding:0 16px;height:52px;display:flex;align-items:center;font-size:14px;color:#5d574e">导入</div>
+        <div style="padding:0 16px;height:52px;display:flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:#9c6a4a;position:relative">处理中<span style="min-width:18px;height:18px;padding:0 5px;border-radius:10px;background:#5a7687;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">2</span><span style="position:absolute;left:12px;right:12px;bottom:0;height:2px;border-radius:2px;background:#9c6a4a"></span></div>
+        <div style="width:32px;height:32px;margin-left:12px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:15px;color:#746f63">⚙</div>
+      </div>
+    </div>
+
+    <div style="padding:28px 20px;display:flex;flex-direction:column;gap:20px;min-height:640px">
+      <div style="border:1px solid #d9d2c4;border-radius:16px;background:#fbf8f3;padding:20px;display:flex;flex-direction:column;gap:18px;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:34px;height:46px;border-radius:4px;background:#f1ebe0;border:1px solid #d9d2c4;flex:none"></div>
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <div style="font-size:15px;font-weight:600">A Country of Small Rooms</div>
+            <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">G3 语法讲解 · 剩余约 22 分钟 · 已用 38 分钟</div>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">暂停</div>
+            <div style="padding:5px 14px;border-radius:999px;border:1px solid rgba(169,78,58,.38);color:#a94e3a;font-size:13px">取消任务</div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:stretch;gap:3px;height:8px">
+          <div style="flex:1;border-radius:2px 0 0 2px;background:#5d7a58"></div>
+          <div style="flex:1;background:#5d7a58"></div>
+          <div style="flex:1;background:#5d7a58"></div>
+          <div style="flex:1;background:#5d7a58"></div>
+          <div style="flex:1;background:#5d7a58"></div>
+          <div style="flex:1;background:#5d7a58"></div>
+          <div style="flex:1.4;background:#ede7db;overflow:hidden"><div style="width:45%;height:100%;background:#5a7687"></div></div>
+          <div style="flex:1;background:#ede7db"></div>
+          <div style="flex:1;border-radius:0 2px 2px 0;background:#ede7db"></div>
+        </div>
+        <div style="display:flex;gap:3px;font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#746f63">
+          <div style="flex:1">解析</div><div style="flex:1">分句</div><div style="flex:1">对齐</div><div style="flex:1">词表</div><div style="flex:1">翻译</div><div style="flex:1">校验</div><div style="flex:1.4;color:#5a7687;font-weight:600">讲解 G3</div><div style="flex:1">合成</div><div style="flex:1">打包</div>
+        </div>
+
+        <div style="display:flex;gap:24px;border-top:1px solid #d9d2c4;padding-top:16px">
+          <div style="display:flex;flex-direction:column;gap:3px"><div style="font-size:12px;color:#746f63">已处理句</div><div style="font-family:ui-monospace,Consolas,monospace;font-size:15px">1 462 / 2 640</div></div>
+          <div style="display:flex;flex-direction:column;gap:3px"><div style="font-size:12px;color:#746f63">吞吐</div><div style="font-family:ui-monospace,Consolas,monospace;font-size:15px">21.4 句/分</div></div>
+          <div style="display:flex;flex-direction:column;gap:3px"><div style="font-size:12px;color:#746f63">显存</div><div style="font-family:ui-monospace,Consolas,monospace;font-size:15px">6.2 / 8 GB</div></div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:8px;color:#746f63;font-size:12.5px">运行日志 ▾</div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #d9d2c4;border-radius:16px;background:#fbf8f3;padding:20px;display:flex;align-items:center;gap:12px;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">
+        <div style="width:34px;height:46px;border-radius:4px;background:#f1ebe0;border:1px solid #d9d2c4;flex:none"></div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <div style="font-size:15px;font-weight:600">Winter Term</div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="padding:1px 8px;border-radius:10px;background:#9a9387;color:#fff;font-size:11.5px;font-weight:600">排队中</span><span style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">等待上一本完成</span></div>
+        </div>
+        <div style="margin-left:auto;padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">插队</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;padding-top:4px">
+        <div style="font-size:13px;font-weight:600;color:#5d574e">最近完成</div>
+        <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border:1px solid #d9d2c4;border-radius:8px;background:rgba(251,248,243,.5)">
+          <span style="padding:1px 8px;border-radius:10px;background:#5d7a58;color:#fff;font-size:11.5px;font-weight:600">已就绪</span>
+          <div style="font-size:14px">The Lamp and the Rain</div>
+          <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">昨天 22:41 · 用时 58 分钟</div>
+          <div style="margin-left:auto;padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">开始读</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="border:1px solid #d9d2c4;border-radius:8px;background:#f1ebe0;padding:16px 18px;display:flex;flex-direction:column;gap:8px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;letter-spacing:.1em;color:#746f63">实施说明</div>
+    <div style="font-size:13px;line-height:1.8;color:#5d574e">文件：<code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">views/prep_view.js</code>（路由由 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">prep</code> 改名 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">jobs</code>）、<code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">styles/prep.css</code>。流水条按 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">progress.schema.json</code> 的阶段名渲染；进行中段落只动内层 width（非逐帧，可用）。数值一律 mono。日志折叠默认收起。</div>
+  </div>
+</section>
+
+<!-- ============ 04 生词本 ============ -->
+<section id="s4" style="width:1120px;display:flex;flex-direction:column;gap:18px">
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.12em;color:#746f63">04 / 生词本</div>
+    <div style="font-size:20px;font-weight:600">词是主角，来源句是证据</div>
+    <div style="font-size:14px;line-height:1.75;color:#5d574e;max-width:780px">每条词带原句上下文——脱离句子的词表背不下来。复习到期用琥珀色标，未分级用中性色，两者都配文字标签。</div>
+  </div>
+
+  <div style="border:1px solid #d9d2c4;border-radius:12px;overflow:hidden;background:#faf7f1;box-shadow:0 2px 4px rgba(74,47,28,.12),0 6px 14px rgba(74,47,28,.10)">
+    <div style="height:52px;display:flex;align-items:center;padding:0 20px;background:rgba(250,247,241,.86);border-bottom:1px solid #d9d2c4">
+      <div style="font-size:13px;font-weight:600;color:#746f63;padding-right:24px">aidulc</div>
+      <div style="display:flex;align-items:stretch;align-self:stretch">
+        <div style="display:flex;align-items:center;padding:0 16px;font-size:14px;color:#5d574e">我的书</div>
+        <div style="display:flex;align-items:center;padding:0 16px;font-size:14px;font-weight:600;color:#9c6a4a;position:relative">生词本<span style="position:absolute;left:12px;right:12px;bottom:0;height:2px;border-radius:2px;background:#9c6a4a"></span></div>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:4px">
+        <div style="padding:0 16px;height:52px;display:flex;align-items:center;font-size:14px;color:#5d574e">导入</div>
+        <div style="padding:0 16px;height:52px;display:flex;align-items:center;gap:7px;font-size:14px;color:#5d574e">处理中<span style="min-width:18px;height:18px;padding:0 5px;border-radius:10px;background:#5a7687;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">2</span></div>
+        <div style="width:32px;height:32px;margin-left:12px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:15px;color:#746f63">⚙</div>
+      </div>
+    </div>
+
+    <div style="padding:24px 20px 28px;display:flex;gap:24px;min-height:640px">
+      <div style="flex:1;display:flex;flex-direction:column;gap:18px;min-width:0">
+        <div style="display:flex;align-items:center;gap:16px">
+          <div style="display:flex;gap:6px">
+            <div style="padding:5px 14px;border-radius:999px;background:#9c6a4a;color:#fff;font-size:13px;font-weight:600">全部 214</div>
+            <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">今日到期 18</div>
+            <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">未分级 32</div>
+          </div>
+          <div style="margin-left:auto;padding:9px 20px;border-radius:999px;background:#9c6a4a;color:#fff;font-size:13px;font-weight:600;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">开始复习 18</div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="border:1px solid #d9d2c4;border-radius:16px;background:#fbf8f3;padding:18px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">
+            <div style="display:flex;align-items:baseline;gap:12px">
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:21px;font-weight:600">gutter</div>
+              <div style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:#746f63">/ˈɡʌtər/ n.</div>
+              <span style="margin-left:auto;padding:1px 8px;border-radius:10px;background:#a5812f;color:#fff;font-size:11.5px;font-weight:600">今日到期</span>
+            </div>
+            <div style="font-size:14px;color:#5d574e;line-height:1.75">檐沟；排水沟</div>
+            <div style="border-left:2px solid #9c6a4a;padding-left:12px;display:flex;flex-direction:column;gap:5px">
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.7">She turned the page without reading it, listening instead to the water in the <span style="background:#f0e7da;border-radius:3px;padding:0 2px">gutters</span>.</div>
+              <div style="font-size:13px;color:#5d574e;line-height:1.75">她翻过一页，却没有读，只是听着檐沟里的水声。</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding-top:2px">
+              <div style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#746f63">The Lamp and the Rain · 第 3 章 · 加入 6 天前 · 复习 3 次</div>
+              <div style="margin-left:auto;display:flex;gap:6px">
+                <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">跳到原句</div>
+                <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">已掌握</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="border:1px solid #d9d2c4;border-radius:16px;background:#fbf8f3;padding:18px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">
+            <div style="display:flex;align-items:baseline;gap:12px">
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:21px;font-weight:600">give oneself over to</div>
+              <div style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:#746f63">phr.</div>
+              <span style="margin-left:auto;padding:1px 8px;border-radius:10px;background:#9a9387;color:#fff;font-size:11.5px;font-weight:600">未分级</span>
+            </div>
+            <div style="font-size:14px;color:#5d574e;line-height:1.75">完全投入；听凭</div>
+            <div style="border-left:2px solid #9c6a4a;padding-left:12px;display:flex;flex-direction:column;gap:5px">
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.7">Outside, the street had <span style="border-bottom:2px solid #a8792e">given</span> itself <span style="border-bottom:2px solid #a8792e">over to</span> the weather.</div>
+              <div style="font-size:13px;color:#5d574e;line-height:1.75">外面，街道彻底交给了天气。</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding-top:2px">
+              <div style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#746f63">The Lamp and the Rain · 第 3 章 · 加入 2 小时前</div>
+              <div style="margin-left:auto;display:flex;gap:6px">
+                <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">跳到原句</div>
+                <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">已掌握</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="border:1px solid #d9d2c4;border-radius:16px;background:#fbf8f3;padding:18px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">
+            <div style="display:flex;align-items:baseline;gap:12px">
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:21px;font-weight:600">faintly</div>
+              <div style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:#746f63">/ˈfeɪntli/ adv.</div>
+              <span style="margin-left:auto;padding:1px 8px;border-radius:10px;background:#5d7a58;color:#fff;font-size:11.5px;font-weight:600">已掌握</span>
+            </div>
+            <div style="font-size:14px;color:#5d574e;line-height:1.75">微弱地；隐约地</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#746f63">The Lamp and the Rain · 第 1 章 · 复习 7 次 · 下次 21 天后</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="width:260px;flex:none;display:flex;flex-direction:column;gap:16px">
+        <div style="border:1px solid #d9d2c4;border-radius:16px;background:#fbf8f3;padding:18px;display:flex;flex-direction:column;gap:14px">
+          <div style="font-size:13px;font-weight:600;color:#5d574e">本周</div>
+          <div style="display:flex;align-items:flex-end;gap:6px;height:64px">
+            <div style="flex:1;height:38%;background:#ede7db;border-radius:2px"></div>
+            <div style="flex:1;height:62%;background:#ede7db;border-radius:2px"></div>
+            <div style="flex:1;height:45%;background:#ede7db;border-radius:2px"></div>
+            <div style="flex:1;height:88%;background:#ede7db;border-radius:2px"></div>
+            <div style="flex:1;height:70%;background:#ede7db;border-radius:2px"></div>
+            <div style="flex:1;height:30%;background:#ede7db;border-radius:2px"></div>
+            <div style="flex:1;height:52%;background:#9c6a4a;border-radius:2px"></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:#746f63">新增</span><span style="font-family:ui-monospace,Consolas,monospace">31</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:#746f63">复习</span><span style="font-family:ui-monospace,Consolas,monospace">126</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:#746f63">掌握</span><span style="font-family:ui-monospace,Consolas,monospace">19</span></div>
+          </div>
+        </div>
+        <div style="border:1px solid #d9d2c4;border-radius:16px;background:#fbf8f3;padding:18px;display:flex;flex-direction:column;gap:10px">
+          <div style="font-size:13px;font-weight:600;color:#5d574e">按书</div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:#5d574e"><span>The Lamp and the Rain</span><span style="font-family:ui-monospace,Consolas,monospace;color:#746f63">142</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:#5d574e"><span>The Orchard at Night</span><span style="font-family:ui-monospace,Consolas,monospace;color:#746f63">61</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:#5d574e"><span>Winter Term</span><span style="font-family:ui-monospace,Consolas,monospace;color:#746f63">11</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="border:1px solid #d9d2c4;border-radius:8px;background:#f1ebe0;padding:16px 18px;display:flex;flex-direction:column;gap:8px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;letter-spacing:.1em;color:#746f63">实施说明</div>
+    <div style="font-size:13px;line-height:1.8;color:#5d574e">文件：<code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">views/vocab_view.js</code>、<code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">core/vocab_stats.js</code>。词头用 serif（它是英文原文），释义与元信息用 sans / mono。右栏在窗口窄于 800px 时折叠为抽屉。柱状图不加颜色，只有当天用强调色——一屏一色。</div>
+  </div>
+</section>
+
+<!-- ============ 05 设置 ============ -->
+<section id="s5" style="width:1120px;display:flex;flex-direction:column;gap:18px">
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.12em;color:#746f63">05 / 设置</div>
+    <div style="font-size:20px;font-weight:600">左侧纵列分区，模型中心是其中一节</div>
+    <div style="font-size:14px;line-height:1.75;color:#5d574e;max-width:780px">横向 tab 超过 5 项就不可扫读，所以设置用纵列。模型中心是一次性配置，不该和每日高频的生词本并列在顶栏。</div>
+  </div>
+
+  <div style="border:1px solid #d9d2c4;border-radius:12px;overflow:hidden;background:#faf7f1;box-shadow:0 2px 4px rgba(74,47,28,.12),0 6px 14px rgba(74,47,28,.10)">
+    <div style="height:52px;display:flex;align-items:center;padding:0 20px;background:rgba(250,247,241,.86);border-bottom:1px solid #d9d2c4">
+      <div style="font-size:13px;font-weight:600;color:#746f63;padding-right:24px">aidulc</div>
+      <div style="display:flex;align-items:stretch;align-self:stretch">
+        <div style="display:flex;align-items:center;padding:0 16px;font-size:14px;color:#5d574e">我的书</div>
+        <div style="display:flex;align-items:center;padding:0 16px;font-size:14px;color:#5d574e">生词本</div>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:4px">
+        <div style="padding:0 16px;height:52px;display:flex;align-items:center;font-size:14px;color:#5d574e">导入</div>
+        <div style="padding:0 16px;height:52px;display:flex;align-items:center;gap:7px;font-size:14px;color:#5d574e">处理中<span style="min-width:18px;height:18px;padding:0 5px;border-radius:10px;background:#5a7687;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">2</span></div>
+        <div style="width:32px;height:32px;margin-left:12px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:15px;color:#9c6a4a;background:rgba(156,106,74,.08)">⚙</div>
+      </div>
+    </div>
+
+    <div style="display:flex;min-height:640px">
+      <div style="width:220px;flex:none;border-right:1px solid #d9d2c4;padding:24px 0;display:flex;flex-direction:column;gap:2px;background:#f7f3ec">
+        <div style="padding:9px 16px 9px 12px;font-size:14px;color:#5d574e">外观</div>
+        <div style="padding:9px 16px 9px 12px;font-size:14px;color:#5d574e">阅读默认值</div>
+        <div style="padding:9px 16px 9px 12px;font-size:14px;font-weight:600;color:#4a2f1c;background:#f2e3d7;border-left:2px solid #9c6a4a">模型中心</div>
+        <div style="padding:9px 16px 9px 12px;font-size:14px;color:#5d574e">学习档案</div>
+        <div style="padding:9px 16px 9px 12px;font-size:14px;color:#5d574e">同步与备份</div>
+        <div style="padding:9px 16px 9px 12px;font-size:14px;color:#5d574e">存储</div>
+        <div style="padding:9px 16px 9px 12px;font-size:14px;color:#5d574e">关于</div>
+      </div>
+
+      <div style="flex:1;padding:28px 32px;display:flex;flex-direction:column;gap:24px;min-width:0">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:19px;font-weight:600">模型中心</div>
+          <div style="font-size:13.5px;color:#5d574e;line-height:1.75">全部离线运行。模型文件存在本地，不上传任何内容。</div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="font-size:13px;font-weight:600;color:#5d574e">翻译与讲解</div>
+          <div style="border:1px solid #d9d2c4;border-radius:8px;background:#fbf8f3;padding:14px 16px;display:flex;align-items:center;gap:14px">
+            <div style="display:flex;flex-direction:column;gap:3px">
+              <div style="font-size:14.5px;font-weight:600">qwen2.5-7b-instruct-q5</div>
+              <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">5.1 GB · 已安装 · 默认</div>
+            </div>
+            <span style="padding:1px 8px;border-radius:10px;background:#5d7a58;color:#fff;font-size:11.5px;font-weight:600">就绪</span>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">测速</div>
+              <div style="padding:5px 14px;border-radius:999px;border:1px solid rgba(169,78,58,.38);color:#a94e3a;font-size:13px">删除</div>
+            </div>
+          </div>
+          <div style="border:1px solid #d9d2c4;border-radius:8px;background:rgba(251,248,243,.5);padding:14px 16px;display:flex;align-items:center;gap:14px">
+            <div style="display:flex;flex-direction:column;gap:3px">
+              <div style="font-size:14.5px;color:#5d574e">qwen2.5-14b-instruct-q4</div>
+              <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">8.9 GB · 未下载 · 质量更好，慢约 1.8×</div>
+            </div>
+            <div style="margin-left:auto;padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">下载</div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="font-size:13px;font-weight:600;color:#5d574e">朗读</div>
+          <div style="border:1px solid #d9d2c4;border-radius:8px;background:#fbf8f3;padding:14px 16px;display:flex;align-items:center;gap:14px">
+            <div style="display:flex;flex-direction:column;gap:3px">
+              <div style="font-size:14.5px;font-weight:600">kokoro-82m</div>
+              <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">327 MB · 下载中 62%</div>
+            </div>
+            <span style="padding:1px 8px;border-radius:10px;background:#5a7687;color:#fff;font-size:11.5px;font-weight:600">下载中</span>
+            <div style="flex:1;max-width:200px;height:3px;border-radius:2px;background:#ede7db;overflow:hidden"><div style="width:62%;height:100%;background:#5a7687"></div></div>
+            <div style="margin-left:auto;padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">暂停</div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="font-size:13px;font-weight:600;color:#5d574e">词典</div>
+          <div style="border:1px solid #d9d2c4;border-radius:8px;background:#fbf8f3;padding:14px 16px;display:flex;align-items:center;gap:14px">
+            <div style="display:flex;flex-direction:column;gap:3px">
+              <div style="font-size:14.5px;font-weight:600">ECDICT 精简版</div>
+              <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">88 MB · 已安装 · 34 万词条</div>
+            </div>
+            <span style="padding:1px 8px;border-radius:10px;background:#5d7a58;color:#fff;font-size:11.5px;font-weight:600">就绪</span>
+          </div>
+        </div>
+
+        <div style="border:1px solid rgba(165,129,47,.4);background:rgba(165,129,47,.07);border-radius:8px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+          <span style="padding:1px 8px;border-radius:10px;background:#a5812f;color:#fff;font-size:11.5px;font-weight:600">磁盘</span>
+          <div style="font-size:13.5px;color:#5d574e">模型与书包共占用 14.6 GB，所在磁盘剩余 9.2 GB。</div>
+          <div style="margin-left:auto;padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">管理存储</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="border:1px solid #d9d2c4;border-radius:8px;background:#f1ebe0;padding:16px 18px;display:flex;flex-direction:column;gap:8px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;letter-spacing:.1em;color:#746f63">实施说明</div>
+    <div style="font-size:13px;line-height:1.8;color:#5d574e">文件：<code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">views/settings_view.js</code> 改为左侧纵列 + 右侧内容区；<code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">views/models_view.js</code> 整体降级为其中一节（保留模块，只换挂载点），路由 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">models</code> 重定向到 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">settings#models</code>。当前项标记 = 左侧 2px 陶土竖线 + primary-container 底。破坏性按钮静止时只有 error 文字 + 38% error 描边。</div>
+  </div>
+</section>
+
+<!-- ============ 06 阅读器 ============ -->
+<section id="s6" style="width:1120px;display:flex;flex-direction:column;gap:18px">
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.12em;color:#746f63">06 / 阅读器三模式</div>
+    <div style="font-size:20px;font-weight:600">零层导航：进入阅读即接管整窗</div>
+    <div style="font-size:14px;line-height:1.75;color:#5d574e;max-width:780px">顶栏消失，Esc 返回。三种模式共用同一版心与同一套原子块，差别只在控件密度和暗化比例。阅读界面里唯一带彩度的东西是当前朗读词底色和当前句标线。</div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div style="font-size:14px;font-weight:600;color:#5d574e">静默 — 无音频，译文与讲解默认遮起</div>
+    <div style="border:1px solid #d9d2c4;border-radius:12px;overflow:hidden;background:#fbf8f3;box-shadow:0 2px 4px rgba(74,47,28,.12),0 6px 14px rgba(74,47,28,.10);display:flex;height:520px">
+      <div style="width:44px;flex:none;background:#f1ebe0;border-right:1px solid #d9d2c4;display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:6px">
+        <div style="width:14px;height:1px;background:#d9d2c4"></div>
+        <div style="width:20px;height:2px;background:#9c6a4a;border-radius:1px"></div>
+        <div style="width:14px;height:1px;background:#d9d2c4"></div>
+        <div style="width:14px;height:1px;background:#d9d2c4"></div>
+        <div style="width:14px;height:1px;background:#d9d2c4"></div>
+        <div style="width:14px;height:1px;background:#d9d2c4"></div>
+        <div style="margin-top:auto;font-family:ui-monospace,Consolas,monospace;font-size:10px;color:#746f63;writing-mode:vertical-rl">3 / 12</div>
+      </div>
+      <div style="flex:1;padding:36px 0 0;display:flex;justify-content:center;overflow:hidden;position:relative">
+        <div style="width:660px;padding-left:52px;display:flex;flex-direction:column;gap:26px">
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:15px;color:#746f63;letter-spacing:.04em">CHAPTER THREE · The Gutters</div>
+          <div style="display:flex;flex-direction:column;gap:8px;position:relative">
+            <div style="position:absolute;left:-24px;top:6px;width:14px;height:14px;color:#746f63;font-size:11px">▷</div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:19px;line-height:1.85;color:#28241e">The lamp on the desk had been burning since four, and the room smelled faintly of paper and rain.</div>
+            <div style="font-size:14.5px;line-height:1.75;color:#5d574e;filter:blur(4.5px)">桌上的灯从四点起就亮着，屋里有淡淡的纸和雨的气味。</div>
+            <div style="font-size:14.5px;line-height:1.75;color:#746f63;filter:blur(4.5px)">had been burning 是过去完成进行时，强调动作从四点一直持续到叙述的那一刻。</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;position:relative">
+            <div style="position:absolute;left:-24px;top:6px;width:14px;height:14px;color:#746f63;font-size:11px">▷</div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:19px;line-height:1.85;color:#28241e">She turned the page without reading it, listening instead to the water in the <span style="border-bottom:1px solid #746f63">gutters</span>.</div>
+            <div style="font-size:14.5px;line-height:1.75;color:#5d574e">她翻过一页，却没有读，只是听着檐沟里的水声。</div>
+            <div style="font-size:14.5px;line-height:1.75;color:#746f63;filter:blur(4.5px)">without + 动名词表示伴随的否定；instead 引出替代发生的行为。</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;position:relative">
+            <div style="position:absolute;left:-24px;top:6px;width:14px;height:14px;color:#746f63;font-size:11px">▷</div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:19px;line-height:1.85;color:#28241e">Outside, the street had <span style="border-bottom:2px solid #a8792e">given</span> itself <span style="border-bottom:2px solid #a8792e">over to</span> the weather.</div>
+            <div style="font-size:14.5px;line-height:1.75;color:#5d574e;filter:blur(4.5px)">外面，街道彻底交给了天气。</div>
+            <div style="font-size:14.5px;line-height:1.75;color:#746f63;filter:blur(4.5px)">give oneself over to：完全交付、听凭。此处把街道拟人化。</div>
+          </div>
+        </div>
+        <div style="position:absolute;left:0;right:0;bottom:0;height:80px;background:linear-gradient(to bottom,rgba(251,248,243,0),#fbf8f3)"></div>
+      </div>
+      <div style="width:280px;flex:none;background:#f1ebe0;border-left:1px solid #d9d2c4;padding:20px 18px;display:flex;flex-direction:column;gap:16px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:19px;font-weight:600">gutter</div>
+          <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">/ˈɡʌtər/</div>
+          <div style="margin-left:auto;font-size:14px;color:#746f63">✕</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:12px;color:#746f63;font-family:ui-monospace,Consolas,monospace">n.</div>
+          <div style="font-size:14px;line-height:1.75;color:#28241e">1. 檐沟；街边排水沟</div>
+          <div style="font-size:14px;line-height:1.75;color:#28241e">2.〈比喻〉贫民区，底层</div>
+        </div>
+        <div style="border-top:1px solid #d9d2c4;padding-top:14px;display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:12px;color:#746f63;font-family:ui-monospace,Consolas,monospace">例句</div>
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;line-height:1.7;color:#5d574e">Rain ran along the gutters all night.</div>
+        </div>
+        <div style="margin-top:auto;padding:9px 20px;border-radius:999px;background:#9c6a4a;color:#fff;font-size:13px;font-weight:600;text-align:center">加入生词本</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div style="font-size:14px;font-weight:600;color:#5d574e">逐句 — 非当前句压暗到 24%，当前句左侧 2px 标线</div>
+    <div style="border:1px solid #d9d2c4;border-radius:12px;overflow:hidden;background:#fbf8f3;box-shadow:0 2px 4px rgba(74,47,28,.12),0 6px 14px rgba(74,47,28,.10);display:flex;height:460px">
+      <div style="width:44px;flex:none;background:#f1ebe0;border-right:1px solid #d9d2c4;display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:6px">
+        <div style="width:14px;height:1px;background:#d9d2c4"></div>
+        <div style="width:20px;height:2px;background:#9c6a4a;border-radius:1px"></div>
+        <div style="width:14px;height:1px;background:#d9d2c4"></div>
+        <div style="width:14px;height:1px;background:#d9d2c4"></div>
+      </div>
+      <div style="flex:1;padding:36px 0;display:flex;justify-content:center;position:relative">
+        <div style="width:660px;padding-left:52px;display:flex;flex-direction:column;gap:26px">
+          <div style="display:flex;flex-direction:column;gap:8px;opacity:.24">
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:19px;line-height:1.85">The lamp on the desk had been burning since four, and the room smelled faintly of paper and rain.</div>
+            <div style="font-size:14.5px;line-height:1.75;color:#5d574e">桌上的灯从四点起就亮着，屋里有淡淡的纸和雨的气味。</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;position:relative">
+            <div style="position:absolute;left:-28px;top:4px;bottom:4px;width:2px;border-radius:1px;background:#9c6a4a"></div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:19px;line-height:1.85;color:#28241e">She turned the page without <span style="background:#f0e7da;border-radius:3px;padding:0 2px">reading</span> it, listening instead to the water in the <span style="border-bottom:1px solid #746f63">gutters</span>.</div>
+            <div style="font-size:14.5px;line-height:1.75;color:#5d574e">她翻过一页，却没有读，只是听着檐沟里的水声。</div>
+            <div style="font-size:14.5px;line-height:1.75;color:#746f63">without + 动名词表示伴随的否定；instead 引出替代发生的行为。</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;opacity:.24">
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:19px;line-height:1.85">Outside, the street had given itself over to the weather.</div>
+            <div style="font-size:14.5px;line-height:1.75;color:#5d574e">外面，街道彻底交给了天气。</div>
+          </div>
+        </div>
+        <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:20px;width:290px;border:1px solid #d9d2c4;border-radius:12px;background:#fff;box-shadow:0 2px 4px rgba(74,47,28,.12),0 6px 14px rgba(74,47,28,.10);padding:12px 14px;display:flex;align-items:center;gap:10px">
+          <div style="width:26px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#5d574e">⏮</div>
+          <div style="width:34px;height:34px;border-radius:999px;background:#9c6a4a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px">❚❚</div>
+          <div style="width:26px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#5d574e">⏭</div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:5px">
+            <div style="height:2px;background:#ede7db;border-radius:1px;overflow:hidden"><div style="width:42%;height:100%;background:#9c6a4a"></div></div>
+            <div style="font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:#746f63">句 42 / 208 · 1.0×</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div style="font-size:14px;font-weight:600;color:#5d574e">跟读 — 参数是预设不是旋钮</div>
+    <div style="border:1px solid #d9d2c4;border-radius:12px;overflow:hidden;background:#fbf8f3;box-shadow:0 2px 4px rgba(74,47,28,.12),0 6px 14px rgba(74,47,28,.10);display:flex;flex-direction:column;height:460px">
+      <div style="flex:1;display:flex;justify-content:center;padding:48px 0 0;position:relative">
+        <div style="width:660px;padding-left:52px;display:flex;flex-direction:column;gap:26px">
+          <div style="display:flex;flex-direction:column;gap:8px;opacity:.24">
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:19px;line-height:1.85">The lamp on the desk had been burning since four, and the room smelled faintly of paper and rain.</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;position:relative">
+            <div style="position:absolute;left:-28px;top:4px;bottom:4px;width:2px;border-radius:1px;background:#9c6a4a"></div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:19px;line-height:1.85;color:#28241e">She turned the page without reading it, <span style="background:#f0e7da;border-radius:3px;padding:0 2px">listening</span> instead to the water in the gutters.</div>
+            <div style="height:2px;background:#ede7db;border-radius:1px;position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:56%;background:#9c6a4a;border-radius:1px"></div></div>
+            <div style="font-size:14.5px;line-height:1.75;color:#5d574e">她翻过一页，却没有读，只是听着檐沟里的水声。</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;opacity:.24">
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:19px;line-height:1.85">Outside, the street had given itself over to the weather.</div>
+          </div>
+        </div>
+      </div>
+      <div style="border-top:1px solid #d9d2c4;background:#fff;padding:16px 24px;display:flex;align-items:center;gap:28px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:34px;height:34px;border-radius:999px;background:#9c6a4a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px">❚❚</div>
+          <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">第 2 / 3 遍</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:11.5px;color:#746f63">跟读预设</div>
+          <div style="display:flex;gap:6px">
+            <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">听懂</div>
+            <div style="padding:5px 14px;border-radius:999px;background:#9c6a4a;color:#fff;font-size:13px;font-weight:600">跟读</div>
+            <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">复述</div>
+            <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">孩子</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:11.5px;color:#746f63">当前预设 = 重复 3 遍 · 句末留白 1.0 秒 · 0.9×</div>
+          <div style="display:flex;gap:6px">
+            <div style="padding:5px 12px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:12.5px">A-B 循环</div>
+            <div style="padding:5px 12px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:12.5px">微调</div>
+          </div>
+        </div>
+        <div style="margin-left:auto;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#746f63;line-height:1.7;text-align:right">空格 播放 / 暂停<br>1 2 3 切换模式 · Esc 退出</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="border:1px solid #d9d2c4;border-radius:8px;background:#f1ebe0;padding:16px 18px;display:flex;flex-direction:column;gap:8px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;letter-spacing:.1em;color:#746f63">实施说明</div>
+    <div style="font-size:13px;line-height:1.8;color:#5d574e">
+      文件：<code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">views/reader_view.js</code>（进入时隐藏应用顶栏 / Esc 返回）、<code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">views/reader/follow_bar.js</code>（裸数字输入框换成四个预设 pill，「微调」进浮层）、<code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">components/atomic_block.js</code>。<br>
+      逐帧只允许 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">background-color</code>（逐词高亮 0.12s linear）与节奏线的 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">translate3d + scaleX</code>（无过渡）。节奏线位置在句子成为当前句时一次性预测量。阅读器内禁用 backdrop-filter。<br>
+      词的四种状态各走一条独立通道：正在朗读 = <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">--rd-reading-bg</code> 底色；已在生词本 = 1px 下划线；短语动词 = 2px <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#faf7f1;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">--rd-mark</code> 下划线；可查词 = hover 底。四者可叠加而不互相遮蔽。
+    </div>
+  </div>
+</section>
+
+<!-- ============ 07 空态与失败态 ============ -->
+<section id="s7" style="width:1120px;display:flex;flex-direction:column;gap:18px">
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.12em;color:#746f63">07 / 空态与失败态</div>
+    <div style="font-size:20px;font-weight:600">虚线只在空态出现，失败永远配文字</div>
+    <div style="font-size:14px;line-height:1.75;color:#5d574e;max-width:780px">1.5px dashed + 40% 纸面填充是全系统唯一允许的虚线。失败态给出原因、给出下一步、不吓人。</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div style="border:1px solid #d9d2c4;border-radius:12px;background:#faf7f1;padding:40px 32px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;min-height:280px">
+      <div style="width:56px;height:72px;border:1.5px dashed #d9d2c4;border-radius:6px"></div>
+      <div style="font-size:16px;font-weight:600">书架还是空的</div>
+      <div style="font-size:13.5px;color:#5d574e;line-height:1.75;text-align:center;max-width:320px">把一本 EPUB 或 TXT 拖进来，或者点右上角「导入」。处理全程离线，第一本大约需要一小时。</div>
+      <div style="padding:9px 20px;border-radius:999px;background:#9c6a4a;color:#fff;font-size:13px;font-weight:600;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">导入第一本书</div>
+    </div>
+
+    <div style="border:1px solid #d9d2c4;border-radius:12px;background:#faf7f1;padding:40px 32px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;min-height:280px">
+      <div style="font-size:16px;font-weight:600">今天没有要复习的词</div>
+      <div style="font-size:13.5px;color:#5d574e;line-height:1.75;text-align:center;max-width:320px">下一批 18 个词在明天到期。继续读书就会有新词进来。</div>
+      <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">回到我的书</div>
+    </div>
+
+    <div style="border:1px solid #d9d2c4;border-radius:12px;background:#faf7f1;padding:24px;display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="padding:1px 8px;border-radius:10px;background:#a94e3a;color:#fff;font-size:11.5px;font-weight:600">失败</span>
+        <div style="font-size:15px;font-weight:600">Winter Term · 合成阶段中断</div>
+      </div>
+      <div style="font-size:13.5px;color:#5d574e;line-height:1.8">第 7 阶段「音频合成」在第 1 204 句处失败：显存不足（需要 7.4 GB，可用 5.1 GB）。前 6 个阶段的结果已保存，重试只会从第 7 阶段开始。</div>
+      <div style="border:1px solid #d9d2c4;border-radius:8px;background:#f1ebe0;padding:12px 14px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.8;color:#5d574e">22:14:07  stage=g7_tts  sent=1204/2640<br>22:14:07  CUDA out of memory (7.4G req / 5.1G free)<br>22:14:08  checkpoint saved → jobs/winter-term/g6.ckpt</div>
+      <div style="display:flex;gap:8px">
+        <div style="padding:9px 20px;border-radius:999px;background:#9c6a4a;color:#fff;font-size:13px;font-weight:600">从第 7 阶段重试</div>
+        <div style="padding:9px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">改用 CPU 合成</div>
+        <div style="padding:9px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">复制日志</div>
+      </div>
+    </div>
+
+    <div style="border:1px solid #d9d2c4;border-radius:12px;background:#faf7f1;padding:24px;display:flex;flex-direction:column;gap:20px">
+      <div style="font-size:13px;font-weight:600;color:#5d574e">Toast 三种（固定深底白字，底部居中，2.5s）</div>
+      <div style="display:flex;flex-direction:column;gap:10px;align-items:center">
+        <div style="width:100%;max-width:420px;padding:12px 16px;border-radius:8px;background:#37322a;color:#f5f0e7;font-size:13.5px;display:flex;align-items:center;gap:10px;box-shadow:0 1px 2px rgba(74,47,28,.10),0 2px 6px rgba(74,47,28,.07)">已加入生词本：gutter<div style="margin-left:auto;font-size:12.5px;opacity:.75">撤销</div></div>
+        <div style="width:100%;max-width:420px;padding:12px 16px;border-radius:8px;background:#37322a;color:#f5f0e7;font-size:13.5px;display:flex;align-items:center;gap:10px;box-shadow:0 1px 2px rgba(74,47,28,.10),0 2px 6px rgba(74,47,28,.07)"><span style="width:6px;height:6px;border-radius:999px;background:#5d7a58"></span>The Lamp and the Rain 处理完成<div style="margin-left:auto;font-size:12.5px;opacity:.75">开始读</div></div>
+        <div style="width:100%;max-width:420px;padding:12px 16px;border-radius:8px;background:#37322a;color:#f5f0e7;font-size:13.5px;display:flex;align-items:center;gap:10px;box-shadow:0 1px 2px rgba(74,47,28,.10),0 2px 6px rgba(74,47,28,.07)"><span style="width:6px;height:6px;border-radius:999px;background:#a94e3a"></span>合成失败：显存不足<div style="margin-left:auto;font-size:12.5px;opacity:.75">查看</div></div>
+      </div>
+      <div style="border-top:1px solid #d9d2c4;padding-top:16px;display:flex;flex-direction:column;gap:12px">
+        <div style="font-size:13px;font-weight:600;color:#5d574e">破坏性确认模态（唯一使用模态的场合）</div>
+        <div style="width:100%;max-width:420px;margin:0 auto;border:1px solid #d9d2c4;border-radius:12px;background:#fff;padding:20px;display:flex;flex-direction:column;gap:12px;box-shadow:0 2px 4px rgba(74,47,28,.12),0 6px 14px rgba(74,47,28,.10)">
+          <div style="font-size:15px;font-weight:600">删除《Winter Term》？</div>
+          <div style="font-size:13.5px;color:#5d574e;line-height:1.75">会同时删除已生成的译文、讲解和音频（共 1.2 GB）。生词本里的 11 个词会保留。</div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <div style="padding:9px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">取消</div>
+            <div style="padding:9px 14px;border-radius:999px;border:1px solid rgba(169,78,58,.38);color:#a94e3a;font-size:13px">删除</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 08 深色 / 儿童 / 色系 ============ -->
+<section id="s8" style="width:1120px;display:flex;flex-direction:column;gap:18px">
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.12em;color:#746f63">08 / 深色 · 儿童 · 色系</div>
+    <div style="font-size:20px;font-weight:600">同一批令牌的另一组取值</div>
+    <div style="font-size:14px;line-height:1.75;color:#5d574e;max-width:780px">深色不加阴影，层级靠 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#f1ebe0;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">--rd-surface-raised</code> 的 9 个明度点差。儿童只改四个数值，不新增选择器分支，屏幕上不出现按钮。</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:14px;font-weight:600;color:#5d574e">深色 · 我的书</div>
+      <div style="border:1px solid #4a443b;border-radius:12px;overflow:hidden;background:#211f1b;height:400px;display:flex;flex-direction:column">
+        <div style="height:52px;display:flex;align-items:center;padding:0 18px;border-bottom:1px solid #4a443b;background:rgba(33,31,27,.86)">
+          <div style="font-size:12.5px;font-weight:600;color:#a29c8f;padding-right:20px">aidulc</div>
+          <div style="display:flex;align-items:stretch;align-self:stretch">
+            <div style="display:flex;align-items:center;padding:0 14px;font-size:13.5px;font-weight:600;color:#d9ae8c;position:relative">我的书<span style="position:absolute;left:10px;right:10px;bottom:0;height:2px;border-radius:2px;background:#d9ae8c"></span></div>
+            <div style="display:flex;align-items:center;padding:0 14px;font-size:13.5px;color:#aca598">生词本</div>
+          </div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:12px;font-size:13.5px;color:#aca598"><span>导入</span><span style="display:flex;align-items:center;gap:6px">处理中<span style="min-width:18px;height:18px;padding:0 5px;border-radius:10px;background:#5a7687;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">2</span></span><span style="color:#a29c8f">⚙</span></div>
+        </div>
+        <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;gap:6px">
+            <div style="padding:4px 12px;border-radius:999px;background:#d9ae8c;color:#452c1b;font-size:12.5px;font-weight:600">全部 9</div>
+            <div style="padding:4px 12px;border-radius:999px;border:1px solid #4a443b;color:#aca598;font-size:12.5px">已就绪 5</div>
+            <div style="padding:4px 12px;border-radius:999px;border:1px solid #4a443b;color:#aca598;font-size:12.5px">处理中 2</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div style="border:1px solid #4a443b;border-radius:16px;background:#292621;padding:16px;display:flex;flex-direction:column;gap:12px">
+              <div style="display:flex;gap:10px">
+                <div style="width:38px;height:52px;border-radius:4px;background:#171512;border:1px solid #4a443b;flex:none"></div>
+                <div style="display:flex;flex-direction:column;gap:3px"><div style="font-size:14px;font-weight:600;color:#e8e2d6">The Lamp and the Rain</div><div style="font-size:12.5px;color:#aca598">E. Marchetti</div></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px"><span style="padding:1px 8px;border-radius:10px;background:#5d7a58;color:#fff;font-size:11px;font-weight:600">已就绪</span><span style="font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#a29c8f">3 480 句</span></div>
+              <div style="height:3px;border-radius:2px;background:#3a352c;overflow:hidden"><div style="width:38%;height:100%;background:#d9ae8c"></div></div>
+              <div style="padding:8px 18px;border-radius:999px;background:#d9ae8c;color:#452c1b;font-size:12.5px;font-weight:600;align-self:flex-start">继续读</div>
+            </div>
+            <div style="border:1px solid #4a443b;border-radius:16px;background:#292621;padding:16px;display:flex;flex-direction:column;gap:12px">
+              <div style="display:flex;gap:10px">
+                <div style="width:38px;height:52px;border-radius:4px;background:#171512;border:1px solid #4a443b;flex:none"></div>
+                <div style="display:flex;flex-direction:column;gap:3px"><div style="font-size:14px;font-weight:600;color:#e8e2d6">A Country of Small Rooms</div><div style="font-size:12.5px;color:#aca598">H. Nakamura</div></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px"><span style="padding:1px 8px;border-radius:10px;background:#5a7687;color:#fff;font-size:11px;font-weight:600">处理中</span><span style="font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#a29c8f">约 22 分钟</span></div>
+              <div style="height:3px;border-radius:2px;background:#3a352c;overflow:hidden"><div style="width:64%;height:100%;background:#5a7687"></div></div>
+              <div style="padding:8px 14px;border-radius:999px;border:1px solid #4a443b;color:#aca598;font-size:12.5px;align-self:flex-start">查看进度</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:14px;font-weight:600;color:#5d574e">深色 · 阅读器逐句</div>
+      <div style="border:1px solid #4a443b;border-radius:12px;overflow:hidden;background:#201e1a;height:400px;display:flex">
+        <div style="width:40px;flex:none;background:#171512;border-right:1px solid #4a443b;display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px">
+          <div style="width:12px;height:1px;background:#4a443b"></div>
+          <div style="width:18px;height:2px;background:#d9ae8c;border-radius:1px"></div>
+          <div style="width:12px;height:1px;background:#4a443b"></div>
+          <div style="width:12px;height:1px;background:#4a443b"></div>
+        </div>
+        <div style="flex:1;padding:32px 28px;display:flex;flex-direction:column;gap:22px">
+          <div style="opacity:.30;font-family:Georgia,'Times New Roman',serif;font-size:18px;line-height:1.85;color:#e8e2d6">The lamp on the desk had been burning since four, and the room smelled faintly of paper and rain.</div>
+          <div style="display:flex;flex-direction:column;gap:8px;position:relative;padding-left:14px">
+            <div style="position:absolute;left:0;top:4px;bottom:4px;width:2px;border-radius:1px;background:#d9ae8c"></div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:18px;line-height:1.85;color:#e8e2d6">She turned the page without <span style="background:#4a3a28;border-radius:3px;padding:0 2px">reading</span> it, listening instead to the water in the <span style="border-bottom:1px solid #a29c8f">gutters</span>.</div>
+            <div style="font-size:14px;line-height:1.75;color:#aca598">她翻过一页，却没有读，只是听着檐沟里的水声。</div>
+          </div>
+          <div style="opacity:.30;font-family:Georgia,'Times New Roman',serif;font-size:18px;line-height:1.85;color:#e8e2d6">Outside, the street had given itself over to the weather.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div style="font-size:14px;font-weight:600;color:#5d574e">儿童取值 — <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#f1ebe0;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">:root[data-kid="1"]</code>：正文 27px · 行高 2.1 · 版心 780px · 暗化 0.42，屏幕上没有任何按钮</div>
+    <div style="border:1px solid #d9d2c4;border-radius:12px;overflow:hidden;background:#fbf8f3;height:360px;display:flex;justify-content:center;padding:44px 0;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">
+      <div style="width:780px;display:flex;flex-direction:column;gap:30px">
+        <div style="opacity:.42;font-family:Georgia,'Times New Roman',serif;font-size:27px;line-height:2.1;color:#28241e">The lamp on the desk had been burning since four.</div>
+        <div style="display:flex;flex-direction:column;gap:10px;position:relative;padding-left:18px">
+          <div style="position:absolute;left:0;top:6px;bottom:6px;width:2px;border-radius:1px;background:#9c6a4a"></div>
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:27px;line-height:2.1;color:#28241e">She turned the page without <span style="background:#f0e7da;border-radius:4px;padding:0 3px">reading</span> it.</div>
+          <div style="font-size:17px;line-height:1.9;color:#5d574e">她翻过一页，却没有读。</div>
+        </div>
+        <div style="opacity:.42;font-family:Georgia,'Times New Roman',serif;font-size:27px;line-height:2.1;color:#28241e">Outside, the street had given itself over to the weather.</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div style="font-size:14px;font-weight:600;color:#5d574e">四个备选色系 — 中性色不变，只换强调色家族</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px">
+      <div style="border:1px solid #d9d2c4;border-radius:12px;background:#faf7f1;padding:18px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:999px;background:#61764c"></span><div style="font-size:14px;font-weight:600">sage 青苔</div></div>
+        <div style="font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#746f63">#61764c / #b3c79a</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="padding:8px 16px;border-radius:999px;background:#61764c;color:#fff;font-size:12.5px;font-weight:600;text-align:center">主按钮</div>
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;line-height:1.7">the water in the <span style="background:#e6ecd9;border-radius:3px;padding:0 2px">gutters</span></div>
+        </div>
+        <div style="font-size:12.5px;color:#5d574e;line-height:1.7">自然沉静，长读不累</div>
+      </div>
+      <div style="border:1px solid #d9d2c4;border-radius:12px;background:#faf7f1;padding:18px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:999px;background:#4a6a80"></span><div style="font-size:14px;font-weight:600">ocean 海蓝</div></div>
+        <div style="font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#746f63">#4a6a80 / #a3c1d6</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="padding:8px 16px;border-radius:999px;background:#4a6a80;color:#fff;font-size:12.5px;font-weight:600;text-align:center">主按钮</div>
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;line-height:1.7">the water in the <span style="background:#dce7ee;border-radius:3px;padding:0 2px">gutters</span></div>
+        </div>
+        <div style="font-size:12.5px;color:#5d574e;line-height:1.7">冷静专注</div>
+      </div>
+      <div style="border:1px solid #d9d2c4;border-radius:12px;background:#faf7f1;padding:18px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:999px;background:#96626d"></span><div style="font-size:14px;font-weight:600">rose 蔷薇</div></div>
+        <div style="font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#746f63">#96626d / #d3a6b1</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="padding:8px 16px;border-radius:999px;background:#96626d;color:#fff;font-size:12.5px;font-weight:600;text-align:center">主按钮</div>
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;line-height:1.7">the water in the <span style="background:#f2e3e6;border-radius:3px;padding:0 2px">gutters</span></div>
+        </div>
+        <div style="font-size:12.5px;color:#5d574e;line-height:1.7">温柔不张扬</div>
+      </div>
+      <div style="border:1px solid #d9d2c4;border-radius:12px;background:#faf7f1;padding:18px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:999px;background:#5a6673"></span><div style="font-size:14px;font-weight:600">slate 灰蓝</div></div>
+        <div style="font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#746f63">#5a6673 / #b0bac5</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="padding:8px 16px;border-radius:999px;background:#5a6673;color:#fff;font-size:12.5px;font-weight:600;text-align:center">主按钮</div>
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;line-height:1.7">the water in the <span style="background:#e2e6ea;border-radius:3px;padding:0 2px">gutters</span></div>
+        </div>
+        <div style="font-size:12.5px;color:#5d574e;line-height:1.7">最克制</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 09 令牌与组件 ============ -->
+<section id="s9" style="width:1120px;display:flex;flex-direction:column;gap:18px">
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.12em;color:#746f63">09 / 令牌与组件规格</div>
+    <div style="font-size:20px;font-weight:600">本次新增与废弃</div>
+    <div style="font-size:14px;line-height:1.75;color:#5d574e;max-width:780px">现有 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#f1ebe0;border:1px solid #d9d2c4;border-radius:4px;padding:1px 5px">tokens.css</code> 已覆盖颜色、圆角、字号、间距。这一版只补纹理与动效两组，并标记一项废弃。</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div style="border:1px solid #d9d2c4;border-radius:12px;background:#faf7f1;padding:22px;display:flex;flex-direction:column;gap:14px">
+      <div style="font-size:14px;font-weight:600">新增令牌</div>
+      <div style="display:flex;flex-direction:column;gap:10px;font-size:13px">
+        <div style="display:flex;gap:12px;align-items:baseline;border-bottom:1px solid #ede7db;padding-bottom:9px"><code style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#28241e;flex:none;width:180px">--rd-grain-1</code><span style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">rgba(74,47,28,.014)</span></div>
+        <div style="display:flex;gap:12px;align-items:baseline;border-bottom:1px solid #ede7db;padding-bottom:9px"><code style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#28241e;flex:none;width:180px">--rd-grain-2</code><span style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">rgba(74,47,28,.008)</span></div>
+        <div style="display:flex;gap:12px;align-items:baseline;border-bottom:1px solid #ede7db;padding-bottom:9px"><code style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#28241e;flex:none;width:180px">--rd-grain-opacity</code><span style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">1（设置内可关成 0）</span></div>
+        <div style="display:flex;gap:12px;align-items:baseline;border-bottom:1px solid #ede7db;padding-bottom:9px"><code style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#28241e;flex:none;width:180px">--md-sys-motion-fast</code><span style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">0.12s · 逐词高亮</span></div>
+        <div style="display:flex;gap:12px;align-items:baseline;border-bottom:1px solid #ede7db;padding-bottom:9px"><code style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#28241e;flex:none;width:180px">--md-sys-motion-base</code><span style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">0.15s · 状态变色</span></div>
+        <div style="display:flex;gap:12px;align-items:baseline"><code style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#28241e;flex:none;width:180px">--md-sys-motion-slow</code><span style="font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">0.25s · 浮层进出</span></div>
+      </div>
+      <div style="border-top:1px solid #d9d2c4;padding-top:14px;display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:14px;font-weight:600">废弃</div>
+        <div style="font-size:13px;line-height:1.8;color:#5d574e"><code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">--md-sys-radius-xl</code>（28px，无使用场景，禁止新用）。<code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">--md-sys-color-tertiary</code> 系列仅一处使用，建议下一轮并入 secondary。</div>
+      </div>
+      <div style="border-top:1px solid #d9d2c4;padding-top:14px;display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:14px;font-weight:600">纸纹实现（唯一实例）</div>
+        <div style="border:1px solid #d9d2c4;border-radius:8px;background:#f1ebe0;padding:12px 14px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.85;color:#5d574e">body::before{<br>&nbsp;&nbsp;position:fixed; inset:0; z-index:0;<br>&nbsp;&nbsp;pointer-events:none;<br>&nbsp;&nbsp;opacity:var(--rd-grain-opacity);<br>&nbsp;&nbsp;background-image:<br>&nbsp;&nbsp;&nbsp;&nbsp;repeating-linear-gradient(90deg,var(--rd-grain-1) 0 1px,transparent 1px 3px),<br>&nbsp;&nbsp;&nbsp;&nbsp;repeating-linear-gradient(24deg,var(--rd-grain-2) 0 2px,transparent 2px 7px);<br>}</div>
+        <div style="font-size:12.5px;color:#746f63;line-height:1.7">禁止把纹理加在 .blk 或卡片上——3000+ span 的章节里重绘代价会成倍上升。</div>
+      </div>
+    </div>
+
+    <div style="border:1px solid #d9d2c4;border-radius:12px;background:#faf7f1;padding:22px;display:flex;flex-direction:column;gap:18px">
+      <div style="font-size:14px;font-weight:600">组件规格速查</div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:12.5px;color:#746f63;font-family:ui-monospace,Consolas,monospace">按钮</div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="padding:9px 20px;border-radius:999px;background:#9c6a4a;color:#fff;font-size:13px;font-weight:600;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05)">主 9/20</div>
+          <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px">次 5/14</div>
+          <div style="padding:5px 14px;border-radius:999px;border:1px solid rgba(169,78,58,.38);color:#a94e3a;font-size:13px">破坏性</div>
+          <div style="padding:5px 14px;border-radius:999px;border:1px solid #d9d2c4;color:#5d574e;font-size:13px;opacity:.5">禁用</div>
+          <div style="width:26px;height:24px;border-radius:4px;background:rgba(156,106,74,.08);display:flex;align-items:center;justify-content:center;font-size:12px;color:#5d574e">▷</div>
+        </div>
+        <div style="font-size:12.5px;color:#746f63;line-height:1.7">每屏最多一个主按钮；按下 translateY(1px)；禁用 opacity .5 且去阴影。</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;border-top:1px solid #d9d2c4;padding-top:16px">
+        <div style="font-size:12.5px;color:#746f63;font-family:ui-monospace,Consolas,monospace">徽章 · 五种语义</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <span style="padding:1px 8px;border-radius:10px;background:#5d7a58;color:#fff;font-size:11.5px;font-weight:600">已就绪</span>
+          <span style="padding:1px 8px;border-radius:10px;background:#5a7687;color:#fff;font-size:11.5px;font-weight:600">处理中</span>
+          <span style="padding:1px 8px;border-radius:10px;background:#a5812f;color:#fff;font-size:11.5px;font-weight:600">缺模型</span>
+          <span style="padding:1px 8px;border-radius:10px;background:#a94e3a;color:#fff;font-size:11.5px;font-weight:600">失败</span>
+          <span style="padding:1px 8px;border-radius:10px;background:#9a9387;color:#fff;font-size:11.5px;font-weight:600">未处理</span>
+        </div>
+        <div style="font-size:12.5px;color:#746f63;line-height:1.7">全系统唯一允许「彩色填充 + 白字」的元素。不可点击——一旦可点就该是按钮。</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;border-top:1px solid #d9d2c4;padding-top:16px">
+        <div style="font-size:12.5px;color:#746f63;font-family:ui-monospace,Consolas,monospace">圆角 · 阴影</div>
+        <div style="display:flex;gap:10px;align-items:flex-end">
+          <div style="width:56px;height:44px;border-radius:4px;border:1px solid #d9d2c4;background:#fbf8f3;display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Consolas,monospace;font-size:10px;color:#746f63">xs 4</div>
+          <div style="width:56px;height:44px;border-radius:8px;border:1px solid #d9d2c4;background:#fbf8f3;display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Consolas,monospace;font-size:10px;color:#746f63">sm 8</div>
+          <div style="width:56px;height:44px;border-radius:12px;border:1px solid #d9d2c4;background:#fbf8f3;display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Consolas,monospace;font-size:10px;color:#746f63">md 12</div>
+          <div style="width:56px;height:44px;border-radius:16px;border:1px solid #d9d2c4;background:#fbf8f3;display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Consolas,monospace;font-size:10px;color:#746f63">lg 16</div>
+        </div>
+        <div style="display:flex;gap:14px;padding-top:6px">
+          <div style="width:100px;height:44px;border-radius:8px;background:#fbf8f3;border:1px solid #d9d2c4;box-shadow:0 1px 2px rgba(74,47,28,.08),0 1px 3px rgba(74,47,28,.05);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Consolas,monospace;font-size:10px;color:#746f63">elev 1</div>
+          <div style="width:100px;height:44px;border-radius:8px;background:#fbf8f3;border:1px solid #d9d2c4;box-shadow:0 1px 2px rgba(74,47,28,.10),0 2px 6px rgba(74,47,28,.07);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Consolas,monospace;font-size:10px;color:#746f63">elev 2</div>
+          <div style="width:100px;height:44px;border-radius:8px;background:#fbf8f3;border:1px solid #d9d2c4;box-shadow:0 2px 4px rgba(74,47,28,.12),0 6px 14px rgba(74,47,28,.10);display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Consolas,monospace;font-size:10px;color:#746f63">elev 3</div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;border-top:1px solid #d9d2c4;padding-top:16px">
+        <div style="font-size:12.5px;color:#746f63;font-family:ui-monospace,Consolas,monospace">词的四种状态 · 四条独立通道</div>
+        <div style="font-family:Georgia,'Times New Roman',serif;font-size:17px;line-height:2;color:#28241e">
+          <span style="background:#f0e7da;border-radius:3px;padding:0 2px">reading</span> 正在朗读 ·
+          <span style="border-bottom:1px solid #746f63">gutters</span> 已在生词本 ·
+          <span style="border-bottom:2px solid #a8792e">given over to</span> 短语动词 ·
+          <span style="background:rgba(156,106,74,.08);border-radius:3px;padding:0 2px">street</span> hover
+        </div>
+        <div style="font-size:12.5px;color:#746f63;line-height:1.7">四者可同时成立且不互相遮蔽。状态永不只靠颜色（可访问性 §8）。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 10 落地清单 ============ -->
+<section id="s10" style="width:1120px;display:flex;flex-direction:column;gap:18px">
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.12em;color:#746f63">10 / 落地清单</div>
+    <div style="font-size:20px;font-weight:600">按依赖顺序执行</div>
+    <div style="font-size:14px;line-height:1.75;color:#5d574e;max-width:780px">令牌先行，然后是壳与导航，再逐个视图。阅读器放最后，它依赖前面确定的令牌与动效时长。</div>
+  </div>
+
+  <div style="border:1px solid #d9d2c4;border-radius:12px;background:#faf7f1;overflow:hidden">
+    <div style="display:grid;grid-template-columns:56px 260px 1fr;gap:0;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;letter-spacing:.08em;color:#746f63;background:#f1ebe0;border-bottom:1px solid #d9d2c4">
+      <div style="padding:11px 14px">序</div><div style="padding:11px 14px">文件</div><div style="padding:11px 14px">动作</div>
+    </div>
+    <div style="display:grid;grid-template-columns:56px 260px 1fr;border-bottom:1px solid #ede7db">
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">1</div>
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px">styles/tokens.css</div>
+      <div style="padding:14px;font-size:13px;line-height:1.75;color:#5d574e">新增 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">--rd-grain-1/2</code>、<code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">--rd-grain-opacity</code>、三个 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">--md-sys-motion-*</code>；深色块内 grain 换 rgba(232,226,214,.010/.006)；<code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">--md-sys-radius-xl</code> 加废弃注释。</div>
+    </div>
+    <div style="display:grid;grid-template-columns:56px 260px 1fr;border-bottom:1px solid #ede7db">
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">2</div>
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px">styles/app.css</div>
+      <div style="padding:14px;font-size:13px;line-height:1.75;color:#5d574e">加 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">body::before</code> 纸纹层（固定定位、单一实例、不参与动画）；所有过渡时长换成 motion 令牌；顶栏高 52px、背景 86% 纸面 + blur(14px)、底部 1px 分隔。</div>
+    </div>
+    <div style="display:grid;grid-template-columns:56px 260px 1fr;border-bottom:1px solid #ede7db">
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">3</div>
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px">views/shell_view.js</div>
+      <div style="padding:14px;font-size:13px;line-height:1.75;color:#5d574e">六项等权页签改三层：左「我的书 · 生词本」，右「导入 · 处理中(n)」，最右齿轮。「处理中」无任务时不消失，只去掉徽章。当前项 = primary + 600 + 底部 2px 圆角线（左右各内缩 12px）。</div>
+    </div>
+    <div style="display:grid;grid-template-columns:56px 260px 1fr;border-bottom:1px solid #ede7db">
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">4</div>
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px">app/router.js</div>
+      <div style="padding:14px;font-size:13px;line-height:1.75;color:#5d574e"><code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">library</code> + <code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">products</code> → <code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">books</code>；<code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">prep</code> → <code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">jobs</code>；<code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">models</code> → <code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">settings#models</code>。旧路由保留重定向一个版本。</div>
+    </div>
+    <div style="display:grid;grid-template-columns:56px 260px 1fr;border-bottom:1px solid #ede7db">
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">5</div>
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px">views/library_view.js</div>
+      <div style="padding:14px;font-size:13px;line-height:1.75;color:#5d574e">合并两个列表；顶部加状态分段筛选（全部 / 已就绪 / 处理中 / 未处理）带计数；书卡按 §6.2 规格；空态用唯一允许的虚线容器。</div>
+    </div>
+    <div style="display:grid;grid-template-columns:56px 260px 1fr;border-bottom:1px solid #ede7db">
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">6</div>
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px">views/wizard_view.js</div>
+      <div style="padding:14px;font-size:13px;line-height:1.75;color:#5d574e">多步向导改单屏；语速等参数用 pill 档位替代裸数字输入框；底部一行预估 + 唯一主按钮。</div>
+    </div>
+    <div style="display:grid;grid-template-columns:56px 260px 1fr;border-bottom:1px solid #ede7db">
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">7</div>
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px">views/prep_view.js</div>
+      <div style="padding:14px;font-size:13px;line-height:1.75;color:#5d574e">改为任务卡 + 九段阶段流水条；日志改折叠区（不是 tab）；失败态含原因、断点、三个下一步动作。</div>
+    </div>
+    <div style="display:grid;grid-template-columns:56px 260px 1fr;border-bottom:1px solid #ede7db">
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">8</div>
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px">views/settings_view.js<br>views/models_view.js</div>
+      <div style="padding:14px;font-size:13px;line-height:1.75;color:#5d574e">设置改左侧纵向分区列表（当前项 = 左 2px 陶土竖线 + primary-container 底）；模型中心整体并入为一节，模块本身不改，只换挂载点。</div>
+    </div>
+    <div style="display:grid;grid-template-columns:56px 260px 1fr;border-bottom:1px solid #ede7db">
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">9</div>
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px">views/vocab_view.js</div>
+      <div style="padding:14px;font-size:13px;line-height:1.75;color:#5d574e">词条卡加来源句上下文（原句 + 译文，左侧 2px 强调竖线）；右栏统计只有当天用强调色；窄于 800px 折叠为抽屉。</div>
+    </div>
+    <div style="display:grid;grid-template-columns:56px 260px 1fr;border-bottom:1px solid #ede7db">
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">10</div>
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px">views/reader_view.js<br>views/reader/follow_bar.js</div>
+      <div style="padding:14px;font-size:13px;line-height:1.75;color:#5d574e">进入阅读隐藏应用顶栏（零层导航），Esc 返回，左上返回箭头 hover 才显形；三条堆叠横栏改为浮层面板 + 底部单条跟读栏；跟读参数改四个预设 pill，微调进浮层。</div>
+    </div>
+    <div style="display:grid;grid-template-columns:56px 260px 1fr">
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#746f63">11</div>
+      <div style="padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px">lint</div>
+      <div style="padding:14px;font-size:13px;line-height:1.75;color:#5d574e">保持裸 #hex / 裸 px 禁令；新增一条：禁止在 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">.blk</code> 及其子元素上写 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">backdrop-filter</code> 与 <code style="font-family:ui-monospace,Consolas,monospace;font-size:12px">background-image</code>。</div>
+    </div>
+  </div>
+
+  <div style="border:1px solid #d9d2c4;border-radius:12px;background:#f1ebe0;padding:22px;display:flex;flex-direction:column;gap:12px">
+    <div style="font-size:14px;font-weight:600">需要实际用一段时间才能验证的六件事</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div style="font-size:13px;line-height:1.8;color:#5d574e"><b style="font-weight:600;color:#28241e">纸纹是否值得。</b>1.5% 对比度在低质 TN 屏可能完全看不见，在高 DPI 屏可能显摩尔纹。总开关就是为此准备的。</div>
+      <div style="font-size:13px;line-height:1.8;color:#5d574e"><b style="font-weight:600;color:#28241e">书库合并。</b>书量上百时单列表加筛选可能不如两个页签快。到 50 本以上再评估。</div>
+      <div style="font-size:13px;line-height:1.8;color:#5d574e"><b style="font-weight:600;color:#28241e">「处理中(n)」常驻。</b>无任务时是永远为 0 的入口。赌「找得到」比「少一项」重要。</div>
+      <div style="font-size:13px;line-height:1.8;color:#5d574e"><b style="font-weight:600;color:#28241e">衬线体只给英文正文。</b>Georgia 在 Windows 上的中文回退需确认中英混排不跳字体。</div>
+      <div style="font-size:13px;line-height:1.8;color:#5d574e"><b style="font-weight:600;color:#28241e">五色系是否都用得上。</b>很可能长期只用 clay。半年后使用率为零的应删掉而非维护。</div>
+      <div style="font-size:13px;line-height:1.8;color:#5d574e"><b style="font-weight:600;color:#28241e">深色靠明度差表达层级。</b>9 个明度点在低亮度环境下可能不够，需要实际在夜里看。</div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;grain&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:1,&quot;min&quot;:0,&quot;max&quot;:1,&quot;step&quot;:0.1,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;纸张质感&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    return { grain: this.props.grain ?? 1 };
+  }
+}
+</script>
+</body>
+</html>

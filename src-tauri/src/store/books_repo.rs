@@ -147,6 +147,7 @@ impl<'a> BooksRepo<'a> {
             .collect()
     }
 
+    #[allow(dead_code)]
     pub fn remove(&self, id: &str) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
         conn.execute("DELETE FROM books WHERE id = ?1", [id])
@@ -154,6 +155,7 @@ impl<'a> BooksRepo<'a> {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn touch_opened(&self, id: &str, now: i64) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
         conn.execute(

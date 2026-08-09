@@ -695,6 +695,31 @@ body.reader-active .app-view { max-width: none; padding: 0; }
 
 /* ---- 加载/搜索命中 ---- */
 .chapter-loading { padding: 40px 20px; text-align: center; color: var(--rd-ink-3); }
+
+/* 阶段3 (F46): 书包/章节加载错误与重试态 —— 全区域居中, 失败不再白屏 */
+.reader-state-box {
+  min-height: 40vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--md-sys-space-4);
+  padding: var(--md-sys-space-8);
+  text-align: center;
+  color: var(--rd-ink-2);
+}
+.reader-state-text {
+  font-size: var(--md-sys-font-size-body-m);
+  font-family: var(--md-sys-font-sans);
+  max-width: 560px;
+  line-height: 1.7;
+}
+.reader-state-error .reader-state-text { color: var(--md-sys-color-error); }
+.reader-state-actions {
+  display: flex;
+  gap: var(--md-sys-space-3);
+}
+
 .atomic-block.search-target {
   outline: 3px solid var(--rd-accent);
   outline-offset: 2px;

@@ -7,18 +7,20 @@ beforeAll(async () => {
   FollowPresets = globalThis.AiduFollowPresets;
 });
 
-describe('FollowPresets - 三个命名预设', () => {
-  it('三预设参数符合设计 §2.7', () => {
+describe('FollowPresets - 四个命名预设', () => {
+  it('四预设参数符合设计 §2.7 / 完整设计交付确认 §06', () => {
     const p = FollowPresets.presetByKey('first');
     expect(p).toMatchObject({ repeat: 1, gapMs: 0, speed: 1.0, blind: false });
     const sh = FollowPresets.presetByKey('shadow');
     expect(sh).toMatchObject({ repeat: 2, gapMs: 900, speed: 0.9, blind: false });
     const bl = FollowPresets.presetByKey('blind');
     expect(bl).toMatchObject({ repeat: 3, gapMs: 1200, speed: 0.8, blind: true });
+    const kid = FollowPresets.presetByKey('kid');
+    expect(kid).toMatchObject({ repeat: 3, gapMs: 1500, speed: 0.7, blind: false });
   });
 
-  it('allPresets 按展示顺序返回', () => {
-    expect(FollowPresets.allPresets().map((p) => p.key)).toEqual(['first', 'shadow', 'blind']);
+  it('allPresets 按展示顺序返回 (含孩子预设)', () => {
+    expect(FollowPresets.allPresets().map((p) => p.key)).toEqual(['first', 'shadow', 'blind', 'kid']);
   });
 
   it('applyPreset 把参数写进 shadow, 返回预设', () => {

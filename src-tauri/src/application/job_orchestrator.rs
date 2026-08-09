@@ -51,6 +51,12 @@ pub fn start_prep_job(
     let repo = store::jobs_repo::JobsRepo::new(db);
     let job = store::jobs_repo::Job {
         id: job_id.clone(),
+        edition_id: None,
+        // BOOK_WORKFLOW §2.3: job 显式关联 source (start_prep_job 单书路径, 由路径+档案推导)
+        source_id: Some(crate::commands::library::book_id_from_path(
+            &book_path,
+            &profile_id,
+        )),
         book_path: book_path.clone(),
         profile_id: profile_id.clone(),
         output_dir: job_dir.to_string_lossy().to_string(),
@@ -98,7 +104,11 @@ pub fn start_prep_job(
 }
 
 /// 导入批次 (R1: 只登记书+批次, 不开始处理)
-/// 返回 batch_id。用户稍后在书库点"开始阅读准备" → batch_start_prep。
+/// 返回 batch_id。用户稍后在书库点"创建译本/开始阅读准备" → batch_start_prep。
+/// 阶段 2(F45): 把登记逻辑抽成可测试的纯函数 `register_import_batch`(不需要 AppHandle),
+/// 命令层只负责 emit 事件 + 序列化返回。同一路径 + 同一 profile 重复导入:
+///   - source 层面幂等(book_id 去重, 不再登记第二条 source);
+///   - 返回 skipped 列表, 前端据此提示"该原书已导入, 直接创建译本", 而不是用户以为导入两次。
 pub fn batch_import(
     app: tauri::AppHandle,
     db: &store::Db,
@@ -106,12 +116,36 @@ pub fn batch_import(
     profile: serde_json::Value,
     source_language: Option<String>,
     target_language: Option<String>,
-) -> Result<String, String> {
+) -> Result<serde_json::Value, String> {
     use tauri::Emitter;
+    let out = register_import_batch(db, book_paths, profile, source_language, target_language)?;
+    let _ = app.emit("library-changed", serde_json::json!({}));
+    Ok(serde_json::json!({
+        "batch_id": out.batch_id,
+        "registered": out.registered,
+        "skipped": out.skipped,
+    }))
+}
+
+/// 导入批次结果: batch_id + 本次新登记的原书路径 + 因已存在而跳过的路径。
+pub struct ImportOutcome {
+    pub batch_id: String,
+    pub registered: Vec<String>,
+    pub skipped: Vec<String>,
+}
+
+/// 纯登记逻辑(不依赖 Tauri): 建 batch + 幂等登记 source。
+/// 只创建 source(kind=original, status=pending); 不创建 pack_dir/edition/reading_state。
+pub fn register_import_batch(
+    db: &store::Db,
+    book_paths: Vec<String>,
+    profile: serde_json::Value,
+    source_language: Option<String>,
+    target_language: Option<String>,
+) -> Result<ImportOutcome, String> {
     if book_paths.is_empty() {
         return Err("至少需要一本书".into());
     }
-    let batch_id = format!("batch-{}", uuid_short());
     let profile_id = profile
         .get("id")
         .and_then(|i| i.as_str())
@@ -119,6 +153,54 @@ pub fn batch_import(
         .to_string();
     let lang = source_language.clone().unwrap_or_else(|| "en".into());
     let tgt = target_language.clone().unwrap_or_else(|| "zh-CN".into());
+
+    // 登记每本书 (pending): 书库立刻可见, 可配语言/模型
+    let books_repo = store::books_repo::BooksRepo::new(db);
+    let mut registered = Vec::new();
+    let mut skipped = Vec::new();
+    for path in &book_paths {
+        let book_id = crate::commands::library::book_id_from_path(path, &profile_id);
+        if books_repo.get(&book_id).is_some() {
+            skipped.push(path.clone());
+            continue;
+        }
+        let book = store::books_repo::Book {
+            id: book_id.clone(),
+            title: std::path::Path::new(path)
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "Untitled".into()),
+            source_path: path.clone(),
+            pack_dir: String::new(), // 处理开始后才建任务目录
+            profile_id: profile_id.clone(),
+            status: "pending".into(),
+            kind: "original".into(),
+            source_book_id: None,
+            chapter_count: 0,
+            failed_count: 0,
+            last_opened_at: None,
+            source_language: lang.clone(),
+            target_language: tgt.clone(),
+            llm_id: None,
+            tts_id: None,
+            nlp_id: None,
+            created_at: now_ms(),
+            updated_at: now_ms(),
+        };
+        books_repo
+            .upsert(&book)
+            .map_err(|e| format!("写原书失败: {e}"))?;
+        registered.push(path.clone());
+    }
+    // 只有真的登记了新书才建 batch (全跳过 = 重复导入, 不制造无意义批次; 前端据此提示)
+    if registered.is_empty() {
+        return Ok(ImportOutcome {
+            batch_id: String::new(),
+            registered,
+            skipped,
+        });
+    }
+    let batch_id = format!("batch-{}", uuid_short());
     let repo = store::batches_repo::BatchesRepo::new(db);
     let batch = store::batches_repo::Batch {
         id: batch_id.clone(),
@@ -126,7 +208,7 @@ pub fn batch_import(
         source_language: lang.clone(),
         target_language: tgt.clone(),
         status: "created".into(),
-        total_books: book_paths.len() as i64,
+        total_books: registered.len() as i64,
         done_books: 0,
         failed_books: 0,
         created_at: now_ms(),
@@ -134,40 +216,11 @@ pub fn batch_import(
     };
     repo.upsert(&batch)
         .map_err(|e| format!("写批次失败: {e}"))?;
-
-    // 登记每本书 (pending): 书库立刻可见, 可配语言/模型
-    let books_repo = store::books_repo::BooksRepo::new(db);
-    for path in &book_paths {
-        let book_id = crate::commands::library::book_id_from_path(path, &profile_id);
-        if books_repo.get(&book_id).is_none() {
-            let book = store::books_repo::Book {
-                id: book_id.clone(),
-                title: std::path::Path::new(path)
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "Untitled".into()),
-                source_path: path.clone(),
-                pack_dir: String::new(), // 处理开始后才建任务目录
-                profile_id: profile_id.clone(),
-                status: "pending".into(),
-                kind: "original".into(),
-                source_book_id: None,
-                chapter_count: 0,
-                failed_count: 0,
-                last_opened_at: None,
-                source_language: lang.clone(),
-                target_language: tgt.clone(),
-                llm_id: None,
-                tts_id: None,
-                nlp_id: None,
-                created_at: now_ms(),
-                updated_at: now_ms(),
-            };
-            let _ = books_repo.upsert(&book);
-        }
-    }
-    let _ = app.emit("library-changed", serde_json::json!({}));
-    Ok(batch_id)
+    Ok(ImportOutcome {
+        batch_id,
+        registered,
+        skipped,
+    })
 }
 
 /// 开始阅读准备 (R1/R2: 前置检查 → 通过的书入队; 未通过的书标原因)
@@ -257,8 +310,15 @@ pub fn batch_start_prep(
         }
         let job = store::jobs_repo::Job {
             id: job_id.clone(),
+            edition_id: None,
+            // BOOK_WORKFLOW §2.3: job 显式关联 source (用 source 行 id, 不是路径字符串)
+            source_id: Some(book_id.clone()),
             book_path: book.source_path.clone(),
-            profile_id: book.profile_id.clone(),
+            profile_id: profile_obj
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or(&book.profile_id)
+                .to_string(),
             output_dir: job_dir.to_string_lossy().to_string(),
             status: "queued".into(),
             stage: String::new(),
@@ -464,6 +524,9 @@ pub fn batch_start(
         }
         let job = store::jobs_repo::Job {
             id: job_id.clone(),
+            edition_id: None,
+            // BOOK_WORKFLOW §2.3: job 显式关联 source (batch_start 旧兼容路径)
+            source_id: Some(book_id.clone()),
             book_path: path.clone(),
             profile_id: profile_id.clone(),
             output_dir: job_dir.to_string_lossy().to_string(),
@@ -734,8 +797,27 @@ pub fn pump_queue(
     // v8 资产模型: 本次处理用的模型 (job_request 里已解析) + 原书 id
     let orig_book_id2 =
         crate::commands::library::book_id_from_path(&job.book_path, &job.profile_id);
-    let job_llm_id2 = String::new(); // 模型 id 快照后续从 job_request 读 (保持简单: 存路径为空则 None)
-    let job_tts_id2 = String::new();
+    // 阶段4 (2026-08-09): 模型快照从 job_request.json 读 —— 不同模型组合要能生成不同 edition
+    // (editions 表 asset key 含 llm_id/tts_id, 空串会让所有组合塌缩成一个键)。此前这里写死空串,
+    // 注释自证"后续从 job_request 读"但没实现。
+    let job_request_path = job_dir.join("job_request.json");
+    let req_models = std::fs::read_to_string(&job_request_path)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.get("models").cloned())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let req_llm = req_models
+        .get("llm")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let req_tts = req_models
+        .get("tts")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let job_llm_id2 = req_llm;
+    let job_tts_id2 = req_tts;
     let app_state = app2.clone();
     std::thread::spawn(move || {
         use tauri::Emitter;
@@ -870,6 +952,13 @@ pub fn pump_queue(
                             },
                             None,
                         );
+                        if let Some(edition) =
+                            crate::store::editions_repo::EditionsRepo::new(db.inner())
+                                .find_by_pack_dir(&job_dir2.to_string_lossy())
+                        {
+                            let _ = crate::store::jobs_repo::JobsRepo::new(db.inner())
+                                .attach_edition(&job_id2, &edition.id);
+                        }
                         // v7 架构分离: 原版书标 done (产物独立为 product)
                         let orig_id =
                             crate::commands::library::book_id_from_path(&book_path2, &profile_id);
@@ -1068,7 +1157,97 @@ fn profile_from_snapshot(job_dir: &std::path::Path, profile_id: &str) -> serde_j
 
 #[cfg(test)]
 mod tests {
-    use super::{overall_progress, profile_from_snapshot, quality_summary};
+    use super::{overall_progress, profile_from_snapshot, quality_summary, register_import_batch};
+
+    #[test]
+    fn import_same_path_twice_yields_one_source_and_skips_second() {
+        // F45 (2026-08-09): 同一路径 + 同一 profile 重复导入 → 只有 1 条 source,
+        // 第二次进入 skipped, 不再登记第二条 source(用户"导入两次"的根因修复)。
+        let path = std::env::temp_dir().join(format!("aidulc_imp_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = crate::store::Db::open(path.to_str().unwrap()).unwrap();
+        let profile = serde_json::json!({"id": "default"});
+        let p = "/tmp/Alice.epub".to_string();
+        let first =
+            register_import_batch(&db, vec![p.clone()], profile.clone(), None, None).unwrap();
+        assert_eq!(first.registered.len(), 1);
+        assert!(first.skipped.is_empty());
+        let second = register_import_batch(&db, vec![p.clone()], profile, None, None).unwrap();
+        assert!(second.registered.is_empty());
+        assert_eq!(second.skipped, vec![p.clone()]);
+        let c = db.conn.lock().unwrap();
+        let n: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM books WHERE source_path=?1",
+                [&p],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "同一路径重复导入只能有 1 条 source");
+        drop(c);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn import_different_profiles_yield_two_sources() {
+        // 资产模型: 不同 profile = 不同资产, 允许同路径多 source
+        let path = std::env::temp_dir().join(format!("aidulc_imp2_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = crate::store::Db::open(path.to_str().unwrap()).unwrap();
+        let p = "/tmp/Alice.epub".to_string();
+        register_import_batch(
+            &db,
+            vec![p.clone()],
+            serde_json::json!({"id": "default"}),
+            None,
+            None,
+        )
+        .unwrap();
+        register_import_batch(
+            &db,
+            vec![p.clone()],
+            serde_json::json!({"id": "kid"}),
+            None,
+            None,
+        )
+        .unwrap();
+        let c = db.conn.lock().unwrap();
+        let n: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM books WHERE source_path=?1",
+                [&p],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 2);
+        drop(c);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn import_does_not_create_edition_or_reading_state() {
+        // BOOK_WORKFLOW: 导入只创建 source, 不创建 pack_dir/edition/reading_state
+        let path = std::env::temp_dir().join(format!("aidulc_imp3_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = crate::store::Db::open(path.to_str().unwrap()).unwrap();
+        register_import_batch(
+            &db,
+            vec!["/tmp/Alice.epub".to_string()],
+            serde_json::json!({"id": "default"}),
+            None,
+            None,
+        )
+        .unwrap();
+        let c = db.conn.lock().unwrap();
+        for (t, _key) in [("editions", "source_id"), ("reading_state", "book_key")] {
+            let n: i64 = c
+                .query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "导入不应创建 {t}");
+        }
+        drop(c);
+        let _ = std::fs::remove_file(&path);
+    }
 
     #[test]
     fn retry_profile_from_snapshot_keeps_kid_params() {

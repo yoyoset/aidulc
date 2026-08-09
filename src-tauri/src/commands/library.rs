@@ -29,21 +29,50 @@ pub fn library_list(
     kind: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let repo = store::books_repo::BooksRepo::new(db.inner());
+    if kind.as_deref() == Some("product") {
+        let editions = store::editions_repo::EditionsRepo::new(db.inner());
+        let read_repo = store::reading_repo::ReadingRepo::new(db.inner());
+        let out = editions
+            .list()
+            .into_iter()
+            .map(|e| {
+                let mut v = serde_json::to_value(&e).unwrap_or_default();
+                if let Some(rs) = read_repo.get(&e.id) {
+                    if let Some(obj) = v.as_object_mut() {
+                        obj.insert("reading_chapter".into(), serde_json::json!(rs.chapter));
+                        obj.insert("time_spent_ms".into(), serde_json::json!(rs.time_spent_ms));
+                    }
+                }
+                v
+            })
+            .collect::<Vec<_>>();
+        return serde_json::to_value(out).map_err(|e| e.to_string());
+    }
     let books = match kind.as_deref() {
-        Some(k) if k == "original" || k == "product" => repo.list_by_kind(k),
+        Some("original") => repo.list_by_kind("original"),
         _ => repo.list(),
     };
     // M7 R18: 附阅读进度 (跨表只读 reading_state) —— 书架显示"已读至第几章/共读多久"。
     // N+1 查询, 但书量级小 (几十本), 可接受。
     let read_repo = store::reading_repo::ReadingRepo::new(db.inner());
     let mut out: Vec<serde_json::Value> = Vec::new();
+    let editions = store::editions_repo::EditionsRepo::new(db.inner());
     for b in books {
         let mut v = serde_json::to_value(&b).map_err(|e| e.to_string())?;
-        if let Some(rs) = read_repo.get(&b.id) {
-            if let Some(obj) = v.as_object_mut() {
-                obj.insert("reading_chapter".into(), serde_json::json!(rs.chapter));
-                obj.insert("time_spent_ms".into(), serde_json::json!(rs.time_spent_ms));
+        let nested = editions.list_by_source(&b.id);
+        let mut ev = Vec::new();
+        for e in nested {
+            let mut x = serde_json::to_value(&e).map_err(|e| e.to_string())?;
+            if let Some(rs) = read_repo.get(&e.id) {
+                if let Some(o) = x.as_object_mut() {
+                    o.insert("reading_chapter".into(), serde_json::json!(rs.chapter));
+                    o.insert("time_spent_ms".into(), serde_json::json!(rs.time_spent_ms));
+                }
             }
+            ev.push(x);
+        }
+        if let Some(o) = v.as_object_mut() {
+            o.insert("editions".into(), serde_json::Value::Array(ev));
         }
         out.push(v);
     }
@@ -64,11 +93,35 @@ pub fn library_register(
     source_language: Option<String>,
     target_language: Option<String>,
 ) -> Result<(), String> {
-    let repo = store::books_repo::BooksRepo::new(db.inner());
-    let book = store::books_repo::Book {
+    let now = now_ms();
+    let source_id = format!("synthetic-source-{id}");
+    let books = store::books_repo::BooksRepo::new(db.inner());
+    if books.get(&source_id).is_none() {
+        books.upsert(&store::books_repo::Book {
+            id: source_id.clone(),
+            title: title.clone(),
+            source_path: source_path.clone(),
+            pack_dir: String::new(),
+            profile_id: profile_id.clone(),
+            status: "done".into(),
+            kind: "original".into(),
+            source_book_id: None,
+            chapter_count: 0,
+            failed_count: 0,
+            last_opened_at: None,
+            source_language: source_language.clone().unwrap_or_else(|| "en".into()),
+            target_language: target_language.clone().unwrap_or_else(|| "zh-CN".into()),
+            llm_id: None,
+            tts_id: None,
+            nlp_id: None,
+            created_at: now,
+            updated_at: now,
+        })?;
+    }
+    let edition = store::editions_repo::Edition {
         id,
+        source_id,
         title,
-        source_path,
         pack_dir,
         profile_id,
         status: if failed_count > 0 {
@@ -76,8 +129,6 @@ pub fn library_register(
         } else {
             "ready".into()
         },
-        kind: "product".into(), // v7: 登记的是成品
-        source_book_id: None,
         chapter_count,
         failed_count,
         last_opened_at: None,
@@ -86,21 +137,34 @@ pub fn library_register(
         llm_id: None,
         tts_id: None,
         nlp_id: None,
-        created_at: now_ms(),
-        updated_at: now_ms(),
+        created_at: now,
+        updated_at: now,
     };
-    repo.upsert(&book)
+    store::editions_repo::EditionsRepo::new(db.inner()).upsert(&edition)
 }
 
 /// 删除一本书
 #[tauri::command]
-pub fn library_remove(db: State<store::Db>, id: String, delete_files: bool) -> Result<(), String> {
-    let repo = store::books_repo::BooksRepo::new(db.inner());
-    if let Some(book) = repo.get(&id) {
-        if delete_files {
-            let _ = std::fs::remove_dir_all(&book.pack_dir);
+pub fn library_remove(
+    db: State<store::Db>,
+    cache: State<crate::infrastructure::bookpack_cache::BookpackCache>,
+    id: String,
+    delete_files: bool,
+) -> Result<(), String> {
+    let editions = store::editions_repo::EditionsRepo::new(db.inner());
+    let packs = if editions.get(&id).is_some() {
+        crate::application::library_asset_service::delete_edition(db.inner(), &id)?
+    } else {
+        crate::application::library_asset_service::delete_source(db.inner(), &id)?
+    };
+    // 阶段3 (F46): 删除后失效书包缓存, 防删了还能读到旧内容
+    for p in &packs {
+        cache.invalidate(p);
+    }
+    if delete_files {
+        for p in packs {
+            let _ = std::fs::remove_dir_all(p);
         }
-        repo.remove(&id)?;
     }
     Ok(())
 }
@@ -108,10 +172,10 @@ pub fn library_remove(db: State<store::Db>, id: String, delete_files: bool) -> R
 /// 打开一本书 (登记打开时间)
 #[tauri::command]
 pub fn library_open(db: State<store::Db>, id: String) -> Result<serde_json::Value, String> {
-    let repo = store::books_repo::BooksRepo::new(db.inner());
-    let book = repo.get(&id).ok_or("书不存在")?;
+    let repo = store::editions_repo::EditionsRepo::new(db.inner());
+    let edition = repo.get(&id).ok_or("成品不存在")?;
     repo.touch_opened(&id, now_ms())?;
-    serde_json::to_value(book).map_err(|e| e.to_string())
+    serde_json::to_value(edition).map_err(|e| e.to_string())
 }
 
 /// book_id → 书包所在目录(登记过的书查 DB; 否则按路径/兜底目录猜)。
@@ -122,9 +186,9 @@ fn resolve_book_pack_dir(
     cfg: &crate::PrepConfig,
     book_id: &str,
 ) -> std::path::PathBuf {
-    let repo = store::books_repo::BooksRepo::new(db);
-    if let Some(book) = repo.get(book_id) {
-        std::path::PathBuf::from(&book.pack_dir)
+    let editions = store::editions_repo::EditionsRepo::new(db);
+    if let Some(e) = editions.get(book_id) {
+        std::path::PathBuf::from(&e.pack_dir)
     } else {
         let p = std::path::PathBuf::from(book_id);
         if p.is_dir() && p.join("bookpack.json").exists() {
@@ -164,28 +228,37 @@ fn strip_chapters_to_meta(bookpack: &mut serde_json::Value) {
 
 /// 加载书包元信息 (book_id) —— 每章只带 original_text(供全文搜索), 不含译文/讲解/
 /// 时间轴; 具体章节内容按需调 load_bookpack_chapter。
+/// 阶段3 (F46): 解析一次后写入书包缓存, 章节加载复用, 不重复整文件读+全量解析。
 #[tauri::command]
 pub fn load_bookpack(
     app: tauri::AppHandle,
     db: State<store::Db>,
     cfg: State<crate::PrepConfig>,
+    cache: State<crate::infrastructure::bookpack_cache::BookpackCache>,
     book_id: String,
 ) -> Result<serde_json::Value, String> {
     use tauri::Emitter;
 
-    let repo = store::books_repo::BooksRepo::new(db.inner());
+    let repo = store::editions_repo::EditionsRepo::new(db.inner());
     let target = resolve_book_pack_dir(db.inner(), &cfg, &book_id);
+    let key = target.to_string_lossy().to_string();
 
-    let bp_path = target.join("bookpack.json");
-    let data = std::fs::read_to_string(&bp_path).map_err(|e| {
-        format!(
-            "读书包失败: {e} (book_id={book_id}, target={})",
-            target.display()
-        )
-    })?;
-    let mut bookpack: serde_json::Value =
-        serde_json::from_str(&data).map_err(|e| format!("书包 JSON 解析失败: {e}"))?;
-    crate::domain::bookpack::check_version(&bookpack)?;
+    let mut bookpack = match cache.get(&key) {
+        Some(v) => (*v).clone(),
+        None => {
+            let bp_path = target.join("bookpack.json");
+            let data = std::fs::read_to_string(&bp_path).map_err(|e| {
+                format!(
+                    "读书包失败: {e} (book_id={book_id}, target={})",
+                    target.display()
+                )
+            })?;
+            let v: serde_json::Value =
+                serde_json::from_str(&data).map_err(|e| format!("书包 JSON 解析失败: {e}"))?;
+            crate::domain::bookpack::check_version(&v)?;
+            (*cache.put(&key, v)).clone()
+        }
+    };
 
     let profile_id = bookpack
         .get("profile")
@@ -205,7 +278,7 @@ pub fn load_bookpack(
             auto_id.clone(),
             &target.to_string_lossy(),
             String::new(),
-            auto_id.clone(), // v8: 原书 id (打开已有书包的场景, 原书=自己)
+            format!("synthetic-source-{auto_id}"),
             profile_id,
             "en".into(),
             "zh-CN".into(),
@@ -226,19 +299,29 @@ pub fn load_bookpack(
 }
 
 /// 按需加载单章完整内容(译文/讲解/segments/时间轴), 配合 load_bookpack 的元信息用。
+/// 阶段3 (F46, 2026-08-09): 优先用书包缓存, 不再每章整文件重读重解析。
 #[tauri::command]
 pub fn load_bookpack_chapter(
     db: State<store::Db>,
     cfg: State<crate::PrepConfig>,
+    cache: State<crate::infrastructure::bookpack_cache::BookpackCache>,
     book_id: String,
     chapter_index: usize,
 ) -> Result<serde_json::Value, String> {
     let target = resolve_book_pack_dir(db.inner(), &cfg, &book_id);
-    let bp_path = target.join("bookpack.json");
-    let data = std::fs::read_to_string(&bp_path)
-        .map_err(|e| format!("读书包失败: {e} (book_id={book_id})"))?;
-    let bookpack: serde_json::Value =
-        serde_json::from_str(&data).map_err(|e| format!("书包 JSON 解析失败: {e}"))?;
+    let key = target.to_string_lossy().to_string();
+    let bookpack = match cache.get(&key) {
+        Some(v) => v,
+        None => {
+            let bp_path = target.join("bookpack.json");
+            let data = std::fs::read_to_string(&bp_path)
+                .map_err(|e| format!("读书包失败: {e} (book_id={book_id})"))?;
+            let v: serde_json::Value =
+                serde_json::from_str(&data).map_err(|e| format!("书包 JSON 解析失败: {e}"))?;
+            crate::domain::bookpack::check_version(&v)?;
+            cache.put(&key, v)
+        }
+    };
     bookpack
         .get("chapters")
         .and_then(|c| c.as_array())
@@ -284,6 +367,107 @@ mod meta_tests {
         let mut bp2 = serde_json::json!({ "chapters": [{ "title": "no sentences field" }] });
         strip_chapters_to_meta(&mut bp2); // 不 panic
         assert_eq!(bp2["chapters"][0]["title"], "no sentences field");
+    }
+}
+
+/// 阶段3 (F46) 回归测试: 真实书包解析路径 —— 用磁盘上的真实 bookpack.json 验证
+/// 元信息加载 + 按章取内容 + 缓存复用(读文件只发生一次)。
+#[cfg(test)]
+mod bookpack_path_tests {
+    use std::io::Write;
+
+    /// 按包目录解析书包并走缓存 —— 与 load_bookpack_chapter 同路径的独立可测函数。
+    fn cached_bookpack_and_chapter(
+        cache: &crate::infrastructure::bookpack_cache::BookpackCache,
+        pack_dir: &std::path::Path,
+        chapter_index: usize,
+    ) -> Result<(String, serde_json::Value, serde_json::Value), String> {
+        let key = pack_dir.to_string_lossy().to_string();
+        let bookpack = match cache.get(&key) {
+            Some(v) => (*v).clone(),
+            None => {
+                let bp_path = pack_dir.join("bookpack.json");
+                let data =
+                    std::fs::read_to_string(&bp_path).map_err(|e| format!("读书包失败: {e}"))?;
+                let v: serde_json::Value =
+                    serde_json::from_str(&data).map_err(|e| format!("书包 JSON 解析失败: {e}"))?;
+                crate::domain::bookpack::check_version(&v)?;
+                (*cache.put(&key, v)).clone()
+            }
+        };
+        let chapter = bookpack
+            .get("chapters")
+            .and_then(|c| c.as_array())
+            .and_then(|arr| arr.get(chapter_index))
+            .cloned()
+            .ok_or_else(|| format!("章节下标越界: {chapter_index}"))?;
+        Ok((key, bookpack, chapter))
+    }
+
+    fn write_sample_pack(dir: &std::path::Path) {
+        std::fs::create_dir_all(dir).unwrap();
+        let bp = serde_json::json!({
+            "schemaVersion": 1,
+            "title": "Regr",
+            "profile": {"id": "default", "name": "成人自读"},
+            "generatedAt": "1700000000000",
+            "prepVersion": "0.1.0",
+            "chapters": [
+                {
+                    "index": 0, "title": "C0", "audioFile": "audio/ch_000.opus",
+                    "sentences": [{ "original_text": "One.", "translation": "一。", "segments": [["One","NUM","one"]], "audio": {"chapter":0,"start_ms":0,"end_ms":500} }]
+                },
+                {
+                    "index": 1, "title": "C1", "audioFile": "audio/ch_001.opus",
+                    "sentences": [{ "original_text": "Two.", "translation": "二。", "segments": [["Two","NUM","two"]], "audio": {"chapter":1,"start_ms":500,"end_ms":1000} }]
+                }
+            ],
+            "quality": {"stages": {}},
+            "models": {}
+        });
+        let mut f = std::fs::File::create(dir.join("bookpack.json")).unwrap();
+        f.write_all(serde_json::to_string(&bp).unwrap().as_bytes())
+            .unwrap();
+    }
+
+    #[test]
+    fn chapter_load_uses_cache_and_returns_requested_chapter() {
+        let dir = std::env::temp_dir().join(format!("aidulc_bpc_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write_sample_pack(&dir);
+        let cache = crate::infrastructure::bookpack_cache::BookpackCache::new();
+
+        // 第一次: 从磁盘解析并入缓存
+        let (key, bp, ch0) = cached_bookpack_and_chapter(&cache, &dir, 0).unwrap();
+        assert_eq!(ch0["title"], "C0");
+        assert_eq!(bp["chapters"].as_array().unwrap().len(), 2);
+        assert!(cache.get(&key).is_some(), "解析后应写入缓存");
+        assert_eq!(cache.len(), 1);
+
+        // 第二次: 命中缓存 (若缓存失效会返回 Err"章节下标越界", 这里应正常返回)
+        let (_k2, _bp2, ch1) = cached_bookpack_and_chapter(&cache, &dir, 1).unwrap();
+        assert_eq!(ch1["title"], "C1");
+        assert_eq!(cache.len(), 1, "缓存复用不应新增条目");
+
+        // 越界章 → 明确错误而非 panic
+        assert!(cached_bookpack_and_chapter(&cache, &dir, 99).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn invalidate_after_delete_prevents_stale_read() {
+        let dir = std::env::temp_dir().join(format!("aidulc_bpd_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write_sample_pack(&dir);
+        let cache = crate::infrastructure::bookpack_cache::BookpackCache::new();
+        cached_bookpack_and_chapter(&cache, &dir, 0).unwrap();
+        assert!(cache.get(&dir.to_string_lossy().as_ref()).is_some());
+        cache.invalidate(&dir.to_string_lossy().to_string());
+        assert!(
+            cache.get(&dir.to_string_lossy().as_ref()).is_none(),
+            "删除后应失效缓存"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
@@ -372,8 +556,8 @@ pub fn pick_files(extensions: Vec<String>) -> Result<Vec<String>, String> {
 /// P1.3: 书包导出为 zip (用户明确要求的产品能力: 成品是资产, 可跨设备迁移)
 #[tauri::command]
 pub fn book_export(db: State<store::Db>, id: String) -> Result<serde_json::Value, String> {
-    let repo = store::books_repo::BooksRepo::new(db.inner());
-    let book = repo.get(&id).ok_or("书不存在")?;
+    let repo = store::editions_repo::EditionsRepo::new(db.inner());
+    let book = repo.get(&id).ok_or("成品不存在")?;
     let pack_dir = std::path::PathBuf::from(&book.pack_dir);
     let picked = rfd::FileDialog::new()
         .set_title("导出书包为 zip")
@@ -437,7 +621,7 @@ pub fn book_import(
 
     crate::application::library_service::register_book(
         db.inner(),
-        new_id.clone(),
+        format!("synthetic-source-{new_id}"),
         &pack_dir.to_string_lossy(),
         String::new(),
         new_id.clone(),

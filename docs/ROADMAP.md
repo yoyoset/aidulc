@@ -19,7 +19,7 @@
 > 91 vitest / clippy 8 未调高),工作树干净,报告与代码逐条核对无出入(核对记录见本节末)。
 > 下面 N1-N7 是在此基础上排的下一阶段,**一条做完提交一条,不要攒成一个大提交**。
 
-### N1(P0,数据正确性)F38:EPUB 正文必须按 spine 全遍历
+### N1(P0,数据正确性)F38:EPUB 正文必须按 spine 全遍历 ✅(2026-08-10 已修)
 
 - 位置:`prep/aidulc_prep/pipeline/loader/epub.py:378` 的 `if toc_filtered:` 分支。
 - 现状(2026-08-09 复核仍然如此):有 TOC 时只遍历 TOC 引用到的文件,同函数里算好的
@@ -36,8 +36,10 @@
   3. 真实书实测:用 `--preview-book` 跑《银河系漫游指南》,**把改前 331 段 / 改后实际段数
      写进提交信息**(写实际数字,不许写"约"/"大幅提升")。
 - 禁止:为了让某本书好看去调 `NON_BODY_TOC` 或 `_looks_like_index` 的启发式阈值。
+- **验收结果 (2026-08-10)**: 331 → 11894 句 (commit 6b4721e)。新增 F38 合成回归测试;
+  Wolf 21 / Alice / EPUB2 全绿。
 
-### N2(P0,防线)F39:体检要能拦住 N1 这类问题
+### N2(P0,防线)F39:体检要能拦住 N1 这类问题 ✅(2026-08-10 已修)
 
 - 位置:`prep/aidulc_prep/cli.py:93-102` 的 `anomalies` 检测。
 - 现状:只判 0 句 / 正好 1 句 / >1000 句。一部长篇只剩 3 段三条一条都不撞,F38 那次体检
@@ -46,16 +48,19 @@
   显式报出来(判定确定,直接针对 F38 类问题);② 章节句数**远低于全书中位数**的离群检测。
 - 验收:用 N1 那份合成 EPUB 的"修复前"章节结构喂检测函数,断言两条都能报;正常书(全覆盖、
   句数分布正常)不误报。**与 N1 同一批做,只修 N1 是修了这一本,加上 N2 才是以后能自动拦下。**
+- **验收结果 (2026-08-10)**: `core/health.py::detect_anomalies` 6 项测试, F38 修前形状两条
+  都报、正常书不误报 (commit bccac73)。
 
-### N3(P1,一行 bug)批次状态中文映射漏 `completed`
+### N3(P1,一行 bug)批次状态中文映射漏 `completed` ✅(2026-08-10 已修)
 
 - 位置:`reader/views/prep_view.js:353` 的 `statusText` 映射写的是 `done: '完成'`,
   而 `store/batches_repo.rs:114` 实际写入的是 `'completed'` → 批次行显示英文。
 - 改法:补 `completed` 键;顺手核对 jobs 与 batches 两套状态词集合,映射表与 DB 实际写入值
   逐个对上(两者状态词不同,别互相抄)。
 - 验收:`reader/tests/_smoke_views.mjs` 加一条断言(completed 批次显示"完成")。
+- **验收结果 (2026-08-10)**: 已修 + 顺带补 job `paused` 映射;冒烟加 1c 节断言 (commit 5474ff9)。
 
-### N4(P1,幻觉治理第二轮)ROADMAP 主体自身的过期开放项
+### N4(P1,幻觉治理第二轮)ROADMAP 主体自身的过期开放项(2026-08-10 本项就是产出)
 
 上一阶段只对账了 `CLAUDE.md` / `ARCHITECTURE.md` 的"未接线"清单,**本文件主体没对账**。
 以下几条挂在开放区但代码里已经落地(2026-08-09 逐条 grep 确认):
@@ -261,12 +266,10 @@ S3.1(2026-08-07)在 `reader/styles/tokens.css` 建了 `--md-sys-font-size-*`(15 
   单次拖拽单 batch、re-render 不累积 listener)。
 - **F46** 用户复测发现约 100KB EPUB 阅读时卡死。**阶段0取证(2026-08-09, docs/FORENSIC_P0.md
   §4)**: 92MB 整包 IPC 卡死已由 916534b 修复(load_bookpack 只回元信息 + 按需单章 + 渐进渲染)。
-  剩余真实结构问题 = `load_bookpack`/`load_bookpack_chapter` **每次请求都整文件读 + 全量 JSON
-  解析**: 用真实 Wolf 21 书包(23.88MB / 8007 句 / 46 章)实测 —— 单次 open 读+解析 ≈ 470ms,
-  **每切一章 ≈ 419ms 整文件重读重解析**; meta 响应仍含全部 original_text(1.3MB)。~100KB EPUB
-  的 bookpack 约 1.5MB(parse ~26ms), 不构成大小卡死 —— 不归因于文件大小。真正卡死更可能是
-  打开历史大书(多章切换全量解析)或旧版 exe。待用户书处理完成后在 exe 里复现, 并修
-  `load_bookpack_chapter` 改为按章只读/缓存 + loading/error/retry 可见态(阶段3)。
+  **已修部分 (2026-08-09)**: `BookpackCache`(LRU cap=6)已接进 `load_bookpack`/
+  `load_bookpack_chapter`, 每切一章 ≈419ms 整文件重读重解析已消除。
+  **残余 (任务卡 N7)**: meta 响应仍含全部 original_text(Wolf 21 实测 1.3MB 随每次打开走 IPC),
+  待确认前端首屏是否真需要后按需拉取。
 - **阶段1 细化落地(2026-08-09)**: BOOK_WORKFLOW §2.3 要求"job 显式关联 source_id" ——
   迁移 v19 给 jobs 加 source_id 列并回填(book_path 精确匹配 books.source_path),
   `batch_start_prep`/`start_prep_job`/`batch_start` 建 job 时写 source_id;
@@ -284,72 +287,46 @@ S3.1(2026-08-07)在 `reader/styles/tokens.css` 建了 `--md-sys-font-size-*`(15 
   - F25 儿童模式对 kid 书无效: 设置页只写 'default', 阅读器按书 profile('kid')读且缺失不回退
     'default' → kid 书恒 18px/句级。复现: 开儿童模式 → 读 kid 书 → 字号没变。修法: reader_view
     改读 'default' 或缺失回退。
-  - **F26 CSP 未放行 `data:` → R4 插图 100% 显示不出来(✅ 2026-08-08 浏览器实测确认, 不再是"待验证")**:
-    tauri.conf.json CSP `default-src 'self'` 无 `img-src`, 而插图用 `data:image/*;base64`。
-    用逐字一致的 CSP 建测试页实测, 浏览器直接报 `CSP VIOLATION: img-src blocked=data`,
-    **`data:image/*` 和标准的 `data:image/png` 两种写法都被拦** —— 即 R4 插图功能在真实 app 里
-    整条失效(单测和 Rust 侧 read_image 都没问题, 是到浏览器这一步被 CSP 挡掉)。
-    修法两处: ① CSP 加 `img-src 'self' data:`; ② `reader_renderer.js::_loadFigure` 里的
-    `data:image/*` 换成按扩展名给真实 MIME(`image/jpeg`/`image/png`), `image/*` 不是合法 MIME。
-    用户 2026-08-08 决定: **登记为技术债, 本轮不修。**
+  - ~~F26 CSP 未放行 `data:` → R4 插图 100% 显示不出来~~ **已修 (M7, 2026-08-08)**:
+    `tauri.conf.json:20` CSP 已含 `img-src 'self' data: blob:`, `reader_renderer._loadFigure`
+    已按扩展名给真实 MIME(`image/jpeg`/`image/png`), R4 插图在真实 app 里正常显示。
   - F27 .aidu-data 备份/恢复命令零 UI: transfer_export/transfer_import 注册但无任何前端调用,
     而 USER_NEEDS item 9("生词备份")因此未兑现。接 UI(如生词本/设置加"备份/恢复")即兑现。
     同类: bookmarks_list 死命令、boot_ping 开发探针。
   - F30 library_open 未接线 → "最近阅读"无数据源: 打开书不调 library_open, last_opened_at 恒
     None。USER_NEEDS item 12 明确要"最近阅读排序"。修法: 打开书时调 library_open。
-  - **F34 拖拽导入监听累积(高置信, 待 exe 实测)**: library_view 每次 render 注册 drag-drop 监听
-    且不注销, 多次访问书库后一次拖拽触发多次导入(重复 batch)。复现: 访问书库 3 次 → 拖一本书 →
-    看是否重复导入。若成立应 P1。
-- **F38 EPUB2(toc.ncx)书丢掉绝大部分正文(✅ 2026-08-08 用新侧车走真实 `--preview-book` 流程实测确认)**:
-  `epub.py` 的 `if toc_filtered:` 分支(load_epub 约 378 行)**只遍历 TOC 引用到的文件**,
-  完整的 `spine`(同函数内的 `files`)只在"没有 TOC"的兜底分支里用。
-  但 **TOC 条目是"锚点"不是"文件清单"** —— 一个 navPoint 指向某部小说的起始文件,
-  正文继续在后续 spine 文件里, 那些文件从头到尾没被打开过。
+  - ~~F34 拖拽导入监听累积(高置信, 待 exe 实测)~~ **已修 (M6 + UX 审计, 2026-08-08/09)**:
+    library_view 已改 `AiduListenerSlot`(注册前先 clear), 导入卡去重复文件选择(单对话框),
+    `core/import_guard.js` 去重单次拖拽; 剩余"单次拖拽单 batch"的 exe 复现路径见
+    "真人在 exe 里最终确认"。
+- ~~F38 EPUB2(toc.ncx)书丢掉绝大部分正文~~ **已修 (N1, 2026-08-10)**:
+  `epub.py` 改为**始终按 spine 遍历全部正文**, TOC 只用来给文件赋标题/定边界(前页边界 +
+  仅非正文 TOC 引用跳过)。《银河系漫游指南》实测 331 → **11894 段**; Wolf 21 (nav.xhtml)
+  不回归。详见 commit `6b4721e` 与上方 N1 卡。
 
-  《银河系漫游指南》(EPUB2, toc.ncx, 15 个 navPoint / zip 内 119 个条目)实测:
-  ```
-  toc_source: "toc.ncx"   chapter_count: 10
-  sentence_counts: [87, 3, 14, 4, 3, 112, 5, 76, 11, 16]  → 共 331 段
-  ```
-  其中"The Hitchhiker's Guide to the Galaxy"(整部长篇)只剩 **3 段**,
-  "The Restaurant at the End of the Universe" **14 段**, "So Long..." **4 段**,
-  "Mostly Harmless" **3 段** —— 五部长篇的正文全部缺失; 单文件的前言(87)和短篇(112)反而是全的,
-  因为 TOC 条目指向的就是那个文件本身。
-  A/B 佐证: 用 git 取 R3 之前的 `epub.py` 跑同一文件得 11953 段(走的是无 TOC → 全 spine 兜底分支),
-  现在 331 段。**这是 R3 加 toc.ncx 支持时引入的**: 这本书原先因找不到 nav.xhtml 而走全 spine 兜底,
-  反而是对的。
-  修法: **始终按 spine 遍历全部正文**, TOC 只用来给文件赋标题/定边界, 不用来筛选读哪些文件。
-  注意 nav.xhtml 的书(Wolf 21)现状正常(855→903 段), 改的时候不能把它改坏。
+- ~~F39 处理前体检对 F38 这类问题完全无效~~ **已修 (N2, 2026-08-10)**:
+  `core/health.py::detect_anomalies` 纯函数, 在既有 0/1/>1000 句之上加 **spine 覆盖率** +
+  **句数离群** 两条防线; `load_epub_with_spine_health` 提供未覆盖文件。详见 commit
+  `bccac73` 与上方 N2 卡。
 
-- **F39 处理前体检对 F38 这类问题完全无效(同次实测)**: `cli.py` 的异常检测(约 86-94 行)
-  只判三种情况 —— 0 句 / 正好 1 句 / >1000 句。一部长篇只剩 3 段, 三条一条都不撞,
-  所以上面那次体检报的是 `anomalies: []`。**这道防线本来就是为了在花几小时 GPU 之前拦住这种事,
-  现在它拦不住。** 修法: 加"章节正文量与其在书中占比明显不匹配"的检测
-  (如某章 sentence 数远低于全书中位数, 或 TOC 声称是一部作品却只有个位数段落)。
-  与 F38 一起修才有意义 —— 只修 F38 是修了这一本, 加上 F39 才是以后同类问题能被自动拦下。
-
-- **词典查询性能(实测)**: F21 —— 每次点词 spawn 新侧车加载 2.4GB 模型, 实测冷 7.4s / 热 5.7s,
-  用户每次查词等 5-7 秒。修复方向: 常驻词典服务 / 更小模型 / 异步。核心交互, 优先级上调。
-- **便携版整体过期(实测, 高)**: F36 —— `dist/aidulc-portable/` 的 aidulc.exe(17:51, 旧前端)
-  与 aidulc-prep.exe(18:03, 旧侧车)都早于 R0-R4: 侧车无 `--pymupdf-version`(误报 pymupdf 缺失)、
-  `--preview-book` 无 health 字段(体检不显示)、不含 EPUB2 NCX/[[HEADING]]/插图提取; exe 嵌入旧
-  前端(无模块化阅读器/渐进渲染/R4 插图)。**修法: 用 R0-R4 之后的代码整体重新打包便携版
-  (先 cargo build 嵌前端, 再打包侧车, 整包替换), 这是 R0-R4 交付的必要一步。**
-  **进度(2026-08-08)**: 开发路径的侧车 `prep/dist/aidulc-prep/aidulc-prep.exe` 已用
-  `scripts\build_prep.ps1` 重新打包(10:20, 含全部 R0-R4 prep 改动), F38/F39 那次实测就是
-  用它跑的。`dist/aidulc-portable/` 整包仍未重打, F36 保持未完成。
-- **便携版 config.toml 是开发机残留(实测, 高)**: F37 —— `dist/aidulc-portable/config.toml` 含
-  `F:/hf_cache`、`F:/my_ai/subgen` 等开发机绝对路径 + 旧字段名(library_dir/llm_model_path/
-  tts_model_path)。换机器上 ffmpeg_path 指向不存在路径 → 误报缺失; 泄露开发目录结构。
-  修法: 打包用干净默认 config.toml(或删除让它首跑生成)。
-- **R3-1 模型下载接线前必修(实测确认)**: ① `Cargo.toml` reqwest `default-features=false` +
-  无 TLS feature → https 下载必然失败(F19, scratch 工程实测); ② `models_download` 固定 60s
-  超时(F4)。修完这两条才能谈下载按钮。
+- ~~词典查询性能(实测)~~ **已修 (M6, 2026-08-08)**: F21 —— 每次点词 spawn 新侧车加载 2.4GB
+  模型, 实测冷 7.4s / 热 5.7s, 用户每次查词等 5-7 秒。改为 `infrastructure/dict_daemon.rs`
+  常驻词典服务(加载一次, stdin/stdout 多次查词, 120s 空闲回收), 消灭每次 5-8s 冷启动。
+- **便携版整体过期(实测, 高)**: F36 —— 已在 M7 (2026-08-08) 用 R0-R4 代码重打过一次
+  (`dist/aidulc-portable/` 新侧车含 dict_server/PyMuPDF 1.28.2 + 新 exe + 干净 config.toml)。
+  **但每阶段收尾不重打就会再过期**: 当前便携版是 08-08 的, 不含 08-09/08-10 提交 ——
+  见任务卡 **N5** (重打 + 把"阶段收尾必重打便携版"写成固定动作)。
+- ~~便携版 config.toml 是开发机残留(实测, 高)~~ **已修 (M7, 2026-08-08)**: F37 —— 打包改用
+  干净默认 config.toml, 不再残留 `F:/hf_cache` 等开发机绝对路径。
+- ~~R3-1 模型下载接线前必修(实测确认)~~ **已修 (M7, 2026-08-08)**: ① reqwest 补
+  `native-tls`(https 下载链路打通, F19); ② `models_download` 改动态超时(F4)。下载闭环
+  (后台线程 + 轮询 + 断点续传 + sha256)已落地, `models_view` 有一键下载区。
 - **交付体积债(实测)**: 侧车/便携版 6.3GB(F22)—— torch 全量捆绑(约 2.5GB) + CUDA DLL 三重复制
   (cublasLt ×3 ≈ 1.35GB 浪费) + ggml-cuda 903MB。优化方向(去重/排除 cudnn engines/权衡 CPU build)
   见 ARCHITECTURE §9.5 F22。
-- **死表面审计(P4 清理包)**: F5(job_id 死字段)/F14(profiles 表无 UI 写)/F17(无调用方命令)/
-  F23(死配置字段)同根, 合并审计一次定去留。
+- **死表面审计(P4 清理包)**: F5(job_id 死字段)/F17(无调用方命令)/F23(死配置字段)同根, 合并审计
+  一次定去留。**F14 已随 M6 消失**(profiles 表已有完整 UI: 设置页档案管理 + 导入卡/书卡消费),
+  不再列入。
 
 ---
 
@@ -409,13 +386,17 @@ S3.1(2026-08-07)在 `reader/styles/tokens.css` 建了 `--md-sys-font-size-*`(15 
   若挂死会阻塞查词线程(理论风险, 侧车单次查询 ~1s, 进程异常退出时 EOF 转 Err)。可选加固:
   读响应包超时线程/异步。另: 档案音色下拉是人工精选的 kokoro 常用音色, 具体可用性取决于
   已装语音模型, 处理时若报错会给出具体原因。
-- **R3-1 模型下载最小闭环仍未做**: F19(TLS)已修, 但下载按钮/URL 表/动态超时(models_view)
-  未接 —— 新用户仍要靠"扫描已有模型"或手动放置模型文件。
+- **R3-1 模型下载最小闭环**: 已落地 (M7, 2026-08-08) —— `models_view` 一键下载区 +
+  后台线程下载不冻结 UI + 轮询 + 断点续传 + sha256 + 动态超时, 完成自动登记。
 
 ---
 
 ## 已完成(仅作为近期变更记录,超过一个 Phase 周期后清理)
 
+- 2026-08-10:**N1-N4 (STAGE-2026-08-10 前四项)**。N1 F38 EPUB spine 全遍历
+  (银河系 331→11894 句, Wolf 21 不回归); N2 F39 体检加 spine 覆盖率 + 句数离群
+  (`core/health.py::detect_anomalies`); N3 批次 `completed`/job `paused` 中文映射;
+  N4 本文件主体幻觉对账(本条即产出)。各一条一提交, 见上方任务卡标注。
 - 2026-08-08:**M7 Round 5-11**: 生词本掌握度概览(四阶段 pill);
   **对比度门禁** `scripts/check_contrast.mjs`(解析 tokens.css, 46 项, 修 3 处不达标);
   **R2-1 同步断开**(删 token + 清 URL + 内存态, 断开按钮) + **同步状态显示 Worker URL**

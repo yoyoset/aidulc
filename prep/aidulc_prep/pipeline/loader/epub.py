@@ -36,6 +36,19 @@ NON_BODY_TOC = re.compile(
 LARGE_FILE_SPLIT_THRESHOLD = 200
 
 
+def _norm_zip_path(p: str) -> str:
+    """归一化 zip 内部路径: 去 ./ ../ 冗余段, 统一 / 分隔 (物理键比较用)。"""
+    parts: list[str] = []
+    for seg in p.replace("\\", "/").split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == ".." and parts:
+            parts.pop()
+        else:
+            parts.append(seg)
+    return "/".join(parts)
+
+
 def _read_member(zf: zipfile.ZipFile, name: str) -> str:
     try:
         return zf.read(name).decode("utf-8", errors="replace")
@@ -358,46 +371,74 @@ def load_epub(path: str) -> Book:
         # → 直接从 manifest 里找 nav.xhtml (properties="nav"), 不依赖 spine 映射
         toc_items, _toc_source = _find_toc_source(zf, opf, manifest, opf_dir)
 
-        # 非正文条目过滤 + 去重 (多个 TOC 链接指向同文件取第一个标题)
-        seen_files: set[str] = set()
-        toc_filtered: list[tuple[str, str]] = []
+        # 章节划分 (F38 修复 2026-08-10): 遍历基准 = spine 全量, 不再只看 TOC 引用的文件。
+        # 实测根因: TOC 条目是"锚点"不是"文件清单"——《银河系漫游指南》五部长篇的正文
+        # 在 TOC 没引用的后续 spine 文件里, 旧逻辑从头到尾没打开过它们, 各只剩 3-14 段。
+        #
+        # 规则 (2026-08-10, 银河系 331→11918 句 + Wolf 21 回归实测确认):
+        # 1. TOC 退化成 {物理路径: 标题} 映射 (只赋标题/划边界, 不再当文件清单);
+        #    NON_BODY_TOC 只决定标题进不进入映射。
+        # 2. 正文区边界 = 第一个被"正文 TOC 条目"引用的 spine 文件之前是前页
+        #    (Cover/Title/Copyright/Contents/系列页), 不成为章节 —— 否则 Wolf 21 会
+        #    把封面/目录页做成 "Chapter 1/2" 垃圾章。
+        # 3. 仅被非正文 TOC 条目 (Map/Charts/References/Index) 引用的文件跳过。
+        # 4. 正文 TOC 条目出现但不在 spine 的文件补在末尾 (保守, 别丢)。
+        # 5. _looks_like_index 过滤保留。
+        toc_body: dict[str, str] = {}  # phys -> 标题 (正文条目)
+        toc_nonbody: set[str] = set()  # 至少被一个非正文 TOC 条目引用的文件
         for text, href in toc_items:
-            if NON_BODY_TOC.match(text.strip()):
+            text_s = text.strip()
+            if not text_s or not href:
                 continue
             phys = href.split("#")[0]
             if not phys:
                 continue
             if not os.path.isabs(phys) and not phys.startswith(opf_dir):
                 phys = f"{opf_dir}/{phys}"
-            if phys in seen_files:
+            key = _norm_zip_path(phys)
+            if NON_BODY_TOC.match(text_s):
+                toc_nonbody.add(key)
+            elif key not in toc_body:
+                toc_body[key] = text_s
+
+        full_files: list[str] = []
+        for f in files:
+            if not f:
                 continue
-            seen_files.add(phys)
-            toc_filtered.append((text, phys))
+            full = f"{opf_dir}/{f}" if opf_dir else f
+            full_files.append(_norm_zip_path(full))
+        first_body_idx = next(
+            (i for i, f in enumerate(full_files) if f in toc_body),
+            None,  # 无正文 TOC 引用 → 无前页边界, 退化为"按 spine 逐文件"兜底
+        )
 
         chapters: list[Chapter] = []
-        if toc_filtered:
-            # 用 TOC: 每章 = 一个 TOC 条目的文件 (大文件按 [[HEADING]] 二次切分)
-            for text, phys in toc_filtered:
-                built = _build_chapters_from_file(zf, phys, text)
-                for ch in built:
-                    ch.index = len(chapters)
-                    chapters.append(ch)
-        else:
-            # 无 TOC 兜底: 按 spine 顺序 (每文件一章, 大文件同样二次切分)
-            for f in files:
-                if not f:
+        for i, full in enumerate(full_files):
+            if full in toc_nonbody and full not in toc_body:
+                continue  # Map/Charts/References/Index 等非正文页
+            if first_body_idx is not None and i < first_body_idx:
+                continue  # 前页: 第一个被正文 TOC 引用的文件之前
+            heading = next((t for t, _ in _file_sections(zf, full) if t), "")
+            ch_title = toc_body.get(full) or heading or f"Chapter {len(chapters) + 1}"
+            built = _build_chapters_from_file(zf, full, ch_title)
+            for ch in built:
+                ch.index = len(chapters)
+                if _looks_like_index(ch.sentences):
                     continue
-                full = f"{opf_dir}/{f}" if opf_dir else f
-                heading = next(
-                    (t for t, _ in _file_sections(zf, full) if t),
-                    "",
-                )
-                built = _build_chapters_from_file(zf, full, heading or f"Chapter {len(chapters) + 1}")
-                for ch in built:
-                    ch.index = len(chapters)
-                    if _looks_like_index(ch.sentences):
-                        continue
-                    chapters.append(ch)
+                chapters.append(ch)
+
+        # TOC 正文条目出现但不在 spine 的文件补在末尾 (保守, 别丢)
+        for key, text in toc_body.items():
+            if key in full_files:
+                continue
+            heading = next((t for t, _ in _file_sections(zf, key) if t), "")
+            ch_title = text or heading or f"Chapter {len(chapters) + 1}"
+            built = _build_chapters_from_file(zf, key, ch_title)
+            for ch in built:
+                ch.index = len(chapters)
+                if _looks_like_index(ch.sentences):
+                    continue
+                chapters.append(ch)
 
     if not chapters:
         raise InputError("EPUB 里没有解析出任何章节")
@@ -406,6 +447,9 @@ def load_epub(path: str) -> Book:
 
 def _is_real_sentence(text: str) -> bool:
     """判断是否是可处理的真实句子 (过滤页码/单字符/无字母装饰/目录标记/段落碎片/人名残句)。"""
+    # 图片记号不是句子 (R4: [[IMG:...]] 只用于定位图片, 不应成为可朗读的句子/章节内容)
+    if text.startswith("[[IMG:"):
+        return False
     # 段落续行碎片: 以 , ; — 开头 (EPUB 分页把首词丢了, Wolf 21 实测 10 处)
     if text[:1] in (",", ";", "—"):
         return False

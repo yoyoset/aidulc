@@ -278,8 +278,7 @@ class TestLoadEpub2:
         finally:
             os.remove(tmp)
 
-    def test_ncx_with_fragments_still_one_chapter_per_entry(self):
-        # spine 有碎片文件也不该进来; 无 nav.xhtml 时 ncx 是唯一目录来源
+    def test_ncx_with_fragments_still_one_chapter_per_entry(self):        # spine 有碎片文件也不该进来; 无 nav.xhtml 时 ncx 是唯一目录来源
         opf = """<?xml version="1.0"?>
         <package xmlns="http://www.idpf.org/2007/opf">
           <metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">Frag Book</dc:title></metadata>
@@ -303,6 +302,64 @@ class TestLoadEpub2:
             assert len(book.chapters) == 1
             assert book.chapters[0].title == "Alpha"
             assert len(book.chapters[0].sentences) >= 1
+        finally:
+            os.remove(tmp)
+
+    def test_f38_spine_full_traversal_when_toc_points_to_partial_files(self):
+        """F38 (2026-08-10): TOC 只指前 2 个文件时, 后续 spine 文件的正文必须进章节。
+
+        回归根因: 旧逻辑有 TOC 就只遍历 TOC 引用的文件 —— TOC 条目是"锚点"不是
+        "文件清单"。《银河系漫游指南》五部长篇正文在 TOC 没引用的 spine 文件里,
+        旧逻辑从头到尾没打开过 → 各只剩 3-14 段 (全书 331 句)。修后实测 11894 句。"""
+        opf = """<?xml version="1.0"?>
+        <package xmlns="http://www.idpf.org/2007/opf">
+          <metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">F38 Book</dc:title></metadata>
+          <manifest>
+            <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+            <item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/>
+            <item id="c2" href="c2.xhtml" media-type="application/xhtml+xml"/>
+            <item id="c3" href="c3.xhtml" media-type="application/xhtml+xml"/>
+            <item id="c4" href="c4.xhtml" media-type="application/xhtml+xml"/>
+            <item id="c5" href="c5.xhtml" media-type="application/xhtml+xml"/>
+          </manifest>
+          <spine toc="ncx">
+            <itemref idref="c1"/>
+            <itemref idref="c2"/>
+            <itemref idref="c3"/>
+            <itemref idref="c4"/>
+            <itemref idref="c5"/>
+          </spine>
+        </package>"""
+        ncx = """<?xml version="1.0"?>
+        <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/">
+          <navMap>
+            <navPoint id="n1"><navLabel><text>Chapter One</text></navLabel><content src="c1.xhtml"/></navPoint>
+            <navPoint id="n2"><navLabel><text>Chapter Two</text></navLabel><content src="c2.xhtml"/></navPoint>
+          </navMap>
+        </ncx>"""
+        extra = {
+            "toc.ncx": ncx,
+            # TOC 引用的前 2 个文件: 正文 + TOC 标题
+            "c1.xhtml": "<html><body><p>Alpha first sentence is real body.</p><p>Alpha second sentence too.</p></body></html>",
+            "c2.xhtml": "<html><body><p>Beta first sentence is real body.</p></body></html>",
+            # TOC 没引用的后 3 个文件: F38 之前从没被打开过的"长篇正文"
+            "c3.xhtml": "<html><body><h1>Third Novel</h1><p>Gamma body sentence number one.</p><p>Gamma body sentence number two.</p></body></html>",
+            "c4.xhtml": "<html><body><h1>Fourth Novel</h1><p>Delta body sentence number one.</p><p>Delta body sentence number two.</p></body></html>",
+            "c5.xhtml": "<html><body><h1>Fifth Novel</h1><p>Epsilon body sentence number one.</p><p>Epsilon body sentence number two.</p></body></html>",
+        }
+        tmp = _make_epub(opf, extra)
+        try:
+            book = load_epub(tmp)
+            # 5 个 spine 文件的正文全部进章节 (F38 核心)
+            assert len(book.chapters) == 5, f"5 个文件都该成章节, 实得 {len(book.chapters)}"
+            # 章标题: TOC 引用的来自 TOC, 未引用的用文件内 heading
+            assert [c.title for c in book.chapters] == [
+                "Chapter One", "Chapter Two", "Third Novel", "Fourth Novel", "Fifth Novel",
+            ]
+            # 各文件正文都在 (逐文件核对, 不许"平均摊平"掩盖丢失)
+            for marker in ("Alpha first", "Beta first", "Gamma body", "Delta body", "Epsilon body"):
+                assert any(marker in s.original_text for c in book.chapters for s in c.sentences), \
+                    f"缺失正文片段: {marker}"
         finally:
             os.remove(tmp)
 

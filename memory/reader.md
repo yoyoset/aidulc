@@ -35,6 +35,14 @@
 
 ## 已踩坑 (实测/静态确认)
 
+- **撤销条被 renderCurrent 清掉 (V3/V7 同类 bug, 2026-08-10 实测抓到)**: 手机 app.js
+  `grade()` 先 `showUndo` 再 `renderCard`, 而 renderCard 内部 `hideUndo` 把刚显示的撤销条
+  清掉 → 用户评分后看不到撤销入口。桌面 review_view.js 同样先 `_armUndo` 再
+  `_renderCurrent`(cardCol.innerHTML='' 清空)。**修法: 先渲染下一张, 再挂撤销条。**
+  这类"挂完又被重渲染清掉"的顺序 bug 只有真实驱动控制器才能暴露 —— 新增
+  `cloud/mobile/test/ui_smoke.mjs`(最小 DOM stub + 内存 adapter 驱动真实 app.js,
+  19 项断言)在无浏览器环境下机械验证设计稿 01b 交互(翻面单向/250ms 锁/评分/
+  撤销/下滑退出)。桌面侧补"评分后撤销条可见"断言到 _smoke_views 第 6 节。
 - **设置浮层拿到 render 时的旧 settings 引用**: render() 早于 open() 完成, 构造
   SettingsOverlay 时 `_settings` 是 null; 修复为 open() 时宿主先 `setSettings()` 再开。
 - **词底色跨句清理**: 旧实现用 `_activeSentence`(已被 highlightAt 先更新成新句)去清

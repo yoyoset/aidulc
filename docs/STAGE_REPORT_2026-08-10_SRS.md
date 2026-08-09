@@ -92,8 +92,13 @@ token 解析)。
 
 ## 6. 便携版重打(BOOK_WORKFLOW §6)
 
-- 顺序:代码全部提交完(c1f653d, 00:26:12)→ `cargo build --release` → 拷贝 exe → 核对时间戳。
-- `dist/aidulc-portable/aidulc.exe` 时间戳 **2026-08-10 00:28:27** ≥ 最后一个代码提交 00:26:12 ✓。
+- 顺序:代码全部提交完 → `cargo build --release` → 拷贝 exe → 核对时间戳。
+- **首次**(00:28:27):V7 完成后重打,≥ 最后代码提交 c1f653d(00:26:12)。
+- **复核重打**(01:14:00):V3 撤销条 bug 修复(73fa480)改了 `reader/views/review_view.js`
+  —— 该文件经 generate_context 嵌入 exe,首版便携版不含此修复。复核 git log 发现
+  "便携版时间戳 ≥ 最后一个代码提交"被违反(reader/ 在打包后又有改动),已重打:
+  `aidulc.exe` 01:14:00 ≥ 最后代码提交 28891cd(01:11:34)✓。**教训: 复核便携版必须
+  查"打包后是否又有 reader/ 或 src-tauri/ 改动", 不能只看 Rust 提交。**
 - prep 侧车源码自 c8839bc(08-09 19:29)未变,portable 侧车(19:39)≥ 源码 ✓,无需重打。
 - config.toml 无开发机绝对路径(ffmpeg_path/cf_worker_url 均空)✓。
 

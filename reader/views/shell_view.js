@@ -34,6 +34,7 @@
       const items = [
         ['library', '我的书'],
         ['vocab', '生词本'],
+        ['review', '背单词'],
       ];
       items.forEach(([route, label]) => {
         const a = el('button', 'app-nav-link', label);

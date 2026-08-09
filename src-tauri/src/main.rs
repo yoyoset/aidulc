@@ -390,6 +390,7 @@ fn main() {
             commands::reader::vocab_stats,
             commands::reader::srs_preview,
             commands::reader::srs_grade,
+            commands::reader::vocab_restore,
             commands::reader::sync_status,
             commands::reader::sync_now,
             commands::reader::sync_pull_now,

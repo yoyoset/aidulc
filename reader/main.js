@@ -42,6 +42,7 @@
   const readerView = new ReaderView(store);
   const wizardView = new WizardView(store);
   const vocabView = new VocabView(store);
+  const reviewView = new ReviewView(store);
 
   // ---- 首次运行: 向导拦截 ----
   AiduModelService.wizardState().then((res) => {
@@ -115,7 +116,18 @@
     readerView.cleanup();
     prepView.cleanup();
     libraryView.cleanup();
+    reviewView.cleanup();
     vocabView.render(container);
+  });
+
+  // V3 (2026-08-09): 桌面三栏背单词
+  router.register('review', (container) => {
+    shell.setActiveNav('review');
+    readerView.cleanup();
+    prepView.cleanup();
+    libraryView.cleanup();
+    vocabView.cleanup?.();
+    reviewView.render(container);
   });
 
   router.register('reader', (container) => {

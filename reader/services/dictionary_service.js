@@ -28,6 +28,7 @@
     // 背单词调度器 (V2, 2026-08-09)
     srsPreview(profileId, lemma) { return AiduBridge.srs.preview(currentUser(), profileId, lemma); },
     srsGrade(profileId, lemma, grade) { return AiduBridge.srs.grade(currentUser(), profileId, lemma, grade); },
+    srsRestore(profileId, entry) { return AiduBridge.srs.restore(currentUser(), profileId, entry); },
   };
 
   global.AiduDictionaryService = DictionaryService;

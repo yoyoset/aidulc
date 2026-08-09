@@ -1,5 +1,5 @@
-/* app.css —— 应用壳: 导航/按钮/布局。颜色令牌唯一来源是 tokens.css(含深色模式),
-   这里不再定义任何颜色变量, 只用 var(--md-sys-color-*)。阅读器令牌 --rd-* 见 tokens.css。 */
+﻿/* app.css 鈥斺€?搴旂敤澹? 瀵艰埅/鎸夐挳/甯冨眬銆傞鑹蹭护鐗屽敮涓€鏉ユ簮鏄?tokens.css(鍚繁鑹叉ā寮?,
+   杩欓噷涓嶅啀瀹氫箟浠讳綍棰滆壊鍙橀噺, 鍙敤 var(--md-sys-color-*)銆傞槄璇诲櫒浠ょ墝 --rd-* 瑙?tokens.css銆?*/
 * { box-sizing: border-box; }
 
 body {
@@ -11,7 +11,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 纸纹 (完整设计交付确认 §09): 唯一实例, 固定定位不参与动画。禁止加在 .blk 或卡片上。 */
+/* 绾哥汗 (瀹屾暣璁捐浜や粯纭 搂09): 鍞竴瀹炰緥, 鍥哄畾瀹氫綅涓嶅弬涓庡姩鐢汇€傜姝㈠姞鍦?.blk 鎴栧崱鐗囦笂銆?*/
 body::before {
   content: "";
   position: fixed;
@@ -24,7 +24,7 @@ body::before {
     repeating-linear-gradient(24deg, var(--rd-grain-2) 0 2px, transparent 2px 7px);
 }
 
-/* 全局质感 (M6): 文字选区/焦点环/滚动条都用暖色语汇 */
+/* 鍏ㄥ眬璐ㄦ劅 (M6): 鏂囧瓧閫夊尯/鐒︾偣鐜?婊氬姩鏉￠兘鐢ㄦ殩鑹茶姹?*/
 ::selection {
   background: var(--md-sys-color-primary-container);
   color: var(--md-sys-color-on-primary-container);
@@ -45,7 +45,7 @@ body::before {
 
 #app { display: flex; flex-direction: column; min-height: 100vh; }
 
-/* 顶部导航 (M6: 从药丸按钮改为克制的文字页签, 当前页陶土下划线) */
+/* 椤堕儴瀵艰埅 (M6: 浠庤嵂涓告寜閽敼涓哄厠鍒剁殑鏂囧瓧椤电, 褰撳墠椤甸櫠鍦熶笅鍒掔嚎) */
 .app-nav {
   display: flex;
   align-items: center;
@@ -67,7 +67,7 @@ body::before {
   white-space: nowrap;
 }
 .app-nav-links { display: flex; gap: 2px; height: 100%; }
-/* 阶段6 设计交付 §01: 三层导航 —— 左目的地 / 右工作流入口 */
+/* 闃舵6 璁捐浜や粯 搂01: 涓夊眰瀵艰埅 鈥斺€?宸︾洰鐨勫湴 / 鍙冲伐浣滄祦鍏ュ彛 */
 .app-nav-left { margin-left: 8px; }
 .app-nav-right { margin-left: auto; }
 .app-nav-settings { margin-left: 8px; }
@@ -111,7 +111,7 @@ body::before {
   border-radius: 1px;
   background: var(--md-sys-color-primary);
 }
-/* V1 (2026-08-09): 顶栏切人 —— select 复用 nav-link 外观 (user ≠ profile) */
+/* V1 (2026-08-09): 椤舵爮鍒囦汉 鈥斺€?select 澶嶇敤 nav-link 澶栬 (user 鈮?profile) */
 .nav-user-select {
   appearance: none;
   -webkit-appearance: none;
@@ -131,7 +131,7 @@ body::before {
 .nav-user-select:hover { color: var(--md-sys-color-on-surface); }
 .nav-user-select:focus { outline: none; }
 
-/* 全局错误条 (3.5: 后台失败必须可见) */
+/* 鍏ㄥ眬閿欒鏉?(3.5: 鍚庡彴澶辫触蹇呴』鍙) */
 .global-error {
   background: var(--md-sys-color-error-container);
   color: var(--md-sys-color-on-error-container);
@@ -152,7 +152,7 @@ body::before {
 
 .app-view { flex: 1; padding: 20px; max-width: 1080px; width: 100%; margin: 0 auto; }
 
-/* 通用按钮 (M6: 主按钮陶土填充带柔影, 次按钮克制描边; 全部有按压反馈) */
+/* 閫氱敤鎸夐挳 (M6: 涓绘寜閽櫠鍦熷～鍏呭甫鏌斿奖, 娆℃寜閽厠鍒舵弿杈? 鍏ㄩ儴鏈夋寜鍘嬪弽棣? */
 .btn-primary {
   border: none;
   background: var(--md-sys-color-primary);
@@ -208,7 +208,7 @@ body::before {
   color: var(--md-sys-color-on-surface);
 }
 
-/* ---- M7 主题色块选择器 (设置页/阅读器浮层共用) ---- */
+/* ---- M7 涓婚鑹插潡閫夋嫨鍣?(璁剧疆椤?闃呰鍣ㄦ诞灞傚叡鐢? ---- */
 .rd-theme-chips { display: flex; gap: 8px; align-items: center; }
 .rd-theme-chip {
   width: 26px;
@@ -227,7 +227,7 @@ body::before {
   box-shadow: 0 0 0 2px var(--md-sys-color-primary);
 }
 
-/* ---- 首次运行向导 (H3) ---- */
+/* ---- 棣栨杩愯鍚戝 (H3) ---- */
 .wizard-view { max-width: 640px; margin: 40px auto; }
 .wizard-view h1 { font-size: 1.6rem; }
 .wizard-hint { color: var(--md-sys-color-on-surface-variant); }
@@ -247,7 +247,7 @@ body::before {
 }
 .wizard-nav { display: flex; gap: 10px; margin-top: 20px; }
 
-/* ---- 模型中心 (H4) ---- */
+/* ---- 妯″瀷涓績 (H4) ---- */
 .model-group { margin-bottom: 24px; }
 .model-group h2 { font-size: 1.1rem; margin: 12px 0 8px; }
 .model-group h3 { font-size: 0.9rem; color: var(--md-sys-color-on-surface-variant); margin: 8px 0 4px; }
@@ -261,7 +261,7 @@ body::before {
 .model-meta { color: var(--md-sys-color-on-surface-variant); font-size: 0.82rem; }
 .model-actions { display: flex; gap: 6px; }
 
-/* ---- 词典面板 (I-A) ---- */
+/* ---- 璇嶅吀闈㈡澘 (I-A) ---- */
 .dict-panel {
   position: fixed; top: 0; right: 0; bottom: 0; width: 340px;
   background: var(--md-sys-color-surface);
@@ -286,7 +286,7 @@ body::before {
 .dict-source { font-size: 0.78rem; color: var(--md-sys-color-outline); margin: 8px 0; }
 .dict-loading, .dict-error { color: var(--md-sys-color-on-surface-variant); padding: 12px 0; }
 
-/* ---- 生词本 (I-B) ---- */
+/* ---- 鐢熻瘝鏈?(I-B) ---- */
 .vocab-toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; }
 .vocab-stats { color: var(--md-sys-color-on-surface-variant); font-size: 0.85rem; }
 .vocab-stage-pill {
@@ -303,7 +303,7 @@ body::before {
 .vocab-stage-pill.s-review { background: var(--md-sys-color-warning); color: var(--md-sys-color-on-warning); }
 .vocab-stage-pill.s-mastered { background: var(--md-sys-color-success); color: var(--md-sys-color-on-success); }
 
-/* M7 R34: 生词本每日积累条形图 */
+/* M7 R34: 鐢熻瘝鏈瘡鏃ョН绱潯褰㈠浘 */
 .vocab-chart-wrap { margin: 4px 0 16px; }
 .vocab-chart {
   display: flex;
@@ -321,7 +321,7 @@ body::before {
   border-radius: 2px 2px 0 0;
   transition: opacity 0.15s ease;
 }
-/* 阶段6 设计交付 §04: 只有当天用强调色 */
+/* 闃舵6 璁捐浜や粯 搂04: 鍙湁褰撳ぉ鐢ㄥ己璋冭壊 */
 .vocab-chart-bar.today {
   background: var(--md-sys-color-primary);
   opacity: 1;
@@ -338,7 +338,7 @@ body::before {
 .vocab-meaning { flex: 1; color: var(--md-sys-color-on-surface-variant); }
 .vocab-stage { font-size: 0.78rem; color: var(--md-sys-color-primary); }
 .vocab-added { font-size: 0.78rem; color: var(--md-sys-color-outline); }
-/* 阶段6 设计交付 §04: 来源句上下文 —— 左侧 2px 强调竖线, 词脱离句子背不下来 */
+/* 闃舵6 璁捐浜や粯 搂04: 鏉ユ簮鍙ヤ笂涓嬫枃 鈥斺€?宸︿晶 2px 寮鸿皟绔栫嚎, 璇嶈劚绂诲彞瀛愯儗涓嶄笅鏉?*/
 .vocab-context {
   margin: 4px 0 2px 12px;
   padding: 4px 8px 4px 12px;
@@ -350,24 +350,24 @@ body::before {
   min-width: 0;
 }
 
-/* ---- 同步设置 (I-C) ---- */
+/* ---- 鍚屾璁剧疆 (I-C) ---- */
 .settings-section { margin: 24px 0; }
 .settings-section h2 { font-size: 1.05rem; margin-bottom: 10px; }
 .sync-status { margin-bottom: 8px; color: var(--md-sys-color-on-surface-variant); }
 .settings-section .prep-input { margin-bottom: 6px; width: 100%; }
 .settings-section button { margin-right: 6px; margin-top: 4px; }
 
-/* I-D: 书库工具条 */
+/* I-D: 涔﹀簱宸ュ叿鏉?*/
 .library-toolbar { display: flex; gap: 10px; margin-bottom: 14px; }
 .library-toolbar .prep-input { flex: 1; }
 
-/* 书库导入卡片 (区隔: 导入与任务处理分开) */
+/* 涔﹀簱瀵煎叆鍗＄墖 (鍖洪殧: 瀵煎叆涓庝换鍔″鐞嗗垎寮€) */
 .import-card {
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--md-sys-radius-md);
   padding: 16px;
   margin-bottom: 20px;
-  background: var(--md-sys-color-surface); /* surface-container-low 未定义过, 一直靠回退落到这里, 直接写明 */
+  background: var(--md-sys-color-surface); /* surface-container-low 鏈畾涔夎繃, 涓€鐩撮潬鍥為€€钀藉埌杩欓噷, 鐩存帴鍐欐槑 */
 }
 .import-card-title { font-weight: 600; margin-bottom: 10px; font-size: 1.05rem; }
 .import-tip { margin-top: 8px; font-size: 0.82rem; color: var(--md-sys-color-on-surface-variant); }
@@ -380,7 +380,7 @@ body::before {
 }
 .prep-subtitle { font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-top: 4px; }
 
-/* ---- 全局 toast (苹果级) ---- */
+/* ---- 鍏ㄥ眬 toast (鑻规灉绾? ---- */
 .toast-container {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
   display: flex; flex-direction: column; gap: 8px; z-index: 900;
@@ -388,9 +388,8 @@ body::before {
 }
 .toast {
   padding: 10px 18px; border-radius: var(--md-sys-radius-sm);
-  /* 固定白字: 三种 toast 背景(scrim-surface/success/error)都是深色, 白字对比度
-     始终达标, 不需要按 variant 切换文字令牌——这是刻意的固定设计, 不是漏写令牌,
-     借用 scrim-surface 的配对文字令牌(同样不随主题变化)。 */
+  /* 鍥哄畾鐧藉瓧: 涓夌 toast 鑳屾櫙(scrim-surface/success/error)閮芥槸娣辫壊, 鐧藉瓧瀵规瘮搴?     濮嬬粓杈炬爣, 涓嶉渶瑕佹寜 variant 鍒囨崲鏂囧瓧浠ょ墝鈥斺€旇繖鏄埢鎰忕殑鍥哄畾璁捐, 涓嶆槸婕忓啓浠ょ墝,
+     鍊熺敤 scrim-surface 鐨勯厤瀵规枃瀛椾护鐗?鍚屾牱涓嶉殢涓婚鍙樺寲)銆?*/
   font-size: 0.9rem; color: var(--md-sys-color-on-scrim-surface); box-shadow: var(--md-sys-elevation-2);
   opacity: 0; transform: translateY(8px);
   max-width: 420px; text-align: center;
@@ -401,7 +400,7 @@ body::before {
 .toast-in { opacity: 1; transform: translateY(0); transition: all 0.25s ease; }
 .toast-out { opacity: 0; transform: translateY(-8px); transition: all 0.25s ease; }
 
-/* ---- 全局模态 (苹果级) ---- */
+/* ---- 鍏ㄥ眬妯℃€?(鑻规灉绾? ---- */
 .modal-overlay {
   position: fixed; inset: 0;
   background: color-mix(in srgb, var(--md-sys-color-scrim) 45%, transparent);
@@ -416,7 +415,7 @@ body::before {
 .modal-message { margin: 0 0 18px; color: var(--md-sys-color-on-surface-variant); font-size: 0.92rem; line-height: 1.6; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
-/* ---- 书卡徽章 (苹果级状态可视) ---- */
+/* ---- 涔﹀崱寰界珷 (鑻规灉绾х姸鎬佸彲瑙? ---- */
 .book-badge {
   display: inline-block; padding: 1px 8px; border-radius: 10px;
   font-size: 0.72rem; font-weight: 600; margin-right: 6px;
@@ -429,14 +428,14 @@ body::before {
 .badge-err { background: var(--md-sys-color-error); color: var(--md-sys-color-on-error); }
 .btn-disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* ---- 书设置弹窗 ---- */
+/* ---- 涔﹁缃脊绐?---- */
 .book-settings-body { margin: 12px 0; }
 .settings-hint { font-size: 0.82rem; color: var(--md-sys-color-on-surface-variant); margin: 10px 0 4px; }
 .settings-warn { color: var(--md-sys-color-error); line-height: 1.5; }
 .settings-loading { color: var(--md-sys-color-on-surface-variant); padding: 8px 0; }
 .settings-error { color: var(--md-sys-color-error); padding: 8px 0; }
 
-/* ---- 阅读准备任务状态色 ---- */
+/* ---- 闃呰鍑嗗浠诲姟鐘舵€佽壊 ---- */
 .st-ok { color: var(--md-sys-color-success); font-weight: 600; }
 .st-busy { color: var(--md-sys-color-info); font-weight: 600; }
 .st-err { color: var(--md-sys-color-error); font-weight: 600; }
@@ -446,7 +445,7 @@ body::before {
 .prep-empty .book-empty { margin-bottom: 12px; }
 .batch-row .prep-bar { margin-top: 6px; }
 
-/* ---- R5: 阶段流水条 ---- */
+/* ---- R5: 闃舵娴佹按鏉?---- */
 .stage-pipe {
   display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
   padding: 6px 12px; font-size: 0.78rem;
@@ -457,18 +456,18 @@ body::before {
 .stage-wait { color: var(--md-sys-color-on-surface-variant); background: var(--md-sys-color-surface-variant); }
 .stage-arrow { color: var(--md-sys-color-outline); }
 
-/* ---- R3: 全局控制 ---- */
+/* ---- R3: 鍏ㄥ眬鎺у埗 ---- */
 .prep-controls { margin-top: 8px; display: flex; gap: 8px; }
 .prep-pct { font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-left: 8px; min-width: 34px; }
 
-/* ---- 生词本空态三步引导 ---- */
+/* ---- 鐢熻瘝鏈┖鎬佷笁姝ュ紩瀵?---- */
 .vocab-steps { margin: 14px 0; text-align: left; display: inline-block; }
 .vocab-step { padding: 4px 0; color: var(--md-sys-color-on-surface-variant); font-size: 0.92rem; }
 
-/* ---- R6: 书卡处理进度 ---- */
+/* ---- R6: 涔﹀崱澶勭悊杩涘害 ---- */
 .book-progress-text { font-size: 0.78rem; color: var(--md-sys-color-on-surface-variant); margin: 4px 12px 0; }
 
-/* ---- S4: 原文预览 ---- */
+/* ---- S4: 鍘熸枃棰勮 ---- */
 .preview-box { width: min(640px, 92vw); }
 .preview-body { max-height: 60vh; overflow-y: auto; margin: 12px 0; }
 .preview-meta { font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 10px; }
@@ -477,14 +476,14 @@ body::before {
 .preview-sentence { line-height: 1.6; margin: 3px 0; }
 .preview-more { color: var(--md-sys-color-outline); font-size: 0.8rem; }
 
-/* ---- S5: 模型标签 ---- */
+/* ---- S5: 妯″瀷鏍囩 ---- */
 .model-tag {
   display: inline-block; margin-left: 6px; padding: 0 6px;
   border: 1px solid var(--md-sys-color-outline-variant); border-radius: 8px;
   font-size: 0.7rem; color: var(--md-sys-color-primary);
 }
 
-/* I-C: 任务失败详情 */
+/* I-C: 浠诲姟澶辫触璇︽儏 */
 .prep-failure {
   margin: 6px 12px 10px;
   padding: 8px 10px;
@@ -494,7 +493,7 @@ body::before {
   font-size: 0.85rem;
   white-space: pre-wrap;
 }
-/* 阶段4: 创建译本面板的 preflight 结果区 (失败留在面板, 显示原因 + 下一步) */
+/* 闃舵4: 鍒涘缓璇戞湰闈㈡澘鐨?preflight 缁撴灉鍖?(澶辫触鐣欏湪闈㈡澘, 鏄剧ず鍘熷洜 + 涓嬩竴姝? */
 .prep-preflight-result {
   margin: 8px 0;
   padding: 8px 10px;
@@ -523,3 +522,68 @@ body::before {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* ==== 鑳屽崟璇嶄笁鏍?(V3, 2026-08-09) ==== */
+.review-view { display: flex; flex-direction: column; height: 100%; }
+.review-grid {
+  display: grid;
+  grid-template-columns: 264px 1fr 336px;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-md);
+  overflow: hidden;
+  background: var(--md-sys-color-surface);
+}
+.review-col { min-height: 0; display: flex; flex-direction: column; }
+.review-queue { border-right: 1px solid var(--md-sys-color-outline-variant); background: var(--md-sys-color-surface-variant); }
+.review-source { border-left: 1px solid var(--md-sys-color-outline-variant); background: var(--md-sys-color-surface-variant); }
+.review-queue-head { padding: var(--md-sys-space-4) var(--md-sys-space-4) var(--md-sys-space-3); border-bottom: 1px solid var(--md-sys-color-outline-variant); display: flex; align-items: baseline; gap: var(--md-sys-space-2); }
+.review-queue-title { font-size: var(--md-sys-font-size-title-m); font-weight: 600; color: var(--md-sys-color-on-surface); }
+.review-queue-meta { margin-left: auto; font-size: var(--md-sys-font-size-body-s); color: var(--md-sys-color-on-surface-variant); }
+.review-progress { height: 6px; margin: var(--md-sys-space-3) var(--md-sys-space-4); border-radius: var(--md-sys-radius-pill); background: var(--md-sys-color-surface-variant); overflow: hidden; }
+.review-progress-bar { width: 0; height: 100%; background: var(--md-sys-color-primary); transition: width .2s ease; }
+.review-chips { display: flex; gap: var(--md-sys-space-2); padding: 0 var(--md-sys-space-4) var(--md-sys-space-3); flex-wrap: wrap; }
+.review-chip { padding: var(--md-sys-space-1) var(--md-sys-space-2); border-radius: var(--md-sys-radius-pill); border: 1px solid var(--md-sys-color-outline-variant); font-size: var(--md-sys-font-size-label-s); color: var(--md-sys-color-on-surface-variant); }
+.review-queue-list { flex: 1; overflow: auto; padding: var(--md-sys-space-1) 0; }
+.review-qrow { display: flex; align-items: center; gap: var(--md-sys-space-3); padding: var(--md-sys-space-2) var(--md-sys-space-4); font-size: var(--md-sys-font-size-body-m); color: var(--md-sys-color-on-surface-variant); }
+.review-qrow.current { background: var(--md-sys-color-surface); border-left: 3px solid var(--md-sys-color-primary); color: var(--md-sys-color-on-surface); font-weight: 600; }
+.review-qrow.done { opacity: .5; text-decoration: line-through; }
+.review-qstage { margin-left: auto; font-size: var(--md-sys-font-size-label-s); }
+.review-qdone { color: var(--md-sys-color-success); }
+.review-queue-foot { padding: var(--md-sys-space-3) var(--md-sys-space-4); border-top: 1px solid var(--md-sys-color-outline-variant); font-size: var(--md-sys-font-size-label-s); color: var(--md-sys-color-on-surface-variant); }
+
+.review-card-wrap { padding: var(--md-sys-space-4); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--md-sys-space-4); }
+.review-card { width: 100%; max-width: 460px; min-height: 300px; border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-radius-lg); background: var(--md-sys-color-surface); display: flex; flex-direction: column; box-shadow: var(--md-sys-elevation-1); }
+.review-card-face { padding: var(--md-sys-space-4); flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--md-sys-space-3); }
+.review-word { font-size: var(--md-sys-font-size-display-m); font-weight: 600; color: var(--md-sys-color-on-surface); text-align: center; }
+.review-phonetic { font-size: var(--md-sys-font-size-title-m); color: var(--md-sys-color-on-surface-variant); }
+.review-context { font-size: var(--md-sys-font-size-body-l); color: var(--md-sys-color-on-surface-variant); line-height: 1.7; text-align: center; max-width: 100%; }
+.review-flip-hint { font-size: var(--md-sys-font-size-label-s); color: var(--md-sys-color-outline); letter-spacing: .06em; }
+.review-card .back { display: none; }
+.review-card.flipped .front { display: none; }
+.review-card.flipped .back { display: flex; }
+.review-meaning { font-size: var(--md-sys-font-size-body-l); color: var(--md-sys-color-on-surface); line-height: 1.7; text-align: center; }
+.review-pos { font-size: var(--md-sys-font-size-label-s); color: var(--md-sys-color-primary); }
+
+.review-grade-row { display: flex; gap: var(--md-sys-space-2); width: 100%; max-width: 460px; }
+.review-grade-btn { flex: 1; height: 56px; border-radius: var(--md-sys-radius-md); border: 1px solid var(--md-sys-color-outline-variant); background: var(--md-sys-color-surface); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--md-sys-space-1); cursor: pointer; }
+.review-grade-btn:disabled { opacity: .45; cursor: not-allowed; }
+.review-grade-btn:not(:disabled):hover { border-color: var(--md-sys-color-primary); }
+.review-grade-label { font-size: var(--md-sys-font-size-title-s); font-weight: 600; color: var(--md-sys-color-on-surface); }
+.review-grade-time { font-size: var(--md-sys-font-size-label-s); color: var(--md-sys-color-on-surface-variant); }
+.review-grade-btn.g1 .review-grade-label { color: var(--md-sys-color-error); }
+.review-grade-btn.g3 { background: var(--md-sys-color-primary); border-color: var(--md-sys-color-primary); }
+.review-grade-btn.g3 .review-grade-label, .review-grade-btn.g3 .review-grade-time { color: var(--md-sys-color-on-primary); }
+.review-grade-btn.g3 .review-grade-time { color: var(--md-sys-color-on-primary); opacity: .8; }
+
+.review-undo-bar { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--md-sys-color-scrim-surface); color: var(--md-sys-color-on-scrim-surface); padding: var(--md-sys-space-2) var(--md-sys-space-4); border-radius: var(--md-sys-radius-pill); font-size: var(--md-sys-font-size-title-s); cursor: pointer; z-index: 300; box-shadow: var(--md-sys-elevation-2); }
+
+.review-source-head { padding: var(--md-sys-space-4); border-bottom: 1px solid var(--md-sys-color-outline-variant); display: flex; flex-direction: column; gap: var(--md-sys-space-1); }
+.review-source-title { font-size: var(--md-sys-font-size-title-m); font-weight: 600; color: var(--md-sys-color-on-surface); }
+.review-source-meta { font-size: var(--md-sys-font-size-label-s); color: var(--md-sys-color-on-surface-variant); }
+.review-source { padding: var(--md-sys-space-4); }
+.review-source-sentence { font-size: var(--md-sys-font-size-body-l); line-height: 1.8; color: var(--md-sys-color-on-surface); }
+.review-source-empty { font-size: var(--md-sys-font-size-body-m); color: var(--md-sys-color-on-surface-variant); }
+.review-done { font-size: var(--md-sys-font-size-title-l); color: var(--md-sys-color-on-surface-variant); }

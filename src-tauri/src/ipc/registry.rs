@@ -145,6 +145,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "评分 1-4: 取→算→写 (唯一写者 vocab_repo), V2",
     },
     CommandInfo {
+        path: "commands::reader::vocab_restore",
+        domain: "复习",
+        desc: "撤销评分: 恢复词条评分前完整快照 (V3 三秒撤销后端支撑)",
+    },
+    CommandInfo {
         path: "commands::reader::sync_status",
         domain: "同步",
         desc: "同步状态",

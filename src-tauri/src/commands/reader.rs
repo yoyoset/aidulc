@@ -209,6 +209,22 @@ pub fn vocab_stats(
 
 // ---- 背单词调度器 (V2, 2026-08-09) ----
 
+/// 撤销评分: 把词条恢复到评分前的完整状态 (含 SRS), 用 sync 语义整体覆盖。
+/// V3 桌面端"3 秒可撤销"的后端支撑 (撤销栈只存评分前快照, 这里落库还原)。
+#[tauri::command]
+pub fn vocab_restore(
+    db: State<store::Db>,
+    user_id: String,
+    profile_id: String,
+    entry: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let e: crate::domain::vocab::VocabEntry =
+        serde_json::from_value(entry).map_err(|err| format!("撤销快照解析失败: {err}"))?;
+    let repo = store::vocab_repo::VocabRepo::new(db.inner());
+    let saved = repo.upsert_sync(e, &user_id, &profile_id)?;
+    serde_json::to_value(saved).map_err(|e| e.to_string())
+}
+
 /// 四档间隔预览: 对当前词按调度器算出 4 个按钮的到期时间 (设计裁决冲突 3:
 /// 按钮时间由调度器对当前词算出后返回, 前端不写死)。
 #[tauri::command]

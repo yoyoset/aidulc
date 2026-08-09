@@ -4,7 +4,7 @@
 (function (global) {
   'use strict';
 
-  const ROUTES = ['library', 'products', 'prep', 'models', 'vocab', 'reader', 'settings'];
+  const ROUTES = ['library', 'products', 'prep', 'models', 'vocab', 'review', 'reader', 'settings'];
 
   class Router {
     constructor(container) {

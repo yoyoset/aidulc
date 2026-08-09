@@ -175,7 +175,7 @@ globalThis.AiduSyncService = {
   now: async () => ({ ok: true, data: {} }), pull: async () => ({ ok: true, data: {} }),
   disconnect: async () => ({ ok: true }),
 };
-globalThis.AiduDictionaryService = { list: async () => ({ ok: true, data: [] }), vocabAll: async () => ({ ok: true, data: [] }), lookup: async () => ({ ok: true, data: {} }), addToVocab: async () => ({ ok: true }), vocabRemove: async () => ({ ok: true }) };
+globalThis.AiduDictionaryService = { list: async () => ({ ok: true, data: [] }), vocabAll: async () => ({ ok: true, data: [] }), lookup: async () => ({ ok: true, data: {} }), addToVocab: async () => ({ ok: true }), vocabRemove: async () => ({ ok: true }), srsPreview: async () => ({ ok: true, data: { options: [1,2,3,4].map((g) => ({ grade: g, human: g + ' 天' })) } }), srsGrade: async (p, l, g) => ({ ok: true, data: {} }), srsRestore: async () => ({ ok: true, data: {} }) };
 globalThis.AiduReadingService = { get: async () => ({ ok: true, data: null }), save: async () => ({ ok: true }), stats: async () => ({ ok: true, data: {} }) };
 globalThis.AiduMiscService = {
   logPath: async () => ({ ok: true, data: { path: 'C:/log' } }), componentsHealth: async () => ({ ok: true, data: [] }),
@@ -365,6 +365,49 @@ console.log('== 5. 顶栏切人 (V1 身份模型, 2026-08-09) ==');
   // 新实例读当前 user
   check('currentId 返回新 user', globalThis.AiduUserService.currentId() === 'u-kid');
   check('currentName 解析新 user', globalThis.AiduUserService.currentName([{ id: 'me', name: '我' }, { id: 'u-kid', name: '孩子' }]) === '孩子');
+}
+
+console.log('== 6. 背单词三栏 (V3, 2026-08-09) ==');
+{
+  load('core/review.js');
+  load('views/review_view.js');
+  // stub: 3 个词 (到期复习 + 学习 + 新词)
+  globalThis.AiduDictionaryService.vocabAll = async () => ({ ok: true, data: [
+    { word: 'reticent', lemma: 'reticent', stage: 'review', interval_ms: 3 * 86400000, next_review: Date.now() - 1000, meaning: '沉默寡言的', phonetic: '/r/', context: 'He was reticent about the war.' },
+    { word: 'bank', lemma: 'bank', stage: 'new', next_review: null, meaning: '银行', context: 'He went to the bank.' },
+  ] });
+  const reviewCalls = { grade: [], restore: [] };
+  globalThis.AiduDictionaryService.srsGrade = async (p, l, g) => { reviewCalls.grade.push([l, g]); return { ok: true, data: {} }; };
+  globalThis.AiduDictionaryService.srsRestore = async (p, e) => { reviewCalls.restore.push(e.lemma); return { ok: true, data: {} }; };
+  const rv = new globalThis.ReviewView(new globalThis.AiduStore());
+  const rc = makeElement('div');
+  rv.render(rc);
+  await new Promise((r) => setTimeout(r, 60));
+  // 队列: 到期复习在前
+  check('卡片显示当前词 reticent', rv.queue[0] && rv.queue[0].word === 'reticent', 'q0=' + (rv.queue[0] && rv.queue[0].word));
+  check('评分按钮初始禁用 (未翻面)', rv.gradeBtns.every((b) => b.disabled === true));
+  check('未翻面 canGrade=false', rv.flipLock.canGrade(Date.now()) === false);
+  // 翻面: 单向 + 250ms 锁
+  rv._flip();
+  check('翻面后 isFlipped=true', rv.flipLock.isFlipped() === true);
+  const t0 = Date.now();
+  check('翻面瞬间仍锁 (250ms 内)', rv.flipLock.canGrade(t0) === false);
+  check('250ms 后解锁', rv.flipLock.canGrade(t0 + 250) === true);
+  await new Promise((r) => setTimeout(r, 260));
+  check('解锁定时器点亮按钮', rv.gradeBtns.every((b) => b.disabled === false));
+  // 评分 → srs_grade 被调 + 进入下一张
+  const idxBefore = rv.index;
+  rv._grade(3);
+  await new Promise((r) => setTimeout(r, 60));
+  check('评分调用 srs_grade(reticent,3)', reviewCalls.grade.some(([l, g]) => l === 'reticent' && g === 3));
+  check('评分后进入下一张', rv.index === idxBefore + 1, 'idx=' + rv.index);
+  check('撤销栈有记录且可撤销', rv.undoStack.canUndo(Date.now()) === true);
+  // 撤销 → srs_restore 被调 + 回到上一张
+  rv._undo();
+  await new Promise((r) => setTimeout(r, 60));
+  check('撤销调用 srs_restore', reviewCalls.restore.includes('reticent'));
+  check('撤销后回到上一张', rv.queue[rv.index] && rv.queue[rv.index].word === 'reticent', 'q=' + (rv.queue[rv.index] && rv.queue[rv.index].word));
+  rv.cleanup();
 }
 
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);

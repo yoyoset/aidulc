@@ -114,6 +114,7 @@
   const srs = {
     preview: (userId, profileId, lemma) => invoke('srs_preview', { userId, profileId, lemma }),
     grade: (userId, profileId, lemma, grade) => invoke('srs_grade', { userId, profileId, lemma, grade }),
+    restore: (userId, profileId, entry) => invoke('vocab_restore', { userId, profileId, entry }),
   };
 
   global.AiduBridge = { invoke, listen, pickFiles, openPath, library, bookpack, profiles, users, settings, reading, transfer, highlights, srs };

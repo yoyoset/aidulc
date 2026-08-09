@@ -144,6 +144,25 @@
 暂停→继续(checkpoint 续跑)、档案新建/编辑模态表单、儿童模式读 kid 书的字号、
 单次拖拽只产生一个 batch(F45 的剩余复现路径)。
 
+### 收尾加固(2026-08-10):`jobs_repo::cleanup_old` 的 `NOT IN` 换 `NOT EXISTS`
+
+`editions.id` 是 `TEXT PRIMARY KEY`,SQLite 里**不隐含 NOT NULL**。editions 出现 NULL id 时
+旧写法对**悬空 edition_id** 求值为 NULL → 那类终态任务行永远清不掉且不报错。已改
+`NOT EXISTS` + 回归测试 `cleanup_old_still_works_when_editions_has_null_id`(旧 SQL 实跑为红、
+新 SQL 为绿,两遍都跑过)。**过程修正**:最初判断是"整条清理静默失效",实测发现
+`edition_id IS NULL` 的行走 OR 第一分支照删不误,受影响的只有悬空那一类;第一版测试用
+NULL edition_id 构造,拿旧 SQL 跑照样绿(空测试),改成悬空 id 才测得出来。
+
+---
+
+## 下一阶段(STAGE-SRS):背单词 + 身份模型 + 同步重建
+
+任务卡与全部约束在 **`docs/GOAL_STAGE_SRS.md`**(V0-V8),本文件只留指针,避免两份待办。
+设计来源:`生词本和背单词完整设计交付确认/aidulc 背单词.dc.html`。
+三个已定的方向:① 重建 Cloudflare Worker + KV(个人免费友好),协议形状预留账号体系;
+② 引入独立 `user` 维度(同机多人 + 同人多设备),`profile` 退回"讲解策略"语义;
+③ 桌面端三栏 + 手机端(Tauri v2 Android)都做,iOS 不做。
+
 ### 上一阶段核对记录(2026-08-09,本次逐条 grep/运行确认)
 
 `scripts/check.ps1` 全绿(12/12);`BookpackCache` `DEFAULT_CAP=6` 属实;

@@ -339,6 +339,8 @@ fn main() {
                     db.inner(),
                     &cfg.inner().out_dir,
                 );
+                // N6 (2026-08-10): 清终态且超保留期(30 天)的批次行, 批次表不再无界累积
+                let _ = store::batches_repo::BatchesRepo::new(db.inner()).cleanup_old(30);
                 // 修复: 任务死 (进程被强杀) 但书状态卡 processing → 恢复 pending (书库可见可重试)
                 let books_repo = store::books_repo::BooksRepo::new(db.inner());
                 for b in books_repo.list_by_kind("original") {

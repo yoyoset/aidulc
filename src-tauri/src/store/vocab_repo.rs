@@ -33,20 +33,23 @@ impl<'a> VocabRepo<'a> {
         Self { db }
     }
 
-    fn full_key(profile_id: &str, lemma: &str) -> String {
-        format!("{}:{}", profile_id, lemma.to_lowercase())
+    /// V1 (2026-08-09): key = {user}:{profile}:{lemma}。user 维度加入后, 同 profile
+    /// 不同用户的词不再撞主键 (迁移 v20 已把存量 key 重写成 me:profile:lemma)。
+    fn full_key(user_id: &str, profile_id: &str, lemma: &str) -> String {
+        format!("{}:{}:{}", user_id, profile_id, lemma.to_lowercase())
     }
 
     /// content upsert: 保留旧 SRS (M1 语义, 与 aidu vocabService.updateEntry 对齐)
     pub fn upsert_content(
         &self,
         e: VocabEntry,
+        user_id: &str,
         profile_id: &str,
     ) -> Result<Option<VocabEntry>, String> {
         let Some(norm) = normalize_vocab_entry(e) else {
             return Err("条目缺 word 和 lemma".into());
         };
-        let key = Self::full_key(profile_id, &norm.lemma);
+        let key = Self::full_key(user_id, profile_id, &norm.lemma);
         let now = crate::store::now_ms_for_store();
         let conn = self.db.conn.lock().unwrap();
 
@@ -75,8 +78,8 @@ impl<'a> VocabRepo<'a> {
         conn.execute(
             "INSERT INTO vocab (key, word, lemma, pos, meaning, sense_id, phonetic, context, level,
                                 collocations, stage, interval_days, ease_factor, next_review, reviews,
-                                added_at, updated_at, profile_id, payload)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+                                added_at, updated_at, profile_id, user_id, payload)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
              ON CONFLICT(key) DO UPDATE SET
                 word = excluded.word, pos = excluded.pos, meaning = excluded.meaning,
                 sense_id = excluded.sense_id, phonetic = excluded.phonetic, context = excluded.context,
@@ -105,32 +108,34 @@ impl<'a> VocabRepo<'a> {
                 payload["addedAt"].as_i64().unwrap_or(now),
                 now,
                 profile_id,
+                user_id,
                 serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string()),
             ],
         )
         .map_err(|e| format!("写入 vocab 失败: {e}"))?;
         drop(conn);
-        Ok(self.get(profile_id, &norm.lemma))
+        Ok(self.get(user_id, profile_id, &norm.lemma))
     }
 
     /// sync import: 允许远端较新记录覆盖本地 (M1)
     pub fn upsert_sync(
         &self,
         e: VocabEntry,
+        user_id: &str,
         profile_id: &str,
     ) -> Result<Option<VocabEntry>, String> {
         let Some(norm) = normalize_vocab_entry(e) else {
             return Err("条目缺 word 和 lemma".into());
         };
-        let key = Self::full_key(profile_id, &norm.lemma);
+        let key = Self::full_key(user_id, profile_id, &norm.lemma);
         let now = crate::store::now_ms_for_store();
         let payload = serde_json::to_value(&norm).unwrap_or(serde_json::Value::Null);
         let conn = self.db.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO vocab (key, word, lemma, pos, meaning, sense_id, phonetic, context, level,
                                 collocations, stage, interval_days, ease_factor, next_review, reviews,
-                                added_at, updated_at, profile_id, payload)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+                                added_at, updated_at, profile_id, user_id, payload)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
              ON CONFLICT(key) DO UPDATE SET
                 word = excluded.word, lemma = excluded.lemma, pos = excluded.pos,
                 meaning = excluded.meaning, sense_id = excluded.sense_id,
@@ -145,18 +150,18 @@ impl<'a> VocabRepo<'a> {
                 norm.phonetic, norm.context, norm.level,
                 serde_json::to_string(&norm.collocations).unwrap_or_else(|_| "[]".to_string()),
                 norm.stage, norm.interval, norm.ease_factor, norm.next_review, norm.reviews,
-                norm.added_at, now, profile_id,
+                norm.added_at, now, profile_id, user_id,
                 serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string()),
             ],
         )
         .map_err(|e| format!("写入 vocab 失败: {e}"))?;
         drop(conn);
-        Ok(self.get(profile_id, &norm.lemma))
+        Ok(self.get(user_id, profile_id, &norm.lemma))
     }
 
     /// 读 canonical payload (无损)
-    pub fn get(&self, profile_id: &str, lemma: &str) -> Option<VocabEntry> {
-        let key = Self::full_key(profile_id, lemma);
+    pub fn get(&self, user_id: &str, profile_id: &str, lemma: &str) -> Option<VocabEntry> {
+        let key = Self::full_key(user_id, profile_id, lemma);
         let conn = self.db.conn.lock().unwrap();
         let payload: Option<String> = conn
             .query_row("SELECT payload FROM vocab WHERE key = ?1", [&key], |r| {
@@ -167,13 +172,13 @@ impl<'a> VocabRepo<'a> {
         payload.and_then(|p| serde_json::from_str::<VocabEntry>(&p).ok())
     }
 
-    pub fn list(&self, profile_id: &str) -> Vec<VocabEntry> {
+    pub fn list(&self, user_id: &str, profile_id: &str) -> Vec<VocabEntry> {
         let conn = self.db.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT payload FROM vocab WHERE profile_id = ?1 ORDER BY added_at DESC")
+            .prepare("SELECT payload FROM vocab WHERE user_id = ?1 AND profile_id = ?2 ORDER BY added_at DESC")
             .unwrap();
         let payloads: Vec<String> = stmt
-            .query_map([profile_id], |r| r.get(0))
+            .query_map(params![user_id, profile_id], |r| r.get(0))
             .unwrap()
             .filter_map(|r| r.ok())
             .collect();
@@ -185,10 +190,10 @@ impl<'a> VocabRepo<'a> {
             .collect()
     }
 
-    /// 列出本 profile 的 canonical JSON 值 (sync 用)
+    /// 列出本 user 的全部 canonical JSON 值 (sync 用)
     /// I-B: 生词搜索 (按词/释义)
-    pub fn search(&self, profile_id: &str, q: &str) -> Vec<VocabEntry> {
-        self.list(profile_id)
+    pub fn search(&self, user_id: &str, profile_id: &str, q: &str) -> Vec<VocabEntry> {
+        self.list(user_id, profile_id)
             .into_iter()
             .filter(|e| {
                 let query = q.to_lowercase();
@@ -199,9 +204,9 @@ impl<'a> VocabRepo<'a> {
             .collect()
     }
 
-    /// I-B: 删除生词 (仅本 profile)
-    pub fn remove(&self, profile_id: &str, lemma: &str) -> Result<(), String> {
-        let key = Self::full_key(profile_id, lemma);
+    /// I-B: 删除生词 (仅本 user)
+    pub fn remove(&self, user_id: &str, profile_id: &str, lemma: &str) -> Result<(), String> {
+        let key = Self::full_key(user_id, profile_id, lemma);
         let conn = self.db.conn.lock().unwrap();
         conn.execute("DELETE FROM vocab WHERE key = ?1", [&key])
             .map_err(|e| format!("删生词失败: {e}"))?;
@@ -209,8 +214,8 @@ impl<'a> VocabRepo<'a> {
     }
 
     /// I-B: 统计
-    pub fn stats(&self, profile_id: &str) -> serde_json::Value {
-        let all = self.list(profile_id);
+    pub fn stats(&self, user_id: &str, profile_id: &str) -> serde_json::Value {
+        let all = self.list(user_id, profile_id);
         let by_stage = {
             let mut m = std::collections::HashMap::new();
             for e in &all {
@@ -228,6 +233,7 @@ impl<'a> VocabRepo<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::users_repo::DEFAULT_USER_ID;
     use serde_json::Value;
 
     fn temp_db() -> Db {
@@ -264,27 +270,43 @@ mod tests {
     fn profile_isolation_default_vs_kid() {
         let db = temp_db();
         let repo = VocabRepo::new(&db);
-        repo.upsert_content(entry("bank"), "default").unwrap();
-        repo.upsert_content(entry("bank"), "kid").unwrap();
-        assert!(repo.get("default", "bank").is_some());
-        assert!(repo.get("kid", "bank").is_some());
-        assert_eq!(repo.list("default").len(), 1);
-        assert_eq!(repo.list("kid").len(), 1);
+        let uid = DEFAULT_USER_ID;
+        repo.upsert_content(entry("bank"), uid, "default").unwrap();
+        repo.upsert_content(entry("bank"), uid, "kid").unwrap();
+        assert!(repo.get(uid, "default", "bank").is_some());
+        assert!(repo.get(uid, "kid", "bank").is_some());
+        assert_eq!(repo.list(uid, "default").len(), 1);
+        assert_eq!(repo.list(uid, "kid").len(), 1);
+    }
+
+    #[test]
+    fn user_isolation_same_profile_no_collision() {
+        // V1 (2026-08-09): 同 profile 不同 user 的词不撞主键 —— 切人后各自数据的前提
+        let db = temp_db();
+        let repo = VocabRepo::new(&db);
+        repo.upsert_content(entry("bank"), DEFAULT_USER_ID, "default")
+            .unwrap();
+        repo.upsert_content(entry("bank"), "u-kid", "default")
+            .unwrap();
+        assert_eq!(repo.list(DEFAULT_USER_ID, "default").len(), 1, "我 1 条");
+        assert_eq!(repo.list("u-kid", "default").len(), 1, "孩子 1 条");
+        assert_eq!(repo.list(DEFAULT_USER_ID, "default")[0].meaning, "含义");
     }
 
     #[test]
     fn content_upsert_keeps_srs() {
         let db = temp_db();
         let repo = VocabRepo::new(&db);
+        let uid = DEFAULT_USER_ID;
         let mut e = entry("bank");
         e.stage = "review".into();
         e.interval = 3.0;
-        repo.upsert_content(e, "default").unwrap();
+        repo.upsert_content(e, uid, "default").unwrap();
         let mut e2 = entry("bank");
         e2.meaning = "新含义".into();
         e2.stage = "learning".into();
-        repo.upsert_content(e2, "default").unwrap();
-        let got = repo.get("default", "bank").unwrap();
+        repo.upsert_content(e2, uid, "default").unwrap();
+        let got = repo.get(uid, "default", "bank").unwrap();
         assert_eq!(got.meaning, "新含义");
         assert_eq!(got.stage, "review", "SRS 应保留");
         assert_eq!(got.interval, 3.0, "SRS interval 应保留");
@@ -294,16 +316,17 @@ mod tests {
     fn sync_import_overwrites_srs_when_newer() {
         let db = temp_db();
         let repo = VocabRepo::new(&db);
+        let uid = DEFAULT_USER_ID;
         let mut e = entry("bank");
         e.stage = "review".into();
         e.updated_at = 100;
-        repo.upsert_sync(e, "default").unwrap();
+        repo.upsert_sync(e, uid, "default").unwrap();
         let mut e2 = entry("bank");
         e2.stage = "mastered".into();
         e2.interval = 30.0;
         e2.updated_at = 200; // 远端更新
-        repo.upsert_sync(e2, "default").unwrap();
-        let got = repo.get("default", "bank").unwrap();
+        repo.upsert_sync(e2, uid, "default").unwrap();
+        let got = repo.get(uid, "default", "bank").unwrap();
         assert_eq!(got.stage, "mastered", "sync 应允许覆盖 SRS");
         assert_eq!(got.interval, 30.0);
     }
@@ -312,14 +335,15 @@ mod tests {
     fn lossless_roundtrip_deep_fields() {
         let db = temp_db();
         let repo = VocabRepo::new(&db);
+        let uid = DEFAULT_USER_ID;
         let mut e = entry("break");
         e.deep_data = serde_json::json!({"kanji": [{"text": "破", "stroke": 10}]});
         e.last_review = Some(1700000000000);
         e.last_grade = Some(3);
         e.interval = 2.7; // 浮点
         e.next_review = Some(1700001000000);
-        repo.upsert_sync(e, "default").unwrap();
-        let got = repo.get("default", "break").unwrap();
+        repo.upsert_sync(e, uid, "default").unwrap();
+        let got = repo.get(uid, "default", "break").unwrap();
         assert_eq!(got.deep_data["kanji"][0]["stroke"], 10);
         assert_eq!(got.last_review, Some(1700000000000));
         assert_eq!(got.last_grade, Some(3));

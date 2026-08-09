@@ -329,5 +329,43 @@ console.log('== 4b. 默认与预填: 记住上次档案 (2026-08-09) ==');
 }
 
 
+console.log('== 5. 顶栏切人 (V1 身份模型, 2026-08-09) ==');
+{
+  // 事件总线 stub (users_service / shell_view 需要)
+  const _listeners = {};
+  globalThis.window.addEventListener = (ev, fn) => { (globalThis.window[ev] = globalThis.window[ev] || []).push(fn); };
+  globalThis.window.dispatchEvent = (ev) => { (globalThis.window[ev.type] || []).forEach((fn) => fn(ev)); return true; };
+  globalThis.CustomEvent = class CustomEvent { constructor(type, opts) { this.type = type; this.detail = opts && opts.detail; } };
+  // 加载 shell_view + users_service, stub users_list 返回 me + 孩子
+  load('services/users_service.js');
+  load('views/shell_view.js');
+  globalThis.AiduBridge = Object.assign({}, globalThis.AiduBridge || {}, {
+    users: { list: async () => ({ ok: true, data: [
+      { id: 'me', name: '我' }, { id: 'u-kid', name: '孩子' },
+    ] }) },
+  });
+  globalThis.AiduUserService = globalThis.AiduUserService;
+  globalThis.localStorage = { _d: {}, getItem(k) { return k in this._d ? this._d[k] : null; }, setItem(k, v) { this._d[k] = String(v); } };
+  const appEl = makeElement('div');
+  const shell = new globalThis.ShellView(appEl);
+  shell.render();
+  await new Promise((r) => setTimeout(r, 30));
+  // 顶栏出现用户下拉且预选当前用户 (默认 me)
+  const userSel = queryAll(appEl, 'select').find((s) => s.className.includes('nav-user-select'));
+  check('顶栏有用户下拉', !!userSel);
+  check('下拉预选默认用户 me', userSel && userSel.value === 'me', 'value=' + (userSel && userSel.value));
+  check('下拉含两个孩子选项', userSel && (userSel._children || []).length === 2);
+  // 切人 → localStorage 记录新 user + 广播事件
+  userSel.value = 'u-kid';
+  const events = [];
+  globalThis.window.addEventListener('aidulc:user-changed', (e) => events.push(e.detail.id));
+  userSel.onchange();
+  check('切人写入 localStorage', globalThis.localStorage.getItem('aidulc.current_user') === 'u-kid');
+  check('切人广播事件', events.includes('u-kid'));
+  // 新实例读当前 user
+  check('currentId 返回新 user', globalThis.AiduUserService.currentId() === 'u-kid');
+  check('currentName 解析新 user', globalThis.AiduUserService.currentName([{ id: 'me', name: '我' }, { id: 'u-kid', name: '孩子' }]) === '孩子');
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

@@ -12,10 +12,13 @@
 
 | 表 | 唯一写者 | 说明 |
 |---|---|---|
-| `vocab` | `vocab_repo.rs` | SRS 学习状态 |
-| `dictionary` | `dict_repo.rs` | 个人词典资产 |
+| `vocab` | `vocab_repo.rs` | SRS 学习状态 (V1 起带 user_id, user ≠ profile) |
+| `dictionary` | `dict_repo.rs` | 个人词典资产 (V1 起带 user_id) |
+| `users` | `users_repo.rs` | **V1 新增**: 身份 ("谁"), 与 profile("讲解策略")分开; 顶栏切人 |
 | `profiles` | `profile_repo.rs` | 讲解策略/音色/语速/高亮粒度 |
-| `reading_state` | `reading_repo.rs` | 阅读进度/书签/播放位置 |
+| `reading_state` | `reading_repo.rs` | 阅读进度/书签/播放位置 (V1 起复合主键 user_id+book_key) |
+| `highlights` | `highlights_repo.rs` | 摘录标注 (V1 起带 user_id) |
+| `reading_daily` | `reading_repo.rs` | 按日阅读时长 (V1 起复合主键 user_id+book_key+day) |
 | `books` | `books_repo.rs` | 原书(source)登记；不承载可阅读成品 |
 | `editions` | `editions_repo.rs` | 译本/成品(edition)及生成参数快照 |
 | `reader_settings` | `settings_repo.rs` | 阅读器设置 |

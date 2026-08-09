@@ -374,6 +374,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "删除自建档案 (内建 default 不允许删)",
     },
     CommandInfo {
+        path: "ipc::commands::users_list",
+        domain: "身份",
+        desc: "用户列表 (V1: 顶栏切人数据源)",
+    },
+    CommandInfo {
         path: "ipc::commands::highlights_list",
         domain: "摘录",
         desc: "某本书的全部摘录 (按 章/句序 排)",

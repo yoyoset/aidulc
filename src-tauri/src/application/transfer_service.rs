@@ -8,6 +8,7 @@
 
 use crate::store::vocab_repo::VocabRepo;
 use crate::store::Db;
+use rusqlite::params;
 
 /// 导出为 AIDU v3 兼容 JSON (所有 profile 的 vocab + dictionary)
 pub fn export_aidu_data(db: &Db) -> Result<serde_json::Value, String> {
@@ -31,7 +32,9 @@ pub fn export_aidu_data(db: &Db) -> Result<serde_json::Value, String> {
     let mut dictionaries = serde_json::Map::new();
     for profile in &profiles {
         let repo = VocabRepo::new(db);
-        let entries = repo.list(profile);
+        // V1 (2026-08-09): 导出按默认 user 合并 (旧数据迁移后全归 'me').
+        // V6 接线后按需区分 user —— .aidu-data 格式只有 profile 维度, 多人导出需扩展.
+        let entries = repo.list(crate::store::users_repo::DEFAULT_USER_ID, profile);
         let mut vocab_map = serde_json::Map::new();
         for e in &entries {
             let key = e.lemma.to_lowercase();
@@ -87,6 +90,7 @@ pub fn import_aidu_data(db: &Db, backup: &serde_json::Value) -> Result<serde_jso
 
     // vocab: data.vocab["vocab_<profile>"] = {lemma: entry}
     if let Some(vocab_map) = data.get("vocab").and_then(|v| v.as_object()) {
+        let uid = crate::store::users_repo::DEFAULT_USER_ID;
         for (storage_key, entries) in vocab_map {
             let profile = storage_key
                 .strip_prefix("vocab_")
@@ -99,14 +103,14 @@ pub fn import_aidu_data(db: &Db, backup: &serde_json::Value) -> Result<serde_jso
                         payload.clone(),
                     ) {
                         Ok(entry) => {
-                            let local = repo.get(&profile, lemma);
+                            let local = repo.get(uid, &profile, lemma);
                             let remote_newer = payload
                                 .get("updatedAt")
                                 .and_then(|v| v.as_i64())
                                 .unwrap_or(0)
                                 > local.as_ref().map(|l| l.updated_at).unwrap_or(0);
                             if remote_newer {
-                                let _ = repo.upsert_sync(entry, &profile);
+                                let _ = repo.upsert_sync(entry, uid, &profile);
                                 imported_vocab += 1;
                             }
                         }
@@ -168,12 +172,13 @@ fn list_dictionary_payloads(
 ) -> serde_json::Map<String, serde_json::Value> {
     let conn = db.conn.lock().unwrap();
     let mut out = serde_json::Map::new();
-    let prefix = format!("{profile_id}:");
+    let uid = crate::store::users_repo::DEFAULT_USER_ID;
+    let prefix = format!("{uid}:{profile_id}:");
     let mut stmt = conn
-        .prepare("SELECT key, payload FROM dictionary WHERE profile_id = ?1")
+        .prepare("SELECT key, payload FROM dictionary WHERE user_id = ?1 AND profile_id = ?2")
         .unwrap();
     let rows: Vec<(String, String)> = stmt
-        .query_map([profile_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_map(params![uid, profile_id], |r| Ok((r.get(0)?, r.get(1)?)))
         .unwrap()
         .filter_map(|r| r.ok())
         .collect();
@@ -195,7 +200,12 @@ fn upsert_dictionary(
     payload: &serde_json::Value,
 ) -> Result<(), String> {
     let repo = crate::store::dict_repo::DictRepo::new(db);
-    repo.upsert(lemma, payload, profile_id)
+    repo.upsert(
+        lemma,
+        payload,
+        crate::store::users_repo::DEFAULT_USER_ID,
+        profile_id,
+    )
 }
 
 #[cfg(test)]
@@ -241,9 +251,10 @@ mod tests {
     fn export_import_roundtrip() {
         let db = temp_db();
         let repo = VocabRepo::new(&db);
-        repo.upsert_sync(vocab_entry("bank", 100), "default")
+        repo.upsert_sync(vocab_entry("bank", 100), "me", "default")
             .unwrap();
-        repo.upsert_sync(vocab_entry("bank", 100), "kid").unwrap();
+        repo.upsert_sync(vocab_entry("bank", 100), "me", "kid")
+            .unwrap();
 
         let backup = export_aidu_data(&db).unwrap();
         assert_eq!(backup["version"], 3);
@@ -255,15 +266,18 @@ mod tests {
         let report = import_aidu_data(&db2, &backup).unwrap();
         assert_eq!(report["imported_vocab"], 2, "report: {report}");
         let repo2 = VocabRepo::new(&db2);
-        assert!(repo2.get("default", "bank").is_some(), "default 应有 bank");
-        assert!(repo2.get("kid", "bank").is_some(), "kid 应有 bank");
+        assert!(
+            repo2.get("me", "default", "bank").is_some(),
+            "default 应有 bank"
+        );
+        assert!(repo2.get("me", "kid", "bank").is_some(), "kid 应有 bank");
     }
 
     #[test]
     fn import_keeps_newer_local() {
         let db = temp_db();
         let repo = VocabRepo::new(&db);
-        repo.upsert_sync(vocab_entry("bank", 500), "default")
+        repo.upsert_sync(vocab_entry("bank", 500), "me", "default")
             .unwrap(); // 本地较新
 
         let backup = serde_json::json!({
@@ -278,7 +292,7 @@ mod tests {
         });
         let report = import_aidu_data(&db, &backup).unwrap();
         assert_eq!(report["imported_vocab"], 0, "远端较旧不应覆盖");
-        assert_eq!(repo.get("default", "bank").unwrap().updated_at, 500);
+        assert_eq!(repo.get("me", "default", "bank").unwrap().updated_at, 500);
     }
 
     #[test]
@@ -298,6 +312,7 @@ mod tests {
         let hrepo = crate::store::highlights_repo::HighlightsRepo::new(&db);
         let h = crate::store::highlights_repo::Highlight {
             id: "hl-1".into(),
+            user_id: "me".into(),
             book_key: "book_a".into(),
             chapter: 0,
             sentence_index: 3,
@@ -318,7 +333,8 @@ mod tests {
         let db2 = temp_db();
         let r = import_aidu_data(&db2, &backup).unwrap();
         assert_eq!(r["imported_highlights"], 1);
-        let got = crate::store::highlights_repo::HighlightsRepo::new(&db2).list_by_book("book_a");
+        let got =
+            crate::store::highlights_repo::HighlightsRepo::new(&db2).list_by_book("me", "book_a");
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].selected_text, "the quick fox");
         assert_eq!(got[0].start_seg, Some(1));

@@ -95,6 +95,9 @@ DB 模式演进: `store_mod.rs` 用 `schema_migrations` 表, 目前 19 个迁移
 | v9 | jobs.progress: 后端算全书完成度(阶段权重 0-100) | 进度算法 |
 | v18 | editions 表承载成品；legacy product 无损迁移；jobs 增加 edition_id | 书籍资产模型 |
 | v19 | jobs 增加 source_id(显式关联原书, BOOK_WORKFLOW §2.3); 删除 source 按 source_id 级联清 job | 书籍主流程重构 |
+| v20 | **身份模型 (V1)**: users 表 (默认 user "me"); vocab/dictionary/highlights 加 user_id 列并回填;
+      vocab/dictionary key 改为 `{user}:{profile}:{lemma}`; reading_state/reading_daily 重建为含 user_id
+      的复合主键。迁移不拆人(全部现有数据归一个 user), 事务内完成可回滚 | 背单词 STAGE-SRS |
 
 ## 3. contracts 三端链路
 

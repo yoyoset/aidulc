@@ -40,6 +40,7 @@ mod store {
     pub mod reading_repo;
     pub mod settings_repo;
     pub mod store_mod;
+    pub mod users_repo;
     pub mod vocab_repo;
     pub use store_mod::{now_ms_for_store, Db};
 }
@@ -433,6 +434,7 @@ fn main() {
             ipc::commands::profile_upsert,
             ipc::commands::profile_list,
             ipc::commands::profile_delete,
+            ipc::commands::users_list,
             ipc::commands::highlights_list,
             ipc::commands::highlights_save,
             ipc::commands::highlights_remove,

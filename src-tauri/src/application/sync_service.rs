@@ -71,8 +71,10 @@ pub fn get_status(db: &Db, worker_url: &str, token: &str) -> SyncStatus {
     let configured = !worker_url.is_empty() && !token.is_empty();
     let repo = crate::store::vocab_repo::VocabRepo::new(db);
     // pending = 本地生词数 (简化: 全部本地生词待同步)
+    // V1 (2026-08-09): 暂时按默认 user 统计, V6 接线后按当前 user
     let pending = if configured {
-        repo.list("default").len()
+        repo.list(crate::store::users_repo::DEFAULT_USER_ID, "default")
+            .len()
     } else {
         0
     };
@@ -103,12 +105,14 @@ fn record_sync(result: Result<(), String>) {
 }
 
 /// 立即同步 (push 当前 profile 生词)
+/// V1 (2026-08-09): 暂时按默认 user + 'default' profile, V6 接线后按当前 user
 pub fn sync_now(db: &Db, worker_url: &str, token: &str) -> Result<SyncStatus, String> {
     if worker_url.is_empty() || token.is_empty() {
         return Ok(status(false, worker_url, None, 0));
     }
     let repo = crate::store::vocab_repo::VocabRepo::new(db);
-    let entries = repo.list("default");
+    let uid = crate::store::users_repo::DEFAULT_USER_ID;
+    let entries = repo.list(uid, "default");
     let pairs: Vec<(String, serde_json::Value)> = entries
         .iter()
         .filter_map(|e| {
@@ -137,12 +141,13 @@ pub fn sync_pull(db: &Db, worker_url: &str, token: &str) -> Result<SyncStatus, S
         return Ok(status(false, worker_url, None, 0));
     }
     let remote = sync::pull_profile(worker_url, token, "default");
+    let uid = crate::store::users_repo::DEFAULT_USER_ID;
     match remote {
         Ok(Some(env)) => {
             let repo = crate::store::vocab_repo::VocabRepo::new(db);
             // 本地 → Envelope; 远端 → Envelope; 合并 (新者胜, domain 规则)
             let local_envs: Vec<crate::domain::sync::Envelope> = repo
-                .list("default")
+                .list(uid, "default")
                 .iter()
                 .map(|e| crate::domain::sync::Envelope {
                     key: e.lemma.to_lowercase(),
@@ -169,7 +174,7 @@ pub fn sync_pull(db: &Db, worker_url: &str, token: &str) -> Result<SyncStatus, S
                     if let Ok(entry) =
                         serde_json::from_value::<crate::domain::vocab::VocabEntry>(payload)
                     {
-                        let _ = repo.upsert_sync(entry, "default");
+                        let _ = repo.upsert_sync(entry, uid, "default");
                     }
                 }
             }

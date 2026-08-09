@@ -13,6 +13,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Highlight {
     pub id: String,
+    /// V1 (2026-08-09): 摘录属于哪个 user。旧数据迁移回填 'me'。
+    #[serde(default = "default_user_id")]
+    pub user_id: String,
     pub book_key: String,
     pub chapter: i64,
     pub sentence_index: i64,
@@ -27,6 +30,10 @@ pub struct Highlight {
     pub updated_at: i64,
 }
 
+fn default_user_id() -> String {
+    crate::store::users_repo::DEFAULT_USER_ID.to_string()
+}
+
 pub struct HighlightsRepo<'a> {
     db: &'a Db,
 }
@@ -39,14 +46,14 @@ impl<'a> HighlightsRepo<'a> {
     pub fn upsert(&self, h: &Highlight) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO highlights (id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            "INSERT INTO highlights (id, user_id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(id) DO UPDATE SET
                 selected_text = excluded.selected_text, note = excluded.note,
                 start_seg = excluded.start_seg, end_seg = excluded.end_seg,
                 updated_at = excluded.updated_at",
             params![
-                h.id, h.book_key, h.chapter, h.sentence_index,
+                h.id, h.user_id, h.book_key, h.chapter, h.sentence_index,
                 h.selected_text, h.note, h.start_seg, h.end_seg, h.created_at, h.updated_at
             ],
         )
@@ -54,26 +61,27 @@ impl<'a> HighlightsRepo<'a> {
         Ok(())
     }
 
-    pub fn list_by_book(&self, book_key: &str) -> Vec<Highlight> {
+    pub fn list_by_book(&self, user_id: &str, book_key: &str) -> Vec<Highlight> {
         let conn = self.db.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
-                "SELECT id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, created_at, updated_at
-                 FROM highlights WHERE book_key = ?1 ORDER BY chapter, sentence_index, created_at",
+                "SELECT id, user_id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, created_at, updated_at
+                 FROM highlights WHERE user_id = ?1 AND book_key = ?2 ORDER BY chapter, sentence_index, created_at",
             )
             .unwrap();
-        stmt.query_map([book_key], |r| {
+        stmt.query_map(params![user_id, book_key], |r| {
             Ok(Highlight {
                 id: r.get(0)?,
-                book_key: r.get(1)?,
-                chapter: r.get(2)?,
-                sentence_index: r.get(3)?,
-                selected_text: r.get(4)?,
-                note: r.get(5)?,
-                start_seg: r.get(6)?,
-                end_seg: r.get(7)?,
-                created_at: r.get(8)?,
-                updated_at: r.get(9)?,
+                user_id: r.get(1)?,
+                book_key: r.get(2)?,
+                chapter: r.get(3)?,
+                sentence_index: r.get(4)?,
+                selected_text: r.get(5)?,
+                note: r.get(6)?,
+                start_seg: r.get(7)?,
+                end_seg: r.get(8)?,
+                created_at: r.get(9)?,
+                updated_at: r.get(10)?,
             })
         })
         .unwrap()
@@ -86,22 +94,23 @@ impl<'a> HighlightsRepo<'a> {
         let conn = self.db.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
-                "SELECT id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, created_at, updated_at
+                "SELECT id, user_id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, created_at, updated_at
                  FROM highlights ORDER BY book_key, chapter, sentence_index",
             )
             .unwrap();
         stmt.query_map([], |r| {
             Ok(Highlight {
                 id: r.get(0)?,
-                book_key: r.get(1)?,
-                chapter: r.get(2)?,
-                sentence_index: r.get(3)?,
-                selected_text: r.get(4)?,
-                note: r.get(5)?,
-                start_seg: r.get(6)?,
-                end_seg: r.get(7)?,
-                created_at: r.get(8)?,
-                updated_at: r.get(9)?,
+                user_id: r.get(1)?,
+                book_key: r.get(2)?,
+                chapter: r.get(3)?,
+                sentence_index: r.get(4)?,
+                selected_text: r.get(5)?,
+                note: r.get(6)?,
+                start_seg: r.get(7)?,
+                end_seg: r.get(8)?,
+                created_at: r.get(9)?,
+                updated_at: r.get(10)?,
             })
         })
         .unwrap()
@@ -130,6 +139,7 @@ mod tests {
     fn h(id: &str, book: &str, chapter: i64, idx: i64, text: &str) -> Highlight {
         Highlight {
             id: id.into(),
+            user_id: "me".into(),
             book_key: book.into(),
             chapter,
             sentence_index: idx,
@@ -150,7 +160,7 @@ mod tests {
         x.start_seg = Some(1);
         x.end_seg = Some(2);
         repo.upsert(&x).unwrap();
-        let got = repo.list_by_book("b").pop().unwrap();
+        let got = repo.list_by_book("me", "b").pop().unwrap();
         assert_eq!(got.start_seg, Some(1));
         assert_eq!(got.end_seg, Some(2));
     }
@@ -164,11 +174,30 @@ mod tests {
         repo.upsert(&h("2", "book_a", 0, 7, "Another line."))
             .unwrap();
         repo.upsert(&h("3", "book_b", 0, 0, "Other book.")).unwrap();
-        let list = repo.list_by_book("book_a");
+        let list = repo.list_by_book("me", "book_a");
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].sentence_index, 3);
         assert!(list.iter().all(|x| x.book_key == "book_a"), "按书隔离");
         repo.remove("2").unwrap();
-        assert_eq!(repo.list_by_book("book_a").len(), 1);
+        assert_eq!(repo.list_by_book("me", "book_a").len(), 1);
+    }
+
+    #[test]
+    fn user_isolation_same_book() {
+        // V1 (2026-08-09): 同一本书不同 user 的摘录互不可见
+        let db = temp_db();
+        let repo = HighlightsRepo::new(&db);
+        let mut mine = h("1", "book_a", 0, 3, "mine");
+        mine.user_id = "me".into();
+        let mut kids = h("2", "book_a", 0, 5, "kids");
+        kids.user_id = "u-kid".into();
+        repo.upsert(&mine).unwrap();
+        repo.upsert(&kids).unwrap();
+        let mine_list = repo.list_by_book("me", "book_a");
+        assert_eq!(mine_list.len(), 1);
+        assert_eq!(mine_list[0].selected_text, "mine");
+        let kids_list = repo.list_by_book("u-kid", "book_a");
+        assert_eq!(kids_list.len(), 1);
+        assert_eq!(kids_list[0].selected_text, "kids");
     }
 }

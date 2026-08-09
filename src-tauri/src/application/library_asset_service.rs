@@ -287,7 +287,7 @@ mod tests {
             })
             .unwrap();
         let c = db.conn.lock().unwrap();
-        c.execute("INSERT INTO reading_state(book_key,chapter,position_ms,bookmarks,updated_at) VALUES('e',0,0,'[]',1)", []).unwrap();
+        c.execute("INSERT INTO reading_state(user_id,book_key,chapter,position_ms,bookmarks,updated_at) VALUES('me','e',0,0,'[]',1)", []).unwrap();
         c.execute(
             "INSERT INTO reading_daily(book_key,day,time_spent_ms) VALUES('e',1,2)",
             [],
@@ -323,7 +323,7 @@ mod tests {
         let db = store::Db::open(path.to_str().unwrap()).unwrap();
         let c = db.conn.lock().unwrap();
         c.execute(
-            "INSERT INTO reading_state(book_key,chapter,position_ms,bookmarks,updated_at) VALUES('gone',0,0,'[]',1)",
+            "INSERT INTO reading_state(user_id,book_key,chapter,position_ms,bookmarks,updated_at) VALUES('me','gone',0,0,'[]',1)",
             [],
         )
         .unwrap();

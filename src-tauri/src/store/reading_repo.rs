@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ReadingState {
+    /// V1 (2026-08-09): 属于哪个 user。旧数据迁移回填 'me'。
+    #[serde(default = "default_user_id")]
+    pub user_id: String,
     pub book_key: String,
     pub chapter: i64,
     pub position_ms: i64,
@@ -17,6 +20,10 @@ pub struct ReadingState {
     // M7 R18 (2026-08-08): 累计阅读时长 (播放计时, ms)。书架展示"共读多久"。
     #[serde(default)]
     pub time_spent_ms: i64,
+}
+
+fn default_user_id() -> String {
+    crate::store::users_repo::DEFAULT_USER_ID.to_string()
 }
 
 pub struct ReadingRepo<'a> {
@@ -31,7 +38,7 @@ impl<'a> ReadingRepo<'a> {
     /// M7 R37: 保存 + 按日记账 —— 先算 time_spent_ms 增量, 记到当天 (reading_daily)。
     /// 前端每次落盘传累计值, 这里负责把"这次多读的部分"分账到当天, 供"今日已读 X 分钟"统计。
     pub fn save_with_daily(&self, s: &ReadingState) -> Result<(), String> {
-        let old = self.get(&s.book_key);
+        let old = self.get(&s.user_id, &s.book_key);
         let delta = match &old {
             Some(o) if s.time_spent_ms > o.time_spent_ms => s.time_spent_ms - o.time_spent_ms,
             _ => 0,
@@ -39,34 +46,46 @@ impl<'a> ReadingRepo<'a> {
         self.upsert(s)?;
         if delta > 0 {
             let day = crate::store::now_ms_for_store() / 86_400_000;
-            self.add_daily_time(&s.book_key, day, delta)?;
+            self.add_daily_time(&s.user_id, &s.book_key, day, delta)?;
         }
         Ok(())
     }
 
     /// 按日累计 (reading_daily, 幂等加法)
-    pub fn add_daily_time(&self, book_key: &str, day: i64, delta_ms: i64) -> Result<(), String> {
+    pub fn add_daily_time(
+        &self,
+        user_id: &str,
+        book_key: &str,
+        day: i64,
+        delta_ms: i64,
+    ) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO reading_daily (book_key, day, time_spent_ms) VALUES (?1, ?2, ?3)
-             ON CONFLICT(book_key, day) DO UPDATE SET
+            "INSERT INTO reading_daily (user_id, book_key, day, time_spent_ms) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(user_id, book_key, day) DO UPDATE SET
                 time_spent_ms = reading_daily.time_spent_ms + excluded.time_spent_ms",
-            params![book_key, day, delta_ms],
+            params![user_id, book_key, day, delta_ms],
         )
         .map_err(|e| format!("记当日阅读失败: {e}"))?;
         Ok(())
     }
 
-    /// 某书在 [from_day, to_day] 的每日阅读时长 (含边界), 返回 [(day, ms)] 升序
-    pub fn daily_times(&self, book_key: &str, from_day: i64, to_day: i64) -> Vec<(i64, i64)> {
+    /// 某 user 某书在 [from_day, to_day] 的每日阅读时长 (含边界), 返回 [(day, ms)] 升序
+    pub fn daily_times(
+        &self,
+        user_id: &str,
+        book_key: &str,
+        from_day: i64,
+        to_day: i64,
+    ) -> Vec<(i64, i64)> {
         let conn = self.db.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
                 "SELECT day, time_spent_ms FROM reading_daily
-                 WHERE book_key = ?1 AND day >= ?2 AND day <= ?3 ORDER BY day",
+                 WHERE user_id = ?1 AND book_key = ?2 AND day >= ?3 AND day <= ?4 ORDER BY day",
             )
             .unwrap();
-        stmt.query_map(params![book_key, from_day, to_day], |r| {
+        stmt.query_map(params![user_id, book_key, from_day, to_day], |r| {
             Ok((r.get(0)?, r.get(1)?))
         })
         .unwrap()
@@ -81,14 +100,15 @@ impl<'a> ReadingRepo<'a> {
             .unwrap_or(0);
         let conn = self.db.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO reading_state (book_key, chapter, position_ms, bookmarks, verified, time_spent_ms, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT(book_key) DO UPDATE SET
+            "INSERT INTO reading_state (user_id, book_key, chapter, position_ms, bookmarks, verified, time_spent_ms, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(user_id, book_key) DO UPDATE SET
                 chapter = excluded.chapter, position_ms = excluded.position_ms,
                 bookmarks = excluded.bookmarks, verified = excluded.verified,
                 time_spent_ms = excluded.time_spent_ms,
                 updated_at = excluded.updated_at",
             params![
+                s.user_id,
                 s.book_key,
                 s.chapter,
                 s.position_ms,
@@ -102,21 +122,22 @@ impl<'a> ReadingRepo<'a> {
         Ok(())
     }
 
-    pub fn get(&self, book_key: &str) -> Option<ReadingState> {
+    pub fn get(&self, user_id: &str, book_key: &str) -> Option<ReadingState> {
         let conn = self.db.conn.lock().unwrap();
         conn.query_row(
-            "SELECT book_key, chapter, position_ms, bookmarks, verified, time_spent_ms FROM reading_state WHERE book_key = ?1",
-            [book_key],
+            "SELECT user_id, book_key, chapter, position_ms, bookmarks, verified, time_spent_ms FROM reading_state WHERE user_id = ?1 AND book_key = ?2",
+            params![user_id, book_key],
             |r| {
-                let bm: String = r.get(3)?;
-                let vf: String = r.get(4)?;
+                let bm: String = r.get(4)?;
+                let vf: String = r.get(5)?;
                 Ok(ReadingState {
-                    book_key: r.get(0)?,
-                    chapter: r.get(1)?,
-                    position_ms: r.get(2)?,
+                    user_id: r.get(0)?,
+                    book_key: r.get(1)?,
+                    chapter: r.get(2)?,
+                    position_ms: r.get(3)?,
                     bookmarks: serde_json::from_str(&bm).unwrap_or_default(),
                     verified: serde_json::from_str(&vf).unwrap_or_default(),
-                    time_spent_ms: r.get(5)?,
+                    time_spent_ms: r.get(6)?,
                 })
             },
         )
@@ -139,6 +160,7 @@ mod tests {
         let db = temp_db();
         let repo = ReadingRepo::new(&db);
         let s = ReadingState {
+            user_id: "me".into(),
             book_key: "alice_self".into(),
             chapter: 0,
             position_ms: 12345,
@@ -147,7 +169,7 @@ mod tests {
             time_spent_ms: 90000,
         };
         repo.upsert(&s).unwrap();
-        assert_eq!(repo.get("alice_self").unwrap(), s);
+        assert_eq!(repo.get("me", "alice_self").unwrap(), s);
     }
 
     #[test]
@@ -155,6 +177,7 @@ mod tests {
         let db = temp_db();
         let repo = ReadingRepo::new(&db);
         repo.upsert(&ReadingState {
+            user_id: "me".into(),
             book_key: "k".into(),
             chapter: 0,
             position_ms: 100,
@@ -164,6 +187,7 @@ mod tests {
         })
         .unwrap();
         repo.upsert(&ReadingState {
+            user_id: "me".into(),
             book_key: "k".into(),
             chapter: 1,
             position_ms: 500,
@@ -172,11 +196,41 @@ mod tests {
             time_spent_ms: 60000,
         })
         .unwrap();
-        let got = repo.get("k").unwrap();
+        let got = repo.get("me", "k").unwrap();
         assert_eq!(got.chapter, 1);
         assert_eq!(got.position_ms, 500);
         assert_eq!(got.bookmarks, vec![1]);
         assert_eq!(got.time_spent_ms, 60000, "阅读时长应持久化");
+    }
+
+    #[test]
+    fn user_isolation_same_book() {
+        // V1 (2026-08-09): 同一本书不同 user 进度互不覆盖 (迁移 v20 重建复合主键)
+        let db = temp_db();
+        let repo = ReadingRepo::new(&db);
+        repo.upsert(&ReadingState {
+            user_id: "me".into(),
+            book_key: "b".into(),
+            chapter: 0,
+            position_ms: 100,
+            bookmarks: vec![],
+            verified: Default::default(),
+            time_spent_ms: 0,
+        })
+        .unwrap();
+        repo.upsert(&ReadingState {
+            user_id: "u-kid".into(),
+            book_key: "b".into(),
+            chapter: 2,
+            position_ms: 500,
+            bookmarks: vec![9],
+            verified: Default::default(),
+            time_spent_ms: 0,
+        })
+        .unwrap();
+        assert_eq!(repo.get("me", "b").unwrap().position_ms, 100);
+        assert_eq!(repo.get("u-kid", "b").unwrap().chapter, 2);
+        assert_eq!(repo.get("u-kid", "b").unwrap().bookmarks, vec![9]);
     }
 
     #[test]
@@ -187,6 +241,7 @@ mod tests {
         verified.insert("0".to_string(), vec![2, 5, 9]);
         verified.insert("3".to_string(), vec![0]);
         repo.upsert(&ReadingState {
+            user_id: "me".into(),
             book_key: "b".into(),
             chapter: 3,
             position_ms: 0,
@@ -195,7 +250,7 @@ mod tests {
             time_spent_ms: 0,
         })
         .unwrap();
-        let got = repo.get("b").unwrap().verified;
+        let got = repo.get("me", "b").unwrap().verified;
         assert_eq!(got.get("0").unwrap(), &vec![2, 5, 9]);
         assert_eq!(got.get("3").unwrap(), &vec![0]);
     }
@@ -207,6 +262,7 @@ mod tests {
         let repo = ReadingRepo::new(&db);
         let today = crate::store::now_ms_for_store() / 86_400_000;
         repo.save_with_daily(&ReadingState {
+            user_id: "me".into(),
             book_key: "b".into(),
             chapter: 0,
             position_ms: 0,
@@ -216,6 +272,7 @@ mod tests {
         })
         .unwrap();
         repo.save_with_daily(&ReadingState {
+            user_id: "me".into(),
             book_key: "b".into(),
             chapter: 0,
             position_ms: 0,
@@ -226,6 +283,7 @@ mod tests {
         .unwrap();
         // 同值再存 → 不增
         repo.save_with_daily(&ReadingState {
+            user_id: "me".into(),
             book_key: "b".into(),
             chapter: 0,
             position_ms: 0,
@@ -234,8 +292,20 @@ mod tests {
             time_spent_ms: 150,
         })
         .unwrap();
-        let daily = repo.daily_times("b", today, today);
+        let daily = repo.daily_times("me", "b", today, today);
         assert_eq!(daily.len(), 1);
         assert_eq!(daily[0].1, 50, "只应记增量 50, 重复存不累计");
+    }
+
+    #[test]
+    fn daily_time_isolated_by_user() {
+        // V1 (2026-08-09): 同一本书不同 user 的每日时长互不累计
+        let db = temp_db();
+        let repo = ReadingRepo::new(&db);
+        let today = crate::store::now_ms_for_store() / 86_400_000;
+        repo.add_daily_time("me", "b", today, 1000).unwrap();
+        repo.add_daily_time("u-kid", "b", today, 3000).unwrap();
+        assert_eq!(repo.daily_times("me", "b", today, today)[0].1, 1000);
+        assert_eq!(repo.daily_times("u-kid", "b", today, today)[0].1, 3000);
     }
 }

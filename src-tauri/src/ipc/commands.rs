@@ -23,6 +23,13 @@ pub fn settings_get(db: State<Db>, profile_id: String) -> Result<ReaderSettings,
 
 // ---- Profile ----
 
+/// 用户列表 (V1 身份模型: 顶栏切人数据源)
+#[tauri::command]
+pub fn users_list(db: State<Db>) -> Result<serde_json::Value, String> {
+    let repo = crate::store::users_repo::UsersRepo::new(db.inner());
+    serde_json::to_value(repo.list()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn profile_upsert(db: State<Db>, profile: Profile) -> Result<(), String> {
     let repo = crate::store::profile_repo::ProfileRepo::new(db.inner());
@@ -50,9 +57,13 @@ pub fn profile_delete(db: State<Db>, id: String) -> Result<(), String> {
 
 /// 某本书的全部摘录 (按 章/句序 排)
 #[tauri::command]
-pub fn highlights_list(db: State<Db>, book_key: String) -> Result<serde_json::Value, String> {
+pub fn highlights_list(
+    db: State<Db>,
+    book_key: String,
+    user_id: String,
+) -> Result<serde_json::Value, String> {
     let repo = crate::store::highlights_repo::HighlightsRepo::new(db.inner());
-    serde_json::to_value(repo.list_by_book(&book_key)).map_err(|e| e.to_string())
+    serde_json::to_value(repo.list_by_book(&user_id, &book_key)).map_err(|e| e.to_string())
 }
 
 /// 保存摘录 (新增或更新, 同 id 覆盖)
@@ -86,6 +97,7 @@ pub fn reading_save(db: State<Db>, state: ReadingState) -> Result<(), String> {
 pub fn reading_stats(
     db: State<Db>,
     book_key: String,
+    user_id: String,
     days: Option<i64>,
 ) -> Result<serde_json::Value, String> {
     let repo = crate::store::reading_repo::ReadingRepo::new(db.inner());
@@ -93,7 +105,7 @@ pub fn reading_stats(
     let today = crate::store::now_ms_for_store() / 86_400_000;
     let from = today - (n - 1);
     let daily: Vec<serde_json::Value> = repo
-        .daily_times(&book_key, from, today)
+        .daily_times(&user_id, &book_key, from, today)
         .into_iter()
         .map(|(day, ms)| serde_json::json!({ "day": day, "ms": ms }))
         .collect();
@@ -106,9 +118,13 @@ pub fn reading_stats(
 }
 
 #[tauri::command]
-pub fn reading_get(db: State<Db>, book_key: String) -> Result<Option<ReadingState>, String> {
+pub fn reading_get(
+    db: State<Db>,
+    book_key: String,
+    user_id: String,
+) -> Result<Option<ReadingState>, String> {
     let repo = crate::store::reading_repo::ReadingRepo::new(db.inner());
-    Ok(repo.get(&book_key))
+    Ok(repo.get(&user_id, &book_key))
 }
 
 // ---- .aidu-data 导入/导出 (M1) ----

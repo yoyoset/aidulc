@@ -29,6 +29,8 @@ pub fn library_list(
     kind: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let repo = store::books_repo::BooksRepo::new(db.inner());
+    // V1 (2026-08-09): 书架阅读进度按默认 user 读 (顶栏切人后前端会在新会话按 user 拉).
+    let uid = crate::store::users_repo::DEFAULT_USER_ID;
     if kind.as_deref() == Some("product") {
         let editions = store::editions_repo::EditionsRepo::new(db.inner());
         let read_repo = store::reading_repo::ReadingRepo::new(db.inner());
@@ -37,7 +39,7 @@ pub fn library_list(
             .into_iter()
             .map(|e| {
                 let mut v = serde_json::to_value(&e).unwrap_or_default();
-                if let Some(rs) = read_repo.get(&e.id) {
+                if let Some(rs) = read_repo.get(uid, &e.id) {
                     if let Some(obj) = v.as_object_mut() {
                         obj.insert("reading_chapter".into(), serde_json::json!(rs.chapter));
                         obj.insert("time_spent_ms".into(), serde_json::json!(rs.time_spent_ms));
@@ -63,7 +65,7 @@ pub fn library_list(
         let mut ev = Vec::new();
         for e in nested {
             let mut x = serde_json::to_value(&e).map_err(|e| e.to_string())?;
-            if let Some(rs) = read_repo.get(&e.id) {
+            if let Some(rs) = read_repo.get(uid, &e.id) {
                 if let Some(o) = x.as_object_mut() {
                     o.insert("reading_chapter".into(), serde_json::json!(rs.chapter));
                     o.insert("time_spent_ms".into(), serde_json::json!(rs.time_spent_ms));

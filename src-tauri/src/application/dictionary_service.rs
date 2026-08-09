@@ -45,6 +45,7 @@ pub type LookupFn = dyn Fn(
 /// 查词: 本地优先; 未命中调 llm; 结果写入词典 (沉淀); 永不自动进生词本
 pub fn lookup(
     db: &Db,
+    user_id: &str,
     profile_id: &str,
     word: &str,
     context: &str,
@@ -57,7 +58,7 @@ pub fn lookup(
     }
 
     // 1. 本地命中
-    if let Some(payload) = repo.get(&key, profile_id) {
+    if let Some(payload) = repo.get(&key, user_id, profile_id) {
         let meanings = payload
             .get("meanings")
             .and_then(|m| m.as_array())
@@ -74,7 +75,7 @@ pub fn lookup(
                     .unwrap_or_default()
             });
         let vocab_repo = VocabRepo::new(db);
-        let in_vocab = vocab_repo.get(profile_id, &key).is_some();
+        let in_vocab = vocab_repo.get(user_id, profile_id, &key).is_some();
         return Ok(WordLookup {
             word: key.clone(),
             pos: payload
@@ -140,7 +141,7 @@ pub fn lookup(
         "createdAt": crate::store::now_ms_for_store(),
         "updatedAt": crate::store::now_ms_for_store(),
     });
-    let _ = repo.upsert(&key, &payload, profile_id); // 沉淀失败不阻断 (词典是缓存性质)
+    let _ = repo.upsert(&key, &payload, user_id, profile_id); // 沉淀失败不阻断 (词典是缓存性质)
 
     Ok(WordLookup {
         word: key.clone(),
@@ -162,6 +163,7 @@ pub fn lookup(
 /// 为空时保留已存 context(重加不覆盖旧上下文)。
 pub fn add_to_vocab(
     db: &Db,
+    user_id: &str,
     profile_id: &str,
     word: &str,
     context: Option<String>,
@@ -169,11 +171,11 @@ pub fn add_to_vocab(
     let repo = DictRepo::new(db);
     let key = word.trim().to_lowercase();
     let payload = repo
-        .get(&key, profile_id)
+        .get(&key, user_id, profile_id)
         .unwrap_or_else(|| serde_json::json!({"word": key, "lemma": key}));
     // 阶段6: 旧 context 从已有生词条目读 (重加不覆盖旧上下文), 不从词典 payload 读
     let old_context = VocabRepo::new(db)
-        .get(profile_id, &key)
+        .get(user_id, profile_id, &key)
         .map(|e| e.context)
         .unwrap_or_default();
     let entry = crate::domain::vocab::VocabEntry {
@@ -225,7 +227,7 @@ pub fn add_to_vocab(
         updated_at: crate::store::now_ms_for_store(),
     };
     let vocab = VocabRepo::new(db);
-    vocab.upsert_content(entry, profile_id)?;
+    vocab.upsert_content(entry, user_id, profile_id)?;
     Ok(serde_json::json!({"added": key}))
 }
 
@@ -276,10 +278,11 @@ mod tests {
         repo.upsert(
             "bank",
             &serde_json::json!({"word": "bank", "pos": "NOUN", "meanings": ["银行"]}),
+            "me",
             "default",
         )
         .unwrap();
-        let r = lookup(&db, "default", "Bank", "ctx", &fake_llm).unwrap();
+        let r = lookup(&db, "me", "default", "Bank", "ctx", &fake_llm).unwrap();
         assert_eq!(r.source, "local");
         assert_eq!(r.meanings, vec!["银行"]);
         assert!(!r.in_vocab);
@@ -288,21 +291,21 @@ mod tests {
     #[test]
     fn llm_fallback_populates_and_persists() {
         let db = temp_db();
-        let r = lookup(&db, "default", "zebra", "ctx", &fake_llm).unwrap();
+        let r = lookup(&db, "me", "default", "zebra", "ctx", &fake_llm).unwrap();
         assert_eq!(r.source, "llm");
         assert_eq!(r.pos, "NOUN");
         // 已沉淀
         let repo = DictRepo::new(&db);
-        assert!(repo.get("zebra", "default").is_some());
+        assert!(repo.get("zebra", "me", "default").is_some());
     }
 
     #[test]
     fn llm_fallback_never_auto_adds_vocab() {
         let db = temp_db();
-        lookup(&db, "default", "zebra", "ctx", &fake_llm).unwrap();
+        lookup(&db, "me", "default", "zebra", "ctx", &fake_llm).unwrap();
         let vocab = VocabRepo::new(&db);
         assert!(
-            vocab.get("default", "zebra").is_none(),
+            vocab.get("me", "default", "zebra").is_none(),
             "LLM 补全不得自动进生词本"
         );
     }
@@ -310,12 +313,12 @@ mod tests {
     #[test]
     fn add_to_vocab_explicit() {
         let db = temp_db();
-        let r = lookup(&db, "default", "zebra", "ctx", &fake_llm).unwrap();
+        let r = lookup(&db, "me", "default", "zebra", "ctx", &fake_llm).unwrap();
         assert!(!r.in_vocab);
-        add_to_vocab(&db, "default", "zebra", None).unwrap();
+        add_to_vocab(&db, "me", "default", "zebra", None).unwrap();
         let vocab = VocabRepo::new(&db);
         assert!(
-            vocab.get("default", "zebra").is_some(),
+            vocab.get("me", "default", "zebra").is_some(),
             "显式加入后才进生词本"
         );
     }
@@ -326,17 +329,18 @@ mod tests {
         let db = temp_db();
         add_to_vocab(
             &db,
+            "me",
             "default",
             "gutter",
             Some("She watched the water in the gutters.".into()),
         )
         .unwrap();
         let vocab = VocabRepo::new(&db);
-        let got = vocab.get("default", "gutter").expect("词应在");
+        let got = vocab.get("me", "default", "gutter").expect("词应在");
         assert_eq!(got.context, "She watched the water in the gutters.");
         // 再次加词不带 context → 保留旧上下文 (不覆盖成空)
-        add_to_vocab(&db, "default", "gutter", None).unwrap();
-        let got2 = vocab.get("default", "gutter").expect("词应在");
+        add_to_vocab(&db, "me", "default", "gutter", None).unwrap();
+        let got2 = vocab.get("me", "default", "gutter").expect("词应在");
         assert_eq!(
             got2.context, "She watched the water in the gutters.",
             "空 context 不覆盖旧值"
@@ -344,8 +348,21 @@ mod tests {
     }
 
     #[test]
+    fn add_to_vocab_isolated_by_user() {
+        // V1 (2026-08-09): 同一词不同 user 各自独立加词, 互不影响
+        let db = temp_db();
+        add_to_vocab(&db, "me", "default", "gutter", None).unwrap();
+        add_to_vocab(&db, "u-kid", "default", "gutter", None).unwrap();
+        let vocab = VocabRepo::new(&db);
+        assert!(vocab.get("me", "default", "gutter").is_some());
+        assert!(vocab.get("u-kid", "default", "gutter").is_some());
+        assert_eq!(vocab.list("me", "default").len(), 1);
+        assert_eq!(vocab.list("u-kid", "default").len(), 1);
+    }
+
+    #[test]
     fn empty_word_rejected() {
         let db = temp_db();
-        assert!(lookup(&db, "default", "  ", "ctx", &fake_llm).is_err());
+        assert!(lookup(&db, "me", "default", "  ", "ctx", &fake_llm).is_err());
     }
 }

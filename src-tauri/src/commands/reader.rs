@@ -12,6 +12,7 @@ pub fn word_lookup(
     db: State<store::Db>,
     cfg: State<crate::PrepConfig>,
     word: String,
+    user_id: String,
     profile_id: String,
     context: String,
 ) -> Result<serde_json::Value, String> {
@@ -51,7 +52,14 @@ pub fn word_lookup(
             vec![],
         ))
     };
-    let result = dictionary_service::lookup(db.inner(), &profile_id, &word, &context, &lookup_fn)?;
+    let result = dictionary_service::lookup(
+        db.inner(),
+        &user_id,
+        &profile_id,
+        &word,
+        &context,
+        &lookup_fn,
+    )?;
     serde_json::to_value(result).map_err(|e| e.to_string())
 }
 
@@ -109,69 +117,94 @@ fn daemon_result_to_tuple(
 pub fn add_vocab(
     db: State<store::Db>,
     word: String,
+    user_id: String,
     profile_id: String,
     context: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    dictionary_service::add_to_vocab(db.inner(), &profile_id, &word, context)
+    dictionary_service::add_to_vocab(db.inner(), &user_id, &profile_id, &word, context)
 }
 
-/// 词典列表 (某 profile)
+/// 词典列表 (某 user 某 profile)
 #[tauri::command]
-pub fn dict_list(db: State<store::Db>, profile_id: String) -> Result<serde_json::Value, String> {
+pub fn dict_list(
+    db: State<store::Db>,
+    user_id: String,
+    profile_id: String,
+) -> Result<serde_json::Value, String> {
     let repo = store::dict_repo::DictRepo::new(db.inner());
-    serde_json::to_value(repo.list_by_profile(&profile_id)).map_err(|e| e.to_string())
+    serde_json::to_value(repo.list_by_profile(&user_id, &profile_id)).map_err(|e| e.to_string())
 }
 
 /// 词典搜索
 #[tauri::command]
 pub fn dict_search(
     db: State<store::Db>,
+    user_id: String,
     profile_id: String,
     q: String,
 ) -> Result<serde_json::Value, String> {
     let repo = store::dict_repo::DictRepo::new(db.inner());
-    serde_json::to_value(repo.search(&profile_id, &q)).map_err(|e| e.to_string())
+    serde_json::to_value(repo.search(&user_id, &profile_id, &q)).map_err(|e| e.to_string())
 }
 
 /// 词典删除
 #[tauri::command]
-pub fn dict_remove(db: State<store::Db>, key: String, profile_id: String) -> Result<(), String> {
+pub fn dict_remove(
+    db: State<store::Db>,
+    key: String,
+    user_id: String,
+    profile_id: String,
+) -> Result<(), String> {
     let repo = store::dict_repo::DictRepo::new(db.inner());
-    repo.remove(&key, &profile_id)
+    repo.remove(&key, &user_id, &profile_id)
 }
 
 // ---- 生词本 (I-B) ----
 
 /// 生词列表
 #[tauri::command]
-pub fn vocab_all(db: State<store::Db>, profile_id: String) -> Result<serde_json::Value, String> {
+pub fn vocab_all(
+    db: State<store::Db>,
+    user_id: String,
+    profile_id: String,
+) -> Result<serde_json::Value, String> {
     let repo = store::vocab_repo::VocabRepo::new(db.inner());
-    serde_json::to_value(repo.list(&profile_id)).map_err(|e| e.to_string())
+    serde_json::to_value(repo.list(&user_id, &profile_id)).map_err(|e| e.to_string())
 }
 
 /// 生词搜索
 #[tauri::command]
 pub fn vocab_search(
     db: State<store::Db>,
+    user_id: String,
     profile_id: String,
     q: String,
 ) -> Result<serde_json::Value, String> {
     let repo = store::vocab_repo::VocabRepo::new(db.inner());
-    serde_json::to_value(repo.search(&profile_id, &q)).map_err(|e| e.to_string())
+    serde_json::to_value(repo.search(&user_id, &profile_id, &q)).map_err(|e| e.to_string())
 }
 
 /// 删除生词
 #[tauri::command]
-pub fn vocab_remove(db: State<store::Db>, profile_id: String, lemma: String) -> Result<(), String> {
+pub fn vocab_remove(
+    db: State<store::Db>,
+    user_id: String,
+    profile_id: String,
+    lemma: String,
+) -> Result<(), String> {
     let repo = store::vocab_repo::VocabRepo::new(db.inner());
-    repo.remove(&profile_id, &lemma)
+    repo.remove(&user_id, &profile_id, &lemma)
 }
 
 /// 生词统计
 #[tauri::command]
-pub fn vocab_stats(db: State<store::Db>, profile_id: String) -> Result<serde_json::Value, String> {
+pub fn vocab_stats(
+    db: State<store::Db>,
+    user_id: String,
+    profile_id: String,
+) -> Result<serde_json::Value, String> {
     let repo = store::vocab_repo::VocabRepo::new(db.inner());
-    Ok(repo.stats(&profile_id))
+    Ok(repo.stats(&user_id, &profile_id))
 }
 
 // ---- 同步 (I-C: 状态机 + 配置) ----
@@ -284,10 +317,11 @@ pub fn sync_disconnect(services: State<crate::AppServices>) -> Result<(), String
 pub fn bookmarks_list(
     db: State<store::Db>,
     book_key: String,
+    user_id: String,
     profile_id: String,
 ) -> Result<serde_json::Value, String> {
     let repo = store::reading_repo::ReadingRepo::new(db.inner());
-    let state = repo.get(&book_key);
+    let state = repo.get(&user_id, &book_key);
     // 返回带句文本的书签 (前端从 bookpack 拿文本; 这里先返回下标)
     Ok(serde_json::json!({
         "book_key": book_key,

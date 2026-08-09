@@ -68,6 +68,41 @@
         refresh();
         setInterval(refresh, 5000).unref?.();
       }
+      // V1 (2026-08-09): 顶栏切人 —— user ≠ profile, 切人 = 换当前 user (生词/进度各看各的)
+      if (global.AiduUserService) {
+        const userSel = el('select', 'app-nav-link nav-user-select');
+        userSel.title = '切换用户';
+        const usersRefresh = () => {
+          AiduUserService.list().then((res) => {
+            if (!res.ok) return;
+            const users = res.data || [];
+            userSel.innerHTML = '';
+            users.forEach((u) => {
+              const opt = el('option', null, (u.name || u.id) + ' ▾');
+              opt.value = u.id;
+              userSel.appendChild(opt);
+            });
+            userSel.value = AiduUserService.currentId();
+          });
+        };
+        usersRefresh();
+        userSel.onchange = () => {
+          AiduUserService.setCurrent(userSel.value);
+          usersRefresh();
+          // 同路由强制刷新当前视图, 让新 user 的数据立即上屏
+          if (this.router) {
+            const hash = (window.location.hash || '#/library').replace('#/', '');
+            this.router.navigate(hash);
+          }
+        };
+        right.appendChild(userSel);
+        // 切人广播 → 刷新顶栏选中值
+        if (typeof window.addEventListener === 'function') {
+          window.addEventListener('aidulc:user-changed', () => {
+            if (global.AiduUserService) userSel.value = AiduUserService.currentId();
+          });
+        }
+      }
       const settingsBtn = el('button', 'app-nav-link app-nav-settings', '设置');
       settingsBtn.dataset.route = 'settings';
       settingsBtn.setAttribute('aria-label', '打开设置');

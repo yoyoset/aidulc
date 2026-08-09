@@ -534,6 +534,79 @@ impl Db {
                 }
             }
         }
+        // v20 (身份模型 V1, 2026-08-09): users 表 + 各数据表加 user_id 并回填。
+        // 裁决 (docs/DESIGN_NOTES_SRS.md 冲突 4/5): user = "谁", profile = "讲解策略",
+        // 两套表互不替代。迁移不拆人 (三项已定 ③): 全部现有数据归到一个 user "me"。
+        // 关键结构变化:
+        //   - vocab/dictionary key 改为 {user}:{profile}:{lemma} —— 同 profile 不同用户
+        //     的词不再撞 PK (切人后各自数据的前提)。
+        //   - reading_state/reading_daily 重建为含 user_id 的复合主键 —— 同一本书
+        //     不同用户进度/时长各自独立 (现状无人维度, 多人会互相覆盖)。
+        //   - highlights 加 user_id 列 (id 主键不变)。
+        // 事务内完成 (BEGIN IMMEDIATE), 失败回滚, 仿 v18 的可回滚迁移模式。
+        if version < 20 {
+            conn.execute_batch("BEGIN IMMEDIATE;")
+                .map_err(|e| format!("迁移 v20 开始失败: {e}"))?;
+            let result = (|| -> Result<(), String> {
+                let now = "strftime('%s','now')*1000";
+                conn.execute_batch(&format!(
+                    "CREATE TABLE users (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    );
+                    INSERT OR IGNORE INTO users (id, name, created_at, updated_at)
+                        VALUES ('me', '我', {now}, {now});
+                    ALTER TABLE vocab ADD COLUMN user_id TEXT NOT NULL DEFAULT 'me';
+                    UPDATE vocab SET key = 'me:' || key;
+                    ALTER TABLE dictionary ADD COLUMN user_id TEXT NOT NULL DEFAULT 'me';
+                    UPDATE dictionary SET key = 'me:' || key;
+                    ALTER TABLE highlights ADD COLUMN user_id TEXT NOT NULL DEFAULT 'me';
+                    CREATE TABLE reading_state_new (
+                        user_id TEXT NOT NULL DEFAULT 'me',
+                        book_key TEXT NOT NULL,
+                        chapter INTEGER NOT NULL DEFAULT 0,
+                        position_ms INTEGER NOT NULL DEFAULT 0,
+                        bookmarks TEXT NOT NULL DEFAULT '[]',
+                        verified TEXT NOT NULL DEFAULT '{{}}',
+                        time_spent_ms INTEGER NOT NULL DEFAULT 0,
+                        updated_at INTEGER NOT NULL,
+                        PRIMARY KEY (user_id, book_key)
+                    );
+                    INSERT INTO reading_state_new
+                        (user_id, book_key, chapter, position_ms, bookmarks, verified, time_spent_ms, updated_at)
+                        SELECT 'me', book_key, chapter, position_ms, bookmarks, verified, time_spent_ms, updated_at
+                        FROM reading_state;
+                    DROP TABLE reading_state;
+                    ALTER TABLE reading_state_new RENAME TO reading_state;
+                    CREATE TABLE reading_daily_new (
+                        user_id TEXT NOT NULL DEFAULT 'me',
+                        book_key TEXT NOT NULL,
+                        day INTEGER NOT NULL,
+                        time_spent_ms INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY (user_id, book_key, day)
+                    );
+                    INSERT INTO reading_daily_new (user_id, book_key, day, time_spent_ms)
+                        SELECT 'me', book_key, day, time_spent_ms FROM reading_daily;
+                    DROP TABLE reading_daily;
+                    ALTER TABLE reading_daily_new RENAME TO reading_daily;
+                    INSERT INTO schema_migrations (version, applied_at) VALUES (20, strftime('%s','now')*1000);
+                    ",
+                ))
+                .map_err(|e| format!("迁移 v20 失败: {e}"))?;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => conn
+                    .execute_batch("COMMIT;")
+                    .map_err(|e| format!("迁移 v20 提交失败: {e}"))?,
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK;");
+                    return Err(format!("迁移 v20 失败: {e}"));
+                }
+            }
+        }
         // v19 (BOOK_WORKFLOW §2.3, 2026-08-09): job 显式关联 source_id。
         // 此前 job 只存 book_path(源文件路径字符串)间接指到 source; 目标流程要求 job 能
         // 直接按 source_id 关联(删除 source 时级联清 job、按 source 查历史任务)。
@@ -589,6 +662,7 @@ mod tests {
             "editions",
             "jobs",
             "reader_settings",
+            "users",
         ] {
             let n: i64 = conn
                 .query_row(
@@ -713,18 +787,19 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert!(version >= 3);
-        // 旧数据保留且 profile 迁移为 default
-        let row: (String, String, String) = conn
+        assert!(version >= 20, "应迁移到最新, 实得 {version}");
+        // 旧数据保留且 profile 迁移为 default; v20 再加 user 前缀
+        let row: (String, String, String, String) = conn
             .query_row(
-                "SELECT key, profile_id, payload FROM vocab WHERE lemma='bank'",
+                "SELECT key, profile_id, user_id, payload FROM vocab WHERE lemma='bank'",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .unwrap();
-        assert_eq!(row.0, "default:bank", "key 应重建为 default:bank");
+        assert_eq!(row.0, "me:default:bank", "key 应重建为 me:default:bank");
         assert_eq!(row.1, "default");
-        assert!(row.2.contains("bank"), "payload 应回填");
+        assert_eq!(row.2, "me", "v20 应回填 user_id='me'");
+        assert!(row.3.contains("bank"), "payload 应回填");
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}-wal"));
@@ -770,6 +845,7 @@ mod tests {
         {
             let db = Db::open(&path).unwrap();
             let conn = db.conn.lock().unwrap();
+            // 手术把最新库还原到 v17 时代: 撤 editions/v18/v19/v20 的所有痕迹
             conn.execute_batch(
                 "DROP TABLE editions;
                  ALTER TABLE jobs RENAME TO jobs_with_edition;
@@ -777,8 +853,27 @@ mod tests {
                     current, total, failed_count, batch_id, source_language, target_language,
                     error, progress, created_at, updated_at FROM jobs_with_edition;
                  DROP TABLE jobs_with_edition;
-                 DELETE FROM schema_migrations WHERE version=18;
-                 DELETE FROM schema_migrations WHERE version=19;
+                 -- 撤 v20: 删 users 表, 还原 vocab/dictionary 的 key 与列, 还原 highlights 列
+                 DROP TABLE users;
+                 CREATE TABLE vocab_v17 AS
+                    SELECT substr(key, 4) AS key, word, lemma, pos, meaning, sense_id, phonetic,
+                        context, level, collocations, stage, interval_days, ease_factor,
+                        next_review, reviews, added_at, updated_at, profile_id, payload
+                    FROM vocab;
+                 DROP TABLE vocab;
+                 ALTER TABLE vocab_v17 RENAME TO vocab;
+                 CREATE TABLE dictionary_v17 AS
+                    SELECT substr(key, 4) AS key, word, lemma, pos, payload, profile_id
+                    FROM dictionary;
+                 DROP TABLE dictionary;
+                 ALTER TABLE dictionary_v17 RENAME TO dictionary;
+                 CREATE TABLE highlights_v17 AS
+                    SELECT id, book_key, chapter, sentence_index, selected_text, note,
+                        start_seg, end_seg, created_at, updated_at
+                    FROM highlights;
+                 DROP TABLE highlights;
+                 ALTER TABLE highlights_v17 RENAME TO highlights;
+                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20);
                  INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,source_book_id,
                     chapter_count,failed_count,source_language,target_language,llm_id,tts_id,nlp_id,
                     created_at,updated_at)
@@ -818,6 +913,137 @@ mod tests {
             .unwrap(),
             "Source"
         );
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-wal"));
+        let _ = std::fs::remove_file(format!("{path}-shm"));
+    }
+
+    #[test]
+    fn v20_migrates_legacy_to_users_without_loss() {
+        // V1 身份模型 (2026-08-09): 从 v19 库迁移到 v20, 断言词条/进度/摘录零丢失,
+        // 且全部归到默认 user 'me' (迁移不拆人)。
+        let path = temp_path("v20_migrate");
+        let _ = std::fs::remove_file(&path);
+        {
+            let db = Db::open(&path).unwrap();
+            let conn = db.conn.lock().unwrap();
+            // 先制造 v19 状态: 删掉 v20 的痕迹
+            conn.execute_batch(
+                "DROP TABLE users;
+                 ALTER TABLE vocab DROP COLUMN user_id;
+                 ALTER TABLE dictionary DROP COLUMN user_id;
+                 ALTER TABLE highlights DROP COLUMN user_id;
+                 ALTER TABLE reading_state RENAME TO reading_state_legacy;
+                 CREATE TABLE reading_state (
+                    book_key TEXT NOT NULL,
+                    chapter INTEGER NOT NULL DEFAULT 0,
+                    position_ms INTEGER NOT NULL DEFAULT 0,
+                    bookmarks TEXT NOT NULL DEFAULT '[]',
+                    verified TEXT NOT NULL DEFAULT '{}',
+                    time_spent_ms INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (book_key)
+                 );
+                 INSERT INTO reading_state (book_key, chapter, position_ms, bookmarks, verified, time_spent_ms, updated_at)
+                    SELECT book_key, chapter, position_ms, bookmarks, verified, time_spent_ms, updated_at FROM reading_state_legacy;
+                 DROP TABLE reading_state_legacy;
+                 ALTER TABLE reading_daily RENAME TO reading_daily_legacy;
+                 CREATE TABLE reading_daily (
+                    book_key TEXT NOT NULL,
+                    day INTEGER NOT NULL,
+                    time_spent_ms INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (book_key, day)
+                 );
+                 INSERT INTO reading_daily (book_key, day, time_spent_ms)
+                    SELECT book_key, day, time_spent_ms FROM reading_daily_legacy;
+                 DROP TABLE reading_daily_legacy;
+                 DELETE FROM schema_migrations WHERE version=20;
+                 -- vocab key 还原为 v19 的 {profile}:{lemma} 形式
+                 UPDATE vocab SET key = substr(key, 4) WHERE key LIKE 'me:%';
+                 UPDATE dictionary SET key = substr(key, 4) WHERE key LIKE 'me:%';",
+            )
+            .unwrap();
+            // 造 v19 数据: 两个 profile 的生词 + 词典 + 进度 + 摘录
+            conn.execute_batch(
+                "INSERT INTO vocab (key, word, lemma, pos, meaning, context, stage, interval_days, ease_factor, reviews, added_at, updated_at, profile_id, payload) VALUES
+                    ('default:bank', 'bank', 'bank', 'NOUN', '银行', 'He went to the bank.', 'review', 3, 2.5, 2, 100, 200, 'default', '{\"word\":\"bank\",\"lemma\":\"bank\",\"stage\":\"review\",\"interval\":3}'),
+                    ('kid:bank', 'bank', 'bank', 'NOUN', '河岸', 'Kids by the bank.', 'new', 0, 2.5, 0, 300, 300, 'kid', '{\"word\":\"bank\",\"lemma\":\"bank\",\"stage\":\"new\"}');
+                 INSERT INTO dictionary (key, word, lemma, pos, payload, profile_id) VALUES
+                    ('default:bank', 'bank', 'bank', 'NOUN', '{\"word\":\"bank\",\"meanings\":[\"银行\"]}', 'default');
+                 INSERT INTO reading_state (book_key, chapter, position_ms, bookmarks, verified, time_spent_ms, updated_at) VALUES
+                    ('book-a', 2, 1500, '[3,7]', '{\"0\":[1,2]}', 60000, 400);
+                 INSERT INTO reading_daily (book_key, day, time_spent_ms) VALUES ('book-a', 20000, 60000);
+                 INSERT INTO highlights (id, book_key, chapter, sentence_index, selected_text, note, created_at, updated_at) VALUES
+                    ('hl-1', 'book-a', 0, 3, 'The quick fox.', '', 500, 500);
+                 ",
+            )
+            .unwrap();
+            drop(conn);
+        }
+        // 重新打开 → 触发 v20 迁移
+        let db = Db::open(&path).expect("v20 迁移应成功");
+        let conn = db.conn.lock().unwrap();
+        // users 表 + 默认用户
+        let user_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM users WHERE id='me'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(user_count, 1, "应 seed 默认用户 me");
+        // 词条零丢失 + 归到 me
+        let vocab_rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM vocab", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(vocab_rows, 2, "两个 profile 的生词都应保留");
+        let me_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM vocab WHERE user_id='me'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(me_count, 2, "所有生词都应回填 user_id='me'");
+        let kid_key: String = conn
+            .query_row("SELECT key FROM vocab WHERE profile_id='kid'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(kid_key, "me:kid:bank", "key 应重写为 me:kid:bank");
+        // 词典零丢失
+        let dict_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM dictionary WHERE user_id='me'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(dict_count, 1, "词典条目应保留并归 me");
+        // 进度零丢失 (复合主键重建)
+        let (chapter, position, bm) = conn
+            .query_row(
+                "SELECT chapter, position_ms, bookmarks FROM reading_state WHERE user_id='me' AND book_key='book-a'",
+                [],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)),
+            )
+            .unwrap();
+        assert_eq!(chapter, 2);
+        assert_eq!(position, 1500);
+        assert!(bm.contains("3"), "书签应保留: {bm}");
+        // 每日时长零丢失
+        let daily: i64 = conn
+            .query_row(
+                "SELECT time_spent_ms FROM reading_daily WHERE user_id='me' AND book_key='book-a'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(daily, 60000);
+        // 摘录零丢失
+        let hl_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM highlights WHERE user_id='me' AND book_key='book-a'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(hl_count, 1);
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}-wal"));

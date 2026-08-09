@@ -10,6 +10,8 @@
 </head>
 <body>
   <div id="app">
+    <!-- P0 更新提示 (2026-08-10): 新版本 → 点此刷新 -->
+    <div id="update-banner" class="update-banner hidden">有更新, 点此刷新</div>
     <!-- 入口 / 今日队列 -->
     <section id="view-entry" class="view">
       <header class="app-top">
@@ -80,6 +82,7 @@
   </div>
 
   <script src="core.js"></script>
+  <script src="build-info.js"></script>
   <script src="adapter.js"></script>
   <script src="app-logic.js"></script>
   <script src="app.js"></script>

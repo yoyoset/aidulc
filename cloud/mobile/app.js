@@ -326,17 +326,40 @@
   }
 
   // ---------- 启动 ----------
+  // P0 更新机制 (2026-08-10): 发现新构建版本 → 弹"有更新, 点此刷新"条。
+  // build-info.js 是普通脚本, window.AIDULC_BUILD_VERSION 已就位。
+  const BUILD_VERSION = (typeof self !== 'undefined' && self.AIDULC_BUILD_VERSION) ||
+    (typeof window !== 'undefined' && window.AIDULC_BUILD_VERSION) || 'dev';
+  const SEEN_KEY = 'aidulc_build_seen';
+
+  function checkUpdate() {
+    if (BUILD_VERSION === 'dev') return;
+    let seen = null;
+    try { seen = localStorage.getItem(SEEN_KEY); } catch (e) { /* ignore */ }
+    if (seen !== BUILD_VERSION) {
+      const banner = document.getElementById('update-banner');
+      if (banner) {
+        banner.classList.remove('hidden');
+        banner.onclick = () => {
+          try { localStorage.setItem(SEEN_KEY, BUILD_VERSION); } catch (e) {}
+          location.reload();
+        };
+      }
+    }
+  }
+
   async function boot() {
     bindTouch();
     bindEvents();
     await app.init();
+    checkUpdate();
     // 尝试自动补推 (离线静默失败, 不打扰)
     await app.sync().catch(() => {});
     await loadEntry();
   }
 
   // 让 app 暴露内部 (测试 / 调试用)
-  window.mobileApp = { app, adapter, C, boot, loadEntry, startReview, grade, undo, exitReview, get state() { return { index, done, queue: queue.slice(), currentEntry }; } };
+  window.mobileApp = { app, adapter, C, boot, checkUpdate, BUILD_VERSION, loadEntry, startReview, grade, undo, exitReview, get state() { return { index, done, queue: queue.slice(), currentEntry }; } };
 
   boot();
 })();

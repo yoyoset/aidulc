@@ -118,6 +118,29 @@
 - **手机端"跳到原文"不可用**(冲突 6): 手机没书包, 该入口不可用态提示"在电脑上打开",
   桌面保留跳转(V4 接线)。
 
+## P0 修复 (2026-08-10): 同步拉取写回硬编码 default → 词分裂
+
+- **坑**: `merge_remote_into_local` 远端赢时写 `upsert_sync(entry, user_id, "default")`,
+  而 vocab 主键是 `user:profile:lemma`。本地 `me:kid:reticent` 的远端更新会新建
+  `me:default:reticent` —— 同一词分裂成两行两套复习状态。推送侧按 lemma 打包,
+  同 lemma 多 profile 行会互相覆盖, 顺序不确定。
+- **修法**: `get_any_profile` 改成返回 `(profile_id, entry)`, 写回原 profile; 只有真
+  新词落 default。推送侧每 lemma 取 updated_at 最新一条(确定性)。
+- **回归测试**: `pull_writes_back_to_original_profile_not_default_duplicate` +
+  `pull_new_word_lands_on_default`。**教训**: 写回语义必须携带"这条记录本来在哪个
+  分区", 不能靠一个独立查询"查一下"就当作原分区 —— 查了不用 = 白查。
+
+## P0 修复 (2026-08-10): PWA 无版本更新机制
+
+- **坑**: sw.js 的 CACHE 写死 `'aidulc-mobile-v1'` + cache-first, install 只在 sw.js
+  自身字节变化时触发 → 修了 app.js 不 bump sw.js, 已装用户永远拿第一次缓存的旧壳,
+  发链接分发的产品没有自愈路径。
+- **修法**: BUILD_VERSION 字面量嵌入 sw.js(字节变 → SW 更新触发)+ build-info.js
+  (app.js 读它做"有更新,点此刷新"提示); 导航 network-first、资源 stale-while-revalidate;
+  `scripts/deploy_mobile.ps1` 强制版本递增(与 .last-deployed-version 相同则拒绝部署)。
+- **教训**: SW 更新检查只看 sw.js 自身字节 —— 版本必须长在 sw.js 里, 单独一个
+  build-info.js 文件不会触发更新。
+
 ## 已知遗留
 
 - 手机真机截图未做(本环境无浏览器); 逻辑经 node 测试 + 真实 worker e2e 验证。

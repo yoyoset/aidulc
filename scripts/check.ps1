@@ -134,6 +134,25 @@ Run-Check "node smoke (手机端 UI 控制器: 翻面/评分/撤销/退出)" {
     Pop-Location
 }
 
+# 7.10 (P0 更新机制, 2026-08-10): PWA 构建版本一致性 —— SW 更新检查只比 sw.js 字节,
+# 版本必须嵌入 sw.js 且与 build-info.js 一致, 否则发布后已装用户永远拿旧壳。
+# 部署用 scripts/deploy_mobile.ps1 (强制版本递增); 这里是静态一致性门禁。
+Run-Check "mobile:build-version 一致性 (sw.js == build-info.js)" {
+    $sw = Get-Content "$root\cloud\mobile\sw.js" -Raw
+    $bi = Get-Content "$root\cloud\mobile\build-info.js" -Raw
+    $m1 = [regex]::Match($sw, "const BUILD_VERSION = '([^']+)'")
+    $m2 = [regex]::Match($bi, "AIDULC_BUILD_VERSION = '([^']+)'")
+    if (-not $m1.Success) { Write-Output "FAIL: sw.js 缺 BUILD_VERSION"; $global:LASTEXITCODE = 1; return }
+    if (-not $m2.Success) { Write-Output "FAIL: build-info.js 缺 AIDULC_BUILD_VERSION"; $global:LASTEXITCODE = 1; return }
+    if ($m1.Groups[1].Value -ne $m2.Groups[1].Value) {
+        Write-Output "FAIL: 版本不一致 sw.js=$($m1.Groups[1].Value) build-info.js=$($m2.Groups[1].Value)"
+        $global:LASTEXITCODE = 1
+    } else {
+        Write-Output "OK: 构建版本 $($m1.Groups[1].Value) 两端一致"
+        $global:LASTEXITCODE = 0
+    }
+}
+
 # 8. CSS 令牌纪律: tokens.css 之外的样式文件不得出现裸 #hex 颜色(S3.1, 2026-08-07 清零后
 # 立即上强约束, 不设豁免——颜色只能来自 var(--md-sys-color-*))。字号/间距暂不做等价约束:
 # 阶梯令牌刚建立, 存量 px/rem 替换是后续工作, 现在加约束会让门禁对着几百处存量代码常年变红。

@@ -137,14 +137,40 @@ console.log('== 4. 3 秒可撤销 ==');
   check('撤销后正面显示 reticent', getEl('front-word').textContent === 'reticent');
 }
 
-console.log('== 5. 下滑退出保留进度 ==');
+console.log('== 5. 左右滑评分 + 下滑退出 (设计稿 01b) ==');
 {
-  // 触摸下滑: dy > 80
+  // 回到入口重新进: 撤销后 index=0, 但当前还在复习视图; 重新 startReview 保证正面态
+  app.startReview();
+  await new Promise((r) => setTimeout(r, 30));
+  // 右滑 = 记得(3) (需先翻面; 左右滑只在背面响应)
+  getEl('card').dispatch('click');
+  await new Promise((r) => setTimeout(r, 300)); // 等 250ms 解锁
+  const beforeIdx = app.state.index;
+  getEl('card').dispatch('touchstart', { touches: [{ clientX: 10, clientY: 10 }] });
+  getEl('card').dispatch('touchend', { changedTouches: [{ clientX: 200, clientY: 10 }] });
+  await new Promise((r) => setTimeout(r, 50));
+  check('右滑评分(记得)进下一张', app.state.index === beforeIdx + 1, app.state.index);
+  // 左滑 = 忘了(1)
+  getEl('card').dispatch('click');
+  await new Promise((r) => setTimeout(r, 300));
+  const beforeIdx2 = app.state.index;
+  getEl('card').dispatch('touchstart', { touches: [{ clientX: 200, clientY: 10 }] });
+  getEl('card').dispatch('touchend', { changedTouches: [{ clientX: 10, clientY: 10 }] });
+  await new Promise((r) => setTimeout(r, 50));
+  check('左滑评分(忘了)进下一张', app.state.index === beforeIdx2 + 1, app.state.index);
+  // 长按弹操作
+  getEl('card').dispatch('touchstart', { touches: [{ clientX: 10, clientY: 10 }] });
+  await new Promise((r) => setTimeout(r, 600)); // > 500ms 长按
+  check('长按弹出操作层', getEl('action-sheet').className.includes('hidden') === false);
+  getEl('act-cancel').dispatch('click');
+  check('取消关闭操作层', getEl('action-sheet').className.includes('hidden') === true);
+  // 下滑退出保留进度
   getEl('card').dispatch('touchstart', { touches: [{ clientX: 10, clientY: 10 }] });
   getEl('card').dispatch('touchend', { changedTouches: [{ clientX: 10, clientY: 200 }] });
   await new Promise((r) => setTimeout(r, 50));
   check('下滑退出到入口', getEl('view-entry').className.includes('hidden') === false);
-  check('进度保留: 队列重算仍有词', getEl('today-num').textContent !== '0', getEl('today-num').textContent);
+  // 本段已把 2 词全部评分 (右滑+左滑+前面撤销过的词已重评), 队列重算应为 0 = 全部复习完
+  check('进度保留: 复习完 2 词后队列归零', getEl('today-num').textContent === '0', getEl('today-num').textContent);
 }
 
 console.log('');

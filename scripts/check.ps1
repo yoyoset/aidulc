@@ -125,8 +125,8 @@ Run-Check "node smoke (手机端 core + 同步链路)" {
 }
 
 # 7.9 (V7 补充, 2026-08-10): 手机端 UI 控制器冒烟 —— 最小 DOM stub 驱动真实 app.js,
-# 覆盖 设计稿 01b 交互(整卡翻面单向/250ms 评分解锁/评分进下一张+本地先写/3秒撤销/
-# 下滑退出保留进度), 不引入 jsdom、不依赖 __TAURI__。19 项断言。
+# 覆盖 设计稿 01b 全部交互(整卡翻面单向/250ms 评分解锁/按钮评分/左右滑评分/
+# 3秒撤销/长按操作层/下滑退出保留进度), 不引入 jsdom、不依赖 __TAURI__。23 项断言。
 Run-Check "node smoke (手机端 UI 控制器: 翻面/评分/撤销/退出)" {
     Push-Location "$root\cloud\mobile"
     node test\ui_smoke.mjs

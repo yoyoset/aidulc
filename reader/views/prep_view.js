@@ -144,6 +144,8 @@
         failed: { t: '失败', cls: 'st-err' },
         canceled: { t: '已取消', cls: 'st-idle' },
         partial: { t: '部分完成', cls: 'st-warn' },
+        // R3: 暂停是 job 状态词 (resume 续跑), 2026-08-10 补齐 (此前漏 → 显示英文 paused)
+        paused: { t: '已暂停', cls: 'st-warn' },
       }[job.status] || { t: job.status, cls: 'st-idle' };
       const status = el('span', 'prep-task-status ' + statusMeta.cls, statusMeta.t);
       const actions = el('div', 'prep-task-actions');
@@ -340,7 +342,8 @@
 
     _refreshBatches() {
       // 批次进度 = 批内 job 句进度聚合 (单本处理中也实时显示, 不再是 0%)
-      Promise.all([AiduJobService.listBatches(), AiduJobService.list()]).then(([bres, jres]) => {
+      // 返回 Promise (2026-08-10): 冒烟测试要等它完成后断言
+      return Promise.all([AiduJobService.listBatches(), AiduJobService.list()]).then(([bres, jres]) => {
         if (!bres.ok) return;
         const jobs = (jres.ok && jres.data) || [];
         let batchEl = this._listEl.querySelector('.batch-summary');
@@ -350,7 +353,10 @@
         }
         batchEl.innerHTML = '';
         (bres.data || []).slice(0, 5).forEach(b => {
-          const statusText = { created: '已创建', running: '处理中', done: '完成', partial: '部分完成', failed: '失败', canceled: '已取消' }[b.status] || b.status;
+          // 批次状态词与 DB 实际写入值逐个对上 (batches_repo: created|running|completed|partial|failed|canceled)。
+          // 2026-08-10 修: 此前映射写错成 done (jobs 的状态词), DB 写的是 completed → 批次行显示英文。
+          // 别和 jobs 那套 (queued|running|done|failed|paused) 互相抄。
+          const statusText = { created: '已创建', running: '处理中', completed: '完成', partial: '部分完成', failed: '失败', canceled: '已取消' }[b.status] || b.status;
           const batchJobs = jobs.filter(j => j.batch_id === b.id);
           let sumC = 0, sumT = 0;
           batchJobs.forEach(j => { sumC += j.current || 0; sumT += j.total || 0; });

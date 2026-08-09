@@ -40,6 +40,10 @@ function makeElement(tag) {
       child.parentNode = el; children.push(child); return child;
     },
     append(...ns) { ns.forEach((n) => el.appendChild(n)); },
+    prepend(child) {
+      if (child.parentNode) child.parentNode._children = child.parentNode._children.filter((c) => c !== child);
+      child.parentNode = el; children.unshift(child); return child;
+    },
     insertBefore(child, ref) {
       if (child.parentNode) child.parentNode._children = child.parentNode._children.filter((c) => c !== child);
       child.parentNode = el;
@@ -228,6 +232,31 @@ console.log('== 1. prep_view 移除确认 (running/queued/done 三态) ==');
   const ls = liveRow.querySelector('.prep-task-status');
   check('实时进度条与标签一致 (50%)', lf.style.width === '50%' && lp.textContent === '50%', 'fill=' + lf.style.width + ' label=' + lp.textContent);
   check('实时状态中文 (翻译 100/240)', ls.textContent.includes('翻译') && ls.textContent.includes('100/240'), ls.textContent);
+}
+
+console.log('== 1c. 批次状态中文映射 (completed → 完成, N3 2026-08-10) ==');
+{
+  const pv = new globalThis.PrepView(store);
+  pv._listEl = makeElement('div');
+  const origBatches = globalThis.AiduJobService.listBatches;
+  globalThis.AiduJobService.listBatches = async () => ({
+    ok: true,
+    data: [
+      { id: 'batch-x', status: 'completed', total_books: 1, done_books: 1, failed_books: 0 },
+      { id: 'batch-y', status: 'running', total_books: 1, done_books: 0, failed_books: 0 },
+    ],
+  });
+  await pv._refreshBatches();
+  const rows = queryAll(pv._listEl, '.batch-row');
+  const txts = rows.map((r) => {
+    const s = r.querySelector('span');
+    return s && s.textContent;
+  });
+  const completed = txts.find((t) => t && t.includes('batch-x'));
+  const running = txts.find((t) => t && t.includes('batch-y'));
+  check('completed 批次显示中文"完成" (不再是英文 completed)', !!completed && completed.includes('完成'), completed);
+  check('running 批次显示"处理中"', !!running && running.includes('处理中'), running);
+  globalThis.AiduJobService.listBatches = origBatches;
 }
 
 console.log('== 2. settings_view 直达"模型中心" tab ==');

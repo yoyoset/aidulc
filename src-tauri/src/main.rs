@@ -333,6 +333,12 @@ fn main() {
                 app.try_state::<PrepState>(),
             ) {
                 let _ = application::library_asset_service::cleanup_orphans(db.inner());
+                // 2026-08-09 无限成长修复: 清理无主任务的孤儿 job 目录 (失败/取消/移除过、
+                // 从未产出书的任务目录会累积 checkpoint/TTS/日志, 是磁盘最大漏)
+                let _ = application::library_asset_service::cleanup_orphan_job_dirs(
+                    db.inner(),
+                    &cfg.inner().out_dir,
+                );
                 // 修复: 任务死 (进程被强杀) 但书状态卡 processing → 恢复 pending (书库可见可重试)
                 let books_repo = store::books_repo::BooksRepo::new(db.inner());
                 for b in books_repo.list_by_kind("original") {

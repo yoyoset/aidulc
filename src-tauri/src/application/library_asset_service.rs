@@ -2,6 +2,8 @@
 
 use crate::store;
 use rusqlite::params;
+use std::collections::HashSet;
+use std::path::Path;
 
 /// Remove historical rows that no longer identify a source or edition.
 /// This is deliberately conservative for jobs: a queued job with a valid source path
@@ -49,6 +51,75 @@ pub fn cleanup_orphans(db: &store::Db) -> Result<(), String> {
             Err(e)
         }
     }
+}
+
+/// 2026-08-09 无限成长修复: 清理磁盘上无主任务的 job 目录。
+///
+/// 背景: `out_dir/jobs/job-*` 每跑一次备料建一个, 里面是 checkpoint/句级 JSON、TTS 音频、
+/// run.log —— 一本大书可达数百 MB。此前的删除路径要么只删 DB 行 (`job_remove`)、要么
+/// 只删 bookpack 目录 (edition 删除), 失败/取消/移除过的任务目录永远留在磁盘上。
+///
+/// 安全边界: 只删 `out_dir/jobs/` 下以 `job-` 开头、且不被任何 job 行 / edition pack_dir
+/// 引用的目录。成功产书的任务其目录 = edition.pack_dir, 被引用 → 保留。跑在启动早期
+/// (队列泵起之前), 不存在"目录正被使用"的竞态。
+pub fn cleanup_orphan_job_dirs(db: &store::Db, out_dir: &Path) -> Result<(), String> {
+    let conn = db.conn.lock().unwrap();
+    let mut referenced: HashSet<String> = HashSet::new();
+    let mut stmt = conn
+        .prepare("SELECT output_dir FROM jobs")
+        .map_err(|e| e.to_string())?;
+    for d in stmt
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
+        referenced.insert(normalize_dir(&d));
+    }
+    drop(stmt);
+    let mut stmt2 = conn
+        .prepare("SELECT pack_dir FROM editions")
+        .map_err(|e| e.to_string())?;
+    for d in stmt2
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
+        if !d.is_empty() {
+            referenced.insert(normalize_dir(&d));
+        }
+    }
+    drop(stmt2);
+    drop(conn);
+
+    let jobs_root = out_dir.join("jobs");
+    let entries = match std::fs::read_dir(&jobs_root) {
+        Ok(e) => e,
+        Err(_) => return Ok(()), // 无 jobs 目录 = 无孤儿可清
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        if !name.starts_with("job-") {
+            continue;
+        }
+        if !referenced.contains(&normalize_dir(&path.to_string_lossy())) {
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
+    Ok(())
+}
+
+/// 统一目录字符串格式: 反斜杠归一成正斜杠 + 去尾部斜杠, 让 DB 存的 output_dir/pack_dir
+/// (Windows 上可能是 `C:\...`) 和 read_dir 读出的路径可比较。
+fn normalize_dir(s: &str) -> String {
+    let t = s.replace('\\', "/");
+    t.trim_end_matches('/').to_string()
 }
 
 pub fn delete_edition(db: &store::Db, edition_id: &str) -> Result<Vec<String>, String> {
@@ -127,17 +198,69 @@ pub fn delete_source(db: &store::Db, source_id: &str) -> Result<Vec<String>, Str
         conn.execute("DELETE FROM jobs WHERE source_id=?1", [source_id])
             .map_err(|e| format!("清理原书任务失败: {e}"))?;
     }
-    conn.execute(
-        "DELETE FROM books WHERE id=?1 AND kind='original'",
-        [source_id],
-    )
-    .map_err(|e| format!("删除原书失败: {e}"))?;
+    drop(conn);
+    // G5 存储所有权: books 表只走 books_repo 删 (2026-08-09 从裸 SQL 改为接线 repo,
+    // 消除 books_repo::remove 的 [allow(dead_code)])。v19+ books 表只剩 kind='original',
+    // 与 delete_source 只删原书的语义一致。
+    store::books_repo::BooksRepo::new(db).remove(source_id)?;
     Ok(packs)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cleanup_orphan_job_dirs_removes_unreferenced_keeps_referenced() {
+        // 2026-08-09 无限成长修复回归: 无 job 行/edition 引用的 job-* 目录被清,
+        // 被引用的保留。
+        let root = std::env::temp_dir().join(format!("aidulc_orphan_dirs_{}", std::process::id()));
+        let jobs = root.join("jobs");
+        for d in ["job-gone", "job-kept-by-row", "job-kept-by-edition"] {
+            let dir = jobs.join(d);
+            std::fs::create_dir_all(dir.join("checkpoints")).unwrap();
+            std::fs::write(dir.join("run.log"), "x").unwrap();
+        }
+        // 非 job- 前缀的目录绝不碰
+        std::fs::create_dir_all(jobs.join("other")).unwrap();
+
+        let path = root.join(format!("t{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = store::Db::open(path.to_str().unwrap()).unwrap();
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO jobs(id,book_path,profile_id,output_dir,created_at,updated_at)
+             VALUES('j1','x','default',?1,1,1)",
+            [jobs.join("job-kept-by-row").to_string_lossy().to_string()],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO editions(id,source_id,title,pack_dir,profile_id,status,chapter_count,
+                failed_count,source_language,target_language,created_at,updated_at)
+             VALUES('e1','s','T',?1,'default','ready',1,0,'en','zh-CN',1,1)",
+            [jobs
+                .join("job-kept-by-edition")
+                .to_string_lossy()
+                .to_string()],
+        )
+        .unwrap();
+        drop(conn);
+
+        cleanup_orphan_job_dirs(&db, &root).unwrap();
+        assert!(!jobs.join("job-gone").exists(), "无引用的孤儿目录应被删除");
+        assert!(
+            jobs.join("job-kept-by-row").exists(),
+            "job 行引用的目录保留"
+        );
+        assert!(
+            jobs.join("job-kept-by-edition").exists(),
+            "edition 引用的目录保留"
+        );
+        assert!(jobs.join("other").exists(), "非 job- 前缀目录不碰");
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn delete_edition_cleans_all_references() {
         let path = std::env::temp_dir().join(format!("aidulc_asset_{}.db", std::process::id()));

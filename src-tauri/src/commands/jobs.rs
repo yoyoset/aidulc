@@ -134,10 +134,44 @@ pub fn job_list(db: State<store::Db>) -> Result<serde_json::Value, String> {
     serde_json::to_value(repo.list()).map_err(|e| e.to_string())
 }
 
+/// 移除任务 (UX 审计 2026-08-09: 修复"移除成功但任务还在跑/队列卡死")
+/// - 移除的是运行中任务 → 先杀子进程, 否则侧车继续烧 GPU、写孤儿产物, 用户以为已取消;
+/// - 同时从内存队列清除该 id, 否则 pump_queue 弹出已删 id 会报错并停摆后续排队任务
+///   (曾出现"移除排队任务 → 后续书全部卡住且无任何提示")。
+/// - 2026-08-09 无限成长修复: 任务目录不再被任何 edition 引用时顺带删除 (checkpoint/TTS/
+///   run.log 累积是磁盘最大漏)。成功产出书的任务其目录 = edition.pack_dir, 不能删 ——
+///   书还在书库里。只有失败/排队/取消等无产物的任务目录在此清理。
 #[tauri::command]
-pub fn job_remove(db: State<store::Db>, id: String) -> Result<(), String> {
+pub fn job_remove(state: State<PrepState>, db: State<store::Db>, id: String) -> Result<(), String> {
+    let mut running = state.running_job.lock().unwrap();
+    if running.as_deref() == Some(&id) {
+        let mut guard = state.child.lock().unwrap();
+        if let Some(child) = guard.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        *guard = None;
+        *running = None;
+    }
+    drop(running);
+    {
+        let mut q = state.queue.lock().unwrap();
+        q.retain(|x| x != &id);
+    }
     let repo = store::jobs_repo::JobsRepo::new(db.inner());
-    repo.remove(&id)
+    let job = repo.get(&id);
+    repo.remove(&id)?;
+    if let Some(job) = job {
+        let dir = std::path::Path::new(&job.output_dir);
+        if !dir.as_os_str().is_empty()
+            && store::editions_repo::EditionsRepo::new(db.inner())
+                .find_by_pack_dir(&job.output_dir)
+                .is_none()
+        {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+    Ok(())
 }
 
 /// M7 R24/R26 (2026-08-08): 任务详情 —— 失败时给用户看"为什么失败"。

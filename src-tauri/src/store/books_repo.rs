@@ -147,22 +147,11 @@ impl<'a> BooksRepo<'a> {
             .collect()
     }
 
-    #[allow(dead_code)]
+    /// 删除原书 (books 表唯一写者; 2026-08-09 接线进 delete_source, 不再是死代码)。
     pub fn remove(&self, id: &str) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
         conn.execute("DELETE FROM books WHERE id = ?1", [id])
             .map_err(|e| format!("删书失败: {e}"))?;
-        Ok(())
-    }
-
-    #[allow(dead_code)]
-    pub fn touch_opened(&self, id: &str, now: i64) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE books SET last_opened_at = ?1, updated_at = ?1 WHERE id = ?2",
-            params![now, id],
-        )
-        .map_err(|e| format!("更新打开时间失败: {e}"))?;
         Ok(())
     }
 }

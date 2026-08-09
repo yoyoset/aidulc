@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>aidulc 背单词</title>
+  <meta name="theme-color" content="#faf7f1">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 入口 / 今日队列 -->
+    <section id="view-entry" class="view">
+      <header class="app-top">
+        <span class="app-title">aidulc 背单词</span>
+        <span id="sync-chip" class="sync-chip">…</span>
+      </header>
+      <div class="entry-body">
+        <div class="today-card">
+          <div class="today-num" id="today-num">0</div>
+          <div class="today-label">今日待复习</div>
+          <div class="today-chips" id="today-chips"></div>
+          <button id="btn-start" class="big-btn">开始复习</button>
+        </div>
+        <div class="tabs">
+          <button class="tab active" data-tab="all">全部</button>
+          <button class="tab" data-tab="mastered">已掌握</button>
+        </div>
+        <div id="word-list" class="word-list"></div>
+      </div>
+      <nav class="bottom-nav">
+        <span>我的书</span><span class="active">生词本</span><span>设置</span>
+      </nav>
+    </section>
+
+    <!-- 复习: 一次一卡 -->
+    <section id="view-review" class="view hidden">
+      <header class="app-top">
+        <span id="review-x" class="x-btn">×</span>
+        <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
+        <span id="review-count" class="review-count">0/0</span>
+      </header>
+      <div id="card" class="card">
+        <div id="card-front" class="card-face">
+          <div id="front-word" class="front-word"></div>
+          <div id="front-phonetic" class="front-phonetic"></div>
+          <div id="front-context" class="front-context"></div>
+        </div>
+        <div id="card-back" class="card-face hidden">
+          <div id="back-word" class="front-word"></div>
+          <div id="back-phonetic" class="front-phonetic"></div>
+          <div id="back-meaning" class="back-meaning"></div>
+          <div id="back-pos" class="back-pos"></div>
+          <div id="back-context" class="back-context"></div>
+        </div>
+      </div>
+      <div id="grade-row" class="grade-row">
+        <button class="grade-btn g1" data-grade="1"><span class="glabel">忘了</span><span class="gtime" data-t="1"></span></button>
+        <button class="grade-btn g2" data-grade="2"><span class="glabel">模糊</span><span class="gtime" data-t="2"></span></button>
+        <button class="grade-btn g3" data-grade="3"><span class="glabel">记得</span><span class="gtime" data-t="3"></span></button>
+        <button class="grade-btn g4" data-grade="4"><span class="glabel">太简单</span><span class="gtime" data-t="4"></span></button>
+      </div>
+      <div id="undo-bar" class="undo-bar hidden">撤销评分</div>
+    </section>
+
+    <!-- 操作弹层 (长按) -->
+    <div id="action-sheet" class="action-sheet hidden">
+      <div class="sheet-item" id="act-remove">移出生词本</div>
+      <div class="sheet-item" id="act-mastered">标记已掌握</div>
+      <div class="sheet-item" id="act-edit">编辑释义</div>
+      <div class="sheet-item cancel" id="act-cancel">取消</div>
+    </div>
+  </div>
+
+  <script src="core.js"></script>
+  <script src="adapter.js"></script>
+  <script src="app-logic.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

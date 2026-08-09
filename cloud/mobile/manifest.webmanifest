@@ -1,0 +1,9 @@
+{
+  "name": "aidulc 背单词",
+  "short_name": "aidulc",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#faf7f1",
+  "theme_color": "#faf7f1",
+  "description": "aidulc 手机背单词 (Cloudflare 托管, 发链接即用)"
+}

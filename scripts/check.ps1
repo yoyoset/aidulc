@@ -116,6 +116,14 @@ Run-Check "node smoke (worker 协议 v1 本地实测)" {
     Pop-Location
 }
 
+# 7.8 (V7, 2026-08-09): 手机端核心逻辑 + 同步链路 —— 纯逻辑(配比/调度预览一致性/
+# 撤销/翻面锁) + 离线完整复习→恢复网络自动补推、条数对上。27 项断言。
+Run-Check "node smoke (手机端 core + 同步链路)" {
+    Push-Location "$root\cloud\mobile"
+    node test\app_test.mjs
+    Pop-Location
+}
+
 # 8. CSS 令牌纪律: tokens.css 之外的样式文件不得出现裸 #hex 颜色(S3.1, 2026-08-07 清零后
 # 立即上强约束, 不设豁免——颜色只能来自 var(--md-sys-color-*))。字号/间距暂不做等价约束:
 # 阶梯令牌刚建立, 存量 px/rem 替换是后续工作, 现在加约束会让门禁对着几百处存量代码常年变红。

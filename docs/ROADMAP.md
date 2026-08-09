@@ -107,6 +107,11 @@
   是**每本书一行**,比 batches 涨得快,是这条里更值钱的一半。
   **待办 N6b**:`jobs_repo::list()` 加 LIMIT + 终态 job 行超保留期清理(与 batches 同款,
   注意别删掉仍被 edition 引用的 job 行,`cleanup_orphan_job_dirs` 依赖 job 行判断孤儿)。
+- **N6b 结果 (2026-08-10, 见本阶段 N6b 提交)**: 已做 —— `jobs_repo::list()` 加 `LIMIT 100`
+  (`JOBS_LIST_LIMIT`);新增 `jobs_repo::cleanup_old(30)` 启动期调用:只删 `done/failed/
+  canceled` 且超保留期、且 `edition_id` 不存在或指向不存在的 edition 的任务行 (不删
+  running/queued、不删仍被 edition 引用的行, 防止 `cleanup_orphan_job_dirs` 误清共享目录)。
+  2 项新测试 (list 封顶 / edition 引用保留)。
 
 ### N8(P3,一致性)F38 实测数字在仓库里有两个版本 ✅(2026-08-10 已统一)
 

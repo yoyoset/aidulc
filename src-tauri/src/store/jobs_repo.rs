@@ -129,13 +129,24 @@ impl<'a> JobsRepo<'a> {
     /// - 不删仍被 edition 引用的 job 行 (edition_id 指向存在的 edition) —— 那些是
     ///   "这本书怎么生成的"追溯记录; 且 cleanup_orphan_job_dirs 靠 job 行 + edition
     ///   pack_dir 判断孤儿目录, 删了 edition 关联的 job 行可能让共享目录被误清。
+    ///
+    /// 用 `NOT EXISTS` 而不是 `NOT IN (SELECT id FROM editions)`: SQLite 里非 INTEGER 的
+    /// `PRIMARY KEY` **不隐含 NOT NULL**(editions.id 是 `TEXT PRIMARY KEY`, 见 store_mod.rs
+    /// 建表), editions 里只要有一行 id 为 NULL, `NOT IN` 就对**非空 edition_id** 求值为
+    /// NULL → 那些 edition_id 悬空(指向已删 edition)的终态任务行永远清不掉, 且不报错。
+    ///
+    /// 实测修正(2026-08-10, 先写测试再改才发现): 最初以为"整条清理静默失效", 实际不是
+    /// —— `edition_id IS NULL` 的行走的是 OR 的第一个分支, 照删不误; 真正受影响的只有
+    /// **悬空 edition_id** 那一类。第一版测试用 NULL edition_id 构造, 拿旧 SQL 跑照样绿
+    /// (空测试), 改成悬空 id 才真的红。`NOT EXISTS` 对 NULL 安全, 且 edition_id 为 NULL
+    /// 时相关子查询无行 → 同样判为"无 edition 引用", 语义与原来一致。
     pub fn cleanup_old(&self, keep_days: i64) -> Result<usize, String> {
         let conn = self.db.conn.lock().unwrap();
         let cutoff = crate::store::now_ms_for_store() - keep_days * 86_400_000;
         conn.execute(
             "DELETE FROM jobs
              WHERE status IN ('done','failed','canceled') AND updated_at < ?1
-               AND (edition_id IS NULL OR edition_id NOT IN (SELECT id FROM editions))",
+               AND NOT EXISTS (SELECT 1 FROM editions e WHERE e.id = jobs.edition_id)",
             [cutoff],
         )
         .map_err(|e| format!("清理旧任务失败: {e}"))
@@ -330,5 +341,54 @@ mod tests {
         assert!(repo.get("old_linked").is_some(), "edition 引用的 job 保留");
         assert!(repo.get("old_run").is_some(), "running 保留");
         assert!(repo.get("fresh_done").is_some(), "未过期 done 保留");
+    }
+
+    #[test]
+    fn cleanup_old_still_works_when_editions_has_null_id() {
+        // 2026-08-10 加固: editions.id 是 TEXT PRIMARY KEY, SQLite 里不隐含 NOT NULL。
+        // editions 有 NULL id 时, 旧的 `NOT IN (SELECT id FROM editions)` 对**悬空
+        // edition_id** 求值为 NULL → 那类行永远清不掉。必须用悬空 id 构造才测得出来:
+        // 拿 edition_id=NULL 构造的话走 OR 第一个分支, 旧 SQL 也是绿的(实测踩过)。
+        let db = temp_db();
+        let repo = JobsRepo::new(&db);
+        let now = crate::store::now_ms_for_store();
+        // 过期 done + edition_id 悬空 (指向已删 edition) → 应被清
+        let mut old_done = job("old_done", "done");
+        old_done.updated_at = now - 40 * 86_400_000;
+        old_done.edition_id = Some("gone".into());
+        repo.upsert(&old_done).unwrap();
+        let mut old_linked = job("old_linked", "done");
+        old_linked.updated_at = now - 40 * 86_400_000;
+        old_linked.edition_id = Some("e1".into());
+        repo.upsert(&old_linked).unwrap();
+
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO editions(id,source_id,title,pack_dir,profile_id,status,chapter_count,
+                failed_count,source_language,target_language,created_at,updated_at)
+             VALUES('e1','s','T','p','default','ready',1,0,'en','zh-CN',1,1)",
+            [],
+        )
+        .unwrap();
+        // 关键: 一行 id 为 NULL 的 edition (SQLite 允许, 见上面的注释)。
+        // source_id 用 's2' 避开 uq_editions_asset (source_id+profile+语言+模型 唯一)。
+        conn.execute(
+            "INSERT INTO editions(id,source_id,title,pack_dir,profile_id,status,chapter_count,
+                failed_count,source_language,target_language,created_at,updated_at)
+             VALUES(NULL,'s2','T2','p2','default','ready',1,0,'en','zh-CN',1,1)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        repo.cleanup_old(30).unwrap();
+        assert!(
+            repo.get("old_done").is_none(),
+            "editions 里有 NULL id 时, 悬空 edition_id 的过期任务行仍必须被清 (NOT IN 写法清不掉)"
+        );
+        assert!(
+            repo.get("old_linked").is_some(),
+            "edition 引用的 job 仍保留"
+        );
     }
 }

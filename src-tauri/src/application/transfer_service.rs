@@ -245,6 +245,9 @@ mod tests {
             last_grade: None,
             added_at: updated_at,
             updated_at,
+            edition_id: None,
+            chapter_index: None,
+            sentence_index: None,
         }
     }
 

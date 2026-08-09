@@ -264,6 +264,9 @@ mod tests {
             last_grade: None,
             added_at: 1700000000000,
             updated_at: 1700000000000,
+            edition_id: None,
+            chapter_index: None,
+            sentence_index: None,
         }
     }
 

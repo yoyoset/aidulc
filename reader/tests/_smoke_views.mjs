@@ -148,6 +148,8 @@ globalThis.AiduLibraryService = {
   readAudioRange: async () => ({ ok: true, data: { data_b64: '', read: 0, total: 0, end: true } }),
   preview: async () => ({ ok: true, data: {} }), exportBook: async () => ({ ok: true, data: {} }),
   importBook: async () => ({ ok: true, data: {} }),
+  // V4: 背单词右栏书名查询
+  editionLookup: async (id) => ({ ok: true, data: { id, title: '雪国', chapter_count: 12 } }),
 };
 globalThis.AiduImportService = {
   getProfile: async () => ({ id: 'default', name: '成人自读', explain_strategy: 'brief', voice: 'af_heart', speed: 1.0, highlight_granularity: 'sentence' }),
@@ -373,7 +375,7 @@ console.log('== 6. 背单词三栏 (V3, 2026-08-09) ==');
   load('views/review_view.js');
   // stub: 3 个词 (到期复习 + 学习 + 新词)
   globalThis.AiduDictionaryService.vocabAll = async () => ({ ok: true, data: [
-    { word: 'reticent', lemma: 'reticent', stage: 'review', interval_ms: 3 * 86400000, next_review: Date.now() - 1000, meaning: '沉默寡言的', phonetic: '/r/', context: 'He was reticent about the war.' },
+    { word: 'reticent', lemma: 'reticent', stage: 'review', interval_ms: 3 * 86400000, next_review: Date.now() - 1000, meaning: '沉默寡言的', phonetic: '/r/', context: 'He was reticent about the war.', edition_id: 'e-1', chapter_index: 2, sentence_index: 5 },
     { word: 'bank', lemma: 'bank', stage: 'new', next_review: null, meaning: '银行', context: 'He went to the bank.' },
   ] });
   const reviewCalls = { grade: [], restore: [] };
@@ -408,6 +410,32 @@ console.log('== 6. 背单词三栏 (V3, 2026-08-09) ==');
   check('撤销调用 srs_restore', reviewCalls.restore.includes('reticent'));
   check('撤销后回到上一张', rv.queue[rv.index] && rv.queue[rv.index].word === 'reticent', 'q=' + (rv.queue[rv.index] && rv.queue[rv.index].word));
   rv.cleanup();
+}
+
+console.log('== 6b. 来源定位右栏 (V4, 2026-08-09) ==');
+{
+  // 词条带 edition_id → 右栏应显示《书名》·第 N 章 + "在阅读器中打开"
+  const rv2 = new globalThis.ReviewView(new globalThis.AiduStore());
+  const rc2 = makeElement('div');
+  rv2.render(rc2);
+  await new Promise((r) => setTimeout(r, 60));
+  const locEl = rv2.sourceCol && queryAll(rv2.sourceCol, '.review-source-loc')[0];
+  check('右栏出现来源定位块', !!locEl);
+  const metaLine = locEl && queryAll(locEl, '.review-source-meta')[0];
+  const metaText = metaLine ? metaLine.textContent : '';
+  check('右栏显示章节与句位置', metaText.includes('第 3 章') && metaText.includes('第 6 处出现'), 'meta=' + JSON.stringify(metaText));
+  const openBtn = locEl && queryAll(locEl, 'button').find((b) => b.textContent.includes('在阅读器中打开'));
+  check('有"在阅读器中打开"按钮', !!openBtn);
+  // 跳转: onOpenInReader 回调拿到 edition_id/chapter/sentence
+  let jumped = null;
+  rv2.onOpenInReader = (e) => { jumped = e; };
+  openBtn.onclick();
+  check('点击触发 onOpenInReader 带定位', jumped && jumped.edition_id === 'e-1' && jumped.chapter_index === 2 && jumped.sentence_index === 5, JSON.stringify(jumped));
+  await new Promise((r) => setTimeout(r, 30));
+  // 书名异步解析
+  const book = rv2.sourceCol.querySelector('.review-source-book');
+  check('书名异步解析为《雪国》', book && book.textContent === '《雪国》', book && book.textContent);
+  rv2.cleanup();
 }
 
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);

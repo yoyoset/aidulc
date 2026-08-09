@@ -130,6 +130,14 @@
     reviewView.render(container);
   });
 
+  // V4 (2026-08-09): 背单词右栏"在阅读器中打开" → 打开该书并跳到记录位置
+  reviewView.onOpenInReader = (entry) => {
+    store.set({ currentBook: { id: entry.edition_id, title: entry.edition_id } });
+    store.set({ readerBackRoute: 'review' });
+    store.set({ vocabJump: { chapter: entry.chapter_index, sentence: entry.sentence_index } });
+    router.navigate('reader');
+  };
+
   router.register('reader', (container) => {
     shell.setActiveNav('reader');
     const current = store.state.currentBook;

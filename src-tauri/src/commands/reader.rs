@@ -113,15 +113,36 @@ fn daemon_result_to_tuple(
 }
 
 /// 显式加入生词本
+/// V4 (2026-08-09): source 内含 edition_id/chapter_index/sentence_index 来源定位。
+/// 打包成请求结构体是为了不新增命令参数 (clippy 参数过多警告, 基线只降不升)。
+#[derive(serde::Deserialize)]
+pub struct AddVocabRequest {
+    pub word: String,
+    pub user_id: String,
+    pub profile_id: String,
+    pub context: Option<String>,
+    #[serde(default)]
+    pub edition_id: Option<String>,
+    #[serde(default)]
+    pub chapter_index: Option<i64>,
+    #[serde(default)]
+    pub sentence_index: Option<i64>,
+}
+
 #[tauri::command]
-pub fn add_vocab(
-    db: State<store::Db>,
-    word: String,
-    user_id: String,
-    profile_id: String,
-    context: Option<String>,
-) -> Result<serde_json::Value, String> {
-    dictionary_service::add_to_vocab(db.inner(), &user_id, &profile_id, &word, context)
+pub fn add_vocab(db: State<store::Db>, req: AddVocabRequest) -> Result<serde_json::Value, String> {
+    dictionary_service::add_to_vocab(
+        db.inner(),
+        &req.user_id,
+        &req.profile_id,
+        &req.word,
+        req.context,
+        crate::application::dictionary_service::SourceLocation {
+            edition_id: req.edition_id,
+            chapter_index: req.chapter_index,
+            sentence_index: req.sentence_index,
+        },
+    )
 }
 
 /// 词典列表 (某 user 某 profile)

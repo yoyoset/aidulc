@@ -7,6 +7,7 @@
   const LibraryService = {
     list(kind) { return AiduBridge.library.list ? AiduBridge.library.list(kind) : AiduBridge.invoke('library_list', { kind: kind || null }); },
     open(id) { return AiduBridge.library.open(id); },
+    editionLookup(editionId) { return AiduBridge.library.editionLookup(editionId); },
     remove(id, deleteFiles) { return AiduBridge.library.remove(id, deleteFiles); },
     loadBookpack(bookId) { return AiduBridge.bookpack.load(bookId); },
     loadBookpackChapter(bookId, chapterIndex) { return AiduBridge.bookpack.loadChapter(bookId, chapterIndex); },

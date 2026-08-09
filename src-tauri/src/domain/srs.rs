@@ -221,6 +221,9 @@ mod tests {
             last_grade: None,
             added_at: NOW,
             updated_at: NOW,
+            edition_id: None,
+            chapter_index: None,
+            sentence_index: None,
         }
     }
 

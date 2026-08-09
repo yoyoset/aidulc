@@ -58,6 +58,22 @@ pub struct VocabEntry {
     pub added_at: i64,
     #[serde(default, rename = "updatedAt")]
     pub updated_at: i64,
+    // V4 (2026-08-09): 来源定位 —— 加词时记录"从哪本书哪章哪句划出来的"。
+    // 旧数据 None, UI 降级; 新加词写入。随 payload 同步 (手机端跳转原文不可用但能显示)。
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "editionId")]
+    pub edition_id: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "chapterIndex"
+    )]
+    pub chapter_index: Option<i64>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "sentenceIndex"
+    )]
+    pub sentence_index: Option<i64>,
 }
 
 fn now_ms() -> i64 {
@@ -157,6 +173,9 @@ mod tests {
             last_grade: None,
             added_at: 0,
             updated_at: 0,
+            edition_id: None,
+            chapter_index: None,
+            sentence_index: None,
         };
         let out = normalize_vocab_entry(entry).expect("minimal 条目不该被拒");
         assert_eq!(out.lemma, "break");
@@ -193,6 +212,9 @@ mod tests {
                 last_grade: None,
                 added_at: 0,
                 updated_at: 0,
+                edition_id: None,
+                chapter_index: None,
+                sentence_index: None,
             }
         };
         assert!(normalize_vocab_entry(entry).is_none());

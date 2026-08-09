@@ -158,15 +158,26 @@ pub fn lookup(
     })
 }
 
+/// V4 (2026-08-09): 来源定位 (从哪本书哪章哪句划出来的)。打包成结构体避免
+/// add_to_vocab 参数过多 (clippy 基线只降不升)。
+#[derive(Debug, Clone, Default)]
+pub struct SourceLocation {
+    pub edition_id: Option<String>,
+    pub chapter_index: Option<i64>,
+    pub sentence_index: Option<i64>,
+}
+
 /// 加入生词本 (显式用户动作)
 /// context: 来源句原文 (阶段6 设计交付 §04 生词本: 词条卡显示原句上下文)。可选,
 /// 为空时保留已存 context(重加不覆盖旧上下文)。
+/// V4 (2026-08-09): source 来源定位; 均可选, 旧数据留空 UI 降级。
 pub fn add_to_vocab(
     db: &Db,
     user_id: &str,
     profile_id: &str,
     word: &str,
     context: Option<String>,
+    source: SourceLocation,
 ) -> Result<serde_json::Value, String> {
     let repo = DictRepo::new(db);
     let key = word.trim().to_lowercase();
@@ -226,6 +237,9 @@ pub fn add_to_vocab(
         last_grade: None,
         added_at: crate::store::now_ms_for_store(),
         updated_at: crate::store::now_ms_for_store(),
+        edition_id: source.edition_id,
+        chapter_index: source.chapter_index,
+        sentence_index: source.sentence_index,
     };
     let vocab = VocabRepo::new(db);
     vocab.upsert_content(entry, user_id, profile_id)?;
@@ -316,7 +330,15 @@ mod tests {
         let db = temp_db();
         let r = lookup(&db, "me", "default", "zebra", "ctx", &fake_llm).unwrap();
         assert!(!r.in_vocab);
-        add_to_vocab(&db, "me", "default", "zebra", None).unwrap();
+        add_to_vocab(
+            &db,
+            "me",
+            "default",
+            "zebra",
+            None,
+            SourceLocation::default(),
+        )
+        .unwrap();
         let vocab = VocabRepo::new(&db);
         assert!(
             vocab.get("me", "default", "zebra").is_some(),
@@ -334,13 +356,22 @@ mod tests {
             "default",
             "gutter",
             Some("She watched the water in the gutters.".into()),
+            SourceLocation::default(),
         )
         .unwrap();
         let vocab = VocabRepo::new(&db);
         let got = vocab.get("me", "default", "gutter").expect("词应在");
         assert_eq!(got.context, "She watched the water in the gutters.");
         // 再次加词不带 context → 保留旧上下文 (不覆盖成空)
-        add_to_vocab(&db, "me", "default", "gutter", None).unwrap();
+        add_to_vocab(
+            &db,
+            "me",
+            "default",
+            "gutter",
+            None,
+            SourceLocation::default(),
+        )
+        .unwrap();
         let got2 = vocab.get("me", "default", "gutter").expect("词应在");
         assert_eq!(
             got2.context, "She watched the water in the gutters.",
@@ -349,11 +380,72 @@ mod tests {
     }
 
     #[test]
+    fn add_to_vocab_stores_source_location() {
+        // V4 (2026-08-09): 来源定位 —— 记录从哪本书哪章哪句划出来的
+        let db = temp_db();
+        add_to_vocab(
+            &db,
+            "me",
+            "default",
+            "gutter",
+            Some("ctx".into()),
+            SourceLocation {
+                edition_id: Some("edition-1".into()),
+                chapter_index: Some(3),
+                sentence_index: Some(12),
+            },
+        )
+        .unwrap();
+        let vocab = VocabRepo::new(&db);
+        let got = vocab.get("me", "default", "gutter").expect("词应在");
+        assert_eq!(got.edition_id.as_deref(), Some("edition-1"));
+        assert_eq!(got.chapter_index, Some(3));
+        assert_eq!(got.sentence_index, Some(12));
+    }
+
+    #[test]
+    fn add_to_vocab_without_source_location_is_none() {
+        // V4: 旧数据/未带定位 → None (UI 降级)
+        let db = temp_db();
+        add_to_vocab(
+            &db,
+            "me",
+            "default",
+            "plain",
+            None,
+            SourceLocation::default(),
+        )
+        .unwrap();
+        let got = VocabRepo::new(&db)
+            .get("me", "default", "plain")
+            .expect("词应在");
+        assert!(got.edition_id.is_none());
+        assert!(got.chapter_index.is_none());
+        assert!(got.sentence_index.is_none());
+    }
+
+    #[test]
     fn add_to_vocab_isolated_by_user() {
         // V1 (2026-08-09): 同一词不同 user 各自独立加词, 互不影响
         let db = temp_db();
-        add_to_vocab(&db, "me", "default", "gutter", None).unwrap();
-        add_to_vocab(&db, "u-kid", "default", "gutter", None).unwrap();
+        add_to_vocab(
+            &db,
+            "me",
+            "default",
+            "gutter",
+            None,
+            SourceLocation::default(),
+        )
+        .unwrap();
+        add_to_vocab(
+            &db,
+            "u-kid",
+            "default",
+            "gutter",
+            None,
+            SourceLocation::default(),
+        )
+        .unwrap();
         let vocab = VocabRepo::new(&db);
         assert!(vocab.get("me", "default", "gutter").is_some());
         assert!(vocab.get("u-kid", "default", "gutter").is_some());

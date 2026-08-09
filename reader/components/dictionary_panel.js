@@ -12,13 +12,14 @@
       this.onVocabAdded = null;
     }
 
-    show(word, profileId, context) {
+    show(word, profileId, context, source) {
       if (!this.el) this._build();
       document.body.appendChild(this.el);
       this._setLoading(word);
       this._word = word;
       this._profileId = profileId;
       this._context = context;
+      this._source = source || null; // V4: { editionId, chapterIndex, sentenceIndex }
       requestAnimationFrame(() => this.el.classList.add('open'));
       this._lookup();
     }
@@ -144,7 +145,8 @@
       addBtn.disabled = !!d.in_vocab;
       addBtn.onclick = () => {
         // 阶段6 设计交付 §04: 记录来源句上下文 (this._context = 原文句)
-        AiduDictionaryService.addToVocab(d.word, this._profileId, this._context).then((r) => {
+        // V4: 带来源定位 (edition/chapter/sentence)
+        AiduDictionaryService.addToVocab(d.word, this._profileId, this._context, this._source).then((r) => {
           if (r.ok) {
             addBtn.textContent = '✓ 已加入生词本';
             addBtn.disabled = true;

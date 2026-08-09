@@ -201,6 +201,19 @@
       await this._loadChapter();
       await this._restoreState();
       this._loadTodayStats();
+      // V4 (2026-08-09): 背单词"在阅读器中打开" → 跳到记录位置 (消费后清除)
+      const jump = this.store && this.store.state && this.store.state.vocabJump;
+      if (jump && jump.chapter != null && jump.sentence != null) {
+        this.store.set({ vocabJump: null });
+        if (jump.chapter !== this.chapterIndex) {
+          this.chapterIndex = jump.chapter;
+          this._anchorIndex = jump.sentence;
+          await this._loadChapter();
+        }
+        if (this.renderer) await this.renderer.ensureRendered(jump.sentence);
+        this._setSentenceVisible(jump.sentence);
+        this._setAnchor(jump.sentence, { scroll: true });
+      }
     }
 
     /** M7 R37: 顶栏显示"今日已读 X 分钟" */
@@ -922,7 +935,13 @@
       const idx = this.sentences.findIndex(s =>
         s.original_text && s.original_text.toLowerCase().includes(word.toLowerCase()));
       const context = idx >= 0 ? this.sentences[idx].original_text : '';
-      this.dictPanel.show(word, profileId, context);
+      // V4 (2026-08-09): 来源定位 —— bookId 即 edition id; 记录章节与句下标供"跳到原文"
+      const source = {
+        editionId: this.bookId,
+        chapterIndex: this.chapterIndex,
+        sentenceIndex: idx >= 0 ? idx : null,
+      };
+      this.dictPanel.show(word, profileId, context, source);
     }
 
     /** F32: 加词后立即给已渲染的匹配 token 加 saved 标记 + 并入 _savedSet */

@@ -56,6 +56,7 @@
     }),
     remove: (id, deleteFiles) => invoke('library_remove', { id, deleteFiles }),
     open: (id) => invoke('library_open', { id }),
+    editionLookup: (editionId) => invoke('edition_lookup', { editionId }),
   };
 
   // ---- 书包 ----

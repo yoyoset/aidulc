@@ -13,9 +13,15 @@
     lookup(word, profileId, context) {
       return AiduBridge.invoke('word_lookup', { word, userId: currentUser(), profileId, context });
     },
-    addToVocab(word, profileId, context) {
+    addToVocab(word, profileId, context, source) {
       // 阶段6 设计交付 §04: 记录来源句上下文 (词条卡显示"从哪里读到的")
-      return AiduBridge.invoke('add_vocab', { word, userId: currentUser(), profileId, context: context || '' });
+      // V4: source = { editionId, chapterIndex, sentenceIndex } 来源定位
+      const s = source || {};
+      return AiduBridge.invoke('add_vocab', { req: {
+        word, userId: currentUser(), profileId, context: context || '',
+        editionId: s.editionId || null, chapterIndex: s.chapterIndex != null ? s.chapterIndex : null,
+        sentenceIndex: s.sentenceIndex != null ? s.sentenceIndex : null,
+      } });
     },
     list(profileId) { return AiduBridge.invoke('dict_list', { userId: currentUser(), profileId }); },
     search(profileId, q) { return AiduBridge.invoke('dict_search', { userId: currentUser(), profileId, q }); },

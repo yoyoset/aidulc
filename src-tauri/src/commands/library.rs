@@ -81,6 +81,25 @@ pub fn library_list(
     serde_json::to_value(out).map_err(|e| e.to_string())
 }
 
+/// V4 (2026-08-09): 按 edition_id 查译本元信息 (背单词右栏"《书名》·第 N 章" + 跳转用)。
+/// 返回 { id, title, chapter_count, source_id } 或错误 (edition 不存在)。
+#[tauri::command]
+pub fn edition_lookup(
+    db: State<store::Db>,
+    edition_id: String,
+) -> Result<serde_json::Value, String> {
+    let repo = store::editions_repo::EditionsRepo::new(db.inner());
+    let e = repo
+        .get(&edition_id)
+        .ok_or_else(|| "译本不存在".to_string())?;
+    Ok(serde_json::json!({
+        "id": e.id,
+        "title": e.title,
+        "chapter_count": e.chapter_count,
+        "source_id": e.source_id,
+    }))
+}
+
 /// 登记一本书
 #[tauri::command]
 pub fn library_register(

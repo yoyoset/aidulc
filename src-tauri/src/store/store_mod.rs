@@ -627,6 +627,19 @@ impl Db {
             )
             .map_err(|e| format!("迁移 v19 记录失败: {e}"))?;
         }
+        // v21 (来源定位 V4, 2026-08-09): vocab 加来源定位列。
+        // 加词时记录"这个词从哪本书哪章哪句划出来的" (设计稿 §02 原文语境 + 跳转)。
+        // 旧数据留空 (None), UI 降级为只显示来源句; 新加词写入。
+        if version < 21 {
+            conn.execute_batch(
+                "ALTER TABLE vocab ADD COLUMN edition_id TEXT;
+                 ALTER TABLE vocab ADD COLUMN chapter_index INTEGER;
+                 ALTER TABLE vocab ADD COLUMN sentence_index INTEGER;
+                 INSERT INTO schema_migrations (version, applied_at) VALUES (21, strftime('%s','now')*1000);
+                 ",
+            )
+            .map_err(|e| format!("迁移 v21 失败: {e}"))?;
+        }
         Ok(())
     }
 }
@@ -722,6 +735,26 @@ mod tests {
             )
             .unwrap();
         assert_eq!(job_source, 1, "jobs 应有 source_id");
+        // v20: users 表 + user_id 列 + 复合主键
+        let v20: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('vocab') WHERE name='user_id'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(v20, 1, "vocab 应有 user_id (v20)");
+        // v21: 来源定位列
+        for col in ["edition_id", "chapter_index", "sentence_index"] {
+            let n: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('vocab') WHERE name=?1",
+                    [col],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(n, 1, "vocab 应有 {col} (v21)");
+        }
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}-wal"));
@@ -873,7 +906,7 @@ mod tests {
                     FROM highlights;
                  DROP TABLE highlights;
                  ALTER TABLE highlights_v17 RENAME TO highlights;
-                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20);
+                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21);
                  INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,source_book_id,
                     chapter_count,failed_count,source_language,target_language,llm_id,tts_id,nlp_id,
                     created_at,updated_at)
@@ -934,6 +967,10 @@ mod tests {
                  ALTER TABLE vocab DROP COLUMN user_id;
                  ALTER TABLE dictionary DROP COLUMN user_id;
                  ALTER TABLE highlights DROP COLUMN user_id;
+                 -- 撤 v21 (来源定位列), 让迁移从 v19 状态完整重跑
+                 ALTER TABLE vocab DROP COLUMN edition_id;
+                 ALTER TABLE vocab DROP COLUMN chapter_index;
+                 ALTER TABLE vocab DROP COLUMN sentence_index;
                  ALTER TABLE reading_state RENAME TO reading_state_legacy;
                  CREATE TABLE reading_state (
                     book_key TEXT NOT NULL,
@@ -959,6 +996,7 @@ mod tests {
                     SELECT book_key, day, time_spent_ms FROM reading_daily_legacy;
                  DROP TABLE reading_daily_legacy;
                  DELETE FROM schema_migrations WHERE version=20;
+                 DELETE FROM schema_migrations WHERE version=21;
                  -- vocab key 还原为 v19 的 {profile}:{lemma} 形式
                  UPDATE vocab SET key = substr(key, 4) WHERE key LIKE 'me:%';
                  UPDATE dictionary SET key = substr(key, 4) WHERE key LIKE 'me:%';",

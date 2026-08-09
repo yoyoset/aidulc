@@ -98,6 +98,8 @@ DB 模式演进: `store_mod.rs` 用 `schema_migrations` 表, 目前 19 个迁移
 | v20 | **身份模型 (V1)**: users 表 (默认 user "me"); vocab/dictionary/highlights 加 user_id 列并回填;
       vocab/dictionary key 改为 `{user}:{profile}:{lemma}`; reading_state/reading_daily 重建为含 user_id
       的复合主键。迁移不拆人(全部现有数据归一个 user), 事务内完成可回滚 | 背单词 STAGE-SRS |
+| v21 | **来源定位 (V4)**: vocab 加 edition_id/chapter_index/sentence_index 列 (旧数据留空, UI 降级);
+      加词时记录"从哪本书哪章哪句划出来的" | 背单词 STAGE-SRS |
 
 ## 3. contracts 三端链路
 

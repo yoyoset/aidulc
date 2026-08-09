@@ -44,6 +44,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "打开一本书(登记打开时间)",
     },
     CommandInfo {
+        path: "commands::library::edition_lookup",
+        domain: "书库",
+        desc: "按 edition_id 查译本元信息 (背单词右栏书名/章节 + 跳转, V4)",
+    },
+    CommandInfo {
         path: "commands::library::load_bookpack",
         domain: "书库",
         desc: "加载书包元信息(每章只带 original_text, 不含译文/讲解/时间轴; 修复大书 IPC 卡死)",

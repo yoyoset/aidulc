@@ -158,14 +158,56 @@
       this.sourceCol.innerHTML = '';
       const head = el('div', 'review-source-head');
       head.appendChild(el('div', 'review-source-title', '原文语境'));
-      // V4 接线后: 《书名》·第 N 章 · M 处出现; 现在无来源定位, 降级
-      head.appendChild(el('div', 'review-source-meta', entry.context ? '来源句' : '未记录来源'));
+      const meta = el('div', 'review-source-meta', entry.context ? '来源句' : '未记录来源');
+      head.appendChild(meta);
       this.sourceCol.appendChild(head);
+
+      // V4 (2026-08-09): 来源定位 —— edition_id 命中译本 → 《书名》·第 N 章 · M 处出现 + 跳转
+      const hasLoc = entry.edition_id && entry.chapter_index != null && entry.sentence_index != null;
+      if (hasLoc) {
+        const locEl = el('div', 'review-source-loc', '');
+        const titleEl = el('span', 'review-source-book', '《…》');
+        locEl.appendChild(titleEl);
+        const line2 = el('div', 'review-source-meta', '');
+        line2.textContent = `第 ${entry.chapter_index + 1} 章 · 第 ${entry.sentence_index + 1} 处出现`;
+        locEl.appendChild(line2);
+        const openBtn = el('button', 'btn-small', '在阅读器中打开');
+        openBtn.onclick = () => this._openInReader(entry);
+        locEl.appendChild(openBtn);
+        this.sourceCol.appendChild(locEl);
+        // 异步补书名 (查不到 → 降级显示 id)
+        if (global.AiduLibraryService) {
+          AiduLibraryService.editionLookup(entry.edition_id).then((r) => {
+            if (r.ok && r.data && r.data.title) titleEl.textContent = `《${r.data.title}》`;
+            else titleEl.textContent = `《${entry.edition_id}》`;
+          });
+        }
+      }
       if (entry.context) {
         const s = el('div', 'review-source-sentence', String(entry.context));
         this.sourceCol.appendChild(s);
       } else {
         this.sourceCol.appendChild(el('div', 'review-source-empty', '这个词加入时没有记录原文句。'));
+      }
+    }
+
+    /** V4: 在阅读器中打开 —— 回书库路由读这本书, 跳到记录的位置 */
+    _openInReader(entry) {
+      if (this.onOpenInReader) {
+        this.onOpenInReader(entry);
+        return;
+      }
+      // 兜底: 直接走 store + 路由 (main.js 会绑定 onOpenInReader 更完整)
+      if (global.AiduStore && global.AiduRouter) {
+        AiduStore.set({ currentBook: { id: entry.edition_id, title: entry.edition_id } });
+        AiduStore.set({ readerBackRoute: 'review' });
+        // 让阅读器打开后跳到 chapter/sentence
+        AiduStore.set({ vocabJump: {
+          chapter: entry.chapter_index,
+          sentence: entry.sentence_index,
+        } });
+        // 触发路由
+        window.location.hash = '#/reader';
       }
     }
 

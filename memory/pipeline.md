@@ -138,3 +138,17 @@
   (历史 86KB vs 现在 39MB 都是"reader 目录大小"), 不是前端产物大小。
 
 
+
+## 2026-08-10 背单词/同步阶段实测补充 (STAGE-SRS V5-V7)
+
+- **CF KV 免费额度实测** (V0②): 值上限 25MiB (26214400 字节; 26MiB 写返回 413);
+  读 100k/天、写 1000/天、同键 1 次/秒 (官方 KV limits 页抓取)。5000 词最小集 ≈1.43MB
+  单值可放, 但整包 GET 每次 ~1.1-1.5s → 同步必须走增量 since={rev}, 首拉才整包。
+- **curl 直连 CF Worker 的假"JSON 解析失败"**: 本机 Windows curl `-d ''{"x":1}''` 对
+  worker 全部 500, Node fetch 同 body 正常 200 —— 是 curl/PowerShell 引号处理问题,
+  不是 worker bug。**排查服务端先拿 Node fetch 复验。**
+- **Windows node fetch keep-alive + server.close 触发 libuv 断言**: 手机端测试最初用
+  真实 TCP 服务转发 worker.fetch, 退出时 `uv async.c:76` 断言 (退出码 -1073740791)。
+  **修法: 测试 fetchImpl 直接调 worker.fetch(new Request(...)), 不走真实 TCP。**
+- **PS 5.1 Set-Content -Encoding UTF8 破坏中文**: 整文件写回把 dictionary_service.rs 的
+  中文注释变 mojibake, 只能 git checkout 重做。**含中文的 .rs/.js 一律用 edit 工具改。**

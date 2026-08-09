@@ -71,6 +71,23 @@
   实测是 Windows curl/PowerShell 引号处理问题, 用 Node fetch / 文件 body 正常。
   排查记录: 先怀疑 worker 代码, 后定位为客户端工具差异 (以实测为准)。
 
+## V7 手机端已部署 + e2e (2026-08-10 实测)
+
+- PWA: `https://aidulc-mobile.pages.dev` (CF Pages, `cloud/mobile/`, 发链接即用)。
+- 真实 worker e2e (node, 走 invite-user 新建独立 user 保证远端干净):
+  ```
+  invite code: {"ok":true,"code":"589416"}
+  auth: {"ok":true,"user_id":"f3221dae9e1141a8","user_name":"e2e新成员","hasToken":true}
+  local pending: 2        ← 离线复习 2 词, 只写本地+待推
+  sync: {"ok":true,"merged":0,"rev":2}   ← 恢复网络自动补推
+  pending cleared: true
+  remote count: 2 matched(2): true        ← 远端条数对上
+  root 看不到新成员词: false               ← 越权隔离成立
+  ```
+- 手机端不依赖 `window.__TAURI__`: 存储(IndexedDB)/网络(fetch 带 3 次退避重试)走
+  adapter 层, 将来套壳 apk/iOS 只换 adapter。
+
+
 ## V0③ 六处冲突的裁决(设计稿 vs 现状)
 
 > 对应 GOAL_STAGE_SRS.md"设计稿与现实的六处冲突"。每条给"设计稿原话/现状 → 裁决 → 落点"。

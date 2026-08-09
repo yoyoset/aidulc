@@ -237,6 +237,7 @@ mod tests {
             deep_data: serde_json::Value::Null,
             stage: "new".into(),
             interval: 0.0,
+            interval_ms: 0,
             ease_factor: 2.5,
             next_review: None,
             reviews: 0,

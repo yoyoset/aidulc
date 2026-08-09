@@ -135,6 +135,16 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "生词统计",
     },
     CommandInfo {
+        path: "commands::reader::srs_preview",
+        domain: "复习",
+        desc: "四档间隔预览 (调度器对当前词算出按钮时间, V2)",
+    },
+    CommandInfo {
+        path: "commands::reader::srs_grade",
+        domain: "复习",
+        desc: "评分 1-4: 取→算→写 (唯一写者 vocab_repo), V2",
+    },
+    CommandInfo {
         path: "commands::reader::sync_status",
         domain: "同步",
         desc: "同步状态",

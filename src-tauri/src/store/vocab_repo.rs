@@ -256,6 +256,7 @@ mod tests {
             deep_data: Value::Null,
             stage: "new".into(),
             interval: 0.0,
+            interval_ms: 0,
             ease_factor: 2.5,
             next_review: None,
             reviews: 0,
@@ -341,6 +342,7 @@ mod tests {
         e.last_review = Some(1700000000000);
         e.last_grade = Some(3);
         e.interval = 2.7; // 浮点
+        e.interval_ms = 259_200_000; // V2: 毫秒级间隔 (分钟级步长存 payload)
         e.next_review = Some(1700001000000);
         repo.upsert_sync(e, uid, "default").unwrap();
         let got = repo.get(uid, "default", "break").unwrap();
@@ -348,6 +350,34 @@ mod tests {
         assert_eq!(got.last_review, Some(1700000000000));
         assert_eq!(got.last_grade, Some(3));
         assert_eq!(got.interval, 2.7);
+        assert_eq!(
+            got.interval_ms, 259_200_000,
+            "interval_ms 应随 payload 无损往返"
+        );
         assert_eq!(got.next_review, Some(1700001000000));
+    }
+
+    #[test]
+    fn srs_grade_persists_interval_ms() {
+        // V2: 调度器评分后 interval_ms 写回并读回 (分钟级步长依赖毫秒字段)
+        let db = temp_db();
+        let repo = VocabRepo::new(&db);
+        let uid = DEFAULT_USER_ID;
+        repo.upsert_content(entry("bank"), uid, "default").unwrap();
+        // 新词评"忘了"(grade 1) → learning, 1 分钟
+        let mut e = repo.get(uid, "default", "bank").unwrap();
+        let now = crate::store::now_ms_for_store();
+        let state = crate::domain::srs::state_from_entry(&e);
+        let o = crate::domain::srs::apply_grade(&state, 1, now);
+        e = crate::domain::srs::apply_outcome(e, &o);
+        repo.upsert_sync(e, uid, "default").unwrap();
+        let got = repo.get(uid, "default", "bank").unwrap();
+        assert_eq!(got.stage, "learning");
+        assert_eq!(
+            got.interval_ms,
+            crate::domain::srs::MINUTE_1,
+            "1 分钟步长应存毫秒"
+        );
+        assert!(got.next_review.is_some());
     }
 }

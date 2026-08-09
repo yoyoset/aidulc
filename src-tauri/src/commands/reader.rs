@@ -207,6 +207,69 @@ pub fn vocab_stats(
     Ok(repo.stats(&user_id, &profile_id))
 }
 
+// ---- 背单词调度器 (V2, 2026-08-09) ----
+
+/// 四档间隔预览: 对当前词按调度器算出 4 个按钮的到期时间 (设计裁决冲突 3:
+/// 按钮时间由调度器对当前词算出后返回, 前端不写死)。
+#[tauri::command]
+pub fn srs_preview(
+    db: State<store::Db>,
+    user_id: String,
+    profile_id: String,
+    lemma: String,
+) -> Result<serde_json::Value, String> {
+    use crate::domain::srs;
+    let repo = store::vocab_repo::VocabRepo::new(db.inner());
+    let entry = repo
+        .get(&user_id, &profile_id, &lemma)
+        .ok_or_else(|| "词条不存在".to_string())?;
+    let now = crate::store::now_ms_for_store();
+    let state = srs::state_from_entry(&entry);
+    let opts: Vec<serde_json::Value> = srs::interval_options(&state, now)
+        .iter()
+        .map(|o| {
+            serde_json::json!({
+                "grade": o.grade,
+                "label": o.label,
+                "human": o.human,
+                "delta_ms": o.delta_ms,
+                "next_review": o.next_review,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({
+        "word": entry.word,
+        "stage": entry.stage,
+        "due": srs::is_due(&state, now),
+        "options": opts,
+    }))
+}
+
+/// 评分: 取 → 算 → 写 (唯一写者 vocab_repo)。返回评分后的新状态。
+#[tauri::command]
+pub fn srs_grade(
+    db: State<store::Db>,
+    user_id: String,
+    profile_id: String,
+    lemma: String,
+    grade: i64,
+) -> Result<serde_json::Value, String> {
+    use crate::domain::srs;
+    if !(1..=4).contains(&grade) {
+        return Err("评分必须是 1-4".into());
+    }
+    let repo = store::vocab_repo::VocabRepo::new(db.inner());
+    let entry = repo
+        .get(&user_id, &profile_id, &lemma)
+        .ok_or_else(|| "词条不存在".to_string())?;
+    let now = crate::store::now_ms_for_store();
+    let state = srs::state_from_entry(&entry);
+    let outcome = srs::apply_grade(&state, grade as u8, now);
+    let updated = srs::apply_outcome(entry, &outcome);
+    let saved = repo.upsert_sync(updated, &user_id, &profile_id)?;
+    serde_json::to_value(saved).map_err(|e| e.to_string())
+}
+
 // ---- 同步 (I-C: 状态机 + 配置) ----
 
 /// 同步状态

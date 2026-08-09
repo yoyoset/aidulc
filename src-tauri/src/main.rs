@@ -20,6 +20,7 @@ mod commands {
 }
 mod domain {
     pub mod bookpack;
+    pub mod srs;
     pub mod sync;
     pub mod vocab;
 }
@@ -387,6 +388,8 @@ fn main() {
             commands::reader::vocab_search,
             commands::reader::vocab_remove,
             commands::reader::vocab_stats,
+            commands::reader::srs_preview,
+            commands::reader::srs_grade,
             commands::reader::sync_status,
             commands::reader::sync_now,
             commands::reader::sync_pull_now,

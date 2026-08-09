@@ -40,6 +40,10 @@ pub struct VocabEntry {
     pub stage: String,
     #[serde(default)]
     pub interval: f64, // AIDU: 天数, 允许浮点 (M1 修复)
+    /// V2 (2026-08-09): 毫秒级间隔 (1 分钟/10 分钟步长存不进 interval 的天数浮点语义;
+    /// 设计裁决冲突 2: interval 保留给 AIDU 导出, 调度器用 interval_ms)。
+    #[serde(default, rename = "intervalMs")]
+    pub interval_ms: i64,
     #[serde(default, rename = "easeFactor")]
     pub ease_factor: f64,
     #[serde(default, rename = "nextReview")]
@@ -79,6 +83,9 @@ pub fn normalize_vocab_entry(mut e: VocabEntry) -> Option<VocabEntry> {
     }
     if e.interval < 0.0 {
         e.interval = 0.0;
+    }
+    if e.interval_ms < 0 {
+        e.interval_ms = 0;
     }
     if e.ease_factor < 1.3 {
         e.ease_factor = 2.5;
@@ -142,6 +149,7 @@ mod tests {
             deep_data: Value::Null,
             stage: "bogus".into(),
             interval: -5.0,
+            interval_ms: 0,
             ease_factor: 1.0,
             next_review: None,
             reviews: -1,
@@ -177,6 +185,7 @@ mod tests {
                 deep_data: Value::Null,
                 stage: String::new(),
                 interval: 0.0,
+                interval_ms: 0,
                 ease_factor: 2.5,
                 next_review: None,
                 reviews: 0,

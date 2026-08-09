@@ -110,5 +110,11 @@
     remove: (id) => invoke('highlights_remove', { id }),
   };
 
-  global.AiduBridge = { invoke, listen, pickFiles, openPath, library, bookpack, profiles, users, settings, reading, transfer, highlights };
+  // ---- 背单词调度器 (V2) ----
+  const srs = {
+    preview: (userId, profileId, lemma) => invoke('srs_preview', { userId, profileId, lemma }),
+    grade: (userId, profileId, lemma, grade) => invoke('srs_grade', { userId, profileId, lemma, grade }),
+  };
+
+  global.AiduBridge = { invoke, listen, pickFiles, openPath, library, bookpack, profiles, users, settings, reading, transfer, highlights, srs };
 })(window);

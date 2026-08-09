@@ -132,6 +132,8 @@
     $('back-meaning').textContent = currentEntry.meaning || '—';
     $('back-pos').textContent = currentEntry.pos || '';
     $('back-context').textContent = currentEntry.context || '';
+    // V4/冲突 6: 手机无书包, "跳到原文"不可用 → 点它提示"在电脑上打开" (桌面保留跳转)
+    $('ba-hint').classList.add('hidden');
     $('review-count').textContent = `${done} / ${queue.length}`;
     $('progress-fill').style.width = (queue.length ? (done / queue.length) * 100 : 0) + '%';
     // 评分区: 未翻面禁用
@@ -313,6 +315,14 @@
       };
     });
     $('sync-chip').onclick = () => doSync(false);
+    // 冲突 6: 手机端"跳到原文/再看一句"都不可用 (无书包) → 提示在电脑上打开 (桌面保留跳转)
+    const sourceActionHint = () => {
+      $('ba-hint').classList.remove('hidden');
+      setTimeout(() => $('ba-hint').classList.add('hidden'), 2500);
+    };
+    const disabledItems = document.querySelectorAll('.ba-item.ba-disabled');
+    disabledItems.forEach((it) => (it.onclick = sourceActionHint));
+    $('ba-another').onclick = sourceActionHint;
   }
 
   // ---------- 启动 ----------

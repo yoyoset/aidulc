@@ -68,6 +68,12 @@ body {
 .back-meaning { font-size: 17px; line-height: 1.6; }
 .back-pos { font-size: 12px; color: var(--primary); }
 .back-context { font-size: 15px; line-height: 1.8; color: var(--ink2); }
+/* 冲突 6 (V4/V7): 手机端"跳到原文"不可用态提示 (桌面保留跳转) */
+.back-actions { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--primary); margin-top: 4px; }
+.ba-item { cursor: pointer; }
+.ba-item.ba-disabled { color: var(--ink3); opacity: .7; cursor: default; }
+.ba-sep { color: var(--line2); }
+.ba-hint { font-size: 12px; color: var(--ink3); background: var(--card); border: 1px solid var(--line2); border-radius: 8px; padding: 4px 10px; margin-top: 6px; }
 .done-msg { font-size: 18px; color: var(--ink2); padding: 40px; text-align: center; }
 
 /* 评分区: 底部 120px 内, 按钮 56px 高 (设计稿 01b) */

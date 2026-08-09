@@ -53,7 +53,16 @@ function makeEl(id) {
 }
 
 const els = {};
-function getEl(id) { if (!els[id]) els[id] = makeEl(id); return els[id]; }
+function getEl(id) {
+  if (!els[id]) {
+    els[id] = makeEl(id);
+    // 指定元素预置类 (对应 index.html 的 class 属性)
+    if (id === 'ba-disabled') els[id].className = 'ba-item ba-disabled';
+    if (id === 'ba-another') els[id].className = 'ba-item';
+    if (id === 'ba-hint') els[id].className = 'ba-hint hidden';
+  }
+  return els[id];
+}
 
 globalThis.window = globalThis;
 globalThis.document = {
@@ -63,6 +72,8 @@ globalThis.document = {
     if (sel === '.grade-btn') return ['g1', 'g2', 'g3', 'g4'].map((i) => getEl(i));
     if (sel === '.gtime') return ['t1', 't2', 't3', 't4'].map((i) => getEl(i));
     if (sel === '.tab') return [getEl('tab1'), getEl('tab2')];
+    if (sel === '.ba-item.ba-disabled') return [getEl('ba-disabled')];
+    if (sel === '.ba-item') return [getEl('ba-disabled'), getEl('ba-another')];
     return [];
   },
   createElement: () => makeEl('dyn'),
@@ -171,6 +182,20 @@ console.log('== 5. 左右滑评分 + 下滑退出 (设计稿 01b) ==');
   check('下滑退出到入口', getEl('view-entry').className.includes('hidden') === false);
   // 本段已把 2 词全部评分 (右滑+左滑+前面撤销过的词已重评), 队列重算应为 0 = 全部复习完
   check('进度保留: 复习完 2 词后队列归零', getEl('today-num').textContent === '0', getEl('today-num').textContent);
+}
+
+console.log('== 6. 冲突 6: 手机端"跳到原文"不可用 → 提示在电脑上打开 ==');
+{
+  // 需要翻面进入背面 (动作区在卡背)
+  app.startReview();
+  await new Promise((r) => setTimeout(r, 30));
+  getEl('card').dispatch('click'); // 翻面
+  await new Promise((r) => setTimeout(r, 30));
+  const disabledItem = document.querySelectorAll('.ba-item.ba-disabled')[0];
+  check('背面有"跳到原文"不可用项', !!disabledItem, 'disabledItem=' + !!disabledItem);
+  check('提示初始隐藏', getEl('ba-hint').className.includes('hidden'));
+  if (disabledItem) disabledItem.onclick();
+  check('点"跳到原文"提示"在电脑上打开"', !getEl('ba-hint').className.includes('hidden'));
 }
 
 console.log('');

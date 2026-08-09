@@ -248,18 +248,25 @@ impl<'a> VocabRepo<'a> {
             .collect()
     }
 
-    /// V6: 该 user 任意 profile 下查某 lemma (拉取合并时判"本地较新不覆盖")。
-    pub fn get_any_profile(&self, user_id: &str, lemma: &str) -> Option<VocabEntry> {
+    /// V6: 该 user 任意 profile 下查某 lemma, 返回 (profile_id, entry)。
+    /// 拉取合并时据此把远端更新写回**原 profile**, 不产生 user:profile:lemma 分裂
+    /// (P0 修复, 2026-08-10): 此前只回 entry、丢失 profile, 远端赢时写死 "default"
+    /// → me:kid:reticent 的远端更新会新建 me:default:reticent 重复行。
+    pub fn get_any_profile(&self, user_id: &str, lemma: &str) -> Option<(String, VocabEntry)> {
         let conn = self.db.conn.lock().unwrap();
-        let payload: Option<String> = conn
+        let row: Option<(String, String)> = conn
             .query_row(
-                "SELECT payload FROM vocab WHERE user_id = ?1 AND lemma = ?2 LIMIT 1",
+                "SELECT profile_id, payload FROM vocab WHERE user_id = ?1 AND lemma = ?2 LIMIT 1",
                 [user_id, lemma],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .ok();
         drop(conn);
-        payload.and_then(|p| serde_json::from_str::<VocabEntry>(&p).ok())
+        row.and_then(|(p, payload)| {
+            serde_json::from_str::<VocabEntry>(&payload)
+                .ok()
+                .map(|e| (p, e))
+        })
     }
 }
 

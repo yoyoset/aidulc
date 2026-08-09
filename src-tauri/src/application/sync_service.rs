@@ -172,13 +172,26 @@ pub fn sync_now(
     let last_pull_rev = state.as_ref().map(|s| s.last_pull_rev).unwrap_or(0);
 
     // 1. 先推: 本地未推词条 (任何 profile, 归该 user)
+    // P0 修复 (2026-08-10): 同一 lemma 在多个 profile 里时, 按 lemma 打包会互相覆盖且
+    // 顺序不确定 —— 改为每 lemma 取 updated_at 最新一条 (确定性), 避免推送不确定行为。
     let repo = crate::store::vocab_repo::VocabRepo::new(db);
     let entries = repo.list_all_for_user(user_id);
-    let to_push: Vec<(String, serde_json::Value)> = entries
-        .iter()
-        .filter(|e| e.updated_at > last_push_at)
-        .map(|e| (e.lemma.to_lowercase(), to_minimal_payload(e)))
-        .collect();
+    let mut to_push: Vec<(String, serde_json::Value)> = Vec::new();
+    for e in &entries {
+        let key = e.lemma.to_lowercase();
+        // 该 lemma 是否已有更高 updated_at 的待推条目 (跨 profile 取最新)
+        let already_newer = to_push.iter().any(|(k, v)| {
+            k == &key && v.get("updated_at").and_then(|x| x.as_i64()).unwrap_or(0) >= e.updated_at
+        });
+        if already_newer {
+            continue;
+        }
+        // 更旧的同 lemma 条目要移除 (让最新那条占位)
+        to_push.retain(|(k, _)| k != &key);
+        if e.updated_at > last_push_at {
+            to_push.push((key, to_minimal_payload(e)));
+        }
+    }
 
     let push_result = if to_push.is_empty() {
         Ok(sync_v1_client::PushResult {
@@ -244,12 +257,17 @@ pub fn sync_now(
 }
 
 /// 远端 changed 词条 → 本地, 复用 domain/sync.rs 的 merge_envelopes (新者胜)。
+/// P0 修复 (2026-08-10): 写回**原 profile** (get_any_profile 返回 profile_id),
+/// 只有本地真没有该 lemma 时才落 "default"。此前写死 default → me:kid:reticent
+/// 的远端更新会新建 me:default:reticent 重复行, 同一词分裂成两行两套复习状态。
 /// 返回写回条数 (测试断言用)。
 fn merge_remote_into_local(db: &Db, user_id: &str, changed: &[serde_json::Value]) -> usize {
     use crate::domain::sync::{merge_envelopes, Envelope};
     let repo = crate::store::vocab_repo::VocabRepo::new(db);
     let mut local_envs: Vec<Envelope> = Vec::new();
     let mut remote_envs: Vec<Envelope> = Vec::new();
+    let mut local_profile: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     for item in changed {
         let Ok(remote) = serde_json::from_value::<serde_json::Value>(item.clone()) else {
             continue;
@@ -263,12 +281,13 @@ fn merge_remote_into_local(db: &Db, user_id: &str, changed: &[serde_json::Value]
             .get("updated_at")
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        if let Some(l) = repo.get_any_profile(user_id, &lemma) {
+        if let Some((profile, l)) = repo.get_any_profile(user_id, &lemma) {
             local_envs.push(Envelope {
                 key: lemma.clone(),
                 updated_at: l.updated_at,
                 payload: serde_json::to_value(&l).unwrap_or(serde_json::Value::Null),
             });
+            local_profile.insert(lemma.clone(), profile);
         }
         remote_envs.push(Envelope {
             key: lemma,
@@ -287,7 +306,12 @@ fn merge_remote_into_local(db: &Db, user_id: &str, changed: &[serde_json::Value]
             if let Ok(entry) =
                 serde_json::from_value::<crate::domain::vocab::VocabEntry>(r.payload.clone())
             {
-                if repo.upsert_sync(entry, user_id, "default").is_ok() {
+                // 写回原 profile (该 lemma 本地在哪个 profile 就写哪); 真新词落 default
+                let target_profile = local_profile
+                    .get(&m.key)
+                    .cloned()
+                    .unwrap_or_else(|| "default".to_string());
+                if repo.upsert_sync(entry, user_id, &target_profile).is_ok() {
                     wrote += 1;
                 }
             }
@@ -628,6 +652,64 @@ mod tests {
         assert!(
             s.contains("\"edition_id\":\"e1\""),
             "来源定位应随最小集: {s}"
+        );
+    }
+
+    #[test]
+    fn pull_writes_back_to_original_profile_not_default_duplicate() {
+        // P0 回归 (2026-08-10): 本地 kid 有词 → 远端更新拉回 → 必须写回 kid 行,
+        // 不产生 me:default:reticent 重复行; SRS 落在 kid 行上。
+        let db = temp_db();
+        let repo = crate::store::vocab_repo::VocabRepo::new(&db);
+        let t0 = crate::store::now_ms_for_store();
+        let mut e = entry("reticent", t0);
+        e.meaning = "本地释义".into();
+        // upsert_sync 保留 entry.updated_at (upsert_content 会覆盖为 now, 导致本地恒新)
+        repo.upsert_sync(e, "me", "kid").unwrap();
+        assert!(
+            repo.get("me", "kid", "reticent").is_some(),
+            "本地 kid 应有词"
+        );
+        assert!(
+            repo.get("me", "default", "reticent").is_none(),
+            "初始 default 不应有"
+        );
+
+        // 远端更新 (updated_at 更大), 模拟另一台设备改了这个词。
+        // 用 to_minimal_payload 构造 (worker 返回的是 snake_case updated_at, 不是 VocabEntry 的 camelCase)
+        let mut remote = entry("reticent", t0 + 1000);
+        remote.meaning = "远端新释义".into();
+        remote.stage = "review".into();
+        let changed = vec![to_minimal_payload(&remote)];
+
+        let wrote = merge_remote_into_local(&db, "me", &changed);
+        assert_eq!(wrote, 1, "远端新 → 应写回 1 条");
+
+        // 关键断言: 不产生 default 重复行
+        assert!(
+            repo.get("me", "default", "reticent").is_none(),
+            "P0 bug: 远端更新不得在 default 新建重复行"
+        );
+        // SRS 落在 kid 行
+        let kid = repo.get("me", "kid", "reticent").expect("kid 行应在");
+        assert_eq!(kid.meaning, "远端新释义", "SRS/内容应落在 kid 行");
+        assert_eq!(kid.stage, "review");
+        // 全表只有 1 行该 lemma
+        assert_eq!(repo.list_all_for_user("me").len(), 1, "不应分裂成两行");
+    }
+
+    #[test]
+    fn pull_new_word_lands_on_default() {
+        // 真新词 (本地完全没有该 lemma) → 落 default (保留原行为)
+        let db = temp_db();
+        let repo = crate::store::vocab_repo::VocabRepo::new(&db);
+        let remote = entry("brandnew", crate::store::now_ms_for_store());
+        let changed = vec![to_minimal_payload(&remote)];
+        let wrote = merge_remote_into_local(&db, "me", &changed);
+        assert_eq!(wrote, 1);
+        assert!(
+            repo.get("me", "default", "brandnew").is_some(),
+            "真新词落 default"
         );
     }
 }

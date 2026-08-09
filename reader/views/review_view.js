@@ -281,8 +281,8 @@
         this.done++;
         this.index++;
         this.flipLock.next();
-        this._armUndo();
-        this._renderCurrent();
+        this._renderCurrent(); // 先渲染下一张 (会清空 cardCol)
+        this._armUndo();       // 再挂撤销条 (3 秒窗口), 否则被 renderCurrent 清掉
         this._renderQueueSummary({ counts: this._lastCounts });
       });
     }

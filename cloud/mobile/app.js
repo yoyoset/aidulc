@@ -175,8 +175,8 @@
     await app.saveLocal(updated);
     undoStack.push({ entry, before }, now);
     done++; index++;
-    showUndo(updated);
-    renderCard();
+    renderCard();     // 先渲染下一张 (renderCard 内会 hideUndo)
+    showUndo(updated); // 再显示撤销条 (3 秒窗口)
   }
 
   // ---------- 撤销 (3 秒) ----------

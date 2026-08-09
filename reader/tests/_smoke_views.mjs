@@ -424,6 +424,8 @@ console.log('== 6. 背单词三栏 (V3, 2026-08-09) ==');
   check('评分调用 srs_grade(reticent,3)', reviewCalls.grade.some(([l, g]) => l === 'reticent' && g === 3));
   check('评分后进入下一张', rv.index === idxBefore + 1, 'idx=' + rv.index);
   check('撤销栈有记录且可撤销', rv.undoStack.canUndo(Date.now()) === true);
+  // V3 补充 (2026-08-10): 评分后撤销条必须可见 —— 曾在 _armUndo 后被 _renderCurrent 清掉
+  check('评分后撤销条可见', !!rv._undoBar && rv._undoBar.parentNode != null, 'undoBar parent=' + (rv._undoBar && rv._undoBar.parentNode));
   // 撤销 → srs_restore 被调 + 回到上一张
   rv._undo();
   await new Promise((r) => setTimeout(r, 60));

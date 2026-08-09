@@ -41,6 +41,7 @@ mod store {
     pub mod reading_repo;
     pub mod settings_repo;
     pub mod store_mod;
+    pub mod sync_state_repo;
     pub mod users_repo;
     pub mod vocab_repo;
     pub use store_mod::{now_ms_for_store, Db};
@@ -51,7 +52,6 @@ mod jobs {
     pub mod spawn;
 }
 mod infrastructure {
-    pub mod aidu_worker_client;
     pub mod bookpack_cache;
     pub mod dict_daemon;
     pub mod dir_migration;
@@ -60,6 +60,7 @@ mod infrastructure {
     pub mod model_store {
         pub mod scan;
     }
+    pub mod sync_v1_client;
 }
 mod ipc {
     pub mod commands;
@@ -395,8 +396,10 @@ fn main() {
             commands::reader::sync_status,
             commands::reader::sync_now,
             commands::reader::sync_pull_now,
-            commands::reader::sync_config_set,
+            commands::reader::sync_auth_device,
+            commands::reader::sync_make_code,
             commands::reader::sync_disconnect,
+            commands::reader::sync_config_set,
             commands::reader::bookmarks_list,
             commands::reader::log_from_frontend,
             commands::reader::log_path,

@@ -640,6 +640,23 @@ impl Db {
             )
             .map_err(|e| format!("迁移 v21 失败: {e}"))?;
         }
+        // v22 (同步状态 V6, 2026-08-09): sync_state 表 —— 每个 user 一条,
+        // 记录"上次成功推送的时间"与"上次拉取的 rev"。pending 计数靠它算
+        // (本地 updated_at > last_push_at 的词条 = 待推), 增量拉取靠 last_pull_rev。
+        // 唯一写者 sync_state_repo.rs (所有权表)。
+        if version < 22 {
+            conn.execute_batch(
+                "CREATE TABLE sync_state (
+                    user_id TEXT PRIMARY KEY,
+                    last_push_at INTEGER NOT NULL DEFAULT 0,
+                    last_pull_rev INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL
+                );
+                 INSERT INTO schema_migrations (version, applied_at) VALUES (22, strftime('%s','now')*1000);
+                 ",
+            )
+            .map_err(|e| format!("迁移 v22 失败: {e}"))?;
+        }
         Ok(())
     }
 }
@@ -755,6 +772,15 @@ mod tests {
                 .unwrap();
             assert_eq!(n, 1, "vocab 应有 {col} (v21)");
         }
+        // v22: sync_state 表
+        let v22: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sync_state'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(v22, 1, "sync_state 表应存在 (v22)");
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}-wal"));
@@ -906,7 +932,8 @@ mod tests {
                     FROM highlights;
                  DROP TABLE highlights;
                  ALTER TABLE highlights_v17 RENAME TO highlights;
-                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21);
+                 DROP TABLE sync_state;
+                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22);
                  INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,source_book_id,
                     chapter_count,failed_count,source_language,target_language,llm_id,tts_id,nlp_id,
                     created_at,updated_at)
@@ -997,6 +1024,9 @@ mod tests {
                  DROP TABLE reading_daily_legacy;
                  DELETE FROM schema_migrations WHERE version=20;
                  DELETE FROM schema_migrations WHERE version=21;
+                 -- 撤 v22 (sync_state), 让迁移从 v19 状态完整重跑
+                 DROP TABLE sync_state;
+                 DELETE FROM schema_migrations WHERE version=22;
                  -- vocab key 还原为 v19 的 {profile}:{lemma} 形式
                  UPDATE vocab SET key = substr(key, 4) WHERE key LIKE 'me:%';
                  UPDATE dictionary SET key = substr(key, 4) WHERE key LIKE 'me:%';",

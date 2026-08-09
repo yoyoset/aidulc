@@ -104,6 +104,30 @@
           });
         }
       }
+      // V6 (2026-08-09): 顶栏同步状态四态 (已同步 / N 条待推 / 离线 / 失败), 只改数字不转圈
+      if (global.AiduSyncService && global.AiduUserService) {
+        const syncChip = el('span', 'nav-sync-chip', '');
+        syncChip.title = '背单词状态同步状态';
+        right.appendChild(syncChip);
+        const refreshSync = () => {
+          AiduSyncService.status().then((res) => {
+            if (!res.ok || !res.data) return;
+            const d = res.data;
+            const cls = 'nav-sync-' + (d.status || 'unconfigured');
+            syncChip.className = 'nav-sync-chip ' + cls;
+            if (d.status === 'synced') syncChip.textContent = '已同步';
+            else if (d.status === 'pending') syncChip.textContent = d.pending_count + ' 条待推';
+            else if (d.status === 'offline') syncChip.textContent = '离线';
+            else if (d.status === 'failed') syncChip.textContent = '同步失败';
+            else syncChip.textContent = '未配置';
+          });
+        };
+        refreshSync();
+        setInterval(refreshSync, 30000).unref?.();
+        if (typeof window.addEventListener === 'function') {
+          window.addEventListener('aidulc:user-changed', () => setTimeout(refreshSync, 50));
+        }
+      }
       const settingsBtn = el('button', 'app-nav-link app-nav-settings', '设置');
       settingsBtn.dataset.route = 'settings';
       settingsBtn.setAttribute('aria-label', '打开设置');

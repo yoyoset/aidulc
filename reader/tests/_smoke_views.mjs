@@ -172,10 +172,11 @@ globalThis.AiduSettingsService = {
   upsert: async () => ({ ok: true }),
 };
 globalThis.AiduSyncService = {
-  status: async () => ({ ok: true, data: { configured: false } }),
+  status: async () => ({ ok: true, data: { configured: false, user_id: 'me', pending_count: 0 } }),
   statusLabel: () => '未配置', configure: async () => ({ ok: true }),
   now: async () => ({ ok: true, data: {} }), pull: async () => ({ ok: true, data: {} }),
-  disconnect: async () => ({ ok: true }),
+  disconnect: async () => ({ ok: true }), authDevice: async () => ({ ok: true, data: { user_id: 'me', device_id: 'd' } }),
+  makeCode: async () => ({ ok: true, data: { code: '123456' } }),
 };
 globalThis.AiduDictionaryService = { list: async () => ({ ok: true, data: [] }), vocabAll: async () => ({ ok: true, data: [] }), lookup: async () => ({ ok: true, data: {} }), addToVocab: async () => ({ ok: true }), vocabRemove: async () => ({ ok: true }), srsPreview: async () => ({ ok: true, data: { options: [1,2,3,4].map((g) => ({ grade: g, human: g + ' 天' })) } }), srsGrade: async (p, l, g) => ({ ok: true, data: {} }), srsRestore: async () => ({ ok: true, data: {} }) };
 globalThis.AiduReadingService = { get: async () => ({ ok: true, data: null }), save: async () => ({ ok: true }), stats: async () => ({ ok: true, data: {} }) };
@@ -367,6 +368,25 @@ console.log('== 5. 顶栏切人 (V1 身份模型, 2026-08-09) ==');
   // 新实例读当前 user
   check('currentId 返回新 user', globalThis.AiduUserService.currentId() === 'u-kid');
   check('currentName 解析新 user', globalThis.AiduUserService.currentName([{ id: 'me', name: '我' }, { id: 'u-kid', name: '孩子' }]) === '孩子');
+}
+
+console.log('== 5b. 顶栏同步四态 (V6, 2026-08-09) ==');
+{
+  // stub sync_status 返回四态之一, 验证顶栏 chip 文案
+  const chipStates = ['synced', 'pending', 'offline', 'failed'];
+  for (const st of chipStates) {
+    globalThis.AiduSyncService.status = async () => ({ ok: true, data: { status: st, configured: true, pending_count: 3, user_id: 'me' } });
+    const appEl = makeElement('div');
+    const shell = new globalThis.ShellView(appEl);
+    shell.render();
+    await new Promise((r) => setTimeout(r, 30));
+    const chip = queryAll(appEl, '.nav-sync-chip')[0];
+    const text = chip && chip.textContent;
+    if (st === 'synced') check('已同步 chip', chip && text === '已同步', text);
+    if (st === 'pending') check('N 条待推 chip (不转圈)', chip && text === '3 条待推', text);
+    if (st === 'offline') check('离线 chip', chip && text === '离线', text);
+    if (st === 'failed') check('失败 chip', chip && text === '同步失败', text);
+  }
 }
 
 console.log('== 6. 背单词三栏 (V3, 2026-08-09) ==');

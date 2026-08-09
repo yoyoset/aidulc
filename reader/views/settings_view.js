@@ -182,70 +182,82 @@
        learningPane.appendChild(profSec);
       this._renderProfiles(profList);
 
-      // I-C: 同步配置与状态
+      // I-C: 同步配置与状态 (V6 按当前 user 分账, 协议 v1)
       const syncSec = el('div', 'settings-section');
-      syncSec.appendChild(el('h2', null, '同步 (AIDU 生词)'));
+      syncSec.appendChild(el('h2', null, '同步 (背单词状态跨设备)'));
       const syncStatus = el('div', 'sync-status', '读取中…');
       const urlInput = el('input', 'prep-input');
-      urlInput.placeholder = 'CF Worker URL';
-      const tokenInput = el('input', 'prep-input');
-      tokenInput.type = 'password';
-      tokenInput.placeholder = 'AUTH_TOKEN (存 Windows 凭据, 不落明文)';
-      const saveBtn = el('button', 'btn-primary', '保存配置');
+      urlInput.placeholder = 'CF Worker URL (自建 worker 链接)';
+      const secretInput = el('input', 'prep-input');
+      secretInput.type = 'password';
+      secretInput.placeholder = 'ROOT_SECRET 或 6 位邀请码 (换 token, 不落明文)';
+      const authBtn = el('button', 'btn-primary', '换 token');
+      authBtn.title = '首台用 ROOT_SECRET; 后续设备用 6 位邀请码 (add-device/invite-user)';
       const syncBtn = el('button', 'btn-small', '立即同步');
       const pullBtn = el('button', 'btn-small', '拉取合并');
+      const codeBtn = el('button', 'btn-small', '生成邀请码');
+      codeBtn.title = '给另一台设备: 绑到当前 user (add-device)';
       const disconnectBtn = el('button', 'btn-small btn-danger', '断开同步');
-      disconnectBtn.title = '删除凭据里的 token 并清空 Worker URL, 彻底停止同步';
+      disconnectBtn.title = '删除当前 user 的 token, 本机不再同步';
       disconnectBtn.disabled = true;
-      syncSec.append(syncStatus, urlInput, tokenInput, saveBtn, syncBtn, pullBtn, disconnectBtn);
+      syncSec.append(syncStatus, urlInput, secretInput, authBtn, syncBtn, pullBtn, codeBtn, disconnectBtn);
        syncPane.appendChild(syncSec);
 
+      const refreshStatus = (d) => {
+        syncStatus.textContent = '状态: ' + AiduSyncService.statusLabel(d) +
+          (d.user_id ? ' · ' + d.user_id : '') +
+          (d.pending_count > 0 ? ' · ' + d.pending_count + ' 条待推' : '') +
+          (d.worker_url ? ' · ' + d.worker_url : '') +
+          (d.last_sync_at ? ' · 上次 ' + new Date(d.last_sync_at).toLocaleTimeString() : '');
+        disconnectBtn.disabled = !d.configured;
+      };
       AiduSyncService.status().then((res) => {
-        if (res.ok && res.data) {
-          const d = res.data;
-          syncStatus.textContent = '状态: ' + AiduSyncService.statusLabel(d) +
-            (d.worker_url ? ' · ' + d.worker_url : '') +
-            (d.last_sync_at ? ' · 上次 ' + new Date(d.last_sync_at).toLocaleTimeString() : '');
-          // R2-1: 只有已配置才可断开
-          disconnectBtn.disabled = !d.configured;
-        }
+        if (res.ok && res.data) refreshStatus(res.data);
+        else syncStatus.textContent = '未配置 (输入 Worker URL + ROOT_SECRET/邀请码 换 token)';
       });
-      saveBtn.onclick = () => {
-        AiduSyncService.configure(urlInput.value.trim(), tokenInput.value.trim()).then((r) => {
-          syncStatus.textContent = r.ok ? '配置已保存' : '保存失败: ' + r.error;
-          tokenInput.value = '';
-          if (r.ok) {
-            disconnectBtn.disabled = false;
-            syncStatus.textContent = '状态: 已配置';
-          }
+      authBtn.onclick = () => {
+        syncStatus.textContent = '换 token 中…';
+        const rootSecret = secretInput.value.trim() || null;
+        const code = /^\d{6}$/.test(secretInput.value.trim()) ? secretInput.value.trim() : null;
+        AiduSyncService.authDevice(urlInput.value.trim(), null, rootSecret, code, '主电脑').then((r) => {
+          secretInput.value = '';
+          if (!r.ok) { syncStatus.textContent = '换 token 失败: ' + r.error; return; }
+          syncStatus.textContent = '已换 token: user=' + (r.data.user_name || r.data.user_id) + ' · 设备=' + r.data.device_id;
+          disconnectBtn.disabled = false;
         });
       };
       syncBtn.onclick = () => {
         syncStatus.textContent = '同步中…';
         AiduSyncService.now().then((r) => {
-          if (r.ok && r.data) syncStatus.textContent = '状态: ' + AiduSyncService.statusLabel(r.data);
+          if (r.ok && r.data) refreshStatus(r.data);
           else syncStatus.textContent = '同步失败: ' + (r.error || '');
         });
       };
       pullBtn.onclick = () => {
         syncStatus.textContent = '拉取中…';
         AiduSyncService.pull().then((r) => {
-          if (r.ok && r.data) syncStatus.textContent = '状态: ' + AiduSyncService.statusLabel(r.data);
+          if (r.ok && r.data) refreshStatus(r.data);
           else syncStatus.textContent = '拉取失败: ' + (r.error || '');
         });
       };
-      // R2-1 (2026-08-08): 断开 = 删 token + 清 URL + 清内存态 (彻底可撤销)
+      // V6: 生成 add-device 邀请码 (绑当前 user)
+      codeBtn.onclick = () => {
+        syncStatus.textContent = '生成邀请码中…';
+        AiduSyncService.makeCode(null, 'add-device', null).then((r) => {
+          if (!r.ok) { syncStatus.textContent = '生成失败: ' + r.error; return; }
+          AiduToast.show('邀请码: ' + r.data.code + ' (10 分钟有效)', 'info');
+          syncStatus.textContent = '邀请码已复制: ' + r.data.code;
+        });
+      };
       disconnectBtn.onclick = () => {
         AiduModal.confirm({
-          title: '断开同步?',
-          message: '将删除本机保存的同步凭据并清空 Worker 地址。此操作只影响本机, 云端已同步的生词不受影响。',
+          title: '断开当前 user 的同步?',
+          message: '将删除当前 user 在本机保存的 token。此操作只影响本机, 云端已同步的生词不受影响。',
           confirmText: '断开',
           danger: true,
           onConfirm: () => AiduSyncService.disconnect().then((r) => {
             if (!r.ok) { AiduToast.show('断开失败: ' + r.error, 'error'); return; }
             AiduToast.show('已断开同步', 'info');
-            urlInput.value = '';
-            tokenInput.value = '';
             disconnectBtn.disabled = true;
             syncStatus.textContent = '状态: 未配置';
           }),

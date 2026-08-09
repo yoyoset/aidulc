@@ -228,6 +228,39 @@ impl<'a> VocabRepo<'a> {
             "by_stage": by_stage,
         })
     }
+
+    /// V6: 某 user 全部词条 (跨 profile; 同步按 user 分账, 不看讲解策略)。
+    pub fn list_all_for_user(&self, user_id: &str) -> Vec<VocabEntry> {
+        let conn = self.db.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT payload FROM vocab WHERE user_id = ?1")
+            .unwrap();
+        let payloads: Vec<String> = stmt
+            .query_map([user_id], |r| r.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(stmt);
+        drop(conn);
+        payloads
+            .iter()
+            .filter_map(|p| serde_json::from_str::<VocabEntry>(p).ok())
+            .collect()
+    }
+
+    /// V6: 该 user 任意 profile 下查某 lemma (拉取合并时判"本地较新不覆盖")。
+    pub fn get_any_profile(&self, user_id: &str, lemma: &str) -> Option<VocabEntry> {
+        let conn = self.db.conn.lock().unwrap();
+        let payload: Option<String> = conn
+            .query_row(
+                "SELECT payload FROM vocab WHERE user_id = ?1 AND lemma = ?2 LIMIT 1",
+                [user_id, lemma],
+                |r| r.get(0),
+            )
+            .ok();
+        drop(conn);
+        payload.and_then(|p| serde_json::from_str::<VocabEntry>(&p).ok())
+    }
 }
 
 #[cfg(test)]

@@ -25,6 +25,7 @@
 | `jobs` | `jobs_repo.rs` | 备料任务 |
 | `batches` | `batches_repo.rs` | 批量任务 |
 | `model_registry` | `model_repo.rs` | 模型绑定 |
+| `sync_state` | `sync_state_repo.rs` | **V6 新增**: 每 user 的同步状态 (last_push_at 算待推数, last_pull_rev 增量拉取) |
 | `wizard_state` | `application/wizard_service.rs` | **例外**:唯一不走 `store/*_repo.rs` 模式、直接发 SQL 的表。新代码沿用现状(改这里前先问是否该补一个 `wizard_repo.rs` 而不是继续叠加直连 SQL) |
 
 跨表只读查询允许(如 `transfer_service.rs` 为导出功能 `SELECT DISTINCT profile_id FROM vocab UNION ...`),

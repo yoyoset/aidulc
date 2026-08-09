@@ -34,7 +34,7 @@
 │ store/          每表唯一写者 repo: books/jobs/batches/vocab/dict/profile/reading/  │
 │                 settings/model + store_mod.rs(Db, schema_migrations)               │
 │ domain/         bookpack(版本门) / vocab(aidu 契约 normalize) / sync(合并)          │
-│ infrastructure/ dir_migration / aidu_worker_client(CF 同步) / downloader / log /    │
+│ infrastructure/ dir_migration / sync_v1_client(协议 v1 同步) / downloader / log /    │
 │                 model_store/scan                                                    │
 │ jobs/           job_guard(作业对象) / progress / spawn(侧车子进程)                  │
 │ services/       config(Config.toml) / credentials(Windows Credential Manager) /    │
@@ -65,7 +65,7 @@
 
 | 表 | 唯一写者 | 说明 |
 |---|---|---|
-| `vocab` | `vocab_repo.rs` | SRS 学习状态; aidulc v1 不做复习, 复习走 aidu 同步 |
+| `vocab` | `vocab_repo.rs` | SRS 学习状态; 背单词调度器 (V2) 经此写 SRS, 复习已在 aidulc 内 (V3) |
 | `dictionary` | `dict_repo.rs` | 个人词典资产(LLM 查询的沉淀缓存, 不自动进生词本) |
 | `profiles` | `profile_repo.rs` | 讲解策略/音色/语速/高亮粒度 |
 | `reading_state` | `reading_repo.rs` | 阅读进度/书签/播放位置 |
@@ -75,6 +75,7 @@
 | `jobs` | `jobs_repo.rs` | 备料任务 |
 | `batches` | `batches_repo.rs` | 批量任务 |
 | `model_registry` | `model_repo.rs` | 模型绑定; **模型路径唯一真相源** |
+| `sync_state` | `sync_state_repo.rs` | 每 user 的同步状态 (V6: last_push_at 算待推数, last_pull_rev 增量拉取) |
 | `wizard_state` | `application/wizard_service.rs` | **例外**: 唯一不走 store/*_repo.rs 模式、直接发 SQL 的表(现状, 改这里前先考虑补 wizard_repo.rs) |
 
 跨表只读查询允许(如 `transfer_service.rs` 导出 `SELECT DISTINCT profile_id FROM vocab UNION ...`); 禁止跨 repo 写同一张表。
@@ -100,6 +101,7 @@ DB 模式演进: `store_mod.rs` 用 `schema_migrations` 表, 目前 19 个迁移
       的复合主键。迁移不拆人(全部现有数据归一个 user), 事务内完成可回滚 | 背单词 STAGE-SRS |
 | v21 | **来源定位 (V4)**: vocab 加 edition_id/chapter_index/sentence_index 列 (旧数据留空, UI 降级);
       加词时记录"从哪本书哪章哪句划出来的" | 背单词 STAGE-SRS |
+| v22 | **同步状态 (V6)**: sync_state 表 (每 user 一行: last_push_at 算待推数, last_pull_rev 增量拉取) | 背单词 STAGE-SRS |
 
 ## 3. contracts 三端链路
 
@@ -178,8 +180,10 @@ reader open → load_bookpack(meta) → settings_get(profile) → _loadChapter
 点词 → atomic_block onBubbleClick → word_lookup(本地词典优先, 未命中 spawn 侧车
   dict-lookup LLM 补全 + 沉淀 dict_repo; 8s 超时兜底)
   → "+ 加入生词本" → add_vocab → vocab_repo(lemma = 词面小写, 非 NLP lemma —— 见 R1-2 注意)
-  → sync_now/sync_pull → aidu_worker_client(CF Worker, token 在 Credential Manager)
-  → 状态机 unconfigured|offline|synced|failed(上次结果存进程内 OnceLock, 不持久化)
+  → sync_now(user_id) → sync_v1_client(协议 v1: /v1/sync, token 按 user 存 Credential Manager)
+  → 先推后拉: 推本地未推词条(updated_at > last_push_at) → 拉增量(since=last_pull_rev)
+  → 复用 domain/sync.rs merge_envelopes 新者胜
+  → 四态 unconfigured|offline|synced|pending|failed (sync_state 持久化 last_push_at/last_pull_rev)
 导出: transfer_export(.aidu-data 词典+生词) / book_export(书包 zip, Stored 不压缩)
 ```
 

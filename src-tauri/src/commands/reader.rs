@@ -307,48 +307,118 @@ pub fn srs_grade(
     serde_json::to_value(saved).map_err(|e| e.to_string())
 }
 
-// ---- 同步 (I-C: 状态机 + 配置) ----
+// ---- 同步 (I-C: 状态机 + 配置, V6 按 user 分账) ----
 
-/// 同步状态
+/// 当前 user 的同步状态
 #[tauri::command]
 pub fn sync_status(
     db: State<store::Db>,
     services: State<crate::AppServices>,
+    user_id: String,
 ) -> Result<serde_json::Value, String> {
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
-    let token = svc.cf_token.lock().unwrap().clone();
-    let s = crate::application::sync_service::get_status(db.inner(), &url, &token);
+    let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
+    let s = crate::application::sync_service::get_status(db.inner(), &url, &token, &user_id);
     serde_json::to_value(s).map_err(|e| e.to_string())
 }
 
-/// 立即同步 (push)
+/// 立即同步 (某 user): 先推后拉
 #[tauri::command]
 pub fn sync_now(
     db: State<store::Db>,
     services: State<crate::AppServices>,
+    user_id: String,
 ) -> Result<serde_json::Value, String> {
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
-    let token = svc.cf_token.lock().unwrap().clone();
-    let s = crate::application::sync_service::sync_now(db.inner(), &url, &token)?;
+    let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
+    let s = crate::application::sync_service::sync_now(db.inner(), &url, &token, &user_id)?;
     serde_json::to_value(s).map_err(|e| e.to_string())
 }
 
-/// 拉取合并
+/// 拉取合并 (某 user)
 #[tauri::command]
 pub fn sync_pull_now(
     db: State<store::Db>,
     services: State<crate::AppServices>,
+    user_id: String,
 ) -> Result<serde_json::Value, String> {
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
-    let token = svc.cf_token.lock().unwrap().clone();
-    let s = crate::application::sync_service::sync_pull(db.inner(), &url, &token)?;
+    let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
+    let s = crate::application::sync_service::sync_pull(db.inner(), &url, &token, &user_id)?;
     serde_json::to_value(s).map_err(|e| e.to_string())
 }
 
+/// V6: 首台 (ROOT_SECRET) 或 6 位码 换该 user 的 token (协议 v1 auth/device)。
+/// root_secret 与 code 二选一; 成功后存 Credential Manager (按 user 分账) + 存 worker_url。
+#[tauri::command]
+pub fn sync_auth_device(
+    services: State<crate::AppServices>,
+    worker_url: String,
+    user_id: String,
+    root_secret: Option<String>,
+    code: Option<String>,
+    device_name: String,
+) -> Result<serde_json::Value, String> {
+    use crate::services::config;
+    let auth = crate::infrastructure::sync_v1_client::auth_device(
+        &worker_url,
+        root_secret.as_deref(),
+        code.as_deref(),
+        &device_name,
+    )?;
+    if !auth.token.is_empty() {
+        crate::services::credentials::save_cf_token_for(&user_id, &auth.token)?;
+    }
+    // 持久化 worker_url 到 config.toml
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_default();
+    let mut cfg = config::Config::load(&exe_dir);
+    cfg.cf_worker_url = worker_url.clone();
+    let _ = std::fs::write(
+        exe_dir.join("config.toml"),
+        toml::to_string_pretty(&cfg).unwrap_or_default(),
+    );
+    let svc = services.inner();
+    *svc.cf_worker_url.lock().unwrap() = worker_url;
+    *svc.cf_token.lock().unwrap() = auth.token.clone();
+    serde_json::to_value(auth).map_err(|e| e.to_string())
+}
+
+/// V6: 已登录 user 生成 6 位一次性码 (add-device / invite-user)
+#[tauri::command]
+pub fn sync_make_code(
+    services: State<crate::AppServices>,
+    user_id: String,
+    code_type: String,
+    name: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let svc = services.inner();
+    let url = svc.cf_worker_url.lock().unwrap().clone();
+    let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
+    let r = crate::infrastructure::sync_v1_client::make_code(
+        &url,
+        &token,
+        &code_type,
+        name.as_deref(),
+    )?;
+    serde_json::to_value(r).map_err(|e| e.to_string())
+}
+
+/// V6: 断开该 user 的同步 —— 删该 user 的 token (URL 共享, 只清 token)。
+#[tauri::command]
+pub fn sync_disconnect(user_id: String) -> Result<(), String> {
+    let _ = crate::services::credentials::delete_cf_token_for(&user_id);
+    crate::application::sync_service::reset_last_sync(&user_id);
+    Ok(())
+}
+
 /// 同步配置 (URL + token; token 存 Credential Manager; 即时生效)
+/// 保留旧命令面 (旧前端/兼容); V6 新流程走 sync_auth_device。
 #[tauri::command]
 pub fn sync_config_set(
     services: State<crate::AppServices>,
@@ -367,46 +437,18 @@ pub fn sync_config_set(
         exe_dir.join("config.toml"),
         toml::to_string_pretty(&cfg).unwrap_or_default(),
     );
-    // token 存 Credential Manager (永不落明文)
+    // token 存 Credential Manager (永不落明文); 兼容旧默认 user
     if !token.is_empty() {
-        crate::services::credentials::save_cf_token(&token)?;
+        crate::services::credentials::save_cf_token_for(
+            crate::store::users_repo::DEFAULT_USER_ID,
+            &token,
+        )?;
     }
     // 更新内存态 (即时生效)
     let svc = services.inner();
     *svc.cf_worker_url.lock().unwrap() = worker_url;
     *svc.cf_token.lock().unwrap() =
         crate::services::credentials::get_cf_token().unwrap_or_default();
-    Ok(())
-}
-
-/// R2-1 (2026-08-08): 断开同步 —— 三处一起清, 否则语义不干净:
-/// 只删 token 的话 sync_status 会回 unconfigured, 但 config.toml 残留旧 URL,
-/// 日后重配 token 会"复活"旧地址; 内存态不清则当前会话仍显示已配置。
-#[tauri::command]
-pub fn sync_disconnect(services: State<crate::AppServices>) -> Result<(), String> {
-    use crate::services::config;
-    // 1. 删 Credential Manager 里的 token (没配置时无可删, 忽略)
-    let _ = crate::services::credentials::delete_cf_token();
-    // 2. 清 config.toml 的 cf_worker_url
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_default();
-    let mut cfg = config::Config::load(&exe_dir);
-    cfg.cf_worker_url = String::new();
-    std::fs::write(
-        exe_dir.join("config.toml"),
-        toml::to_string_pretty(&cfg).unwrap_or_default(),
-    )
-    .map_err(|e| {
-        format!("清 config.toml 失败 (token 已删但 URL 残留, 请手动删除 config.toml): {e}")
-    })?;
-    // 3. 清内存态 (即时生效)
-    let svc = services.inner();
-    *svc.cf_worker_url.lock().unwrap() = String::new();
-    *svc.cf_token.lock().unwrap() = String::new();
-    // 4. 清上次同步结果 (防断开后旧的 "synced 时间" 残留展示)
-    crate::application::sync_service::reset_last_sync();
     Ok(())
 }
 

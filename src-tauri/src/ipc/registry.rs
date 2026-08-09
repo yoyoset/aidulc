@@ -157,27 +157,37 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         path: "commands::reader::sync_status",
         domain: "同步",
-        desc: "同步状态",
+        desc: "同步状态 (V6 起按 user)",
     },
     CommandInfo {
         path: "commands::reader::sync_now",
         domain: "同步",
-        desc: "立即同步(push)",
+        desc: "立即同步(某 user, 先推后拉, V6)",
     },
     CommandInfo {
         path: "commands::reader::sync_pull_now",
         domain: "同步",
-        desc: "拉取合并",
+        desc: "拉取合并(某 user)",
     },
     CommandInfo {
-        path: "commands::reader::sync_config_set",
+        path: "commands::reader::sync_auth_device",
         domain: "同步",
-        desc: "配置 CF Worker 同步 (URL + token 存凭据库)",
+        desc: "V6: ROOT_SECRET/6 位码 换该 user 的 token (协议 v1)",
+    },
+    CommandInfo {
+        path: "commands::reader::sync_make_code",
+        domain: "同步",
+        desc: "V6: 已登录 user 生成 6 位一次性码 (add-device/invite-user)",
     },
     CommandInfo {
         path: "commands::reader::sync_disconnect",
         domain: "同步",
-        desc: "断开同步 (删 token + 清 config.toml URL + 内存态)",
+        desc: "V6: 断开该 user 的同步 (删该 user 的 token)",
+    },
+    CommandInfo {
+        path: "commands::reader::sync_config_set",
+        domain: "同步",
+        desc: "配置 CF Worker 同步 (URL + token 存凭据库; 旧兼容面)",
     },
     CommandInfo {
         path: "commands::reader::bookmarks_list",

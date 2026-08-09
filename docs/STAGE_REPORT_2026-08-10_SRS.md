@@ -106,5 +106,14 @@ token 解析)。
 
 - **手机端真机截图未做**:本环境无手机浏览器,已用 node 测试(26 项 UI 冒烟 + 27 项同步链)
   + 真实 worker e2e 验证逻辑,真机交互(滑动手势手感)需人工确认。
-- **V6 拉取合并写回 default profile**:远端词条合并写回本地默认 profile(跨 profile 的
-  同 lemma 共用一条远端状态),这是简化,后续可按需细化。
+
+## 8. 事后修复 (2026-08-10, 复审发现)
+
+- **P0 同步词分裂**(18aa01d):拉取合并远端赢时写死 default → 非 default profile 的词
+  分裂成两行两套 SRS。修:写回原 profile + 推送取每 lemma 最新(确定性),2 条回归测试。
+  原 §7"合并写回 default profile 是简化"的描述不准确,已修,故从遗留删除。
+- **P0 PWA 更新机制**(c220643):SW 缓存写死版本 + cache-first → 已装用户永远旧壳。
+  修:版本嵌入 sw.js + network-first/SWR + "有更新点此刷新" + deploy_mobile.ps1
+  强制版本递增 + check 门禁。线上已部署 0.7.0-3。
+- **P2 第 7 处偏离**(c220643):word_key 无词性是有意简化,补进 DESIGN_NOTES。
+- 便携版已随 18aa01d 重打(02:06:40 ≥ 02:04:49)。

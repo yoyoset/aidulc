@@ -71,35 +71,40 @@ def main(argv: list[str] | None = None) -> int:
     # 原版书预览模式 (书库"查看原文" + 处理前体检 R3.3: 格式/目录来源/章节异常信号)
     if args.preview_book:
         from aidulc_prep.pipeline.loader import load_book
+        from aidulc_prep.pipeline.loader.epub import (
+            load_epub_with_spine_health,
+            probe_toc_source,
+        )
+        from aidulc_prep.core.health import detect_anomalies
         import os as _os
         path = args.preview_book
+        ext = _os.path.splitext(path)[1].lower()
         try:
-            book = load_book(path)
+            if ext == ".epub":
+                # F39: 体检需要 spine 覆盖率 (有文件没被任何章节覆盖 → F38 类问题),
+                # load_book 拿不到 → 走带覆盖信息的入口
+                book, uncovered = load_epub_with_spine_health(path)
+                toc_source = probe_toc_source(path)
+            else:
+                book = load_book(path)
+                uncovered = []
+                toc_source = "n/a"
         except Exception as e:
             sys.stderr.write(f"preview failed: {e}\n")
             return 1
-        ext = _os.path.splitext(path)[1].lower()
-        # 处理前体检: 目录来源 (epub) + 每章句数分布 + 异常信号 (1 句的章 / 巨章)
+        # 处理前体检: 格式 + 目录来源 + 每章句数分布 + 异常信号
+        # (F39 2026-08-10: 异常检测抽成纯函数 detect_anomalies, 新增 spine 覆盖率 +
+        # 句数离群两条, 0/1/>1000 保留)
         health: dict = {
             "format": ext,
             "chapter_count": len(book.chapters),
             "sentence_counts": [len(ch.sentences) for ch in book.chapters],
+            "toc_source": toc_source,
+            "uncovered_files": uncovered,
+            "anomalies": detect_anomalies(
+                [len(ch.sentences) for ch in book.chapters], uncovered
+            ),
         }
-        if ext == ".epub":
-            from aidulc_prep.pipeline.loader.epub import probe_toc_source
-            health["toc_source"] = probe_toc_source(path)
-        else:
-            health["toc_source"] = "n/a"
-        anomalies: list[str] = []
-        for ch in book.chapters:
-            n = len(ch.sentences)
-            if n == 0:
-                anomalies.append(f"第 {ch.index + 1} 章无正文")
-            elif n == 1:
-                anomalies.append(f"第 {ch.index + 1} 章只有 1 句 (可能是碎片章)")
-            elif n > 1000:
-                anomalies.append(f"第 {ch.index + 1} 章有 {n} 句 (巨章, 可能切分异常)")
-        health["anomalies"] = anomalies
         out = {
             "title": book.title,
             "health": health,

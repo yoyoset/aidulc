@@ -333,6 +333,15 @@ def _find_toc_source(
 
 
 def load_epub(path: str) -> Book:
+    book, _ = load_epub_with_spine_health(path)
+    return book
+
+
+def load_epub_with_spine_health(path: str) -> tuple[Book, list[str]]:
+    """load_epub + 返回未被任何章节覆盖的 spine 文件 (F39 处理前体检用)。
+
+    覆盖 = 有章节产出的文件; 被 _looks_like_index 整章跳过 / 解析出 0 句的文件也算
+    未覆盖 —— 这正是 F38 类问题 ("有 spine 文件从头到尾没被打开过") 的判据。"""
     try:
         zf = zipfile.ZipFile(path)
     except zipfile.BadZipFile as e:
@@ -413,6 +422,7 @@ def load_epub(path: str) -> Book:
         )
 
         chapters: list[Chapter] = []
+        covered: set[str] = set()
         for i, full in enumerate(full_files):
             if full in toc_nonbody and full not in toc_body:
                 continue  # Map/Charts/References/Index 等非正文页
@@ -421,11 +431,14 @@ def load_epub(path: str) -> Book:
             heading = next((t for t, _ in _file_sections(zf, full) if t), "")
             ch_title = toc_body.get(full) or heading or f"Chapter {len(chapters) + 1}"
             built = _build_chapters_from_file(zf, full, ch_title)
+            before = len(chapters)
             for ch in built:
                 ch.index = len(chapters)
                 if _looks_like_index(ch.sentences):
                     continue
                 chapters.append(ch)
+            if len(chapters) > before:
+                covered.add(full)
 
         # TOC 正文条目出现但不在 spine 的文件补在末尾 (保守, 别丢)
         for key, text in toc_body.items():
@@ -434,15 +447,27 @@ def load_epub(path: str) -> Book:
             heading = next((t for t, _ in _file_sections(zf, key) if t), "")
             ch_title = text or heading or f"Chapter {len(chapters) + 1}"
             built = _build_chapters_from_file(zf, key, ch_title)
+            before = len(chapters)
             for ch in built:
                 ch.index = len(chapters)
                 if _looks_like_index(ch.sentences):
                     continue
                 chapters.append(ch)
+            if len(chapters) > before:
+                covered.add(key)
 
     if not chapters:
         raise InputError("EPUB 里没有解析出任何章节")
-    return Book(title=title, chapters=chapters)
+    # F39 判据 = 正文区里没产出任何章节的文件 (前页 / 非正文页按设计跳过, 不算)。
+    # 这才是 F38 类问题的信号: 正文文件被跳过/没被打开过 → 有文件没被任何章节覆盖。
+    uncovered = [
+        f
+        for i, f in enumerate(full_files)
+        if f not in covered
+        and not (f in toc_nonbody and f not in toc_body)
+        and (first_body_idx is None or i >= first_body_idx)
+    ]
+    return Book(title=title, chapters=chapters), uncovered
 
 
 def _is_real_sentence(text: str) -> bool:

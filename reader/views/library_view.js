@@ -322,9 +322,14 @@
              const childMeta = el('div', 'book-card-meta',
                `${childProfile} · ${edition.source_language || 'en'}→${edition.target_language || 'zh-CN'} · ${childModel}`);
              const childActions = el('div', 'book-card-actions');
-             const childOpen = el('button', 'btn-small', '打开阅读');
-             childOpen.disabled = !['ready', 'partial'].includes(edition.status);
-             childOpen.onclick = () => this.onOpenBook && this.onOpenBook(edition);
+              const childCanOpen = ['ready', 'partial'].includes(edition.status);
+              const childOpen = el('button', 'btn-small', '打开阅读');
+              childOpen.disabled = !childCanOpen;
+              if (!childCanOpen) {
+                childOpen.title = '这本书还在准备中, 完成后再来读';
+                childOpen.classList.add('btn-disabled');
+              }
+              childOpen.onclick = () => this.onOpenBook && this.onOpenBook(edition);
              const childDelete = el('button', 'btn-small btn-danger', '删除译本');
              childDelete.onclick = () => AiduModal.confirm({
                title: `删除译本《${edition.title || edition.id}》?`,
@@ -347,9 +352,18 @@
     _profileName(id) {
       const p = (this._profiles || []).find((x) => x.id === id);
       if (p && p.name) return p.name;
-      if (id === 'kid') return '陪小孩读';
-      if (id === 'default' || !id) return '成人自读';
+      const builtin = AiduBuiltinProfiles.BUILTIN_PROFILES[id];
+      if (builtin) return builtin.name;
+      if (!id) return AiduBuiltinProfiles.BUILTIN_PROFILES.default.name;
       return '未知档案';
+    }
+
+    /** 默认与预填 (UX 审计 2026-08-09): 记住上次选的档案, 导入/创建译本自动预选 */
+    _storedProfile() {
+      try { return window.localStorage.getItem('aidulc.lastProfile') || ''; } catch (e) { return ''; }
+    }
+    _saveProfile(id) {
+      try { if (id) window.localStorage.setItem('aidulc.lastProfile', id); } catch (e) { /* 无 localStorage 不阻塞 */ }
     }
 
     /** R1/R2: 开始阅读准备 — 前置检查 → 通过入队; 未通过 → 书卡标原因 */
@@ -407,6 +421,12 @@
         opt.value = p.id;
         profileSelect.appendChild(opt);
       });
+      // 默认与预填 (UX 审计 2026-08-09): 回填上次选的档案, 能自动填的不让用户重选
+      const lastProfile = this._storedProfile();
+      if (lastProfile && (this._profiles || []).some((p) => p.id === lastProfile)) {
+        profileSelect.value = lastProfile;
+      }
+      body.appendChild(profileSelect);
 
       // 语言 (source → target)
       body.appendChild(el('div', 'settings-hint', '语言'));
@@ -423,6 +443,7 @@
         tgtSel.appendChild(opt);
       });
       langRow.append(srcSel, tgtSel);
+      body.appendChild(langRow);
 
       // 模型 (阶段4: 不配置就用全局推荐; 统一从后端 models_list 取状态)
       body.appendChild(el('div', 'settings-hint', '模型 (不选就跟随模型中心的全局推荐)'));
@@ -430,6 +451,7 @@
       const llmSel = el('select', 'prep-select');
       const ttsSel = el('select', 'prep-select');
       modelRow.append(llmSel, ttsSel);
+      body.appendChild(modelRow);
 
       // preflight 结果区 (失败显示原因 + 下一步, 不关面板)
       const result = el('div', 'prep-preflight-result');
@@ -480,10 +502,8 @@
             body.appendChild(el('div', 'settings-hint settings-warn',
               '模型中心还没有完整的模型组合。请先到模型中心配置翻译引擎和语音引擎, 再回来创建译本。'));
           }
-          body.appendChild(modelRow);
-          // 重新挂回: body 是空容器, 顺序追加即可
-          body.appendChild(profileSelect);
-          body.appendChild(langRow);
+          // 档案/语言/模型三节控件在初始阶段已按标题顺序挂好 (UX 审计 2026-08-09),
+          // 异步回调只负责往模型下拉里填选项与告警, 不再重复 append 控件。
         }).catch((e) => {
           const loading = body.querySelector('.settings-loading');
           if (loading) loading.remove();
@@ -507,6 +527,8 @@
             return;
           }
           const profileId = profileSelect.value;
+          // 默认与预填 (UX 审计 2026-08-09): 记住本次选的档案, 下次自动预选
+          this._saveProfile(profileId);
           return this._startPrepForBook(book, profileId, {
             onSkipped: (reasons) => {
               // preflight 未通过: 留在面板, 显示原因 + 下一步
@@ -743,35 +765,32 @@
           if (paths && paths.length) this._startBatchImport(paths);
         }));
       }
-      const fileInput = el('input', null);
-      fileInput.type = 'file';
-      fileInput.multiple = true;
-      fileInput.accept = '.epub,.pdf,.txt';
-      fileInput.style.display = 'none';
-      fileInput.onchange = () => {
-        // M 系列: 走 bridge (视图不直连 __TAURI__)
+      // UX 审计 (2026-08-09): 去掉隐藏 <input type=file> —— 它先弹一次 WebView 原生
+      // 选择框, onchange 又调 pickFiles(rfd) 弹第二次, 用户每次导入被问两次文件。
+      // 点击直接走 pickFiles 拿真实路径 (Tauri 2 WebView2 的 File 无 .path, 见 library.rs)。
+      dropZone.onclick = () => {
         window.AiduBridge.pickFiles(['epub', 'pdf', 'txt']).then((r) => {
           if (r.ok && r.data && r.data.length) this._startBatchImport(r.data);
         });
-        fileInput.value = '';
       };
-      dropZone.appendChild(fileInput);
-      dropZone.onclick = () => fileInput.click();
 
       const optsRow = el('div', 'prep-row');
       const profileSelect = el('select', 'prep-select');
       profileSelect.title = '用哪个学习档案处理 (音色/讲解策略/语速在设置里管理)';
-      // M6: 档案从表里动态加载 (内建 default/kid + 用户自建), 不再硬编码两个
+      // M6: 档案从表里动态加载 (内建 default/kid + 用户自建), 内建项参数/名称统一走 core/builtin_profiles
       AiduBridge.profiles.list().then((res) => {
-        const profiles = (res.ok && Array.isArray(res.data) ? res.data : []).slice();
-        if (!profiles.some((p) => p.id === 'default')) profiles.unshift({ id: 'default', name: '成人自读' });
-        if (!profiles.some((p) => p.id === 'kid')) profiles.push({ id: 'kid', name: '陪小孩读' });
+        const profiles = AiduBuiltinProfiles.ensureBuiltins(res.ok && Array.isArray(res.data) ? res.data : []);
         profileSelect.innerHTML = '';
         profiles.forEach((p) => {
           const opt = el('option', null, p.name);
           opt.value = p.id;
           profileSelect.appendChild(opt);
         });
+        // 默认与预填 (UX 审计 2026-08-09): 回填上次选的档案
+        const lastProfile = this._storedProfile();
+        if (lastProfile && profiles.some((p) => p.id === lastProfile)) {
+          profileSelect.value = lastProfile;
+        }
       });
       const langSelect = el('select', 'prep-select');
       langSelect.id = 'prep-source-lang';
@@ -791,6 +810,8 @@
     _startBatchImport(paths) {
       const profileSel = document.querySelector('.import-card .prep-select');
       const profileId = profileSel ? profileSel.value : 'default';
+      // 默认与预填 (UX 审计 2026-08-09): 记住本次导入选的档案
+      this._saveProfile(profileId);
       // 阶段2 (F45): 单次动作只导一次 —— 拖拽事件与文件选择同时命中/快速连点都只放行第一次
       if (this._importDedup && !this._importDedup.shouldFire(paths, profileId)) return;
       const langSel = document.getElementById('prep-source-lang');

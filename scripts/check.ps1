@@ -99,6 +99,15 @@ Run-Check "node smoke (reader DOM 渲染路径)" {
     Pop-Location
 }
 
+# 7.6 (UX 审计 2026-08-09): 视图层改动冒烟测试 —— 防止已落地的打磨项静默回归。
+# 覆盖 prep 移除任务确认三态文案、settings 直达"模型中心"tab、导入卡单对话框、
+# 创建译本弹窗三节标题与控件对齐 (A1 回归, 曾误删控件唯一挂载点导致不渲染)。
+Run-Check "node smoke (视图层: prep/settings/library)" {
+    Push-Location "$root\reader"
+    node tests\_smoke_views.mjs
+    Pop-Location
+}
+
 # 8. CSS 令牌纪律: tokens.css 之外的样式文件不得出现裸 #hex 颜色(S3.1, 2026-08-07 清零后
 # 立即上强约束, 不设豁免——颜色只能来自 var(--md-sys-color-*))。字号/间距暂不做等价约束:
 # 阶梯令牌刚建立, 存量 px/rem 替换是后续工作, 现在加约束会让门禁对着几百处存量代码常年变红。

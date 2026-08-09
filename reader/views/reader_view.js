@@ -264,7 +264,13 @@
         speed: this._speed,
         updated_at: Date.now(),
       });
-      AiduSettingsService.upsert(patch);
+      // UX 审计 (2026-08-09): 保存失败不能静默 —— 否则用户改的字号/主题在下次打开
+      // 时被静默还原, 是"后台失败但用户以为成功"。与 _saveProgress 同一反馈通道。
+      AiduSettingsService.upsert(patch).catch(() => {
+        if (document.body.classList.contains('reader-active')) {
+          this._setStatus('设置保存失败 (磁盘写入失败?)');
+        }
+      });
     }
 
     // ---------------- 渲染 ----------------

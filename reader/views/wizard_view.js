@@ -111,7 +111,12 @@
 
     _stepHardware(content) {
       content.appendChild(el('p', null, '正在检查你的电脑...'));
-      AiduModelService.hardware('C:\\').then((res) => {
+      // UX 审计 (2026-08-09): 磁盘空间要查"书库实际所在盘", 不能硬编码 C:\
+      // (书库可迁移到其它盘, 否则用户看到的可用空间和真实写入盘无关, 数字不可信)。
+      AiduMiscService.libraryDirGet().then((r) => {
+        const dir = (r && r.ok && r.data) ? r.data : 'C:\\';
+        return AiduModelService.hardware(dir);
+      }).then((res) => {
         content.innerHTML = '';
         if (!res.ok) { content.appendChild(el('p', 'global-error', '检查失败: ' + res.error)); return; }
         const gpu = res.data.gpu ? '检测到 NVIDIA 显卡, 将使用加速引擎' : '未检测到 NVIDIA 显卡, 将使用兼容模式';
@@ -187,8 +192,10 @@
             `${name}: ${ok ? '✓ 已就绪' : (c ? c.detail : '未检测到')}`));
         });
         if (missing.length) {
+          // UX 审计 (2026-08-09): 指引别指错地方 —— 模型缺了去"模型中心"(设置内 tab),
+          // 文档解析器(PyMuPDF)靠设置里"组件健康检查"的一键安装, 不能都指向"模型中心"。
           content.appendChild(el('p', 'settings-warn',
-            `还需要 ${missing.join('、')}。可以先继续, 之后在"模型中心"里配置或下载。`));
+            `还需要 ${missing.join('、')}。可以先继续, 之后在"设置"里补齐：模型在"模型中心"配置/下载, 文档解析器可一键安装。`));
         }
         const next = el('button', 'btn-primary', '完成设置');
         next.onclick = () => {

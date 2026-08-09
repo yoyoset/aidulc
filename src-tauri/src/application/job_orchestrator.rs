@@ -729,7 +729,14 @@ pub fn pump_queue(
     let job_id = next.unwrap();
 
     let repo = store::jobs_repo::JobsRepo::new(db);
-    let job = repo.get(&job_id).ok_or("任务不存在")?;
+    let job = match repo.get(&job_id) {
+        Some(j) => j,
+        None => {
+            // UX 审计 (2026-08-09): 任务已被移除但 id 仍留在内存队列 (job_remove 的
+            // 防御兜底) —— 跳过并继续下一个, 而不是返回 Err 让整条队列停摆且无反馈。
+            return pump_queue(app, cfg, state, db);
+        }
+    };
     // R3: 队列里出现 paused (异常路径) → 跳过不处理
     if job.status == "paused" {
         return pump_queue(app, cfg, state, db);
@@ -1023,7 +1030,10 @@ fn enrich_progress(ev: jobs::progress::ProgressEvent, job_id: &str) -> serde_jso
             total,
             ts,
         } => {
-            serde_json::json!({"jobId": job_id, "type": "stage_progress", "stage": stage, "current": current, "total": total, "ts": ts})
+            // UX 审计 (2026-08-09): 把全书完成度一并带上 —— 前端实时刷进度条用同一
+            // 个 overall 值, 否则条(阶段比例)和旁边百分比标签(全书进度)显示不一致。
+            serde_json::json!({"jobId": job_id, "type": "stage_progress", "stage": stage,
+                "current": current, "total": total, "progress": overall_progress(&stage, current, total), "ts": ts})
         }
         E::StageDone {
             stage,
@@ -1031,7 +1041,8 @@ fn enrich_progress(ev: jobs::progress::ProgressEvent, job_id: &str) -> serde_jso
             total,
             ts,
         } => {
-            serde_json::json!({"jobId": job_id, "type": "stage_done", "stage": stage, "current": current, "total": total, "ts": ts})
+            serde_json::json!({"jobId": job_id, "type": "stage_done", "stage": stage,
+                "current": current, "total": total, "progress": overall_progress(&stage, current, total), "ts": ts})
         }
         E::SentenceDone {
             sentence_index,
@@ -1157,7 +1168,49 @@ fn profile_from_snapshot(job_dir: &std::path::Path, profile_id: &str) -> serde_j
 
 #[cfg(test)]
 mod tests {
-    use super::{overall_progress, profile_from_snapshot, quality_summary, register_import_batch};
+    use super::{
+        enrich_progress, overall_progress, profile_from_snapshot, quality_summary,
+        register_import_batch,
+    };
+
+    #[test]
+    fn enrich_progress_carries_overall_progress() {
+        // UX 审计 (2026-08-09): stage_progress/stage_done 事件必须带全书完成度,
+        // 前端实时刷新进度条与百分比标签才用同一个值 (此前条按阶段比例、标签按全书进度打架)。
+        let payload = enrich_progress(
+            crate::jobs::progress::ProgressEvent::StageProgress {
+                stage: "translate".into(),
+                current: 50,
+                total: 100,
+                ts: 1,
+            },
+            "job-1",
+        );
+        let expect = overall_progress("translate", 50, 100);
+        assert_eq!(payload["type"], "stage_progress");
+        assert_eq!(
+            payload["progress"].as_f64(),
+            Some(expect),
+            "progress 应为全书完成度 {expect}"
+        );
+        assert_eq!(payload["current"], 50);
+        assert_eq!(payload["total"], 100);
+
+        let done = enrich_progress(
+            crate::jobs::progress::ProgressEvent::StageDone {
+                stage: "nlp".into(),
+                current: 240,
+                total: 240,
+                ts: 2,
+            },
+            "job-1",
+        );
+        assert_eq!(done["type"], "stage_done");
+        assert_eq!(
+            done["progress"].as_f64(),
+            Some(overall_progress("nlp", 240, 240))
+        );
+    }
 
     #[test]
     fn import_same_path_twice_yields_one_source_and_skips_second() {

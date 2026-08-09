@@ -16,6 +16,7 @@
   const STAGE_LABELS = {
     parse: '解析', nlp: '分词', translate: '翻译', explain: '讲解',
     tts: '语音', align: '对齐', pack: '打包', spawn_error: '启动失败',
+    queued: '排队中', retry_failed: '重试中',
   };
   function stageLabel(stage) {
     return STAGE_LABELS[stage] || stage;
@@ -185,7 +186,24 @@
       }
       const btnRemove = el('button', 'btn-small', '移除');
       btnRemove.onclick = () => {
-        AiduJobService.remove(job.id).then(() => { this._refreshJobs(); AiduToast.show('已移除任务', 'info'); });
+        // UX 审计 (2026-08-09): 破坏性操作先告知代价 —— 移除运行中任务会立刻停止并丢进度。
+        const fileName = String(job.book_path || '').split(/[\\/]/).pop() || job.id;
+        const warn = job.status === 'running'
+          ? '任务正在处理中，移除会立即停止处理并丢弃当前进度。'
+          : job.status === 'queued'
+            ? '任务还在排队，移除后这本书不会再进入处理。'
+            : '任务记录将从列表移除。';
+        AiduModal.confirm({
+          title: `移除任务《${fileName}》?`,
+          message: warn,
+          confirmText: '移除',
+          danger: true,
+          onConfirm: () => AiduJobService.remove(job.id).then((r) => {
+            if (!r.ok) { AiduToast.show('移除失败: ' + r.error, 'error'); return; }
+            this._refreshJobs();
+            AiduToast.show('已移除任务', 'info');
+          }),
+        });
       };
       actions.appendChild(btnRemove);
       // G6: 任务完成后 "打开书籍" 入口
@@ -364,16 +382,29 @@
       const status = row.querySelector('.prep-task-status');
       const fill = row.querySelector('.prep-bar-fill');
       if (!status || !fill) return;
+      const pctLabel = row.querySelector('.prep-pct');
+      // UX 审计 (2026-08-09): 进度条与百分比标签用同一个数值更新 —— 后端 stage_progress
+      // /stage_done 事件已带全书完成度 p.progress, 实时刷新不再"条按阶段比例、标签按全书
+      // 进度"两套数字打架。
+      const setFill = (pct) => {
+        const v = Math.max(0, Math.min(100, Math.round(pct)));
+        fill.style.width = v + '%';
+        if (pctLabel) pctLabel.textContent = v + '%';
+      };
       switch (p.type) {
         case 'stage_start':
         case 'stage_progress':
-          if (p.type === 'stage_progress' && p.total > 0) {
-            fill.style.width = Math.round((p.current / p.total) * 100) + '%';
+          if (p.type === 'stage_progress' && p.progress != null) {
+            setFill(p.progress);
+          } else if (p.type === 'stage_progress' && p.total > 0) {
+            setFill((p.current / p.total) * 100);
           }
-          status.textContent = `${p.stage || ''} ${p.current != null ? p.current + '/' + p.total : '…'}`;
+          status.textContent = stageLabel(p.stage || '') +
+            (p.current != null ? ` ${p.current}/${p.total}` : '');
           break;
         case 'stage_done':
-          status.textContent = (p.stage || '') + ' ✓';
+          status.textContent = stageLabel(p.stage || '') + ' ✓';
+          if (p.progress != null) setFill(p.progress);
           break;
         case 'error':
           status.textContent = '失败';

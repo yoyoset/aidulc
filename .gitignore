@@ -18,6 +18,9 @@ reader/node_modules/
 # 打包产物
 dist/
 
+# 交付件(二进制不入库; 交接说明见 docs/STAGE_REPORT_2026-08-09.md)
+/完整设计交付确认.zip
+
 # Phase 0 spike 产物(35000+ 临时 checkpoint + 311MB 模型文件 + 重复 fixtures;
 # 有长期价值的 bench_*.json / job_phase3.json 已归档到 docs/measurements/)
 .spikes/

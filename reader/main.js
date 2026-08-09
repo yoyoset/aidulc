@@ -103,7 +103,12 @@
   });
 
   // 阶段6 设计交付 §10 item 4/8: 模型中心并入设置 → 旧 models 路由重定向到设置
-  router.register('models', () => router.navigate('settings'));
+  // UX 审计 (2026-08-09): 重定向时带 settingsTab 意图, 让"去模型中心"按钮直达模型中心
+  // tab (此前落在设置默认的"系统与书库"页, 用户还要自己找)。
+  router.register('models', () => {
+    store.set({ settingsTab: 'models' });
+    router.navigate('settings');
+  });
 
   router.register('vocab', (container) => {
     shell.setActiveNav('vocab');
@@ -148,4 +153,25 @@
     router.navigate('reader');
   };
   libraryView.onOpenBook = (book) => openBook(book, 'library');
+
+  // UX 审计 (2026-08-09): 任务完成 → 全局 toast (不管用户停在哪个页都能看到结果),
+  // 长任务不再需要用户自己回来刷新才知道"完成了"。等 300ms 让收尾线程把状态落盘,
+  // 以便区分成功/失败 (侧车只保证"跑完了", done/failed 由 Rust 按 bookpack 是否生成判定)。
+  AiduBridge.listen('job-progress', (ev) => {
+    const p = ev.payload || {};
+    if (p.type !== 'job_done') return;
+    setTimeout(() => {
+      AiduJobService.list().then((res) => {
+        if (!res.ok) return;
+        const job = (res.data || []).find((j) => j.id === p.jobId);
+        if (!job) return;
+        const name = String(job.book_path || '').split(/[\\/]/).pop() || job.id;
+        if (job.status === 'failed') {
+          AiduToast.show(`《${name}》处理失败，去"阅读准备"查看原因`, 'error');
+        } else {
+          AiduToast.show(`《${name}》处理完成，可以开始阅读了`, 'success');
+        }
+      });
+    }, 300);
+  });
 })();

@@ -30,6 +30,7 @@
         panes.appendChild(pane);
         const tab = el('button', 'settings-tab', label);
         tab.type = 'button';
+        tab.dataset.tab = id;
         tab.onclick = () => {
           tabbar.querySelectorAll('.settings-tab').forEach((x) => x.classList.remove('active'));
           panes.querySelectorAll('.settings-pane').forEach((x) => x.classList.remove('active'));
@@ -50,6 +51,17 @@
       }
       tabbar.querySelector('.settings-tab').classList.add('active');
       paneMap.system.classList.add('active');
+      // UX 审计 (2026-08-09): 支持外部直达指定 tab (如"去模型中心"按钮) —— 一次性意图,
+      // 用掉后清除, 下次进设置回到默认 tab。
+      const wantedTab = this.store.state.settingsTab;
+      if (wantedTab && paneMap[wantedTab]) {
+        this.store.set({ settingsTab: null });
+        tabbar.querySelectorAll('.settings-tab').forEach((x) => x.classList.remove('active'));
+        panes.querySelectorAll('.settings-pane').forEach((x) => x.classList.remove('active'));
+        const wantedTabBtn = tabbar.querySelector(`.settings-tab[data-tab="${wantedTab}"]`);
+        if (wantedTabBtn) wantedTabBtn.classList.add('active');
+        paneMap[wantedTab].classList.add('active');
+      }
       const settingsLayout = el('div', 'settings-layout');
       settingsLayout.append(tabbar, panes);
       wrap.appendChild(settingsLayout);
@@ -123,15 +135,14 @@
         });
       };
 
-      // G5: 组件中心 (健康检查)
-       const compSec = el('div', 'settings-section');
-       compSec.appendChild(el('h2', null, '组件与模型'));
-       const modelHost = el('div', 'settings-model-center');
-       compSec.appendChild(modelHost);
-       const compList = el('div', 'component-list');
-       compSec.appendChild(compList);
-       systemPane.appendChild(compSec);
-       if (global.ModelsView) new global.ModelsView(this.store).render(modelHost);
+      // G5: 组件健康检查 (模型已独立成"模型中心"tab, 这里只留组件体检,
+      // 不再重复渲染整套 ModelsView —— UX 审计 2026-08-09: 原来两处各渲染一次,
+      // 系统与书库 tab 下会出现第二套完整重复的模型中心)
+      const compSec = el('div', 'settings-section');
+      compSec.appendChild(el('h2', null, '组件健康检查'));
+      const compList = el('div', 'component-list');
+      compSec.appendChild(compList);
+      systemPane.appendChild(compSec);
       AiduMiscService.componentsHealth().then((res) => {
         compList.innerHTML = '';
         if (!res.ok) { compList.appendChild(el('div', 'global-error', '检查失败: ' + res.error)); return; }
@@ -402,27 +413,16 @@
       return wrap;
     }
 
-    /** 音色候选 (可用性取决于已装模型, 保留提示) */
+    /** 音色候选 (可用性取决于已装模型, 保留提示; 单一真相源 core/builtin_profiles) */
     static get VOICES() {
-      return [
-        ['af_heart', 'af_heart · 女声温暖 (默认)'],
-        ['af_bella', 'af_bella · 女声明亮'],
-        ['af_nicole', 'af_nicole · 女声自然'],
-        ['af_sarah', 'af_sarah · 女声柔和'],
-        ['am_michael', 'am_michael · 男声沉稳'],
-        ['am_fenrir', 'am_fenrir · 男声低沉'],
-        ['am_adam', 'am_adam · 男声明亮'],
-        ['am_echo', 'am_echo · 男声清晰'],
-      ];
+      return AiduBuiltinProfiles.VOICES;
     }
 
     _renderProfiles(listEl) {
       AiduBridge.profiles.list().then((res) => {
         listEl.innerHTML = '';
         if (!res.ok) { listEl.appendChild(el('div', 'global-error', '读档案失败: ' + res.error)); return; }
-        const profiles = (res.data || []).slice();
-        if (!profiles.some((p) => p.id === 'default')) profiles.unshift({ id: 'default', name: '成人自读', explain_strategy: 'brief', voice: 'af_heart', speed: 1.0, highlight_granularity: 'sentence' });
-        if (!profiles.some((p) => p.id === 'kid')) profiles.push({ id: 'kid', name: '陪小孩读', explain_strategy: 'deep', voice: 'af_heart', speed: 0.9, highlight_granularity: 'word' });
+        const profiles = AiduBuiltinProfiles.ensureBuiltins(res.data);
         if (!profiles.length) { listEl.appendChild(el('div', 'import-tip', '还没有档案。')); return; }
         profiles.forEach((p) => {
           const row = el('div', 'profile-row');

@@ -6,17 +6,9 @@
   'use strict';
 
   const ImportService = {
-    /** 内建档案兜底 (查不到档案 / 档案表为空时用) */
+    /** 内建档案兜底 (查不到档案 / 档案表为空时用), 参数统一走 core/builtin_profiles */
     _builtinProfile(id) {
-      const pid = id || 'default';
-      return {
-        id: pid,
-        name: pid === 'kid' ? '陪小孩读' : '成人自读',
-        explain_strategy: pid === 'kid' ? 'deep' : 'brief',
-        voice: 'af_heart',
-        speed: pid === 'kid' ? 0.9 : 1.0,
-        highlight_granularity: pid === 'kid' ? 'word' : 'sentence',
-      };
+      return AiduBuiltinProfiles.builtinProfile(id);
     },
 
     /**

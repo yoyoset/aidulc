@@ -208,6 +208,12 @@ fn resolve_book_pack_dir(
 /// bookpack.json 有 92MB, 92MB 字符串在前端 JS 侧 `JSON.parse` 是同步的, 会把界面主
 /// 线程整个卡死好几秒甚至更久, 表现就是"点开始阅读没反应/渲染不出来"。现在只回元信息,
 /// 具体某一章的完整内容(译文/讲解/时间轴)按需另调 `load_bookpack_chapter`。
+///
+/// N7 (2026-08-10): 这里保留的每句 `original_text` 是**有意为之**, 不是漏删 —— 它喂的是
+/// 前端"全书搜索"的跨章索引 (`reader/views/reader/search.js` → `core/search_index.js`,
+/// 打开书时 `ReaderSearch.build(chapters)` 一次构建)。代价: Wolf 21 实测全书 original_text
+/// ≈1.3MB 随每次打开走一次 IPC。若哪天要把搜索改成按章惰性建索引(会失去跨章搜索),
+/// 才能省掉这部分; 在那之前别删。
 fn strip_chapters_to_meta(bookpack: &mut serde_json::Value) {
     let Some(chapters) = bookpack.get_mut("chapters").and_then(|c| c.as_array_mut()) else {
         return;

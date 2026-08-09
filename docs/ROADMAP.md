@@ -96,13 +96,17 @@
 - 改法:`list()` 加 LIMIT + 完成 N 天后的批次可删。行很小,优先级不高,但别再往后拖成
   "反正一直没事"。
 
-### N7(P3)F46 残余:meta 响应仍含全部 `original_text`
+### N7(P3)F46 残余:meta 响应仍含全部 `original_text` ✅(2026-08-10 已确认消费方并注明)
 
 - 现状:`commands/library.rs` 的 meta 已 strip 重字段但**保留 original_text**
   (测试 `strips_heavy_fields_keeps_original_text` 锁的就是这个行为),Wolf 21 实测 1.3MB
   随每次打开走 IPC。
 - 改法:确认前端首屏是否真需要全书 original_text(章节尺/搜索?),不需要就改成按需拉取,
   需要就在文档里写清"这 1.3MB 是有意保留的"并注明消费方——**别留成没人知道为什么的现状**。
+- **结论 (2026-08-10)**: **有意保留**。消费方 = 全书搜索的跨章索引
+  (`reader/views/reader/search.js` 打开书时一次 `build(chapters)` → `core/search_index.js`);
+  去掉它就得把搜索改成按章惰性建索引, 会失去跨章搜索。已在 `commands/library.rs`
+  `strip_chapters_to_meta` 注释里写清原因 + 何时才能删。代码不改, 文档对账完毕。
 
 ### 真人在 exe 里最终确认(代码侧已就位,只差人点)
 

@@ -171,3 +171,22 @@ source 不能直接“打开阅读”；只有 edition 可以打开阅读。
 - 不把 source 伪装成 edition。
 - 不重跑现有大书做批量迁移。
 - 不修改 F26、F38、F39。
+
+## 6. 阶段收尾交付清单(固定动作, 每阶段必做)
+
+> 2026-08-09 起强制。教训: F36/F37 便携版过期每阶段都重新发现一次 —— 只有把
+> "重打便携版" 写成本阶段收尾的固定动作, 才不会每个阶段再踩一遍。
+
+阶段收尾(写阶段报告/打 tag 之前)依次执行:
+
+1. `.\scripts\check.ps1` 全绿。
+2. 重打便携版 `dist\aidulc-portable\`(三步, 缺一不可):
+   a. 先结束运行中的 `aidulc.exe` / `aidulc-prep.exe`(运行中会锁文件, 构建失败踩过);
+   b. `cargo build --release`(嵌当前前端) → 复制 `src-tauri\target\release\aidulc.exe`
+      到 `dist\aidulc-portable\aidulc.exe`;
+   c. `.\scripts\build_prep.ps1`(重打侧车, 含全部 prep 改动) → 复制
+      `prep\dist\aidulc-prep\aidulc-prep.exe` + `_internal` 到 `dist\aidulc-portable\prep\`
+      (先删旧的 `_internal`)。
+   d. 确认 `config.toml` 仍是干净默认(无开发机绝对路径)。
+3. 核对便携版两个二进制时间戳 ≥ 本阶段最后一个代码提交时间, 否则就是漏了第 2 步。
+4. 在阶段报告/交接记录里注明便携版已重打(或明确本次不做 + 理由)。

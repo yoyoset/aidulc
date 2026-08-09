@@ -6,7 +6,6 @@
 //! 且 Python 进程也被绑定 (Windows Job Object 默认子进程继承, Python 的孙进程会进同一个 Job)。
 
 use std::os::windows::io::AsRawHandle;
-use std::os::windows::process::CommandExt;
 use std::process::Child;
 use std::sync::OnceLock;
 use win32job::Job;
@@ -35,6 +34,7 @@ pub fn bind_child_to_job(child: &Child) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::windows::process::CommandExt;
 
     /// R11 实测: 真拉起孙进程再杀父 (照抄 subgen 的测法, 不接受"文档说会继承")。
     #[test]

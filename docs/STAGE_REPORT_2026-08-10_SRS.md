@@ -108,5 +108,3 @@ token 解析)。
   + 真实 worker e2e 验证逻辑,真机交互(滑动手势手感)需人工确认。
 - **V6 拉取合并写回 default profile**:远端词条合并写回本地默认 profile(跨 profile 的
   同 lemma 共用一条远端状态),这是简化,后续可按需细化。
-- **桌面端 settings 同步区仍叫 "同步 (背单词状态跨设备)"**:文案与协议 v1 一致,但
-  生成邀请码只有 add-device(绑当前 user),invite-user(新建成员)入口未在 UI 暴露。

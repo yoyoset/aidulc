@@ -51,6 +51,26 @@
 
 测试键已全部删除(`test:*` 列表为空)。
 
+## V5 服务端已部署 (2026-08-09 实测)
+
+- worker: `https://aidulc-sync.yoyoset.workers.dev` (部署在 V0 那个 CF 账户),
+  KV namespace `AIDU_DB`(复用), `ROOT_SECRET` 已设 (`wrangler secret put`)。
+- 协议 v1 真实请求验证 (Node fetch 直连, 非本地模拟):
+  ```
+  1a 无token拉取: 401 {"ok":false,"error":"未授权: token 无效或缺失"}
+  1b 错ROOT_SECRET: 403 {"ok":false,"error":"ROOT_SECRET 不正确"}
+  2a 首台兑换: 200 {"ok":true,"user_id":"me",...,"token":"0610758..."}
+  3a 推送: 200 {"ok":true,"rev":1,"wrote":1}
+  3b 全量拉取 rev=1 changed=1 首词=bank
+  3c 增量拉取 changed=0
+  4a 生成邀请码: 200 {"ok":true,"code":"647052",...}
+  4b 孩子兑换: 200 user_id=38312fe72bd04255
+  4c me拉取含kids? false   (越权隔离成立)
+  ```
+- 注意: 用 curl `-d '{"x":1}'` 直连该 worker 会出现 "JSON 解析失败" 假象 ——
+  实测是 Windows curl/PowerShell 引号处理问题, 用 Node fetch / 文件 body 正常。
+  排查记录: 先怀疑 worker 代码, 后定位为客户端工具差异 (以实测为准)。
+
 ## V0③ 六处冲突的裁决(设计稿 vs 现状)
 
 > 对应 GOAL_STAGE_SRS.md"设计稿与现实的六处冲突"。每条给"设计稿原话/现状 → 裁决 → 落点"。

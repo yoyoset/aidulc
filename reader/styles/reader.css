@@ -8,6 +8,12 @@
 body.reader-active .app-nav { display: none; }
 body.reader-active .app-view { max-width: none; padding: 0; }
 
+/* E (2026-08-11): 全局改成 #app 定高 100vh + .app-view 内部滚动后, 阅读器必须例外
+   —— 它的滚动逻辑全部基于 window (scrollY/scrollTo/scrollIntoView), .app-view 内部
+   滚动会让 window.scrollY 恒为 0、锚点定位全失灵。阅读器恢复窗口滚动。 */
+body.reader-active #app { height: auto; min-height: 100vh; overflow: visible; }
+body.reader-active .app-view { overflow: visible; }
+
 .reader-page { min-height: 100vh; position: relative; }
 
 /* ---- 顶栏 单行: 返回 · 书名/章名 · 第 n/N 句 · 设置 (随滚动淡出) ---- */

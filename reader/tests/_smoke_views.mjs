@@ -25,7 +25,9 @@ function makeElement(tag) {
     _children: children,
     style: { setProperty: () => {}, removeProperty: () => {}, cssText: '' },
     textContent: '', title: '', id: '', value: '',
-    parentNode: null, innerHTML: '', onclick: null,
+    parentNode: null, onclick: null,
+    get innerHTML() { return ''; },
+    set innerHTML(v) { if (v === '') children.length = 0; }, // 与真实 DOM 一致: 清空重建
     disabled: false, checked: false, files: [], type: '',
     classList: {
       add: (...c) => c.forEach((x) => classes.add(x)),
@@ -521,6 +523,31 @@ console.log('== 6b. 来源定位右栏 (V4, 2026-08-09) ==');
   const book = rv2.sourceCol.querySelector('.review-source-book');
   check('书名异步解析为《雪国》', book && book.textContent === '《雪国》', book && book.textContent);
   rv2.cleanup();
+}
+
+console.log('== 6c. E: 今日队列上限 + 折叠 (UX 2026-08-11) ==');
+{
+  // 1424 词全到期 → 队列 1424 行; 布局修复后左栏内部滚动, 队列不该一次铺开 1424 行
+  const now = Date.now();
+  const many = [];
+  for (let i = 0; i < 1424; i++) {
+    many.push({ word: 'w' + i, lemma: 'w' + i, stage: 'review', interval_ms: 3 * 86400000, next_review: now - 1000, meaning: 'm', context: 'c' });
+  }
+  globalThis.AiduDictionaryService.vocabAll = async () => ({ ok: true, data: many });
+  const rv3 = new globalThis.ReviewView(new globalThis.AiduStore());
+  const rc3 = makeElement('div');
+  rv3.render(rc3);
+  await new Promise((r) => setTimeout(r, 80));
+  check('队列全量 1424', rv3.queue.length === 1424, 'len=' + rv3.queue.length);
+  const rows = queryAll(rv3._queueList, '.review-qrow');
+  check('默认折叠: 只渲染 50 行', rows.length === 50, 'rows=' + rows.length);
+  const moreBtn = queryAll(rv3._queueList, '.review-qmore')[0];
+  check('出现「还有 N 词已折叠」按钮', !!moreBtn && moreBtn.textContent.includes('1374'), moreBtn && moreBtn.textContent);
+  moreBtn.onclick();
+  const rows2 = queryAll(rv3._queueList, '.review-qrow');
+  check('点展开 → 渲染全量 1424 行', rows2.length === 1424, 'rows=' + rows2.length);
+  check('展开后折叠按钮消失', queryAll(rv3._queueList, '.review-qmore').length === 0);
+  rv3.cleanup();
 }
 
 console.log('== 7. S5 只播这一句 (player.playOne 单句停) ==');

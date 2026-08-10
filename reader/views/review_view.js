@@ -28,6 +28,9 @@
       this.gradeBtns = [];
       this._onKey = null;
       this._undoTimer = null;
+      // E (2026-08-11): 今日队列渲染上限 + 超出折叠 —— 队列是"今天要背的", 到期复习
+      // 不封顶时可能上千行, 不该一次全铺开。默认折叠到 50 行, 点「还有 N 词」展开全部。
+      this._queueExpanded = false;
     }
 
     render(container) {
@@ -214,13 +217,26 @@
     _renderQueueList() {
       if (!this._queueList) return;
       this._queueList.innerHTML = '';
-      this.queue.forEach((e, i) => {
+      const total = this.queue.length;
+      const CAP = 50;
+      const show = this._queueExpanded ? total : Math.min(CAP, total);
+      for (let i = 0; i < show; i++) {
+        const e = this.queue[i];
         const row = el('div', 'review-qrow' + (i === this.index ? ' current' : '') + (i < this.index ? ' done' : ''));
         row.appendChild(el('span', 'review-qword', e.word));
         row.appendChild(el('span', 'review-qstage', STAGE_LABEL[e.stage] || e.stage));
         if (i < this.index) row.appendChild(el('span', 'review-qdone', '✓'));
         this._queueList.appendChild(row);
-      });
+      }
+      // E: 超出上限 → 折叠, 点开才铺全量 (today 队列不该把 1424 行一次铺开)
+      if (!this._queueExpanded && total > CAP) {
+        const more = el('button', 'review-qmore', `还有 ${total - CAP} 词已折叠 · 点此展开`);
+        more.onclick = () => {
+          this._queueExpanded = true;
+          this._renderQueueList();
+        };
+        this._queueList.appendChild(more);
+      }
     }
 
     _renderDone() {

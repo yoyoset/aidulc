@@ -43,7 +43,10 @@ body::before {
 ::-webkit-scrollbar-thumb:hover { background: var(--md-sys-color-outline); }
 ::-webkit-scrollbar-track { background: transparent; }
 
-#app { display: flex; flex-direction: column; min-height: 100vh; }
+/* E (2026-08-11): 从 min-height 改成定高 100vh + overflow:hidden —— 之前 #app 不撑满
+   viewport, 祖先无确定高度, 子级 height:100% 解析成"内容有多高就多高", 背单词左栏
+   overflow:auto 永远不会滚动, 1424 行把整页撑开。现在 #app 定高, 滚动归 .app-view。 */
+#app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
 /* 椤堕儴瀵艰埅 (M6: 浠庤嵂涓告寜閽敼涓哄厠鍒剁殑鏂囧瓧椤电, 褰撳墠椤甸櫠鍦熶笅鍒掔嚎) */
 .app-nav {
@@ -173,7 +176,7 @@ body::before {
   .prep-task-actions { flex-wrap: wrap; }
 }
 
-.app-view { flex: 1; padding: 20px; max-width: 1080px; width: 100%; margin: 0 auto; }
+.app-view { flex: 1; padding: 20px; max-width: 1080px; width: 100%; margin: 0 auto; min-height: 0; overflow-y: auto; }
 
 /* 閫氱敤鎸夐挳 (M6: 涓绘寜閽櫠鍦熷～鍏呭甫鏌斿奖, 娆℃寜閽厠鍒舵弿杈? 鍏ㄩ儴鏈夋寜鍘嬪弽棣? */
 .btn-primary {
@@ -575,6 +578,19 @@ body::before {
 .review-qrow.done { opacity: .5; text-decoration: line-through; }
 .review-qstage { margin-left: auto; font-size: var(--md-sys-font-size-label-s); }
 .review-qdone { color: var(--md-sys-color-success); }
+/* E (2026-08-11): 今日队列折叠展开按钮 (对齐 .review-qrow 的视觉基线) */
+.review-qmore {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: var(--md-sys-space-2) var(--md-sys-space-4);
+  font-size: var(--md-sys-font-size-label-s);
+  color: var(--md-sys-color-primary);
+  cursor: pointer;
+  text-align: left;
+}
+.review-qmore:hover { text-decoration: underline; }
 .review-queue-foot { padding: var(--md-sys-space-3) var(--md-sys-space-4); border-top: 1px solid var(--md-sys-color-outline-variant); font-size: var(--md-sys-font-size-label-s); color: var(--md-sys-color-on-surface-variant); }
 
 .review-card-wrap { padding: var(--md-sys-space-4); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--md-sys-space-4); }

@@ -129,6 +129,7 @@ curl -X POST https://aidulc-sync.<你的子域>.workers.dev/v1/auth/device ^
 | 首次同步推到一半失败, 写次数超限 | 存量词太多走 CF 免费档 | 换自建 VPS (`docs/SELFHOST_VPS.md`) |
 | 部署后 `/v1/sync` 404 | 部署的不是最新代码 | 在 `cloud/worker` 目录 `npx wrangler deploy` |
 | 数据全空/串了 | 复用了旧的 KV namespace | 建新的空 namespace, 从零积累 |
+| 自建 VPS 用 3-label 子域名 HTTPS 握手失败 | CF Universal SSL 只覆盖 2-label | 用 2-label 子域名 (见 SELFHOST_VPS.md) |
 
 ## 升级 / 删除
 

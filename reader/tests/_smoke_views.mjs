@@ -660,5 +660,49 @@ console.log('== 7. S5 只播这一句 (player.playOne 单句停) ==');
   check('repeat 期间重播过 (走了 repeat 动作)', repeatRewinds >= 2, 'rewinds=' + repeatRewinds);
 }
 
+console.log('== 8. B: 设置浮层「播放」节 (通篇⇄逐句 + 跟读预设, UX 2026-08-11) ==');
+{
+  load('core/follow_presets.js');
+  load('views/reader/settings_overlay.js');
+  let patches = [];
+  // 构造即 _build 一次 (stub 的 innerHTML 不清空, 不调 open 避免重复档位)
+  const overlay = new globalThis.SettingsOverlay({
+    settings: { pace: 'flow', preset: 'shadow', speed: 1.0 },
+    onPatch: (p) => patches.push(p),
+  });
+  const rows = overlay.el.querySelectorAll('.rd-settings-row');
+  const rowText = Array.from(rows).map((r) => {
+    const lab = r.querySelector('.rd-settings-label');
+    const btns = Array.from(r.querySelectorAll('.rd-settings-opt')).map((b) => b.textContent);
+    return (lab ? lab.textContent : '') + ':' + btns.join('/');
+  });
+  check('「播放」节标题存在', overlay.el.querySelectorAll('.rd-settings-title').length >= 2);
+  const paceRowTxt = rowText.find((t) => t.startsWith('播放粒度'));
+  check('播放粒度 通篇/逐句 两档', !!paceRowTxt && paceRowTxt.includes('通篇') && paceRowTxt.includes('逐句'), paceRowTxt);
+  const presetRowTxt = rowText.find((t) => t.startsWith('跟读'));
+  check('跟读预设 四档 (初听/跟读/盲跟/孩子)', !!presetRowTxt && presetRowTxt.includes('初听') && presetRowTxt.includes('盲跟') && presetRowTxt.includes('孩子'), presetRowTxt);
+  const findRow = (label) => rows.find((r) => {
+    const lab = r.querySelector('.rd-settings-label');
+    return lab && lab.textContent === label;
+  });
+  // 默认值: flow + shadow 高亮
+  const paceRowEl = findRow('播放粒度');
+  const activePace = paceRowEl && paceRowEl.querySelector('.rd-settings-opt.active');
+  check('默认播放粒度 = 通篇 (flow)', activePace && activePace.textContent === '通篇');
+  const presetRowEl = findRow('跟读');
+  const activePreset = presetRowEl && presetRowEl.querySelector('.rd-settings-opt.active');
+  check('默认跟读 = 跟读 (shadow)', activePreset && activePreset.textContent === '跟读');
+  // 点击「逐句」→ onPatch({pace:'sentence'})
+  patches = [];
+  const paceBtns = paceRowEl.querySelectorAll('.rd-settings-opt');
+  paceBtns[1].onclick();
+  check('点「逐句」→ onPatch pace=sentence', patches.some((p) => p.pace === 'sentence'), JSON.stringify(patches));
+  // 点击「盲跟」→ onPatch({preset:'blind'})
+  patches = [];
+  const presetBtns = presetRowEl.querySelectorAll('.rd-settings-opt');
+  presetBtns[2].onclick();
+  check('点「盲跟」→ onPatch preset=blind', patches.some((p) => p.preset === 'blind'), JSON.stringify(patches));
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

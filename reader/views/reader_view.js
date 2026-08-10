@@ -321,6 +321,13 @@
       gear.textContent = '⚙';
       gear.title = '页面设置';
       gear.onclick = () => {
+        // B (2026-08-11): 打开前把 live 的 pace/preset 同步进 settings 快照 —— 设置浮层
+        // 的「播放」节要反映当前值 (pace 可能被 S 键/↻ 改过, preset 可能被跟读条改过,
+        // 只读 DB 里的 _settings 是旧的)。
+        if (this._settings) {
+          this._settings.pace = this.rd.pace;
+          this._settings.preset = this._presetKey;
+        }
         this.settingsOverlay.setSettings(this._settings);
         this.settingsOverlay.toggle();
       };
@@ -822,6 +829,12 @@
       const p = AiduFollowPresets.presetByKey(key);
       if (!p) return;
       this._presetKey = key;
+      // B (2026-08-11): 同步 _settings —— _onSettingsPatch 随后会调 _applySettings,
+      // 它用 _settings.speed 重算 _speed, 不同步的话预设速度会被旧值盖掉。
+      if (this._settings) {
+        this._settings.preset = key;
+        this._settings.speed = p.speed;
+      }
       this.shadow.setRepeat(p.repeat);
       this.shadow.setGap(p.gapMs);
       this.shadow.setSpeed(p.speed);
@@ -922,7 +935,13 @@
 
     _onSettingsPatch(patch) {
       if (!this._settings) this._settings = {};
+      const hasPace = 'pace' in patch;
+      const hasPreset = 'preset' in patch;
       Object.assign(this._settings, patch, { updated_at: Date.now() });
+      // B (2026-08-11): pace/preset 走专用方法, 让跟读条可见性/跟读目标/预设档位全部
+      // 同步 (只改 _settings + _applySettings 不会更新这些 UI, 会留下"逐句但跟读条不显示")。
+      if (hasPace) this._setPaceFromSettings(this._settings.pace);
+      if (hasPreset) this._selectPreset(this._settings.preset);
       this._applySettings(this._settings);
       if ('highlight_granularity' in patch) {
         this._granularity = patch.highlight_granularity === 'sentence' ? 'sentence' : 'word';
@@ -934,6 +953,15 @@
         if (this.player.audio) this.player.audio.playbackRate = this._speed;
       }
       this._persistSettings();
+    }
+
+    /** B (2026-08-11): 设置面板「播放粒度」→ 通篇/逐句。与 S 键同一条路径
+     * (进逐句走 _enterSentencePace, 退走 _exitSentencePace), 保证跟读条/跟读目标/持久化一致。 */
+    _setPaceFromSettings(p) {
+      const target = p === 'sentence' ? 'sentence' : 'flow';
+      if (this.rd.pace === target) return;
+      if (target === 'sentence') this._enterSentencePace({ index: this._anchorIndex, play: false });
+      else this._exitSentencePace();
     }
 
     // ---------------- 书签 / 查词 ----------------

@@ -3,6 +3,8 @@
  * 字号/行距/栏宽/语速全部图形化档位, 不出现裸数字输入框:
  *   Aa 四档 · 行距三档线条示意 · 栏宽三档条形 · 语速五格柱
  * 另有主题 / 儿童取值两个开关。改动经 onPatch 回写 settings 并即时应用。
+ * B (2026-08-11): 新增「播放」节 —— 通篇⇄逐句 (调 rd.setPace, 复用 pace 不新增状态)
+ * 与跟读预设 (复用 core/shadow.js 的 repeat/gapMs/speed, 不新写)。
  */
 (function (global) {
   'use strict';
@@ -55,6 +57,24 @@
       // 语速 五格柱
       const sp = this._row('语速', '', SPEEDS, indexOf(SPEEDS, s.speed), (v) => this.deps.onPatch({ speed: v }));
       el.appendChild(sp);
+
+      // B (2026-08-11): 「播放」节 —— 此前只有 S 快捷键藏在提示行, 设置面板没有任何
+      // 播放控制, 用户找不到逐句功能是因为它确实不在。通篇⇄逐句复用 pace 状态
+      // (rd.setPace), 跟读预设复用 core/shadow.js 的 repeat N (AiduFollowPresets)。
+      const playTitle = document.createElement('div');
+      playTitle.className = 'rd-settings-title';
+      playTitle.textContent = '播放';
+      el.appendChild(playTitle);
+
+      const pace = this._textRow('播放粒度', ['通篇', '逐句'], s.pace === 'sentence' ? 1 : 0,
+        (v) => this.deps.onPatch({ pace: v === 0 ? 'flow' : 'sentence' }));
+      el.appendChild(pace);
+
+      const presets = (global.AiduFollowPresets && AiduFollowPresets.allPresets()) || [];
+      const presetIdx = Math.max(0, presets.findIndex((p) => p.key === (s.preset || 'shadow')));
+      const presetRow = this._textRow('跟读', presets.map((p) => p.name), presetIdx,
+        (i) => this.deps.onPatch({ preset: presets[i].key }));
+      el.appendChild(presetRow);
 
       // 高亮粒度 (词节奏 / 句节奏)
       const gran = this._textRow('高亮', ['词', '句'], s.highlight_granularity === 'word' ? 0 : 1,

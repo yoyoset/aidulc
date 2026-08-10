@@ -116,6 +116,14 @@ Run-Check "node smoke (worker 协议 v1 本地实测)" {
     Pop-Location
 }
 
+# 7.7b (S3, 2026-08-10): server.mjs Node HTTP 入口冒烟 —— 同一份 worker 代码经
+# node:http 适配层走真实网络层 (首台换 token/401/推拉/capabilities)。5 项断言。
+Run-Check "node smoke (VPS 后端 server.mjs HTTP 入口)" {
+    Push-Location "$root\cloud\worker"
+    node test\server_test.mjs
+    Pop-Location
+}
+
 # 7.8 (V7, 2026-08-09): 手机端核心逻辑 + 同步链路 —— 纯逻辑(配比/调度预览一致性/
 # 撤销/翻面锁) + 离线完整复习→恢复网络自动补推、条数对上。27 项断言。
 Run-Check "node smoke (手机端 core + 同步链路)" {

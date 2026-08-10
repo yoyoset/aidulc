@@ -72,8 +72,14 @@ wrangler deploy
   自建 VPS 后端 —— 付费托管跑同一份代码, 只换存储实现。
 
 ```powershell
-node test/local_test.mjs   # 30 项: 鉴权失败/越权/正常推拉/新者胜/一次性码/限速
+node test/local_test.mjs   # 48 项: 鉴权失败/越权/正常推拉/新者胜/一次性码/限速/S2 配额护栏
+node test/server_test.mjs  # 5 项 (S3): server.mjs Node HTTP 入口走真实网络层
 ```
+
+**自建 VPS (承接存量词库)**: `src/server.mjs` 是 Node 的 HTTP 入口, 把 `node:http`
+请求适配成 `Request` 交给同一份 `index.js` 的 `fetch(request, env)` —— 业务一行不改。
+`env = { KV_DIR, ROOT_SECRET }`, 文件存储无写配额, 存量 1424 词一次推完。完整部署
+(nginx 反代 + CF 橙云 TLS + systemd + 备份) 见 `docs/SELFHOST_VPS.md`。
 
 ## 设计裁决 (与设计稿冲突的落地)
 

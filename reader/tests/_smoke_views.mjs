@@ -523,5 +523,142 @@ console.log('== 6b. 来源定位右栏 (V4, 2026-08-09) ==');
   rv2.cleanup();
 }
 
+console.log('== 7. S5 只播这一句 (player.playOne 单句停) ==');
+{
+  load('core/shadow.js');
+  load('core/timeline.js');
+  load('views/reader/player.js');
+  // _tick 末行 rAF 在测试 stub 里是同步执行 → 会无限递归; 这里改为 no-op, 手动驱动 tick
+  globalThis.requestAnimationFrame = () => 1;
+  // 极简 Audio mock: 记录 currentTime/play/pause, 无真实媒体
+  let audioTime = 0;
+  const fakeAudio = {
+    currentTime: 0,
+    duration: 60,
+    playbackRate: 1,
+    paused: true,
+    src: '',
+    play() { this.paused = false; return Promise.resolve(); },
+    pause() { this.paused = true; },
+    addEventListener() {}, load() {},
+    style: {}, remove() {}, removeAttribute() {}, setAttribute() {},
+  };
+  // 句子时间轴: 句0 [0,5000), 句1 [5000,10000) —— 单条流, 句间无留白
+  const sentences = [
+    { audio: { start_ms: 0, end_ms: 5000 }, original_text: 'Sentence A' },
+    { audio: { start_ms: 5000, end_ms: 10000 }, original_text: 'Sentence B' },
+  ];
+  const player = new globalThis.ReaderPlayer();
+  const shadow = new globalThis.ShadowMachine();
+  // 模拟 loadChapter 对 shadow.onAction 的接线 (真实路径在 loadChapter 内)
+  shadow.onAction = (a) => {
+    if (a.type === 'repeat') {
+      const s = player.sentences[a.sentenceIndex];
+      if (s && s.audio) { player.audio.currentTime = s.audio.start_ms / 1000; player.audio.play(); }
+    } else if (a.type === 'next') {
+      if (player._oneShot) {
+        player._stopAtMs = null; player._stopIndex = -1; player._oneShot = false;
+        player.audio.pause();
+      } else if (a.sentenceIndex < player.sentences.length) {
+        player.playFrom(a.sentenceIndex);
+      }
+    }
+  };
+  let anchorChanges = [];
+  let playingChanged = null;
+  let lastStatus = '';
+  player.bindDOM({
+    shadow,
+    onStatus: (s) => { lastStatus = s; },
+    onSaveProgress: () => {},
+    onSentenceEnded: (i) => shadow.sentenceEnded(i),
+    onAnchorChange: (i) => anchorChanges.push(i),
+    onShadowAction: () => {},
+    onPlayingChange: (p) => { playingChanged = p; },
+  });
+  player.audio = fakeAudio;
+  player.sentences = sentences;
+  player.renderer = { ensureRendered: () => {}, highlightAt: () => {} };
+  const startPlaying = () => { player.playing = true; player._lastTickTs = Date.now(); };
+
+  // 通篇模式: playFrom → oneShot 关闭, 越过句末不停 (维持现状)
+  player.playFrom(0);
+  check('playFrom 不设 oneShot', player._oneShot === false, 'oneShot=' + player._oneShot);
+  check('playFrom 无 stopAtMs', player._stopAtMs === null);
+
+  // 逐句模式: playOne(0) → oneShot + stopAtMs=句末
+  startPlaying();
+  player.playOne(0);
+  check('playOne 设 oneShot', player._oneShot === true);
+  check('playOne 设 stopAtMs=5000', player._stopAtMs === 5000, 'stopAt=' + player._stopAtMs);
+  check('playOne 定位到句起点', player.audio.currentTime === 0);
+  check('playOne 开始播放', player.audio.paused === false);
+
+  // 播到句末前 (4900ms): 不停 (audio.currentTime 单位是秒 → 4.9)
+  audioTime = 4.9;
+  player.audio.currentTime = audioTime;
+  player.playing = true;
+  player._lastTickTs = 1;
+  player._tick();
+  check('句末前不暂停 (still playing)', player.audio.paused === false, 'paused=' + player.audio.paused + ' playing=' + player.playing);
+
+  // 越过句末 (5000ms): _tick → shadow.sentenceEnded → repeatCount=1 → next → oneShot 停
+  audioTime = 5.0;
+  player.audio.currentTime = audioTime;
+  player.playing = true;
+  player._lastTickTs = 1;
+  player._tick();
+  check('越过句末 → 自动暂停', player.audio.paused === true, 'paused=' + player.audio.paused);
+  check('oneShot 清除 (停完归位)', player._oneShot === false && player._stopAtMs === null);
+  // 锚点不前移: 停在句0 (findSentenceIndex(5000) 会返回句1, 但 oneShot 停在前不加)
+  check('锚点未前进到句1', !anchorChanges.includes(1), 'anchorChanges=' + JSON.stringify(anchorChanges));
+
+  // 跟读预设 (repeat=3): 重复 2 次后第 3 次才停
+  const p2 = new globalThis.ReaderPlayer();
+  const shadow2 = new globalThis.ShadowMachine();
+  shadow2.setRepeat(3);
+  let repeatRewinds = 0;
+  shadow2.onAction = (a) => {
+    if (a.type === 'repeat') {
+      repeatRewinds++;
+      const s = p2.sentences[a.sentenceIndex];
+      if (s && s.audio) { p2.audio.currentTime = s.audio.start_ms / 1000; p2.audio.play(); }
+    } else if (a.type === 'next') {
+      if (p2._oneShot) {
+        p2._stopAtMs = null; p2._stopIndex = -1; p2._oneShot = false;
+        p2.audio.pause();
+      }
+    }
+  };
+  p2.bindDOM({ shadow: shadow2, onStatus: () => {}, onSaveProgress: () => {},
+    onSentenceEnded: (i) => shadow2.sentenceEnded(i), onAnchorChange: () => {},
+    onShadowAction: () => {}, onPlayingChange: () => {} });
+  p2.audio = fakeAudio;
+  p2.sentences = sentences;
+  p2.renderer = { ensureRendered: () => {}, highlightAt: () => {} };
+  p2.playing = true;
+  p2.playOne(0);
+  // 越过句末 → sentenceEnded(repeat) → onAction repeat 重播 (不停); 手动模拟 shadow 的
+  // 重播定位到句起点, 再越过 → 直到 repeat 用完
+  for (let pass = 1; pass <= 2; pass++) {
+    audioTime = 5.0; // 句末 (秒)
+    p2.audio.currentTime = audioTime;
+    p2.playing = true;
+    p2._lastTickTs = 1;
+    p2._tick();
+    check(`跟读 repeat 第 ${pass} 次越过 → 未停 (repeat 未用完)`, p2.audio.paused === false, 'paused=' + p2.audio.paused);
+    // 模拟 shadow repeat 动作已重播: 当前时间回到句起点
+    p2.audio.currentTime = 0;
+  }
+  // 第 3 次越过 → repeatLeft 耗尽 → next → oneShot 停
+  audioTime = 5.0;
+  p2.audio.currentTime = audioTime;
+  p2.playing = true;
+  p2._lastTickTs = 1;
+  p2._tick();
+  check('跟读 repeat 用完 → 才停', p2.audio.paused === true, 'paused=' + p2.audio.paused);
+  check('repeat 期间重播过 (走了 repeat 动作)', repeatRewinds >= 2, 'rewinds=' + repeatRewinds);
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

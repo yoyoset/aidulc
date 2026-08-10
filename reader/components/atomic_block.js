@@ -72,7 +72,7 @@
 
       const playBtn = document.createElement('button');
       playBtn.className = 'atool atool-play';
-      playBtn.title = t('reader.play') || '朗读这句';
+      playBtn.title = '从这句播到章末'; // S5: 默认通篇; 逐句模式经 setPace 改提示
       playBtn.textContent = '▶';
       playBtn.onclick = (e) => { e.stopPropagation(); onPlay && onPlay(index); };
       tools.appendChild(playBtn);
@@ -241,6 +241,7 @@
       let supportState = 'hidden'; // hidden | revealed | scar
       let isPlaying = false;
       let isFollow = false;
+      let blockPace = 'flow'; // S5: 通篇/逐句语义 (句前按钮提示用)
 
       const api = {
         el: block,
@@ -284,8 +285,14 @@
         setPlaying(v) {
           isPlaying = !!v;
           playBtn.textContent = isPlaying ? '❙❙' : '▶';
-          playBtn.title = isPlaying ? '暂停这句' : '朗读这句';
+          playBtn.title = isPlaying ? '暂停这句' : (blockPace === 'sentence' ? '只播这句 (逐句)' : '从这句播到章末');
           playBtn.classList.toggle('active', isPlaying);
+        },
+
+        /** S5: 通篇/逐句语义 —— 句前按钮提示要能看出当前是哪种 (不新增设置项) */
+        setPace(p) {
+          blockPace = p === 'sentence' ? 'sentence' : 'flow';
+          playBtn.title = isPlaying ? '暂停这句' : (blockPace === 'sentence' ? '只播这句 (逐句)' : '从这句播到章末');
         },
 
         setFollow(v) {

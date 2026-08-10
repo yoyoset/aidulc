@@ -117,3 +117,37 @@ describe('ShadowMachine - A-B 循环', () => {
     expect(sm.loopBackPoint()).toBeNull();
   });
 });
+
+describe('ShadowMachine - S5 单句停止', () => {
+  let sm;
+  beforeEach(() => { sm = new ShadowMachine(); });
+
+  it('stopAtMs=null: 永不触发停止', () => {
+    expect(sm.shouldStopAt(999999, null)).toBe(false);
+  });
+
+  it('未越过句末: 不停', () => {
+    expect(sm.shouldStopAt(4999, 5000)).toBe(false);
+  });
+
+  it('越过句末: 触发停止判定', () => {
+    expect(sm.shouldStopAt(5000, 5000)).toBe(true); // 边界: >= end
+    expect(sm.shouldStopAt(5300, 5000)).toBe(true);
+  });
+
+  it('S5 验收核心: 单句 stopAt 越界即产出"应停"; 重复未用完 → sentenceEnded 出 repeat 而非停', () => {
+    sm.setRepeat(2);
+    sm.sentenceStarted(0);
+    // 第一次越过句末: shouldStopAt true → 喂给 sentenceEnded
+    expect(sm.shouldStopAt(5000, 5000)).toBe(true);
+    const actions = [];
+    sm.onAction = (a) => actions.push(a);
+    sm.sentenceEnded(0); // repeatLeft 2->1 → repeat
+    expect(actions.map((a) => a.type)).toEqual(['repeat']);
+    // 重复期间时间回跳 (< 句末) → 不触发停止
+    expect(sm.shouldStopAt(4000, 5000)).toBe(false);
+    // 第二次越过: repeatLeft 1->0 → next (逐句模式下 next 即停)
+    sm.sentenceEnded(0);
+    expect(actions.map((a) => a.type)).toEqual(['repeat', 'next']);
+  });
+});

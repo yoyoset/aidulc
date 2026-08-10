@@ -62,6 +62,17 @@
     loopBackPoint() {
       return this.abLoop ? this.abLoop.start_ms : null;
     }
+
+    /**
+     * S5 (2026-08-10) 单句停止判定 (纯逻辑, 供 player._tick 用):
+     * 给定句末边界 stopAtMs, 越过即应停 —— 但**本句重复未用完时不停**
+     * (重复优先: 由 sentenceEnded 的 repeat 动作继续播, 用完才 next)。
+     * 返回 true 时调用方应触发 sentenceEnded → 由 onAction 决定 repeat 还是停。
+     */
+    shouldStopAt(currentMs, stopAtMs) {
+      if (stopAtMs == null) return false;
+      return currentMs >= stopAtMs;
+    }
   }
 
   global.ShadowMachine = ShadowMachine;

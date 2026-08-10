@@ -459,6 +459,12 @@
       if (!content) return;
       content.dataset.pace = this.rd.pace;
       content.dataset.blind = (this._blind && this._granularity === 'word') ? '1' : '0';
+      // S5: 句前按钮提示反映通篇/逐句语义 (不新增设置项, 复用 pace)
+      if (this.renderer && this.renderer._blockCache) {
+        this.renderer._blockCache.forEach((c) => {
+          if (c && c.ab && c.ab.setPace) c.ab.setPace(this.rd.pace);
+        });
+      }
     }
 
     _updateTopCount() {
@@ -738,8 +744,22 @@
         this.player.stop();
         this.renderer.setBlockPlaying(index, false);
       } else {
-        this._playFrom(index);
+        // S5: 逐句模式 = 只播这一句 (句末自动停, 跟读 repeat 用预设);
+        // 通篇模式 = 从这句一路往下 (维持现状)
+        if (this.rd.pace === 'sentence') this._playOne(index);
+        else this._playFrom(index);
       }
+    }
+
+    _playOne(index) {
+      if (!this.player.audio) { this._setStatus('音频尚未就绪, 请稍候再试'); return; }
+      this._setAnchor(index, { scroll: true, center: 0.42 });
+      this.player.playOne(index);
+      this.renderer.setBlockPlaying(index, true);
+      // 句内 ▶/❙❙ 状态复位 (其它句)
+      this.renderer._blockCache.forEach((c, i) => {
+        if (i !== index && c.ab) c.ab.setPlaying(false);
+      });
     }
 
     _playFrom(index) {
@@ -778,7 +798,8 @@
       this._setAnchor(target, { scroll: true, center: 0.42 });
       const preset = AiduFollowPresets.presetByKey(this._presetKey);
       if (this.followBar) this.followBar.setBeats(1, preset ? preset.repeat : 1);
-      if (opts.play) this._playFrom(target);
+      // S5: 逐句模式 = 只播这一句 (句末停, 跟读 repeat 走 shadow), 不复用通篇的 playFrom
+      if (opts.play) this._playOne(target);
     }
 
     _exitSentencePace() {
@@ -987,7 +1008,7 @@
 
     _onSpace() {
       if (this.rd.pace === 'sentence' && this._followTarget >= 0) {
-        this._playFrom(this._followTarget); // 逐句: 重播当前句
+        this._playOne(this._followTarget); // S5: 逐句 → 只重播当前句 (句末停, 不复用通篇的 playFrom)
       } else {
         this.player.toggle(); // 通篇: 播放/暂停
       }

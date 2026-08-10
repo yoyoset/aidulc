@@ -24,6 +24,12 @@
       this.renderer = null;    // ReaderRenderer (loadChapter 时注入, 供 tick 高亮)
       this.sentences = [];
 
+      // S5 (2026-08-10): 单句停止 (playOne) —— _oneShot 时播到 _stopAtMs 即停
+      // (shadow repeat 未用完则重复, 用完 next → 停); _stopIndex 供锚点不越界
+      this._oneShot = false;
+      this._stopAtMs = null;
+      this._stopIndex = -1;
+
       this._onStatus = null;      // (text) => void
       this._onSaveProgress = null; // () => void
       this._onSentenceEnded = null; // (sentenceIndex) => void
@@ -126,12 +132,20 @@
       });
 
       // 跟读状态机动作: 重复本句 / 播下一句
+      // S5: 单句模式 (oneShot) 下 repeat 正常重播; next 表示"本句重复用完"→ 停, 不接下一句
       this.shadow.onAction = (action) => {
         if (action.type === 'repeat') {
           const s = this.sentences[action.sentenceIndex];
           if (s && s.audio) { audio.currentTime = s.audio.start_ms / 1000; audio.play(); }
         } else if (action.type === 'next') {
-          if (action.sentenceIndex < this.sentences.length) this.playFrom(action.sentenceIndex);
+          if (this._oneShot) {
+            this._stopAtMs = null;
+            this._stopIndex = -1;
+            this._oneShot = false;
+            audio.pause();
+          } else if (action.sentenceIndex < this.sentences.length) {
+            this.playFrom(action.sentenceIndex);
+          }
         }
         this._onShadowAction(action);
       };
@@ -153,7 +167,8 @@
       });
     }
 
-    /** 从某个句子开始播放 (整章一条流, 定位到句音频区间起点)。锚点更新到该句。 */
+    /** 从某个句子开始播放 (整章一条流, 定位到句音频区间起点)。锚点更新到该句。
+     *  通篇模式: 一路往下 (S5 维持现状)。 */
     playFrom(index) {
       const s = this.sentences[index];
       if (!s || !s.audio || !this.audio) {
@@ -161,6 +176,10 @@
         return;
       }
       this.anchorIndex = index;
+      // S5: 通篇模式不是 oneShot —— 清除单句停止标记
+      this._oneShot = false;
+      this._stopAtMs = null;
+      this._stopIndex = -1;
       // R1: 目标句可能还没建 DOM(书签跳转/搜索跳转), 先补渲染, 高亮不会扑空
       if (this.renderer && index > this.renderer._renderedUpTo) {
         this.renderer.ensureRendered(index);
@@ -168,6 +187,32 @@
       this.shadow.sentenceStarted(index);
       this._lastAnchorSi = index;
       this._onAnchorChange(index);
+      this.audio.currentTime = s.audio.start_ms / 1000;
+      this.audio.playbackRate = this.speed;
+      this.audio.play().catch(e => {
+        this._onStatus('播放失败: ' + e.message);
+      });
+    }
+
+    /** S5: 只播这一句 (逐句模式 / 句前按钮)。
+     *  设 _stopAtMs = 句末, _tick 越过即 pause。若当前是跟读类预设 (repeat N),
+     *  shadow 状态机的 repeat 动作会重播本句, 直到 repeat 用完才 next → 停。 */
+    playOne(index) {
+      const s = this.sentences[index];
+      if (!s || !s.audio || !this.audio) {
+        this._onStatus('音频尚未就绪, 请稍候再试');
+        return;
+      }
+      this.anchorIndex = index;
+      if (this.renderer && index > this.renderer._renderedUpTo) {
+        this.renderer.ensureRendered(index);
+      }
+      this.shadow.sentenceStarted(index);
+      this._lastAnchorSi = index;
+      this._onAnchorChange(index);
+      this._oneShot = true;
+      this._stopAtMs = s.audio.end_ms;
+      this._stopIndex = index;
       this.audio.currentTime = s.audio.start_ms / 1000;
       this.audio.playbackRate = this.speed;
       this.audio.play().catch(e => {
@@ -206,8 +251,13 @@
       if (this._lastTickTs != null) this.timeSpentMs += now - this._lastTickTs;
       this._lastTickTs = now;
       const ms = this.audio.currentTime * 1000;
+      // 优先级: AB 循环先于单句停止 (重复/循环没结束就不停)
       if (this.shadow.shouldLoopBack(ms)) {
         this.audio.currentTime = this.shadow.loopBackPoint() / 1000;
+      } else if (this._oneShot && this._stopAtMs != null && this.shadow.shouldStopAt(ms, this._stopAtMs)) {
+        // S5: 越过句末 → 交给 shadow.sentenceEnded 决定: repeat 未用完 → onAction repeat
+        // 重播本句; 用完 → onAction next → (oneShot) 停。锚点停在当前句, 不越界。
+        this.shadow.sentenceEnded(this._stopIndex);
       } else {
         this.renderer.highlightAt(ms, this.sentences);
         // 锚点跟随当前正在播的句 (句间留白时保持上一句)

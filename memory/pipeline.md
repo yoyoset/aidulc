@@ -173,3 +173,20 @@
   (= resume, 与暂停→继续同一语义) 才重启。回归测试 `reset_stale_marks_running_as_paused_not_queued`。
 - **遗留观察 (未修)**: 任务 paused 但批次状态仍 running (batches_repo 无 paused 态),
   批次摘要显示"处理中"但任务行显示"已暂停" —— 不阻塞使用, 未扩大改动面。
+
+## 2026-08-10 S0-S7 (08-10plan.md): CF 配额护栏 + VPS 后端 + 阅读器体验
+
+- **CF 免费档撞配额根因 (S2 起点)**: worker 推送一词一个 KV 键 (srs:{user}:{word}),
+  首次全量写次数 = 词条数+1。1424 词 > 1000/天必撞。DESIGN_NOTES_SRS 那句"一次会话
+  O(1) 次写"对首次全量是错的 (实测样本只到 100 词)。修: 前置估算拒绝 (待推+1>配额→
+  人话提示) + worker 部分结果 (written_keys, 客户端只把真正写成功的算已推)。
+- **S0 设置页卡死**: components_health 同步命令跑主线程 + spawn 6.3GB 侧车后无超时读
+  stdout 到 EOF。与 P0-A (启动拉起 stale 侧车) 是两条独立路径。修: async+spawn_blocking
+  + 探测 5s 超时 (read_stdout_with_timeout, 测试注入永不输出假进程断言超时返回)。
+- **F29 参数解析器撞 State<'_, T>**: async 命令带生命周期后 rust_fn_params naive split(',')
+  把泛型内逗号切断成假参数 (crate/store), 门禁假失败。改 bracket 深度感知。
+- **Node server.mjs 坑**: res.end(await response.arrayBuffer()) 崩溃 (end 只收
+  Buffer/string/Uint8Array) + Response.headers 是 Headers 对象要转普通对象; 子进程
+  kill 触发 libuv 断言 → 进程内 startServer/stop + destroy keep-alive 连接。
+- **S6 配色门禁**: 通道是线条不承载文字, ③ 只查会承载文字的底色 (reading-bg + hl 28%
+  叠色); ② 用 ΔE76≥10 判通道可判别差 (比 ΔL 贴近人眼色相区分)。

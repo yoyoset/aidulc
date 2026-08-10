@@ -190,3 +190,14 @@
   kill 触发 libuv 断言 → 进程内 startServer/stop + destroy keep-alive 连接。
 - **S6 配色门禁**: 通道是线条不承载文字, ③ 只查会承载文字的底色 (reading-bg + hl 28%
   叠色); ② 用 ΔE76≥10 判通道可判别差 (比 ΔL 贴近人眼色相区分)。
+
+## 2026-08-10 VPS 部署实测 (S7, 香港机 149.104.29.84)
+
+- **机房面板 L7 拦截公网 HTTP**: 公网访问 80 端口返回 provider 的 Cloudflare lander
+  (实测 server: cloudflare), A 记录 + 橙云方案不可行 → 改用 CF Tunnel (服务器主动出站)。
+- **CF Universal SSL 只覆盖 2-label 子域名**: 3-label (sync.aidulc.viiyd.com) HTTPS 握手失败
+  (alert 40, openssl s_client 确认 no peer certificate); 换 2-label (sync.viiyd.com) 立即正常。
+- **cloudflared systemd ExecStart 不能内联 $(cat)**: 用 --token <内嵌 token> 才起得来。
+- **tunnel token 获取**: GET /accounts/<acct>/cfd_tunnel/<id>/token 返回 result 是 base64 JWT。
+- **桌面端连 VPS**: worker_url 填 https://sync.viiyd.com, 用新 ROOT_SECRET 换 token;
+  实测推 1424 词 wrote=1424, KV_DIR srs_ 1424 + deck 1, 拉取 changed=1424。

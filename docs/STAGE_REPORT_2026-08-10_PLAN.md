@@ -77,15 +77,31 @@ P0-A 修复有效但这条一直存在——之前把"点几个 tab 就卡"整�
 - **S6 门禁先写太严**(ΔL 卡通道):通道是线条不承载文字,③ 只查会承载文字的底色
   (reading-bg + hl 28% 叠色),② 用 ΔE 而非 ΔL 判可判别差。
 
-## 5. 未做 / 需要用户执行
+## 5. S7 端到端实测 (2026-08-10, 真机)
 
-- **VPS 实际部署**:需要香港机 SSH 凭据或用户按 `docs/SELFHOST_VPS.md` 手动执行(计划 §3 让用户选)。
-  代码侧 `server.mjs` + 冒烟已就绪,`KV_DIR` 键数=1425 的实测需在真机上跑。
-- **CF 免费路径真实实例**:`docs/SELFHOST_CF.md` 给用户自建;本地已用 worker 测试模拟
-  (从零 20 词 22 次写)。
-- **ROADMAP**:prep 任务状态三态语义、字号间距存量迁移两条已记入。
+用户提供了香港机 SSH (`F:\my_ai\openwrt\VPS_Info\key_hk`, 149.104.29.84) 与 CF API token, 完成了
+计划 §3 的 VPS 部署 + S7.1/S7.2 实测:
 
-## 6. 便携版重打(BOOK_WORKFLOW §6)
+- **VPS 后端**: `aidulc-sync.service` systemd 守护 node server.mjs, KV_DIR=/srv/aidulc/kv,
+  127.0.0.1:8080。
+- **公网入口**: 实测面板 L7 拦截公网 80 (返回 provider 的 CF lander), A 记录+橙云不可行 →
+  改用 **CF Tunnel** (`cloudflared-aidulc.service`, 出站连接, 绕过面板)。
+- **子域名**: 3-label `sync.aidulc.viiyd.com` HTTPS 握手失败 (Universal SSL 只覆盖 2-label);
+  换 `sync.viiyd.com` (2-label) 立即正常。
+- **S7.1 验收**: 推 1424 词 → `{"ok":true,"wrote":1424,"rev":1424}`; KV_DIR `srs_` 键 1424 +
+  `deck_me_index` 1 (核心数据键 = 1425; 总键数含测试 auth/meta); 拉取 changed=1424。
+- **S7.2 验收**: CF 免费路径用空 namespace (aidulc-sync-kv), worker 测试 8d 验证 20 词 = 22 次
+  写 ≤ 25; 线上 aidulc-sync 已 deploy 指向新空 KV。
+- **未做**: "今日队列 1291" 是手机端本地 SRS 状态计算, 不属同步服务端验收; 手机扫码配对
+  需用户在桌面端操作。
+
+## 6. 未做
+
+- **CF 免费路径真实 20 词冒烟**: 线上 aidulc-sync 已切新空 KV, 但真实推送需桌面端指向
+  `aidulc-sync.yoyoset.workers.dev` 后由用户操作 (本地 worker 测试已验证 22 次写)。
+- **ROADMAP**: prep 任务状态三态语义、字号间距存量迁移两条已记入。
+
+## 7. 便携版重打(BOOK_WORKFLOW §6)
 
 1. `scripts/check.ps1` 全绿 ✓
 2. 代码全部提交完(最后提交 `ff77e17`)✓

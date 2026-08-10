@@ -10,6 +10,8 @@
 
   const UsersService = {
     list() { return AiduBridge.users.list(); },
+    // S4 (2026-08-10): 新建本地成员 → users_repo (顶栏下拉"＋ 新建成员")
+    create(name) { return AiduBridge.users.create(name); },
     currentId() {
       try {
         return localStorage.getItem(KEY) || 'me';

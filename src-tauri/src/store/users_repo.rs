@@ -52,8 +52,7 @@ impl<'a> UsersRepo<'a> {
         rows
     }
 
-    // TODO(未接线): 目前只有 users_list 命令 (顶栏切人数据源); get/upsert 仅测试用,
-    // 将来"新建成员"(V4 按书搬词) 会接线 upsert。比照 profile_repo::get 的既有惯例标 allow。
+    // get: 仅测试用 (S4 起 upsert 已由 users_create 命令接线; get 仍无调用方)
     #[allow(dead_code)]
     pub fn get(&self, id: &str) -> Option<User> {
         let conn = self.db.conn.lock().unwrap();
@@ -75,8 +74,7 @@ impl<'a> UsersRepo<'a> {
         u
     }
 
-    // TODO(未接线): 仅测试用, 见 get 的注释; 新建成员时接线 upsert。
-    #[allow(dead_code)]
+    // S4 (2026-08-10): 新建成员接线 (users_create 命令)。保留 as 内部方法, 不新增 repo。
     pub fn upsert(&self, u: &User) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
         conn.execute(

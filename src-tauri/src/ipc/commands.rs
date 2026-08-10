@@ -30,6 +30,36 @@ pub fn users_list(db: State<Db>) -> Result<serde_json::Value, String> {
     serde_json::to_value(repo.list()).map_err(|e| e.to_string())
 }
 
+/// S4 (2026-08-10): 新建本地成员 (顶栏下拉"＋ 新建成员")。
+/// 本地 user 与 token 无关 —— 新建的成员天然没有同步 token, 同步状态显示
+/// "同步未连接" 是正确行为 (token 按本地 user 分账存, 见 credentials.rs)。
+/// 返回新建的 User (含 id), 由前端切到新成员。
+#[tauri::command]
+pub fn users_create(db: State<Db>, name: String) -> Result<serde_json::Value, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("名字不能为空".into());
+    }
+    let now = crate::store::now_ms_for_store();
+    let id = format!(
+        "u_{:x}{:x}",
+        now as u64,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos() as u64)
+            .unwrap_or(0)
+    );
+    let user = crate::store::users_repo::User {
+        id,
+        name,
+        created_at: now,
+        updated_at: now,
+    };
+    let repo = crate::store::users_repo::UsersRepo::new(db.inner());
+    repo.upsert(&user)?;
+    serde_json::to_value(&user).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn profile_upsert(db: State<Db>, profile: Profile) -> Result<(), String> {
     let repo = crate::store::profile_repo::ProfileRepo::new(db.inner());

@@ -379,7 +379,7 @@ console.log('== 5. 顶栏切人 (V1 身份模型, 2026-08-09) ==');
   const userSel = queryAll(appEl, 'select').find((s) => s.className.includes('nav-user-select'));
   check('顶栏有用户下拉', !!userSel);
   check('下拉预选默认用户 me', userSel && userSel.value === 'me', 'value=' + (userSel && userSel.value));
-  check('下拉含两个孩子选项', userSel && (userSel._children || []).length === 2);
+  check('下拉含两个孩子选项', userSel && (userSel._children || []).length === 3);
   // 切人 → localStorage 记录新 user + 广播事件
   userSel.value = 'u-kid';
   const events = [];
@@ -390,6 +390,32 @@ console.log('== 5. 顶栏切人 (V1 身份模型, 2026-08-09) ==');
   // 新实例读当前 user
   check('currentId 返回新 user', globalThis.AiduUserService.currentId() === 'u-kid');
   check('currentName 解析新 user', globalThis.AiduUserService.currentName([{ id: 'me', name: '我' }, { id: 'u-kid', name: '孩子' }]) === '孩子');
+
+  // ---- S4 (2026-08-10): 下拉含"＋ 新建成员", 选项文字无 ▾, 取消新建回滚 ----
+  const newOpt = (userSel._children || []).find((o) => o.textContent === '＋ 新建成员');
+  check('下拉含"＋ 新建成员"项', !!newOpt);
+  check('选项文字不硬拼 ▾', (userSel._children || []).every((o) => !String(o.textContent).includes('▾')));
+  // 取消新建: 选"＋ 新建成员"后 prompt 返回空 → value 回滚到当前 user
+  globalThis.window.prompt = () => '';
+  userSel.value = '__new__';
+  userSel.onchange();
+  check('取消新建后 value 回滚到当前 user', userSel.value === 'u-kid', 'value=' + userSel.value);
+  // 新建成功: prompt 返回名字 → users.create 被调 → 切到新成员
+  const created = [];
+  globalThis.AiduBridge.users.create = async (name) => { created.push(name); return { ok: true, data: { id: 'u-son', name } }; };
+  globalThis.window.prompt = () => '儿子';
+  const newApp = makeElement('div');
+  const shell2 = new globalThis.ShellView(newApp);
+  shell2.render();
+  await new Promise((r) => setTimeout(r, 30));
+  const userSel2 = queryAll(newApp, 'select').find((s) => s.className.includes('nav-user-select'));
+  userSel2.value = '__new__';
+  userSel2.onchange();
+  await new Promise((r) => setTimeout(r, 50));
+  check('新建成员调用 users.create', created.includes('儿子'), JSON.stringify(created));
+  check('新建后当前 user 切到新成员', globalThis.AiduUserService.currentId() === 'u-son', 'current=' + globalThis.AiduUserService.currentId());
+  // 新成员同步状态应显示"同步未连接" (没 token) —— 由 users_service 无 token + sync chip 兜底
+  check('新建成员后 currentName 解析', globalThis.AiduUserService.currentName([{ id: 'u-son', name: '儿子' }, { id: 'me', name: '我' }]) === '儿子');
 }
 
 console.log('== 5b. 顶栏同步四态 (V6, 2026-08-09) ==');

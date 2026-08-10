@@ -75,9 +75,10 @@
     upsert: (profile) => invoke('profile_upsert', { profile }),
     remove: (id) => invoke('profile_delete', { id }),
   };
-  // ---- 用户 (V1 身份模型: 顶栏切人) ----
+  // ---- 用户 (V1 身份模型: 顶栏切人; S4: +新建成员) ----
   const users = {
     list: () => invoke('users_list'),
+    create: (name) => invoke('users_create', { name }),
   };
   const settings = {
     get: (profileId) => invoke('settings_get', { profileId }),

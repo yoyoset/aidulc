@@ -76,24 +76,61 @@
         setInterval(refresh, 5000).unref?.();
       }
       // V1 (2026-08-09): 顶栏切人 —— user ≠ profile, 切人 = 换当前 user (生词/进度各看各的)
+      // S4 (2026-08-10): 单用户时下拉不是死控件 —— 加"＋ 新建成员"; 选项文字不硬拼 ▾
+      // (原生 select 自带箭头); 取消新建时 value 回滚 (不悬停在空选项上)。
       if (global.AiduUserService) {
         const userSel = el('select', 'app-nav-link nav-user-select');
         userSel.title = '切换用户';
+        const NEW_USER_VALUE = '__new__';
+        const renderUsers = (users) => {
+          userSel.innerHTML = '';
+          users.forEach((u) => {
+            const opt = el('option', null, u.name || u.id);
+            opt.value = u.id;
+            userSel.appendChild(opt);
+          });
+          // S4: 新建成员项 (任何用户数下都放, 不只是单用户 —— 双成员也能加第三个)
+          const newOpt = el('option', null, '＋ 新建成员');
+          newOpt.value = NEW_USER_VALUE;
+          userSel.appendChild(newOpt);
+          userSel.value = AiduUserService.currentId();
+        };
         const usersRefresh = () => {
           AiduUserService.list().then((res) => {
             if (!res.ok) return;
-            const users = res.data || [];
-            userSel.innerHTML = '';
-            users.forEach((u) => {
-              const opt = el('option', null, (u.name || u.id) + ' ▾');
-              opt.value = u.id;
-              userSel.appendChild(opt);
-            });
-            userSel.value = AiduUserService.currentId();
+            renderUsers(res.data || []);
           });
         };
         usersRefresh();
         userSel.onchange = () => {
+          if (userSel.value === NEW_USER_VALUE) {
+            // S4: 新建成员 —— 弹名字, 取消则回滚到当前 user
+            const name = (global.window.prompt ? window.prompt('新成员名字 (如"孩子"):', '') : null) || '';
+            if (!name.trim()) {
+              userSel.value = AiduUserService.currentId(); // 回滚, 不悬停空选项
+              return;
+            }
+            AiduUserService.create(name.trim()).then((r) => {
+              if (!r.ok) {
+                userSel.value = AiduUserService.currentId();
+                // 后台失败必须可见
+                if (typeof AiduToast !== 'undefined') AiduToast.show('新建成员失败: ' + r.error, 'error');
+                return;
+              }
+              const nu = r.data;
+              AiduUserService.setCurrent(nu.id);
+              usersRefresh(); // 重新 list, 顶栏出现新成员
+              // S4: 新成员没有 token → 同步未连接是正确行为, 明示下一步
+              if (typeof AiduToast !== 'undefined') {
+                AiduToast.show('已新建「' + nu.name + '」。这位成员还没连同步, 去设置页邀请。', 'info');
+              }
+              if (this.router) {
+                const hash = (window.location.hash || '#/library').replace('#/', '');
+                this.router.navigate(hash);
+              }
+            });
+            return;
+          }
           AiduUserService.setCurrent(userSel.value);
           usersRefresh();
           // 同路由强制刷新当前视图, 让新 user 的数据立即上屏

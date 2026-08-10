@@ -451,6 +451,7 @@ fn main() {
             ipc::commands::profile_list,
             ipc::commands::profile_delete,
             ipc::commands::users_list,
+            ipc::commands::users_create,
             ipc::commands::highlights_list,
             ipc::commands::highlights_save,
             ipc::commands::highlights_remove,

@@ -15,6 +15,7 @@
     constructor(app) {
       this.app = app;       // #app 根元素
       this.router = null;   // 由 setRouter 补接 (main.js: render 后建 router)
+      this.store = null;    // 由 setStore 补接 (P0-B: 顶栏同步 chip 点击直达设置同步区)
       this.navEl = null;
       this.errorEl = null;
     }
@@ -22,6 +23,11 @@
     /** 绑定路由 (main.js 先 render 后创建 router, 这里补接) */
     setRouter(router) {
       this.router = router;
+    }
+
+    /** 绑定 store (P0-B, 2026-08-10: 同步 chip 点击 → settingsTab=sync 意图) */
+    setStore(store) {
+      this.store = store;
     }
 
     render() {
@@ -107,8 +113,14 @@
       // V6 (2026-08-09): 顶栏同步状态四态 (已同步 / N 条待推 / 离线 / 失败), 只改数字不转圈
       if (global.AiduSyncService && global.AiduUserService) {
         const syncChip = el('span', 'nav-sync-chip', '');
-        syncChip.title = '背单词状态同步状态';
+        // P0-B (2026-08-10): 文案从"未配置"改成"同步未连接" (未配置对用户零信息),
+        // 点击直达设置页"同步与数据"tab, 让未连接的用户知道去哪配。
+        syncChip.title = '背单词同步状态 · 点击进入同步设置';
         right.appendChild(syncChip);
+        syncChip.onclick = () => {
+          if (this.store) this.store.set({ settingsTab: 'sync' });
+          if (this.router) this.router.navigate('settings');
+        };
         const refreshSync = () => {
           AiduSyncService.status().then((res) => {
             if (!res.ok || !res.data) return;
@@ -119,7 +131,7 @@
             else if (d.status === 'pending') syncChip.textContent = d.pending_count + ' 条待推';
             else if (d.status === 'offline') syncChip.textContent = '离线';
             else if (d.status === 'failed') syncChip.textContent = '同步失败';
-            else syncChip.textContent = '未配置';
+            else syncChip.textContent = '同步未连接';
           });
         };
         refreshSync();

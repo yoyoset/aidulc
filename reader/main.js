@@ -27,6 +27,7 @@
   const store = new AiduStore();
   const shell = new ShellView(app);
   shell.render();
+  shell.setStore(store); // P0-B: 顶栏同步 chip 点击直达设置同步区
   const startupLoading = document.createElement('div');
   startupLoading.className = 'app-loading';
   startupLoading.textContent = '正在启动 aidulc…';

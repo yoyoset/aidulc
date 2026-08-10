@@ -409,6 +409,21 @@ console.log('== 5b. 顶栏同步四态 (V6, 2026-08-09) ==');
     if (st === 'offline') check('离线 chip', chip && text === '离线', text);
     if (st === 'failed') check('失败 chip', chip && text === '同步失败', text);
   }
+  // P0-B (2026-08-10): unconfigured 文案改"同步未连接" + 点击直达设置同步区
+  globalThis.AiduSyncService.status = async () => ({ ok: true, data: { status: 'unconfigured', configured: false, pending_count: 0, user_id: 'me' } });
+  const appElU = makeElement('div');
+  const shellU = new globalThis.ShellView(appElU);
+  const storeU = new globalThis.AiduStore();
+  shellU.setStore(storeU);
+  let routedU = null;
+  shellU.setRouter({ navigate: (r) => { routedU = r; } });
+  shellU.render();
+  await new Promise((r) => setTimeout(r, 30));
+  const chipU = queryAll(appElU, '.nav-sync-chip')[0];
+  check('未配置 chip 文案是 同步未连接', chipU && chipU.textContent === '同步未连接', 'text=' + (chipU && chipU.textContent));
+  chipU.onclick();
+  check('点击 chip → settingsTab=sync 意图', storeU.state.settingsTab === 'sync', 'settingsTab=' + storeU.state.settingsTab);
+  check('点击 chip → 跳设置页', routedU === 'settings', 'routed=' + routedU);
 }
 
 console.log('== 6. 背单词三栏 (V3, 2026-08-09) ==');

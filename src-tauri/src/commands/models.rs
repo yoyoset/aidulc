@@ -8,19 +8,15 @@ use tauri::State;
 /// 已安装模型列表
 #[tauri::command]
 pub fn models_list(db: State<store::Db>) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", "enter: models_list");
+    let t0 = crate::store::now_ms_for_store();
     let repo = store::model_repo::ModelRepo::new(db.inner());
+    // 2026-08-10 死锁修复: 曾在此手动 lock conn 后调 repo.list_all() (内部再锁同一
+    // Mutex, std Mutex 不可重入 → 主线程永久卡死, 点设置"模型中心"tab 必假死)。
+    // 改走 repo.list_all_with_bound() —— 锁在 repo 内部自管, 命令层不再碰 conn。
+    let rows = repo.list_all_with_bound();
     let mut out = Vec::new();
-    let conn = db.inner().conn.lock().unwrap();
-    for model in repo.list_all() {
-        let bound: i64 = conn
-            .query_row(
-                "SELECT
-                    (SELECT COUNT(*) FROM editions WHERE llm_id=?1 OR tts_id=?1 OR nlp_id=?1) +
-                    (SELECT COUNT(*) FROM books WHERE llm_id=?1 OR tts_id=?1 OR nlp_id=?1)",
-                [&model.id],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
+    for (model, bound) in rows {
         let mut value = serde_json::to_value(&model).map_err(|e| e.to_string())?;
         if let Some(object) = value.as_object_mut() {
             object.insert(
@@ -37,6 +33,13 @@ pub fn models_list(db: State<store::Db>) -> Result<serde_json::Value, String> {
         }
         out.push(value);
     }
+    crate::infrastructure::log::info(
+        "cmd",
+        &format!(
+            "exit: models_list {}ms",
+            crate::store::now_ms_for_store() - t0
+        ),
+    );
     Ok(serde_json::Value::Array(out))
 }
 

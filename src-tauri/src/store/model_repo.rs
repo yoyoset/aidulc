@@ -137,6 +137,40 @@ impl<'a> ModelRepo<'a> {
             .collect()
     }
 
+    /// 2026-08-10 死锁修复 (models_list 曾持 conn 锁调 list_all → 二次锁永久卡死)。
+    /// 返回 (ModelEntry, bound_count), bound = 被书/译本引用的次数 (资产状态用)。
+    /// 锁在方法内部自管, 调用方绝不能再手动 lock conn。
+    pub fn list_all_with_bound(&self) -> Vec<(ModelEntry, i64)> {
+        let conn = self.db.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, family, language, model_id, version, variant,
+                             path, source_type, source_ref, commit_sha, sha256,
+                             size_bytes, installed_at, active, custom
+                      FROM model_registry ORDER BY family, language, installed_at DESC",
+            )
+            .unwrap();
+        let models: Vec<ModelEntry> = stmt
+            .query_map([], Self::row_to_entry)
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        let mut out = Vec::with_capacity(models.len());
+        for model in models {
+            let bound: i64 = conn
+                .query_row(
+                    "SELECT
+                        (SELECT COUNT(*) FROM editions WHERE llm_id=?1 OR tts_id=?1 OR nlp_id=?1) +
+                        (SELECT COUNT(*) FROM books WHERE llm_id=?1 OR tts_id=?1 OR nlp_id=?1)",
+                    [&model.id],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            out.push((model, bound));
+        }
+        out
+    }
+
     pub fn remove(&self, id: &str) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
         conn.execute("DELETE FROM model_registry WHERE id = ?1", [id])
@@ -196,6 +230,79 @@ mod tests {
             .unwrap();
         assert_eq!(repo.list_by("llm", "en").len(), 1, "* 语言应匹配 en");
         assert_eq!(repo.list_by("llm", "ja").len(), 1);
+    }
+
+    /// 2026-08-10 死锁回归: models_list 曾"持 conn 锁 + 调 list_all()"(内部再锁同一
+    /// Mutex, 不可重入) → 主线程永久卡死 (点设置"模型中心"tab 假死, 实测 Responding=False
+    /// + CPU 0.5s + 40 线程全 Wait)。list_all_with_bound 把锁收进方法内部, 调用方不能再
+    /// 手动 lock。本测试若回归死锁会直接挂死 (--test-threads=1 下可见超时)。
+    fn insert_bindings_for_models(db: &Db) {
+        use crate::store::books_repo::{Book, BooksRepo};
+        use crate::store::editions_repo::{Edition, EditionsRepo};
+        let book = Book {
+            id: "b1".into(),
+            title: "Alice".into(),
+            source_path: "C:/books/alice.epub".into(),
+            pack_dir: "C:/packs/b1".into(),
+            profile_id: "default".into(),
+            status: "ready".into(),
+            kind: "original".into(),
+            source_book_id: None,
+            chapter_count: 12,
+            failed_count: 0,
+            last_opened_at: None,
+            source_language: "en".into(),
+            target_language: "zh".into(),
+            llm_id: Some("llm|en|qwen".into()),
+            tts_id: Some("tts|en|kokoro".into()),
+            nlp_id: None,
+            created_at: 1,
+            updated_at: 1,
+        };
+        BooksRepo::new(db).upsert(&book).unwrap();
+        let edition = Edition {
+            id: "e1".into(),
+            source_id: "b1".into(),
+            title: "Alice EN".into(),
+            pack_dir: "C:/packs/e1".into(),
+            profile_id: "default".into(),
+            status: "done".into(),
+            chapter_count: 12,
+            failed_count: 0,
+            last_opened_at: None,
+            source_language: "en".into(),
+            target_language: "zh".into(),
+            llm_id: Some("llm|en|qwen".into()),
+            tts_id: Some("tts|en|kokoro".into()),
+            nlp_id: None,
+            created_at: 1,
+            updated_at: 1,
+        };
+        EditionsRepo::new(db).upsert(&edition).unwrap();
+    }
+
+    #[test]
+    fn list_all_with_bound_no_deadlock_and_counts_bindings() {
+        let db = temp_db();
+        let repo = ModelRepo::new(&db);
+        repo.upsert(&entry("llm|en|qwen", "llm", "en", "qwen.gguf"))
+            .unwrap();
+        repo.upsert(&entry("tts|en|kokoro", "tts", "en", "kokoro.pth"))
+            .unwrap();
+        repo.upsert(&entry("llm|en|other", "llm", "en", "other.gguf"))
+            .unwrap();
+        insert_bindings_for_models(&db); // b1 引用了 qwen + kokoro
+        let rows = repo.list_all_with_bound();
+        assert_eq!(rows.len(), 3, "三模型都应返回");
+        let by_id = |id: &str| {
+            rows.iter()
+                .find(|(m, _)| m.id == id)
+                .map(|(_, b)| *b)
+                .unwrap()
+        };
+        assert_eq!(by_id("llm|en|qwen"), 2, "被书和译本各引一次 → bound=2");
+        assert_eq!(by_id("tts|en|kokoro"), 2);
+        assert_eq!(by_id("llm|en|other"), 0, "无引用 → bound=0");
     }
 
     #[test]

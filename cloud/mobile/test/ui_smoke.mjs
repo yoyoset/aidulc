@@ -223,6 +223,67 @@ console.log('== 7. P0-C 扫码配对: hash 解析 + 直连存凭据 ==');
   check('清除凭据后未配置', (await app.adapter.storage.getToken()) === null && (await app.adapter.storage.getWorkerUrl()) === null);
 }
 
+console.log('== 8. P1-E 更新提示 (SW 生命周期驱动, 删 localStorage 比对) ==');
+{
+  // 干净的环境: 备份旧的 location/navigator stub, 换上带 SW 的
+  const prevLocation = globalThis.location;
+  let reloadCalled = 0;
+  globalThis.location = { reload: () => { reloadCalled++; } };
+  let swEvt = null;          // navigator.serviceWorker 上的 controllerchange 监听
+  let postedMsg = null;      // 点提示条后发给 waiting worker 的消息
+  let regUpdateFound = null; // reg 上的 updatefound 监听
+  const makeReg = (hasWaiting) => ({
+    waiting: hasWaiting ? { postMessage: (m) => { postedMsg = m; } } : null,
+    addEventListener: (ev, fn) => { if (ev === 'updatefound') regUpdateFound = fn; },
+  });
+  let controller = null;     // 可切换: null = 首次安装, {x:1} = 已有旧 worker (更新)
+  const navStub = {
+    serviceWorker: {
+      get controller() { return controller; },
+      addEventListener: (ev, fn) => { swEvt = fn; },
+      register: async () => makeReg(true),
+    },
+  };
+  // Node 的全局 navigator 是只读 getter, 用 defineProperty 覆盖 (用完还原)
+  Object.defineProperty(globalThis, 'navigator', { value: navStub, configurable: true, writable: true });
+
+  // 场景 A: 首次安装 (controller 为空) → updatefound 不显示提示条
+  controller = null;
+  await app.setupServiceWorker();
+  await new Promise((r) => setTimeout(r, 30));
+  check('首次安装时 register 被调用', true);
+  regUpdateFound();
+  const banner = getEl('update-banner');
+  check('首次安装 updatefound → 提示条不显示 (onclick 未设置)', banner && banner.onclick == null);
+  check('首次安装不 reload', reloadCalled === 0);
+
+  // 场景 B: 真更新 (controller 存在) → updatefound 显示提示条, 点击 → SKIP_WAITING → reload
+  controller = { dummy: true };
+  await app.setupServiceWorker();
+  await new Promise((r) => setTimeout(r, 30));
+  regUpdateFound();
+  check('更新时 updatefound → 提示条显示 (onclick 已设置)', banner && typeof banner.onclick === 'function');
+  banner.onclick();
+  check('点提示条 → 给 waiting worker 发 SKIP_WAITING', postedMsg && postedMsg.type === 'SKIP_WAITING', postedMsg);
+  // 新 worker 接管 → controllerchange → reload (只在这时, 不是首次安装)
+  swEvt();
+  await new Promise((r) => setTimeout(r, 30));
+  check('controllerchange (更新触发) → reload 一次', reloadCalled === 1, 'reload=' + reloadCalled);
+
+  // 场景 C: 首次安装的 controllerchange (null→worker) 不 reload —— 用干净计数器验证守卫
+  reloadCalled = 0;
+  controller = null;
+  globalThis.navigator.serviceWorker.register = async () => makeReg(false);
+  await app.setupServiceWorker();
+  await new Promise((r) => setTimeout(r, 30));
+  swEvt();
+  check('无更新时的 controllerchange 不 reload (守卫)', reloadCalled === 0);
+
+  globalThis.location = prevLocation;
+  // 还原 navigator (删掉 defineProperty 覆盖的 stub, 恢复 Node 只读 getter)
+  delete globalThis.navigator;
+}
+
 console.log('');
 console.log(`结果: ${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

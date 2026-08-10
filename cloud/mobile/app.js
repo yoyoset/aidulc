@@ -392,26 +392,39 @@
   }
 
   // ---------- 启动 ----------
-  // P0 更新机制 (2026-08-10): 发现新构建版本 → 弹"有更新, 点此刷新"条。
-  // build-info.js 是普通脚本, window.AIDULC_BUILD_VERSION 已就位。
+  // P1-E (2026-08-10): 更新提示改为 Service Worker 生命周期驱动。
+  // 删掉 P0 的 localStorage 版本比对 (结构上不可能正确: 能读到 BUILD_VERSION 常量时新版本
+  // 早已生效, 点击只是写 localStorage + reload, 页面本来就是新的 → 视觉上毫无变化;
+  // 首次访问 seen===null 还会误报"有更新")。
   const BUILD_VERSION = (typeof self !== 'undefined' && self.AIDULC_BUILD_VERSION) ||
     (typeof window !== 'undefined' && window.AIDULC_BUILD_VERSION) || 'dev';
-  const SEEN_KEY = 'aidulc_build_seen';
 
-  function checkUpdate() {
-    if (BUILD_VERSION === 'dev') return;
-    let seen = null;
-    try { seen = localStorage.getItem(SEEN_KEY); } catch (e) { /* ignore */ }
-    if (seen !== BUILD_VERSION) {
-      const banner = document.getElementById('update-banner');
-      if (banner) {
+  // 注册 SW + 监听更新:
+  //   - updatefound → 新 worker 进入 installing; 此时 navigator.serviceWorker.controller
+  //     存在 = 确实是"更新"(首次安装时 controller 为空) → 才显示提示条。
+  //   - 点提示条 → reg.waiting.postMessage(SKIP_WAITING) → sw.js 收到后 self.skipWaiting()
+  //     接管 → controllerchange → 这里 reload, 真正切到新版本。
+  //   - 全新设备首次打开: updatefound 时 controller 为空 → 不显示。
+  function setupServiceWorker() {
+    if (typeof navigator === 'undefined' || typeof navigator.serviceWorker === 'undefined') return;
+    const banner = document.getElementById('update-banner');
+    let updateTriggered = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      // 只在新版接管后刷新 (首次安装 controller 从 null → worker 也会触发, 但那次不是"点刷新")
+      if (updateTriggered) location.reload();
+    });
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      reg.addEventListener('updatefound', () => {
+        if (!navigator.serviceWorker.controller) return; // 首次安装, 不是更新
+        if (!banner) return;
         banner.classList.remove('hidden');
         banner.onclick = () => {
-          try { localStorage.setItem(SEEN_KEY, BUILD_VERSION); } catch (e) {}
-          location.reload();
+          updateTriggered = true;
+          if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          else location.reload(); // 新 worker 已直接激活 (异常路径) → 刷新即可
         };
-      }
-    }
+      });
+    }).catch(() => { /* SW 注册失败不阻断使用 (离线/隐私模式) */ });
   }
 
   async function boot() {
@@ -426,14 +439,14 @@
       try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
       updateSyncChip();
     }
-    checkUpdate();
+    setupServiceWorker();
     // 尝试自动补推 (离线静默失败, 不打扰)
     await app.sync().catch(() => {});
     await loadEntry();
   }
 
   // 让 app 暴露内部 (测试 / 调试用)
-  window.mobileApp = { app, adapter, C, boot, checkUpdate, BUILD_VERSION, parsePairingHash, loadEntry, startReview, grade, undo, exitReview, connectPair, openSettings, clearPair, get state() { return { index, done, queue: queue.slice(), currentEntry }; } };
+  window.mobileApp = { app, adapter, C, boot, setupServiceWorker, BUILD_VERSION, parsePairingHash, loadEntry, startReview, grade, undo, exitReview, connectPair, openSettings, clearPair, get state() { return { index, done, queue: queue.slice(), currentEntry }; } };
 
   boot();
 })();

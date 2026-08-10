@@ -22,7 +22,12 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
+  // P1-E (2026-08-10): 只有首次安装 (无旧 worker) 才直接接管;
+  // 更新时**等**页面发 SKIP_WAITING 再接管, 让"有更新, 点此刷新"真的在点的那一下切换。
+  if (!self.registration.active) {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('activate', (e) => {
@@ -31,6 +36,13 @@ self.addEventListener('activate', (e) => {
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
+});
+
+// P1-E (2026-08-10): 页面点"有更新"提示条 → postMessage({type:'SKIP_WAITING'}) → 接管新版本
+self.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('fetch', (e) => {

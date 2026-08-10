@@ -198,9 +198,78 @@ pub fn sync_now(
             ok: true,
             rev: last_pull_rev,
             wrote: 0,
+            code: None,
+            error: None,
+            written_keys: vec![],
         })
     } else {
+        // S2 (2026-08-10) 前置护栏: 先查 worker 能力 (写配额)。CF KV 免费档每天 1000 次
+        // 写不同键, 推送是一词一个键 → 待推 N 词 + 1 (deck index) 超限则**发之前就拒绝**,
+        // 不推一半撞配额。VPS 文件存储无配额 (max_writes_per_day=null) → 跳过检查。
+        // 旧版 worker 无 /v1/capabilities → 跳过 (靠 worker 侧护栏兜底, 不强拒)。
+        if let Ok(cap) = sync_v1_client::capabilities(worker_url) {
+            if let Some(limit) = cap.max_writes_per_day {
+                let estimate = to_push.len() as i64 + 1;
+                if estimate > limit {
+                    let msg = format!(
+                        "本次需 {estimate} 次写 (待推 {} 词 + deck index), 免费档每天 {limit} —— 请分批或改用自建后端",
+                        to_push.len()
+                    );
+                    record_sync(user_id, Err(msg.clone()));
+                    let last = last_sync_for(user_id);
+                    return Ok(status_for(
+                        true,
+                        worker_url,
+                        user_id,
+                        last,
+                        pending_count(db, user_id),
+                    ));
+                }
+            }
+        }
         sync_v1_client::push(worker_url, token, &to_push)
+    };
+
+    // S2: worker 侧护栏兜底 —— 中途写失败 (配额/限流) 返回部分结果。客户端只把**真正
+    // 写成功**的词条算作已推 (last_push_at 推进到"最靠前的未写词条"之下), 未写的一律
+    // 保持待推, 不把失败当成功。
+    let push_result = match push_result {
+        Ok(p) if !p.ok => {
+            let written: std::collections::HashSet<&str> =
+                p.written_keys.iter().map(|k| k.as_str()).collect();
+            let unwritten_min_updated: Option<i64> = to_push
+                .iter()
+                .filter(|(k, _)| !written.contains(k.as_str()))
+                .filter_map(|(_, v)| v.get("updated_at").and_then(|x| x.as_i64()))
+                .min();
+            let state = SyncStateRepo::new(db).get(user_id);
+            let old_last_push = state.as_ref().map(|s| s.last_push_at).unwrap_or(0);
+            // 全部写成功 (deck 落盘失败这种边角) → 按全量推进; 否则停在最靠前未写词之前
+            let new_last_push = match unwritten_min_updated {
+                None => crate::store::now_ms_for_store(),
+                Some(min) => (min - 1).max(old_last_push),
+            };
+            let _ = SyncStateRepo::new(db).upsert(&SyncState {
+                user_id: user_id.to_string(),
+                last_push_at: new_last_push,
+                last_pull_rev: p.rev,
+                updated_at: crate::store::now_ms_for_store(),
+            });
+            let msg = p
+                .error
+                .clone()
+                .unwrap_or_else(|| format!("同步部分失败: 已写入 {} 条", p.wrote));
+            record_sync(user_id, Err(msg.clone()));
+            let last = last_sync_for(user_id);
+            return Ok(status_for(
+                true,
+                worker_url,
+                user_id,
+                last,
+                pending_count(db, user_id),
+            ));
+        }
+        other => other,
     };
 
     let push_result = match push_result {
@@ -711,5 +780,205 @@ mod tests {
             repo.get("me", "default", "brandnew").is_some(),
             "真新词落 default"
         );
+    }
+
+    /// S2 (2026-08-10) 回归: 中途写失败 → 部分结果 → 客户端只把真正写成功的词标记为已推。
+    /// mock 只写 2 个词 (bank/languid), 第 3 个 (austere) 失败 → 断言 austere 仍在待推,
+    /// 不会因为"同步跑过"就被当成已推。
+    #[test]
+    fn partial_push_failure_does_not_mark_unsynced_as_synced() {
+        use std::io::{BufRead, BufReader, Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let mut store: std::collections::HashMap<String, serde_json::Value> =
+                std::collections::HashMap::new();
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut req_line = String::new();
+                if reader.read_line(&mut req_line).is_err() {
+                    continue;
+                }
+                let mut headers = std::collections::HashMap::new();
+                let mut content_length = 0usize;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).is_err() || line.trim().is_empty() {
+                        break;
+                    }
+                    let lower = line.to_lowercase();
+                    if let Some(v) = lower.strip_prefix("content-length:") {
+                        content_length = v.trim().parse().unwrap_or(0);
+                    } else if let Some(v) = lower.strip_prefix("authorization:") {
+                        headers.insert("authorization".to_string(), v.trim().to_string());
+                    }
+                }
+                let mut body = vec![0u8; content_length];
+                if content_length > 0 {
+                    let _ = reader.read_exact(&mut body);
+                }
+                let token = headers.get("authorization").cloned().unwrap_or_default();
+                let parts: Vec<&str> = req_line.split(' ').collect();
+                let method = parts[0].to_string();
+                let path = parts.get(1).cloned().unwrap_or("/").to_string();
+
+                let resp = if method == "GET" && path.starts_with("/v1/capabilities") {
+                    // S2: 声明 CF KV (max_writes_per_day=1000) 之外还要声明 max_push_words
+                    serde_json::json!({
+                        "ok": true, "storage": "cf",
+                        "max_writes_per_day": 1000, "max_push_words": 2000,
+                    })
+                } else if method == "POST" && path == "/v1/sync" {
+                    let v: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
+                    let words = v.get("words").cloned().unwrap_or(serde_json::json!({}));
+                    let mut existing = store.get(&token).cloned().unwrap_or(serde_json::json!({}));
+                    let written: Vec<String> = words
+                        .as_object()
+                        .map(|m| m.keys().filter(|k| *k != "austere").cloned().collect())
+                        .unwrap_or_default();
+                    // 只写成功 2 条, 模拟第 3 条 (austere) 写失败
+                    let mut wrote = 0;
+                    if let (Some(ex), Some(incoming)) =
+                        (existing.as_object_mut(), words.as_object())
+                    {
+                        for (k, val) in incoming {
+                            if k == "austere" {
+                                continue; // 模拟写失败
+                            }
+                            ex.insert(k.clone(), val.clone());
+                            wrote += 1;
+                        }
+                    }
+                    store.insert(token.clone(), existing);
+                    let rev = 1 + store.keys().len() as i64;
+                    serde_json::json!({
+                        "ok": false, "code": "kv_write_failed", "rev": rev, "wrote": wrote,
+                        "written_keys": written,
+                        "error": "写失败: 已写入 2 条, 其余 1 条未写入",
+                    })
+                } else if method == "GET" && path.starts_with("/v1/sync") {
+                    let words = store.get(&token).cloned().unwrap_or(serde_json::json!({}));
+                    let changed: Vec<serde_json::Value> = words
+                        .as_object()
+                        .map(|m| m.values().cloned().collect())
+                        .unwrap_or_default();
+                    serde_json::json!({ "ok": true, "rev": 7, "changed": changed })
+                } else {
+                    serde_json::json!({ "ok": false, "error": "not found" })
+                };
+                let payload = serde_json::to_vec(&resp).unwrap();
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    payload.len()
+                );
+                let _ = stream.write_all(header.as_bytes());
+                let _ = stream.write_all(&payload);
+            }
+        });
+        let url = format!("http://{addr}");
+
+        let db = temp_db();
+        let repo = crate::store::vocab_repo::VocabRepo::new(&db);
+        repo.upsert_content(entry("bank", 100), "me", "default")
+            .unwrap();
+        repo.upsert_content(entry("languid", 200), "me", "default")
+            .unwrap();
+        repo.upsert_content(entry("austere", 300), "me", "default")
+            .unwrap();
+
+        let s = sync_now(&db, &url, "token-p", "me").unwrap();
+        // 关键断言: austere 没写成功 → 仍在待推 (不会因 sync 跑过就被标记已推)
+        assert!(
+            s.pending_count >= 1,
+            "部分失败后 austere 应仍待推 (pending_count={}) : {s:?}",
+            s.pending_count
+        );
+        assert_eq!(s.status, "failed", "部分失败应为 failed: {s:?}");
+        let last_err = s.last_error.clone().unwrap_or_default();
+        assert!(
+            last_err.contains("已写入 2 条"),
+            "错误信息应含真实进度: {last_err}"
+        );
+        // bank/languid 已写成功 → 不再待推; 本地仍 3 条 (数据不丢)
+        assert_eq!(repo.list_all_for_user("me").len(), 3, "本地词条不丢");
+    }
+
+    /// S2 (2026-08-10) 回归: 前置配额拒绝 —— worker 声明 max_writes_per_day=1000,
+    /// 本地待推远超阈值 → 在发出 push 之前就拒绝并给人话提示。
+    #[test]
+    fn pre_push_quota_rejects_large_batch() {
+        use std::io::{BufRead, BufReader, Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let pushed = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+        let pushed2 = pushed.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut req_line = String::new();
+                if reader.read_line(&mut req_line).is_err() {
+                    continue;
+                }
+                let mut content_length = 0usize;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).is_err() || line.trim().is_empty() {
+                        break;
+                    }
+                    let lower = line.to_lowercase();
+                    if let Some(v) = lower.strip_prefix("content-length:") {
+                        content_length = v.trim().parse().unwrap_or(0);
+                    }
+                }
+                let mut body = vec![0u8; content_length];
+                if content_length > 0 {
+                    let _ = reader.read_exact(&mut body);
+                }
+                let parts: Vec<&str> = req_line.split(' ').collect();
+                let method = parts[0].to_string();
+                let path = parts.get(1).cloned().unwrap_or("/").to_string();
+                let resp = if method == "GET" && path.starts_with("/v1/capabilities") {
+                    serde_json::json!({ "ok": true, "storage": "cf", "max_writes_per_day": 1000, "max_push_words": 2000 })
+                } else if method == "POST" && path == "/v1/sync" {
+                    *pushed2.lock().unwrap() += 1;
+                    serde_json::json!({ "ok": true, "rev": 1, "wrote": 0 })
+                } else {
+                    serde_json::json!({ "ok": false, "error": "not found" })
+                };
+                let payload = serde_json::to_vec(&resp).unwrap();
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    payload.len()
+                );
+                let _ = stream.write_all(header.as_bytes());
+                let _ = stream.write_all(&payload);
+            }
+        });
+        let url = format!("http://{addr}");
+
+        let db = temp_db();
+        let repo = crate::store::vocab_repo::VocabRepo::new(&db);
+        // 构造 1001 个待推词 (> 免费档 1000 阈值 + deck index)
+        for i in 0..1001 {
+            let mut e = entry(&format!("word_{i}"), 100 + i as i64);
+            e.word = format!("word_{i}");
+            repo.upsert_content(e, "me", "default").unwrap();
+        }
+
+        let s = sync_now(&db, &url, "token-q", "me").unwrap();
+        assert_eq!(s.status, "failed", "超配额应被前置拒绝: {s:?}");
+        let last_err = s.last_error.clone().unwrap_or_default();
+        assert!(
+            last_err.contains("请分批或改用自建后端"),
+            "拒绝信息应是人话提示: {last_err}"
+        );
+        // 关键: push 请求根本没发出去
+        assert_eq!(*pushed.lock().unwrap(), 0, "超配额应在发出 push 前拒绝");
     }
 }

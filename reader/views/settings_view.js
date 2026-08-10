@@ -217,6 +217,10 @@
           (d.pending_count > 0 ? ' · ' + d.pending_count + ' 条待推' : '') +
           (d.worker_url ? ' · ' + d.worker_url : '') +
           (d.last_sync_at ? ' · 上次 ' + new Date(d.last_sync_at).toLocaleTimeString() : '');
+        // S2 (2026-08-10): 失败必须可见 —— 配额拒绝/部分失败的人话原因直接展示
+        if (d.last_error) {
+          syncStatus.textContent += '\n' + d.last_error;
+        }
         disconnectBtn.disabled = !d.configured;
       };
       AiduSyncService.status().then((res) => {

@@ -224,6 +224,72 @@ console.log('== 7. 踢 token (P0-C: 手机配对收回) ==');
   check('me 的 token 仍有效 (200)', stillOk.status === 200);
 }
 
+console.log('== 8. S2 写配额护栏 ==');
+{
+  // 内存 KV 假绑定 (真实现 get/put, 让 auth token 能取回) —— 驱动 worker 走 CF KV 分支
+  const makeMemDb = (failAfterSrs = Infinity) => {
+    const map = new Map();
+    let srsPuts = 0;
+    return {
+      async get(key) { return map.has(key) ? map.get(key) : null; },
+      async put(key, value) {
+        if (key.startsWith('srs:')) {
+          srsPuts++;
+          if (srsPuts > failAfterSrs) throw new Error('simulated quota hit');
+        }
+        map.set(key, value);
+      },
+      async delete(key) { map.delete(key); },
+      async list(prefix) { return [...map.keys()].filter((k) => k.startsWith(prefix)); },
+    };
+  };
+
+  // 8a. 前置拒绝: env.DB 存在 → 推 >1000 词 → 不写一半, 明确拒绝
+  const bigWords = {};
+  for (let i = 0; i < 1001; i++) bigWords['w' + i] = { word: 'w' + i, updated_at: Date.now() };
+  const quotaEnv = { ROOT_SECRET: 'test-secret-123', DB: makeMemDb() };
+  const tokenQ = await j(await worker.fetch(new Request('http://t.local/v1/auth/device', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root_secret: 'test-secret-123', device_name: 'q' }),
+  }), quotaEnv));
+  check('配额测试环境可换 token', !!tokenQ.token, tokenQ);
+  const qRes = await worker.fetch(new Request('http://t.local/v1/sync', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tokenQ.token },
+    body: JSON.stringify({ words: bigWords }),
+  }), quotaEnv);
+  const qd = await j(qRes);
+  check('>1000 词前置拒绝 (kv_write_quota)', qd.ok === false && qd.code === 'kv_write_quota', qd);
+  check('拒绝时报出需写次数', typeof qd.error === 'string' && qd.error.includes('1001'), qd.error);
+
+  // 8b. 中途写失败 → 部分结果: srs 写第 3 条时抛错, 断言 wrote=2 + written_keys + 不把失败当成功
+  const failEnv = { ROOT_SECRET: 'test-secret-123', DB: makeMemDb(2) };
+  const tokenF = await j(await worker.fetch(new Request('http://t.local/v1/auth/device', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root_secret: 'test-secret-123', device_name: 'f' }),
+  }), failEnv));
+  const words3 = {
+    aa: { word: 'aa', updated_at: 100 },
+    bb: { word: 'bb', updated_at: 200 },
+    cc: { word: 'cc', updated_at: 300 },
+  };
+  const fRes = await worker.fetch(new Request('http://t.local/v1/sync', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tokenF.token },
+    body: JSON.stringify({ words: words3 }),
+  }), failEnv);
+  const fd = await j(fRes);
+  check('中途写失败 → ok:false + kv_write_failed', fd.ok === false && fd.code === 'kv_write_failed', fd);
+  check('部分结果 wrote=2 (不把失败当成功)', fd.wrote === 2, fd);
+  check('部分结果带 written_keys', Array.isArray(fd.written_keys) && fd.written_keys.length === 2, fd.written_keys);
+  check('rev 只覆盖已写部分', fd.rev === 2, fd);
+  check('错误信息含已写入条数', typeof fd.error === 'string' && fd.error.includes('2'), fd.error);
+
+  // 8c. /v1/capabilities 自述: CF 报 1000/天, 文件存储无配额
+  const capCF = await j(await worker.fetch(new Request('http://t.local/v1/capabilities'), quotaEnv));
+  check('CF 能力自述 max_writes_per_day=1000', capCF.storage === 'cf' && capCF.max_writes_per_day === 1000, capCF);
+  const capFile = await j(await worker.fetch(new Request('http://t.local/v1/capabilities'), env));
+  check('文件存储能力自述 max_writes_per_day=null', capFile.storage === 'file' && capFile.max_writes_per_day === null, capFile);
+}
+
 console.log('');
 console.log(`结果: ${pass} 通过 / ${fail} 失败`);
 rmSync(dir, { recursive: true, force: true });

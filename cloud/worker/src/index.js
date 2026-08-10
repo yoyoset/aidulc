@@ -104,7 +104,18 @@ export default {
         return await syncPull(request, storage);
       }
       if (request.method === 'POST' && p === '/v1/sync') {
-        return await syncPush(request, storage);
+        return await syncPush(request, storage, env);
+      }
+      // S2 (2026-08-10): 能力自述 —— 客户端推送前估算写次数用 (CF KV 有 1000/天配额,
+      // 文件存储无配额; 前端据此决定是否前置拒绝, 而不是推一半撞配额)
+      if (request.method === 'GET' && p === '/v1/capabilities') {
+        return json({
+          ok: true,
+          storage: env.DB ? 'cf' : 'file',
+          // CF 免费档"写不同键 1000/天" (实测 + 官方页), 见 docs/DESIGN_NOTES_SRS.md V0②
+          max_writes_per_day: env.DB ? 1000 : null,
+          max_push_words: MAX_PUSH_WORDS,
+        });
       }
 
       return error('未找到路由: ' + p, 404);
@@ -333,8 +344,16 @@ async function syncPull(request, storage) {
  * POST /v1/sync  body: { base_rev?, words: {word_key: entry} }
  * 整批推送: 逐条按 updated_at 新者胜写入 srs:{user}:{word}, 更新 deck index rev。
  * 返回新 rev + 远端更新的条目 (客户端随后拉取会合并)。
+ *
+ * S2 (2026-08-10) 写配额护栏:
+ *  - CF KV 免费档"写不同键 1000/天" (docs/DESIGN_NOTES_SRS.md V0②)。推送是一词一个
+ *    KV 键, 首次全量写次数 = 词条数 + 1 (deck index)。词条数超 1000 直接前置拒绝
+ *    (code=kv_write_quota), 不写一半。
+ *  - 中途任何 KV 写失败 (配额/限流/瞬时故障) → 返回部分结果 { ok:false,
+ *    code:"kv_write_failed", wrote:M, rev, error, written_keys:[...] },
+ *    客户端据此把 last_push_at 推进到真实进度, 不把失败当成功。
  */
-async function syncPush(request, storage) {
+async function syncPush(request, storage, env) {
   const token = bearer(request);
   const identity = token ? await authFromToken(storage, token) : null;
   const authErr = requireToken(identity);
@@ -351,6 +370,19 @@ async function syncPush(request, storage) {
     return json({ ok: true, rev: 0, wrote: 0 });
   }
 
+  // S2 前置护栏: CF KV 每次推送的写次数 = 词条数 + 1 (deck index)。免费档 1000/天,
+  // 超限直接拒绝 (VPS 文件存储 env.KV_DIR 无配额, 不受限)。
+  const freeTierWriteBudget = env.DB ? 1000 : null;
+  if (freeTierWriteBudget && keys.length + 1 > freeTierWriteBudget) {
+    return json({
+      ok: false,
+      code: 'kv_write_quota',
+      wrote: 0,
+      rev: 0,
+      error: `本次需 ${keys.length} 次写 (词条各 1 次 + deck index), 免费档每天 ${freeTierWriteBudget} —— 请分批或改用自建后端`,
+    });
+  }
+
   const deckRaw = await storage.get(`deck:${user_id}:index`);
   let deck = deckRaw
     ? JSON.parse(deckRaw)
@@ -358,6 +390,8 @@ async function syncPush(request, storage) {
 
   // 逐条新者胜 (镜像不是真相源: 本地/远端冲突取 updated_at 大者)
   let wrote = 0;
+  const writtenKeys = [];
+  let lastError = null;
   for (const key of keys) {
     const entry = incoming[key];
     if (!entry || typeof entry !== 'object') continue;
@@ -388,11 +422,35 @@ async function syncPush(request, storage) {
       sentence_index: entry.sentence_index != null ? entry.sentence_index : null,
       rev: nextRev,
     };
-    await storage.put(`srs:${user_id}:${wkey}`, JSON.stringify(saved));
+    try {
+      await storage.put(`srs:${user_id}:${wkey}`, JSON.stringify(saved));
+    } catch (e) {
+      // S2: 中途写失败 (配额/限流) → 记录已写部分, 停止, 返回部分结果
+      lastError = String((e && e.message) || e);
+      break;
+    }
     deck.words[wkey] = { rev: nextRev, updated_at: saved.updated_at };
     deck.rev = nextRev;
     deck.updated_at = now;
     wrote++;
+    writtenKeys.push(wkey);
+  }
+
+  if (lastError) {
+    // 已写部分也要落盘 deck index (让 rev 只覆盖真正写成功的), 避免"未写也标记已推"
+    try {
+      await storage.put(`deck:${user_id}:index`, JSON.stringify(deck));
+    } catch (_) {
+      // deck 写不进也没关系 —— rev 仍推进到已写部分, 客户端下次按 wrote 对账
+    }
+    return json({
+      ok: false,
+      code: 'kv_write_failed',
+      wrote,
+      rev: deck.rev,
+      error: `写失败 (${lastError}): 已写入 ${wrote} 条, 其余 ${keys.length - wrote} 条未写入`,
+      written_keys: writtenKeys,
+    });
   }
 
   await storage.put(`deck:${user_id}:index`, JSON.stringify(deck));

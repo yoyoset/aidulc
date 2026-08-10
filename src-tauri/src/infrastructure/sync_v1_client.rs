@@ -38,6 +38,42 @@ pub struct PushResult {
     pub ok: bool,
     pub rev: i64,
     pub wrote: i64,
+    /// S2 (2026-08-10): worker 前置拒绝/中途失败时的错误码 (kv_write_quota / kv_write_failed)
+    #[serde(default)]
+    pub code: Option<String>,
+    /// S2: 人话错误信息 (写配额超限等)
+    #[serde(default)]
+    pub error: Option<String>,
+    /// S2: 中途失败时**实际写成功**的词条键 (不把失败当成功, 客户端按此推进 last_push_at)
+    #[serde(default)]
+    pub written_keys: Vec<String>,
+}
+
+/// S2 (2026-08-10): worker 能力自述 (GET /v1/capabilities) —— 推送前估算写次数用。
+/// CF KV 免费档 max_writes_per_day=1000; VPS 文件存储为 null (无配额)。
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Capabilities {
+    #[serde(default)]
+    pub max_writes_per_day: Option<i64>,
+}
+
+/// S2: 查询 worker 能力 (写配额)。旧版 worker 无此端点 → Err, 调用方按"未知"处理
+/// (不回退到强拒绝, 靠 worker 侧护栏兜底)。
+pub fn capabilities(worker_url: &str) -> Result<Capabilities, String> {
+    if worker_url.is_empty() {
+        return Err("未配置 CF Worker URL (离线模式)".into());
+    }
+    let c = client()?;
+    let url = format!("{worker_url}/v1/capabilities");
+    let resp = c
+        .get(&url)
+        .send()
+        .map_err(|e| format!("查询能力失败: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let v: serde_json::Value = resp.json().map_err(|e| format!("解析能力响应失败: {e}"))?;
+    serde_json::from_value(v).map_err(|e| format!("解析能力字段失败: {e}"))
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

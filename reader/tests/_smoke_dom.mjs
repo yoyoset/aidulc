@@ -304,5 +304,43 @@ check('节奏线 transform 用预测量', /translate3d/.test(b0.ab.getSweepEl().
 renderer.highlightAt(250, sentences); // 词 1 (200-400)
 check('词变节奏线跟着动', /translate3d/.test(b0.ab.getSweepEl().style.transform));
 
+console.log('== S6 语义通道共存 (生词/短语/摘录/朗读同句可叠加) ==');
+{
+  // 构造一句同时命中四通道的原子块: 词1 生词(saved) + 短语(phrasal-member) + 摘录(hl-span) +
+  // 朗读(word-reading)。四通道各自独立 class → 叠加不互相遮蔽 (设计 §2.5 / S6)。
+  const coexSentence = {
+    original_text: 'The quick brown fox jumps over the lazy dog.',
+    status: 'ok',
+    segments: sentence.segments,
+    phrasal_verbs: sentence.phrasal_verbs,
+    audio: sentence.audio,
+    words: sentence.words,
+  };
+  const hlList = [{ sentence_index: 0, start_seg: 0, end_seg: 4 }]; // 摘录覆盖词0-4
+  const blkC = globalThis.AtomicBlock.create(coexSentence, 0, handlers, {
+    mode: 'guess', current: true,
+    savedSet: new Set(['quick', 'jump']),   // 词1 生词; jumps 的 lemma=jump 也入生词本
+    highlights: hlList,                        // 摘录
+    verifiedSet: new Set(),
+  });
+  check('摘录句有 highlighted 类', blkC.classList.contains('highlighted'));
+  const quick = blkC.querySelector('.bubble[data-seg-idx="1"]');
+  check('生词词元有 saved 类 (1px 下划线通道)', quick && quick.classList.contains('saved'));
+  // 词4 (jumps) 是短语成员 → phrasal-member 独立通道
+  const jumps = blkC.querySelector('.bubble[data-seg-idx="4"]');
+  check('短语成员有 phrasal-member 类 (2px 下划线通道)', jumps && jumps.classList.contains('phrasal-member'));
+  // 摘录 span 有 hl-span 软底类
+  const hlSpan = blkC.querySelectorAll('.bubble.hl-span').length;
+  check('摘录词元有 hl-span 类', hlSpan >= 1, 'count=' + hlSpan);
+  // 短语词同一词可同时是 phrasal-member + saved (类不互相清空) —— 若 savedSet 用 lemma
+  // 匹配到短语动词, jumps 会带两类
+  const jumpsCls = jumps ? jumps.className : '';
+  check('短语词可同时带 saved 类 (叠加不遮蔽)', jumpsCls.includes('phrasal-member') && jumpsCls.includes('saved'), jumpsCls);
+  // 朗读词 setWordReading 加 word-reading, 与上面三类并存
+  blkC._ab.setWordReading(4);
+  const jumpsR = blkC.querySelector('.bubble[data-seg-idx="4"]');
+  check('朗读底色与生词/短语/摘录叠加', jumpsR && jumpsR.classList.contains('word-reading') && jumpsR.classList.contains('phrasal-member'), jumpsR && jumpsR.className);
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

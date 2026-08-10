@@ -51,6 +51,12 @@
         <button id="pair-connect" class="big-btn">连接</button>
         <div id="pair-status" class="pair-status"></div>
         <button id="pair-clear" class="btn-ghost">清除本地凭据 (变未配置)</button>
+        <!-- UX A3 (2026-08-11): 同步诊断 —— "拉到 1424 词但今日只放 6 个新词" 与
+             "一个词都没拉到" 必须一眼可分 (newWordQuota 新词每天上限就是 6) -->
+        <div class="diag-card">
+          <div class="diag-title">同步诊断</div>
+          <div id="diag-body" class="diag-body">读取中…</div>
+        </div>
       </div>
     </section>
 

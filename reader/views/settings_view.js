@@ -211,20 +211,32 @@
       syncSec.append(syncStatus, urlInput, secretInput, authBtn, syncBtn, pullBtn, codeBtn, inviteBtn, pairBtn, disconnectBtn);
        syncPane.appendChild(syncSec);
 
-      const refreshStatus = (d) => {
-        syncStatus.textContent = '状态: ' + AiduSyncService.statusLabel(d) +
-          (d.user_id ? ' · ' + d.user_id : '') +
+      // UX A2 (2026-08-11): 显示「本次推 N 条 / 拉 M 条」; 同步后 N=0 且服务端词库为空
+      // → 警示, 不许显示"已同步" (杜绝"后台没做事, 用户以为成功")。afterSync 只对"刚
+      // 同步完"的响应生效 —— 纯 status() 查询没有动作, last_wrote 默认 0, 不触发警示。
+      const refreshStatus = (d, afterSync) => {
+        let text;
+        if (afterSync && d.last_wrote === 0 && d.deck_exists === false) {
+          text = '警示: 本次推 0 条, 服务端词库为空 —— 本地可能没有待推词条或同步状态异常, 请勿当作已同步。';
+        } else {
+          text = '状态: ' + AiduSyncService.statusLabel(d);
+        }
+        text += (d.user_id ? ' · ' + d.user_id : '') +
           (d.pending_count > 0 ? ' · ' + d.pending_count + ' 条待推' : '') +
           (d.worker_url ? ' · ' + d.worker_url : '') +
           (d.last_sync_at ? ' · 上次 ' + new Date(d.last_sync_at).toLocaleTimeString() : '');
+        if (afterSync && (d.last_wrote !== 0 || d.last_pulled !== 0)) {
+          text += '\n本次推 ' + d.last_wrote + ' 条 / 拉 ' + d.last_pulled + ' 条';
+        }
         // S2 (2026-08-10): 失败必须可见 —— 配额拒绝/部分失败的人话原因直接展示
         if (d.last_error) {
-          syncStatus.textContent += '\n' + d.last_error;
+          text += '\n' + d.last_error;
         }
+        syncStatus.textContent = text;
         disconnectBtn.disabled = !d.configured;
       };
       AiduSyncService.status().then((res) => {
-        if (res.ok && res.data) refreshStatus(res.data);
+        if (res.ok && res.data) refreshStatus(res.data, false);
         else syncStatus.textContent = '未配置 (输入 Worker URL + ROOT_SECRET/邀请码 换 token)';
       });
       authBtn.onclick = () => {
@@ -241,14 +253,14 @@
       syncBtn.onclick = () => {
         syncStatus.textContent = '同步中…';
         AiduSyncService.now().then((r) => {
-          if (r.ok && r.data) refreshStatus(r.data);
+          if (r.ok && r.data) refreshStatus(r.data, true);
           else syncStatus.textContent = '同步失败: ' + (r.error || '');
         });
       };
       pullBtn.onclick = () => {
         syncStatus.textContent = '拉取中…';
         AiduSyncService.pull().then((r) => {
-          if (r.ok && r.data) refreshStatus(r.data);
+          if (r.ok && r.data) refreshStatus(r.data, true);
           else syncStatus.textContent = '拉取失败: ' + (r.error || '');
         });
       };

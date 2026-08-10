@@ -115,6 +115,9 @@ console.log('== 2. 本地 worker (文件 KV) + 手机同步链路 ==');
   check('恢复网络同步成功', syncRes.ok === true, syncRes);
   check('待推队列清空', (await restored.adapter.storage.getPending()).length === 0);
   check('本地 2 条', (await restored.loadWords()).length === 2);
+  // UX A3: 同步诊断元数据 (设置页展示)
+  check('同步诊断: 上次 rev 已记录', (await restored.adapter.storage.getMetaValue('last_rev')) != null);
+  check('同步诊断: 上次拉回 2 条', (await restored.adapter.storage.getMetaValue('last_pulled')) === 2);
   // 远端条数对上 (服务端 deck)
   const deckRes = await localFetch('http://test.local/v1/sync?since=0', { headers: { Authorization: 'Bearer ' + auth.token } });
   const deck = await deckRes.json();
@@ -137,8 +140,7 @@ console.log('== 3. P0-C applyPairing (扫码直连, 不经过网络兑换) ==');
   check('配对不需要网络', true);
 }
 
-console.log('== 4. P0-C 端到端: 桌面换手机 token → 手机扫码直连 → 拉到桌面的词 ==');
-{
+console.log('== 4. P0-C 端到端: 桌面换手机 token → 手机扫码直连 → 拉到桌面的词 ==');{
   const dir = mkdtempSync(join(tmpdir(), 'aidulc-pair-e2e-'));
   const env = { ROOT_SECRET: 'mobile-secret', KV_DIR: dir };
   const localFetch = async (url, init = {}) => {
@@ -197,6 +199,23 @@ console.log('== 4. P0-C 端到端: 桌面换手机 token → 手机扫码直连 
   check('被踢后手机同步失败 (token 失效)', phoneAfter && phoneAfter.offline === true, phoneAfter);
 
   try { rmSync(dir, { recursive: true, force: true }); } catch (e) {}
+}
+
+console.log('== 5. UX A3 同步诊断区分: "拉到 1424 词但今日只放 6 个新词" vs "一个词都没拉到" ==');
+{
+  const now = Date.now();
+  // 场景 A: 从服务端拉到 1424 个新词 → 今日队列新词配额上限 6, 但总数 1424 必须仍可见
+  const words = [];
+  for (let i = 0; i < 1424; i++) {
+    words.push({ lemma: 'w' + i, word: 'w' + i, meaning: 'm', stage: 'new', next_review: null, updated_at: now });
+  }
+  const q = core.buildQueue(words, now);
+  check('1424 新词 → 今日只放 6 个 (newWordQuota)', q.counts.new === 6, q.counts);
+  check('新词总数 1424 仍可见 (诊断显示 6/1424)', q.counts.newTotal === 1424, q.counts);
+  check('队列长度 6', q.order.length === 6);
+  // 场景 B: 一个词都没拉到 → 本地词库 0, 一眼可辨
+  const q0 = core.buildQueue([], now);
+  check('空词库 → 队列 0 且总数 0 (一眼可辨)', q0.order.length === 0 && q0.counts.newTotal === 0, q0.counts);
 }
 
 console.log('');

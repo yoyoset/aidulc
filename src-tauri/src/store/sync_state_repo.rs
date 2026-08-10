@@ -3,6 +3,9 @@
 //! 每 user 一行: last_push_at (上次成功推送的时间, 用于算 N 条待推) +
 //! last_pull_rev (上次拉取的 rev, 用于增量 `?since=`)。离线时本地照常写,
 //! 恢复网络后按 last_push_at 找待推词条、按 last_pull_rev 增量拉取。
+//! endpoint_key (UX A1, 2026-08-11): 这份进度属于哪个服务端
+//! (worker_url + auth_device 返回的服务端 user_id)。换 URL / 换 token 后不匹配或为空
+//! → 视为从未同步、全量重推 (宁可多推, 不可少推)。
 
 use crate::store::Db;
 use rusqlite::params;
@@ -14,6 +17,8 @@ pub struct SyncState {
     pub last_push_at: i64,
     pub last_pull_rev: i64,
     pub updated_at: i64,
+    /// 该行同步进度所属的服务端 (worker_url|server_user_id); 空 = 从未同步过
+    pub endpoint_key: String,
 }
 
 pub struct SyncStateRepo<'a> {
@@ -29,7 +34,7 @@ impl<'a> SyncStateRepo<'a> {
         let conn = self.db.conn.lock().unwrap();
         let s = conn
             .query_row(
-                "SELECT user_id, last_push_at, last_pull_rev, updated_at FROM sync_state WHERE user_id = ?1",
+                "SELECT user_id, last_push_at, last_pull_rev, updated_at, endpoint_key FROM sync_state WHERE user_id = ?1",
                 [user_id],
                 |r| {
                     Ok(SyncState {
@@ -37,6 +42,7 @@ impl<'a> SyncStateRepo<'a> {
                         last_push_at: r.get(1)?,
                         last_pull_rev: r.get(2)?,
                         updated_at: r.get(3)?,
+                        endpoint_key: r.get(4)?,
                     })
                 },
             )
@@ -48,13 +54,20 @@ impl<'a> SyncStateRepo<'a> {
     pub fn upsert(&self, s: &SyncState) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO sync_state (user_id, last_push_at, last_pull_rev, updated_at)
-             VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO sync_state (user_id, last_push_at, last_pull_rev, updated_at, endpoint_key)
+             VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(user_id) DO UPDATE SET
                 last_push_at = excluded.last_push_at,
                 last_pull_rev = excluded.last_pull_rev,
-                updated_at = excluded.updated_at",
-            params![s.user_id, s.last_push_at, s.last_pull_rev, s.updated_at],
+                updated_at = excluded.updated_at,
+                endpoint_key = excluded.endpoint_key",
+            params![
+                s.user_id,
+                s.last_push_at,
+                s.last_pull_rev,
+                s.updated_at,
+                s.endpoint_key
+            ],
         )
         .map_err(|e| format!("写 sync_state 失败: {e}"))?;
         drop(conn);
@@ -88,6 +101,7 @@ mod tests {
             last_push_at: 100,
             last_pull_rev: 5,
             updated_at: 100,
+            endpoint_key: "https://a.workers.dev|me".into(),
         };
         repo.upsert(&s).unwrap();
         let got = repo.get("me").unwrap();
@@ -102,6 +116,35 @@ mod tests {
     }
 
     #[test]
+    fn endpoint_key_roundtrip_and_default() {
+        let db = temp_db();
+        let repo = SyncStateRepo::new(&db);
+        // 老行 (迁移后) endpoint_key 为空串 → 视为从未同步
+        repo.upsert(&SyncState {
+            user_id: "legacy".into(),
+            last_push_at: 999,
+            last_pull_rev: 7,
+            updated_at: 999,
+            endpoint_key: String::new(),
+        })
+        .unwrap();
+        assert_eq!(repo.get("legacy").unwrap().endpoint_key, "");
+        // 新行写入/更新
+        repo.upsert(&SyncState {
+            user_id: "legacy".into(),
+            last_push_at: 1000,
+            last_pull_rev: 8,
+            updated_at: 1000,
+            endpoint_key: "https://b.workers.dev|me".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            repo.get("legacy").unwrap().endpoint_key,
+            "https://b.workers.dev|me"
+        );
+    }
+
+    #[test]
     fn isolated_by_user() {
         let db = temp_db();
         let repo = SyncStateRepo::new(&db);
@@ -110,6 +153,7 @@ mod tests {
             last_push_at: 1,
             last_pull_rev: 1,
             updated_at: 1,
+            endpoint_key: String::new(),
         })
         .unwrap();
         repo.upsert(&SyncState {
@@ -117,6 +161,7 @@ mod tests {
             last_push_at: 2,
             last_pull_rev: 2,
             updated_at: 2,
+            endpoint_key: String::new(),
         })
         .unwrap();
         assert_eq!(repo.get("me").unwrap().last_push_at, 1);

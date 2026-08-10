@@ -61,6 +61,16 @@ console.log('== 1. 鉴权失败 ==');
   check('不存在的码 → 404', res.status === 404);
 }
 
+// ---- 场景 0b (UX A4, 2026-08-11): 首页 GET / 返回人话纯文本 ----
+console.log('== 0b. GET / 返回人话纯文本 (UX A4) ==');
+{
+  const res = await call('GET', '/');
+  check('GET / → 200 纯文本', res.status === 200 && (res.headers.get('Content-Type') || '').includes('text/plain'));
+  const text = await res.text();
+  check('纯文本含服务名 + "这是 API"', text.includes('aidulc 同步服务端') && text.includes('这是 API'), text.slice(0, 60));
+  check('不是 JSON 路由未找到', !text.includes('未找到路由'), text.slice(0, 60));
+}
+
 // ---- 场景 2: 首台换 token + 正常推拉 ----
 console.log('== 2. 首台 ROOT_SECRET 换 token ==');
 let tokenMe;

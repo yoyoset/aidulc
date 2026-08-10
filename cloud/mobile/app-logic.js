@@ -101,6 +101,10 @@ function makeAppLogic(adapter) {
         }
       }
       await storage.clearPending();
+      // UX A3: 同步诊断元数据 (设置页展示: 上次 rev / 本次从服务端拉回多少条 ——
+      // 拉回条数是"从服务端实际拿到的", 不是合并写回的, 用 changed.length)
+      await storage.setMeta('last_rev', pullRes.rev || 0);
+      await storage.setMeta('last_pulled', (pullRes.changed || []).length);
       return { ok: true, mergedCount, rev: pullRes.rev || 0 };
     },
   };

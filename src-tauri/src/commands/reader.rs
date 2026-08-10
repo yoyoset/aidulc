@@ -344,7 +344,17 @@ pub fn sync_now(
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
     let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
-    let s = crate::application::sync_service::sync_now(db.inner(), &url, &token, &user_id)?;
+    // UX A1: token 属于服务端哪个 user (换 token 时从 auth_device 返回值保存) ——
+    // endpoint_key 用它判定"换服务端后是否要全量重推"。
+    let server_user =
+        crate::services::credentials::get_server_user_for(&user_id).unwrap_or_default();
+    let s = crate::application::sync_service::sync_now(
+        db.inner(),
+        &url,
+        &token,
+        &server_user,
+        &user_id,
+    )?;
     crate::infrastructure::log::info(
         "cmd",
         &format!("exit: sync_now {}ms", crate::store::now_ms_for_store() - t0),
@@ -364,7 +374,15 @@ pub fn sync_pull_now(
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
     let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
-    let s = crate::application::sync_service::sync_pull(db.inner(), &url, &token, &user_id)?;
+    let server_user =
+        crate::services::credentials::get_server_user_for(&user_id).unwrap_or_default();
+    let s = crate::application::sync_service::sync_pull(
+        db.inner(),
+        &url,
+        &token,
+        &server_user,
+        &user_id,
+    )?;
     crate::infrastructure::log::info(
         "cmd",
         &format!(
@@ -398,6 +416,10 @@ pub fn sync_auth_device(
     if !auth.token.is_empty() {
         crate::services::credentials::save_cf_token_for(&user_id, &auth.token)?;
     }
+    // UX A1: 记下 token 属于服务端哪个 user (此前被丢掉) —— endpoint_key 用它在下次
+    // 同步时判定"换 URL / 换 token 后是否还是同一份同步进度"。忘了记 = 下次同步按
+    // 从未同步全量重推 (宁可多推, 不可少推), 不造成数据丢失。
+    crate::services::credentials::save_server_user_for(&user_id, &auth.user_id)?;
     // 持久化 worker_url 到 config.toml
     let exe_dir = std::env::current_exe()
         .ok()

@@ -657,6 +657,20 @@ impl Db {
             )
             .map_err(|e| format!("迁移 v22 失败: {e}"))?;
         }
+        // v23 (UX 同步修复 A1, 2026-08-11): sync_state 加 endpoint_key —— 记录这份同步
+        // 进度属于哪个服务端 (worker_url + auth_device 返回的服务端 user_id)。此前每行
+        // 只有 user_id + last_push_at + last_pull_rev, 不记录服务端归属 —— 换 URL / 换
+        // token 后 last_push_at 仍是旧值, 使 sync_service 的 updated_at > last_push_at
+        // 选出空集 → 显示"已同步"但服务端是空的 (后台没做事, 用户以为成功)。
+        // 老行 endpoint_key 为空串 (NOT NULL DEFAULT '') → 一律视为从未同步, 全量重推。
+        if version < 23 {
+            conn.execute_batch(
+                "ALTER TABLE sync_state ADD COLUMN endpoint_key TEXT NOT NULL DEFAULT '';
+                 INSERT INTO schema_migrations (version, applied_at) VALUES (23, strftime('%s','now')*1000);
+                 ",
+            )
+            .map_err(|e| format!("迁移 v23 失败: {e}"))?;
+        }
         Ok(())
     }
 }
@@ -781,6 +795,15 @@ mod tests {
             )
             .unwrap();
         assert_eq!(v22, 1, "sync_state 表应存在 (v22)");
+        // v23: sync_state 应有 endpoint_key 列 (UX A1 —— 记录同步进度归属哪个服务端)
+        let v23: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sync_state') WHERE name='endpoint_key'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(v23, 1, "sync_state 应有 endpoint_key 列 (v23)");
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}-wal"));
@@ -933,7 +956,7 @@ mod tests {
                  DROP TABLE highlights;
                  ALTER TABLE highlights_v17 RENAME TO highlights;
                  DROP TABLE sync_state;
-                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22);
+                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23);
                  INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,source_book_id,
                     chapter_count,failed_count,source_language,target_language,llm_id,tts_id,nlp_id,
                     created_at,updated_at)
@@ -1027,6 +1050,8 @@ mod tests {
                  -- 撤 v22 (sync_state), 让迁移从 v19 状态完整重跑
                  DROP TABLE sync_state;
                  DELETE FROM schema_migrations WHERE version=22;
+                 -- 撤 v23 (sync_state.endpoint_key), 让迁移从 v19 状态完整重跑
+                 DELETE FROM schema_migrations WHERE version=23;
                  -- vocab key 还原为 v19 的 {profile}:{lemma} 形式
                  UPDATE vocab SET key = substr(key, 4) WHERE key LIKE 'me:%';
                  UPDATE dictionary SET key = substr(key, 4) WHERE key LIKE 'me:%';",

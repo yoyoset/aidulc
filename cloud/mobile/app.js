@@ -27,6 +27,8 @@
   let currentEntry = null;
   let touchStart = null;
   let swipeTimer = null;
+  // UX A3 (2026-08-11): 最近一次同步失败的人话原因 (同步失败必须可见, 不静默吞掉)
+  let lastSyncError = null;
 
   // ---------- 视图切换 ----------
   function show(id) {
@@ -76,14 +78,20 @@
 
   // ---------- 同步 ----------
   async function updateSyncChip() {
-    // 状态: 已同步 / N 条待推 / 离线 / 失败 (四态)
+    // 状态: 已同步 / N 条待推 / 离线 / 失败 (四态); UX A3: 失败必须可见, 不静默吞掉
     const pending = await adapter.storage.getPending();
     const url = await adapter.storage.getWorkerUrl();
     const token = await adapter.storage.getToken();
     const chip = $('sync-chip');
-    if (!url || !token) { chip.textContent = '未配置'; chip.className = 'sync-chip s-unconfig'; return; }
-    if (pending.length > 0) { chip.textContent = pending.length + ' 条待推'; chip.className = 'sync-chip s-pending'; }
-    else { chip.textContent = '已同步'; chip.className = 'sync-chip s-synced'; }
+    if (!url || !token) { chip.textContent = '未配置'; chip.className = 'sync-chip s-unconfig'; chip.title = ''; return; }
+    if (lastSyncError) {
+      chip.textContent = '同步失败';
+      chip.className = 'sync-chip s-failed';
+      chip.title = lastSyncError;
+      return;
+    }
+    if (pending.length > 0) { chip.textContent = pending.length + ' 条待推'; chip.className = 'sync-chip s-pending'; chip.title = ''; }
+    else { chip.textContent = '已同步'; chip.className = 'sync-chip s-synced'; chip.title = ''; }
   }
 
   // ---------- 配对 (P0-C, 2026-08-10) ----------
@@ -109,6 +117,7 @@
     $('pair-url').value = url || '';
     $('pair-secret').value = '';
     $('pair-status').textContent = (url && token) ? '当前已连接, 可用 ROOT_SECRET/邀请码 换绑。' : '未配置。填 Worker URL + ROOT_SECRET(给自己) 或 6 位码(别人给你)。';
+    renderDiag();
     show('view-settings');
   }
 
@@ -148,18 +157,53 @@
   async function doSync(auto) {
     const chip = $('sync-chip');
     chip.textContent = '同步中…';
-    const r = await app.sync();
+    // UX A3: 同步失败显示人话原因 (不静默吞掉), 并记录到 lastSyncError 让 chip 保持失败态
+    lastSyncError = null;
+    let r;
+    try {
+      r = await app.sync();
+    } catch (e) {
+      r = { ok: false, offline: false, error: '同步异常: ' + String((e && e.message) || e) };
+    }
     if (r.ok) {
       chip.textContent = '已同步';
       chip.className = 'sync-chip s-synced';
+      chip.title = '';
       if (auto) { /* 自动补推后刷新入口 */ loadEntry(); }
     } else if (r.offline) {
       chip.textContent = '离线';
       chip.className = 'sync-chip s-offline';
+      chip.title = r.error || '';
     } else {
       chip.textContent = '同步失败';
       chip.className = 'sync-chip s-failed';
+      const why = r.error || '未知原因 (详见设置页·同步诊断)';
+      chip.title = why;
+      lastSyncError = why;
     }
+  }
+
+  // UX A3 (2026-08-11): 设置页"同步诊断" —— URL / 有无 token / 上次 rev / 上次拉回
+  // 条数 / buildQueue 各分组计数。必须能一眼区分"拉到 1424 词但今日只放 6 个新词"
+  // (本地词库 1424, 队列新词 6/1424) 与"一个词都没拉到" (本地词库 0)。
+  async function renderDiag() {
+    const url = await adapter.storage.getWorkerUrl();
+    const token = await adapter.storage.getToken();
+    const lastRev = await adapter.storage.getMetaValue('last_rev');
+    const lastPulled = await adapter.storage.getMetaValue('last_pulled');
+    const words = await app.loadWords();
+    const q = C.buildQueue(words, Date.now());
+    const c = q.counts || {};
+    const body = $('diag-body');
+    body.innerHTML =
+      '<div>URL: ' + escapeHtml(url || '—') + '</div>' +
+      '<div>token: ' + (token ? '有' : '无') + '</div>' +
+      '<div>上次 rev: ' + (lastRev != null ? lastRev : '—') + '</div>' +
+      '<div>上次拉回: ' + (lastPulled != null ? lastPulled + ' 条' : '—') + '</div>' +
+      '<div>本地词库: ' + words.length + ' 条</div>' +
+      '<div>今日队列: 复习 ' + (c.review || 0) + ' · 学习中 ' + (c.learning || 0) +
+      ' · 新词 ' + (c.new || 0) + '/' + (c.newTotal || 0) +
+      ' (每天上限 6) · 已掌握 ' + (c.mastered || 0) + '</div>';
   }
 
   // ---------- 复习会话 ----------
@@ -440,8 +484,16 @@
       updateSyncChip();
     }
     setupServiceWorker();
-    // 尝试自动补推 (离线静默失败, 不打扰)
-    await app.sync().catch(() => {});
+    // UX A3 (2026-08-11): 尝试自动补推。失败显示人话原因 —— 不再用 `.catch(() => {})`
+    // 吞掉一切错误 (拉取失败 / token 失效 / IndexedDB 写失败一律表现为"没有单词")。
+    try {
+      const autoSyncRes = await app.sync();
+      if (autoSyncRes && !autoSyncRes.ok) {
+        lastSyncError = autoSyncRes.error || '同步失败';
+      }
+    } catch (e) {
+      lastSyncError = '同步异常: ' + String((e && e.message) || e);
+    }
     await loadEntry();
   }
 

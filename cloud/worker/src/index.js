@@ -108,6 +108,14 @@ export default {
       }
       // S2 (2026-08-10): 能力自述 —— 客户端推送前估算写次数用 (CF KV 有 1000/天配额,
       // 文件存储无配额; 前端据此决定是否前置拒绝, 而不是推一半撞配额)
+      if (request.method === 'GET' && p === '/') {
+        // UX A4 (2026-08-11): 首页返回一行纯文本 —— 浏览器/手机直接打开不再得到
+        // "未找到路由: /" 这种对用户零信息的 JSON。手机请用桌面端生成的二维码链接。
+        return new Response(
+          'aidulc 同步服务端 v1\n这是 API, 不是网页。手机请用桌面端生成的二维码链接 (设置 → 手机扫码连接)。',
+          { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }
+        );
+      }
       if (request.method === 'GET' && p === '/v1/capabilities') {
         return json({
           ok: true,

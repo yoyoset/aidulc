@@ -95,6 +95,12 @@ function browserAdapter() {
       return m ? m.value : null;
     },
     async setDeviceName(name) { await putOne('meta', { key: 'device_name', value: name }); },
+    // UX A3 (2026-08-11): 同步诊断元数据 (上次 rev / 上次拉回条数), 设置页"同步诊断"展示
+    async getMetaValue(key) {
+      const m = await getMeta(key);
+      return m ? m.value : null;
+    },
+    async setMeta(key, value) { await putOne('meta', { key, value }); },
   };
 
   const net = {
@@ -165,6 +171,8 @@ function nodeAdapter({ fetchImpl, inMemory = true } = {}) {
     async setWorkerUrl(v) { mem.meta.worker_url = v; },
     async getDeviceName() { return mem.meta.device_name || null; },
     async setDeviceName(v) { mem.meta.device_name = v; },
+    async getMetaValue(key) { return mem.meta[key] != null ? mem.meta[key] : null; },
+    async setMeta(key, value) { mem.meta[key] = value; },
   };
   const net = {
     async authDevice({ url, rootSecret, code, deviceName }) {

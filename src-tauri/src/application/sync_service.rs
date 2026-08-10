@@ -964,8 +964,8 @@ mod tests {
 
         let db = temp_db();
         let repo = crate::store::vocab_repo::VocabRepo::new(&db);
-        // 构造 1001 个待推词 (> 免费档 1000 阈值 + deck index)
-        for i in 0..1001 {
+        // 构造 1424 个待推词 (> 免费档 1000 阈值 + deck index; S7 验收用 1424 存量)
+        for i in 0..1424 {
             let mut e = entry(&format!("word_{i}"), 100 + i as i64);
             e.word = format!("word_{i}");
             repo.upsert_content(e, "me", "default").unwrap();

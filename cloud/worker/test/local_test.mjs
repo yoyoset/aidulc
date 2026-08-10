@@ -244,9 +244,9 @@ console.log('== 8. S2 写配额护栏 ==');
     };
   };
 
-  // 8a. 前置拒绝: env.DB 存在 → 推 >1000 词 → 不写一半, 明确拒绝
+  // 8a. 前置拒绝: env.DB 存在 → 推 1424 词 (S7 存量数) → 不写一半, 明确拒绝
   const bigWords = {};
-  for (let i = 0; i < 1001; i++) bigWords['w' + i] = { word: 'w' + i, updated_at: Date.now() };
+  for (let i = 0; i < 1424; i++) bigWords['w' + i] = { word: 'w' + i, updated_at: Date.now() };
   const quotaEnv = { ROOT_SECRET: 'test-secret-123', DB: makeMemDb() };
   const tokenQ = await j(await worker.fetch(new Request('http://t.local/v1/auth/device', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -258,8 +258,8 @@ console.log('== 8. S2 写配额护栏 ==');
     body: JSON.stringify({ words: bigWords }),
   }), quotaEnv);
   const qd = await j(qRes);
-  check('>1000 词前置拒绝 (kv_write_quota)', qd.ok === false && qd.code === 'kv_write_quota', qd);
-  check('拒绝时报出需写次数', typeof qd.error === 'string' && qd.error.includes('1001'), qd.error);
+  check('1424 词前置拒绝 (kv_write_quota)', qd.ok === false && qd.code === 'kv_write_quota', qd);
+  check('拒绝时报出需写次数', typeof qd.error === 'string' && qd.error.includes('1424'), qd.error);
 
   // 8b. 中途写失败 → 部分结果: srs 写第 3 条时抛错, 断言 wrote=2 + written_keys + 不把失败当成功
   const failEnv = { ROOT_SECRET: 'test-secret-123', DB: makeMemDb(2) };

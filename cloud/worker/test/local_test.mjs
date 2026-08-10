@@ -288,6 +288,35 @@ console.log('== 8. S2 写配额护栏 ==');
   check('CF 能力自述 max_writes_per_day=1000', capCF.storage === 'cf' && capCF.max_writes_per_day === 1000, capCF);
   const capFile = await j(await worker.fetch(new Request('http://t.local/v1/capabilities'), env));
   check('文件存储能力自述 max_writes_per_day=null', capFile.storage === 'file' && capFile.max_writes_per_day === null, capFile);
+
+  // 8d. S7 "从零积累"路径: 空 namespace 加 20 词 → 同步成功, 写次数 ≤ 25
+  //     (20 词 srs + 1 deck index + 1 device meta ≈ 22, 远低于 1000/天)
+  const freshEnv = { ROOT_SECRET: 'test-secret-123', DB: makeMemDb() };
+  // 统计写次数: 包装 makeMemDb 的 put 计数
+  const writeCounter = { count: 0 };
+  const countingDb = makeMemDb();
+  const basePut = countingDb.put.bind(countingDb);
+  countingDb.put = async (k, v) => { writeCounter.count++; return basePut(k, v); };
+  const freshEnv2 = { ROOT_SECRET: 'test-secret-123', DB: countingDb };
+  const tokenN = await j(await worker.fetch(new Request('http://t.local/v1/auth/device', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root_secret: 'test-secret-123', device_name: 'fresh' }),
+  }), freshEnv2));
+  check('从零环境可换 token', !!tokenN.token, tokenN);
+  const n20 = {};
+  for (let i = 0; i < 20; i++) n20['w' + i] = { word: 'w' + i, updated_at: Date.now() };
+  writeCounter.count = 0; // 只数 sync 的写, 不算 auth
+  const nRes = await worker.fetch(new Request('http://t.local/v1/sync', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tokenN.token },
+    body: JSON.stringify({ words: n20 }),
+  }), freshEnv2);
+  const nd = await j(nRes);
+  check('从零推 20 词 → 成功 (wrote=20)', nd.ok && nd.wrote === 20, nd);
+  check(`从零 20 词写次数 ≤ 25 (实测 ${writeCounter.count})`, writeCounter.count <= 25, 'writes=' + writeCounter.count);
+  const pullN = await j(await worker.fetch(new Request('http://t.local/v1/sync?since=0', {
+    headers: { Authorization: 'Bearer ' + tokenN.token },
+  }), freshEnv2));
+  check('从零 20 词可拉回', pullN.ok && pullN.changed.length === 20, pullN.changed.length);
 }
 
 console.log('');

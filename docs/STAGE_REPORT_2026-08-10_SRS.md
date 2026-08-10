@@ -117,3 +117,27 @@ token 解析)。
   强制版本递增 + check 门禁。线上已部署 0.7.0-3。
 - **P2 第 7 处偏离**(c220643):word_key 无词性是有意简化,补进 DESIGN_NOTES。
 - 便携版已随 18aa01d 重打(02:06:40 ≥ 02:04:49)。
+
+## 9. 本阶段收尾 (2026-08-10, 真机三件事 + 数据迁回)
+
+- **P0-A 桌面整窗未响应**(3e92f46):启动自动拉起 stale running 侧车 (66MB PyInstaller
+  解包+模型加载) 拖到未响应。修:reset_stale 改 running→paused, 恢复交还用户点"继续",
+  不再启动即 spawn。真机复测:启动后 aidulc-prep.exe 不再出现, job 状态 paused 明确可控,
+  窗口 Responding=True。定位过程含"最初以为 mutex 死锁, 实测是自动拉起", 记 memory/pipeline.md。
+- **P0-B 顶栏同步 chip 渲染成大圆圈**(ed13569):flex align-items:stretch 把 span 拉成
+  52px + 999px 圆角 → 圆圈。修 align-self:center; 文案"未配置"→"同步未连接"可点击直达设置。
+- **P0-C 手机扫码配对**(26f7fa3):桌面"手机扫码连接"二维码 (#t=<token>&u=<worker_url>),
+  手机解析 fragment 存 IndexedDB 即免登录 + history.replaceState 剥 token; 兜底手动配对;
+  踢设备走 worker 新端点 /v1/auth/revoke。真实 worker e2e (桌面推词→手机扫码拉到→评分→
+  桌面拉回一致→踢 token 后手机失效) 41/41。
+- **P1-D 旧 AIDU 生词迁回**(7fcdff9):探测推翻"在 CF KV"前提 (AIDU_DB 0 键, worker 已删),
+  数据实际在 Chrome 扩展 storage.local (vocab_default 1424 条 + dictionary_default 332 条)。
+  scripts/import_old_aidu.mjs 转 .aidu-data v3 → 走现成 transfer_import。真实数字:
+  vocab 0→1424 (= 源), 全量 1424 条 SRS 字段 0 不一致。原库已备份 (不入仓)。
+- **P1-E 更新提示改 SW 生命周期**(90f2d83):删 localStorage 版本比对 (结构上不可能正确),
+  改 updatefound + controller 存在才提示, 点击 postMessage SKIP_WAITING → sw.js skipWaiting
+  → controllerchange → reload。已部署 0.7.0-4 到 https://aidulc-mobile.pages.dev。
+- 便携版重打 (BOOK_WORKFLOW §6): 代码全部提交完 (b80ec12 13:12:11) → `cargo build
+  --release` (check 已跑) → 拷贝 exe。`dist/aidulc-portable/aidulc.exe` 13:14:24 ≥
+  最后提交 ✓; config.toml 干净默认 (无开发机路径) ✓; 侧车 (19:39) ≥ prep 源码最后提交
+  (19:29, 本阶段 prep 未动) ✓。

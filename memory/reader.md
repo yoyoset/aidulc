@@ -141,9 +141,50 @@
 - **教训**: SW 更新检查只看 sw.js 自身字节 —— 版本必须长在 sw.js 里, 单独一个
   build-info.js 文件不会触发更新。
 
+## P0-C (2026-08-10): 手机扫码配对 (token 走 URL, 收藏成书签免登录)
+
+- **根因**: `cloud/mobile/` 从来没有配对入口 —— `authDevice()` 逻辑在 app-logic 里、
+  测试也调它, 但 index.html 无输入框、app.js 从不调用 → 手机永远"未配置"。
+  与 CLAUDE.md"已知未接线的功能"同一类问题。
+- **实现**: 桌面设置页"手机扫码连接" (sync_pair_qr 复用 auth/code + auth/device 换**独立**
+  device token, 不覆盖本机 token; qrcode crate 出 SVG); 二维码内容
+  `https://aidulc-mobile.pages.dev/#t=<token>&u=<encodeURIComponent(worker_url)>`;
+  手机 app.js 解析 fragment → applyPairing 存 IndexedDB → `history.replaceState` 立即
+  剥掉 token。兜底: 设置页手动 Worker URL + ROOT_SECRET/6 位码。踢设备: worker 新增
+  `POST /v1/auth/revoke` (同 user 才能踢), 删 `auth:{token}` 即失效。
+- **坑**: worker_url 嵌 URL 必须 `encodeURIComponent`(Rust 侧 `url_encode_component`,
+  手机端 `URLSearchParams` 自动 decode); 二维码内容里如果 url 带 `&` 不编码会截断参数。
+
+## P1-D (2026-08-10): 旧 AIDU 生词迁回 —— 数据不在 CF KV, 在 Chrome 扩展本地
+
+- **探测推翻计划前提**: `wrangler kv namespace list` 只有 `AIDU_DB`, 且 0 键;
+  `aidu-sync` worker 在本账户已不存在。旧生词实际在旧 AIDU Chrome 扩展
+  (`hoomcgkcbkhgknmknelfonccbajiggmk`) 的 `chrome.storage.local` → `vocab_default`
+  1424 条 + `dictionary_default` 332 条 (leveldb, snappy 压缩, 用 classic-level 提取)。
+- **导入**: `scripts/import_old_aidu.mjs` 转 `.aidu-data` v3, 走现成
+  `transfer_import` → `import_aidu_data` (updatedAt 新者胜), 不另造一套。
+  唯一规范化: 旧 `interval`(天) → `intervalMs` = 天×86400000 (否则评分后下一次间隔
+  被当成 0/1 分钟重置), lemma 小写 (DB 主键成分), 丢 `_key`。
+- **真实数字**: 导入前 vocab=0 → 后 1424 (= 源 1424); 全量 1424 条逐字段比对
+  stage/easeFactor/nextReview/reviews/meaning/interval/intervalMs **0 不一致**。
+- **坑**: Node 24 全局 `navigator` 是只读 getter, 测试里覆盖要用
+  `Object.defineProperty`; 只读覆盖后 `delete` 还原。
+
+## P1-E (2026-08-10): 更新提示改 SW 生命周期驱动
+
+- **根因**: 旧 `checkUpdate()` 拿 localStorage 存的版本和**已加载进来**的 BUILD_VERSION
+  比对 —— 能读到常量时新版本早已生效, 点击只是写 localStorage + reload, 视觉无变化;
+  首次访问 seen===null 还误报"有更新"。结构性错误。
+- **修法**: 注册 SW (此前 app.js **从未 register**, 更新检测根本不触发); 监听
+  `updatefound` → 新 worker installing 且 `navigator.serviceWorker.controller` 存在
+  (= 真更新, 首次安装 controller 为空) → 才显示提示条; 点击 →
+  `reg.waiting.postMessage(SKIP_WAITING)` → sw.js message 监听调 `self.skipWaiting()`
+  → controllerchange → reload。sw.js 只首次安装 (active 为空) 自动 skipWaiting,
+  更新时等页面指令 (不能自动 skip, 否则没有 waiting 态可 postMessage)。
+
 ## 已知遗留
 
-- 手机真机截图未做(本环境无浏览器); 逻辑经 node 测试 + 真实 worker e2e 验证。
+- 手机真机截图未做(本环境无浏览器); 逻辑经 node 测试 + 真实 worker e2e + 真实部署验证。
 - 远端合并写回本地 default profile(跨 profile 同 lemma 共用一条远端状态)。
-- 桌面设置页 invite-user(新建成员)入口未在 UI 暴露, 只有 add-device 码。
+- 桌面设置页 invite-user(新建成员)入口已暴露 (2026-08-09 05450b1), 不在此列。
 

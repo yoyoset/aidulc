@@ -402,6 +402,8 @@ fn main() {
             commands::reader::sync_pull_now,
             commands::reader::sync_auth_device,
             commands::reader::sync_make_code,
+            commands::reader::sync_pair_qr,
+            commands::reader::sync_revoke_token,
             commands::reader::sync_disconnect,
             commands::reader::sync_config_set,
             commands::reader::bookmarks_list,

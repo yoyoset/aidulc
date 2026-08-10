@@ -108,3 +108,23 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 .profile-actions { display: flex; gap: 6px; }
+
+/* ---- P0-C (2026-08-10): 手机扫码配对弹窗 ---- */
+.pair-qr-wrap { display: flex; justify-content: center; padding: 8px 0; }
+.pair-qr-wrap svg { width: 220px; height: 220px; border-radius: var(--md-sys-radius-sm); }
+.pair-link {
+  font-size: var(--md-sys-font-size-label-m);
+  word-break: break-all;
+  color: var(--md-sys-color-on-surface-variant);
+  background: var(--md-sys-color-surface-variant);
+  border-radius: var(--md-sys-radius-sm);
+  padding: 8px 10px;
+  user-select: text;
+}
+.pair-warn {
+  font-size: var(--md-sys-font-size-label-m);
+  line-height: 1.7;
+  color: var(--md-sys-color-warning);
+  margin-top: 8px;
+}
+.kick-done { opacity: .6; cursor: default; }

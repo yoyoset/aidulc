@@ -180,6 +180,16 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "V6: 已登录 user 生成 6 位一次性码 (add-device/invite-user)",
     },
     CommandInfo {
+        path: "commands::reader::sync_pair_qr",
+        domain: "同步",
+        desc: "P0-C: 手机扫码配对 —— 生成二维码 (独立 device token + worker url)",
+    },
+    CommandInfo {
+        path: "commands::reader::sync_revoke_token",
+        domain: "同步",
+        desc: "P0-C: 踢掉配对设备 token (worker /v1/auth/revoke, 删后即失效)",
+    },
+    CommandInfo {
         path: "commands::reader::sync_disconnect",
         domain: "同步",
         desc: "V6: 断开该 user 的同步 (删该 user 的 token)",

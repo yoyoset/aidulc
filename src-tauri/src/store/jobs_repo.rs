@@ -293,8 +293,7 @@ mod tests {
         repo.reset_stale().unwrap();
         let j1 = repo.get("j1").unwrap();
         assert_eq!(
-            j1.status,
-            "paused",
+            j1.status, "paused",
             "running 应重置为 paused, 不能是 queued (启动自动开跑的根因)"
         );
         assert_eq!(j1.stage, "explain", "暂停后保留断点阶段 (UI 显示⏸ 断在哪)");

@@ -21,6 +21,14 @@
     makeCode(userId, codeType, name) {
       return AiduBridge.invoke('sync_make_code', { userId: userId || currentUser(), codeType, name: name || null });
     },
+    // P0-C (2026-08-10): 手机扫码配对 —— 生成二维码 (独立 device token, 不覆盖本机 token)
+    pairQr(userId) {
+      return AiduBridge.invoke('sync_pair_qr', { userId: userId || currentUser() });
+    },
+    // P0-C: 踢掉配对设备 token (worker /v1/auth/revoke, 删后即失效)
+    revokeToken(userId, targetToken) {
+      return AiduBridge.invoke('sync_revoke_token', { userId: userId || currentUser(), targetToken });
+    },
     configure(workerUrl, token) {
       return AiduBridge.invoke('sync_config_set', { workerUrl, token });
     },

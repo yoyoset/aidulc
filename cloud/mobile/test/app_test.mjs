@@ -123,6 +123,82 @@ console.log('== 2. 本地 worker (文件 KV) + 手机同步链路 ==');
   try { rmSync(dir, { recursive: true, force: true }); } catch (e) {}
 }
 
+console.log('== 3. P0-C applyPairing (扫码直连, 不经过网络兑换) ==');
+{
+  const adapter2 = nodeAdapter({ fetchImpl: async () => { throw new Error('no network'); } });
+  const app2 = makeAppLogic(adapter2);
+  await app2.init();
+  // 桌面端二维码的 #t=..&u=.. 直连: token 是桌面端为手机单独换的 device token
+  const r = await app2.applyPairing({ token: 'phone-token', workerUrl: 'https://w.example.workers.dev' });
+  check('applyPairing 成功', r === true);
+  check('token 已存 IndexedDB', (await adapter2.storage.getToken()) === 'phone-token');
+  check('worker_url 已存', (await adapter2.storage.getWorkerUrl()) === 'https://w.example.workers.dev');
+  // 配对后不经过 authDevice 网络调用 (离线也能存)
+  check('配对不需要网络', true);
+}
+
+console.log('== 4. P0-C 端到端: 桌面换手机 token → 手机扫码直连 → 拉到桌面的词 ==');
+{
+  const dir = mkdtempSync(join(tmpdir(), 'aidulc-pair-e2e-'));
+  const env = { ROOT_SECRET: 'mobile-secret', KV_DIR: dir };
+  const localFetch = async (url, init = {}) => {
+    return worker.fetch(new Request(url, {
+      method: init.method || 'GET',
+      headers: init.headers || {},
+      body: init.body ? init.body : undefined,
+    }), env);
+  };
+  const post = (path, body, token) => localFetch('http://test.local' + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    body: JSON.stringify(body),
+  });
+
+  // 桌面: ROOT_SECRET 换主 token + 推 2 个词 (用户在电脑上背的)
+  const desktop = makeAppLogic(nodeAdapter({ fetchImpl: localFetch }));
+  await desktop.init();
+  const auth = await desktop.authDevice({ workerUrl: 'http://test.local', rootSecret: 'mobile-secret', deviceName: '主电脑' });
+  const now = Date.now();
+  await desktop.saveLocal({ word: 'bank', lemma: 'bank', meaning: '银行', context: 'He went to the bank.', stage: 'review', interval_ms: 3 * 86400000, ease_factor: 2.5, reviews: 3, next_review: now - 1000, updated_at: now });
+  await desktop.saveLocal({ word: 'languid', lemma: 'languid', meaning: '倦怠的', stage: 'new', updated_at: now });
+  const deskSync = await desktop.sync();
+  check('桌面推送成功', deskSync.ok === true, deskSync);
+
+  // 桌面 sync_pair_qr 等价链路: auth/code(add-device) → auth/device(code) 换手机 token
+  const cd = await (await post('/v1/auth/code', { type: 'add-device' }, auth.token)).json();
+  check('桌面生成 add-device 码', cd.ok && /^\d{6}$/.test(cd.code), cd);
+  const phoneAuth = await (await post('/v1/auth/device', { code: cd.code, device_name: '手机' })).json();
+  check('码兑换成手机 token (同 user me)', phoneAuth.ok && phoneAuth.user_id === 'me' && phoneAuth.token !== auth.token, phoneAuth);
+
+  // 手机: applyPairing 直连 (模拟 app.js 解析 #t=..&u=.. 后调 storage.setToken)
+  const phone = makeAppLogic(nodeAdapter({ fetchImpl: localFetch }));
+  await phone.init();
+  await phone.applyPairing({ token: phoneAuth.token, workerUrl: 'http://test.local' });
+  const phoneSync = await phone.sync();
+  check('手机同步成功', phoneSync.ok === true, phoneSync);
+  const words = await phone.loadWords();
+  check('手机拉到桌面 2 个词', words.length === 2, words.map((w) => w.lemma));
+  const bank = words.find((w) => w.lemma === 'bank');
+  check('SRS 字段完整 (stage/interval/ease/next_review)', bank && bank.stage === 'review' && bank.interval_ms === 3 * 86400000 && bank.ease_factor === 2.5 && bank.next_review === now - 1000, bank);
+
+  // 手机背一张 → 桌面拉取, SRS 状态一致
+  const updated = { ...bank, stage: 'learning', interval_ms: 60000, ease_factor: 2.5, next_review: now + 60000, reviews: 4, updated_at: now + 5000 };
+  await phone.saveLocal(updated);
+  await phone.sync();
+  const deskPull = await desktop.sync();
+  check('桌面拉取后已同步', deskPull.ok === true, deskPull);
+  const deskBank = (await desktop.loadWords()).find((w) => w.lemma === 'bank');
+  check('桌面看到手机评分结果 (learning/1 分钟)', deskBank && deskBank.stage === 'learning' && deskBank.interval_ms === 60000, deskBank);
+
+  // 踢掉手机 token (桌面调 worker revoke) → 手机变未配置
+  const revoke = await (await post('/v1/auth/revoke', { token: phoneAuth.token }, auth.token)).json();
+  check('踢掉手机 token → revoked:true', revoke.ok && revoke.revoked === true, revoke);
+  const phoneAfter = await phone.sync();
+  check('被踢后手机同步失败 (token 失效)', phoneAfter && phoneAfter.offline === true, phoneAfter);
+
+  try { rmSync(dir, { recursive: true, force: true }); } catch (e) {}
+}
+
 console.log('');
 console.log(`结果: ${pass} 通过 / ${fail} 失败`);
 // 显式 exit: undici keep-alive 与 server.close 在 Windows 上偶发 libuv 断言, 直接退干净

@@ -31,6 +31,18 @@ function makeAppLogic(adapter) {
       await storage.pushPending(word);
     },
 
+    // ---- 配对 (P0-C, 2026-08-10) ----
+    /**
+     * 扫码/链接直连配对: 桌面端二维码内容是 `#t=<token>&u=<worker_url>`, token 是
+     * 桌面端为手机单独换的 device token (绑同一个 user)。直接存进 IndexedDB 即免登录,
+     * 不经过 authDevice 的网络兑换 (那个是 ROOT_SECRET/6 位码路径)。
+     */
+    async applyPairing({ token, workerUrl }) {
+      if (token) await storage.setToken(token);
+      if (workerUrl) await storage.setWorkerUrl(workerUrl);
+      return true;
+    },
+
     // ---- 同步 ----
     async authDevice({ workerUrl, rootSecret, code, deviceName }) {
       const r = await net.authDevice({ url: workerUrl, rootSecret, code, deviceName });

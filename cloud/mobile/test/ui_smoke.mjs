@@ -198,6 +198,31 @@ console.log('== 6. 冲突 6: 手机端"跳到原文"不可用 → 提示在电�
   check('点"跳到原文"提示"在电脑上打开"', !getEl('ba-hint').className.includes('hidden'));
 }
 
+console.log('== 7. P0-C 扫码配对: hash 解析 + 直连存凭据 ==');
+{
+  // 桌面端二维码内容 #t=<token>&u=<encodeURIComponent(worker_url)>
+  globalThis.location = { hash: '#t=deadbeef1234&u=https%3A%2F%2Faidulc.example.workers.dev' };
+  const p = app.parsePairingHash();
+  check('解析出 token', p && p.token === 'deadbeef1234', p);
+  check('解析出 worker_url (URLSearchParams 自动 decode)', p && p.workerUrl === 'https://aidulc.example.workers.dev', p);
+  // applyPairing 直连存凭据 (不经过 authDevice 网络兑换)
+  await app.app.applyPairing(p);
+  check('配对后 token 已存', (await app.adapter.storage.getToken()) === 'deadbeef1234');
+  check('配对后 worker_url 已存', (await app.adapter.storage.getWorkerUrl()) === 'https://aidulc.example.workers.dev');
+  // 非配对 hash / 空 hash → null (不误触发)
+  globalThis.location = { hash: '' };
+  check('空 hash → null', app.parsePairingHash() === null);
+  globalThis.location = { hash: '#/review' };
+  check('非配对 hash → null', app.parsePairingHash() === null);
+  globalThis.location = { hash: '#t=onlytoken' };
+  check('只有 t 无 u → 仍返回 token', app.parsePairingHash() && app.parsePairingHash().token === 'onlytoken');
+  globalThis.location = { hash: '#u=no-token' };
+  check('无 t → null', app.parsePairingHash() === null);
+  // 清凭据 → 变未配置 (chip)
+  await app.clearPair();
+  check('清除凭据后未配置', (await app.adapter.storage.getToken()) === null && (await app.adapter.storage.getWorkerUrl()) === null);
+}
+
 console.log('');
 console.log(`结果: ${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

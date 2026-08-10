@@ -199,10 +199,13 @@
       codeBtn.title = '给另一台设备: 绑到当前 user (add-device)';
       const inviteBtn = el('button', 'btn-small', '邀请新成员');
       inviteBtn.title = '给另一个人: 服务端新建成员, 对方填名字 (invite-user, 三项已定 ①)';
+      // P0-C (2026-08-10): 手机扫码配对 —— 生成二维码, 手机打开即免登录
+      const pairBtn = el('button', 'btn-small btn-primary', '手机扫码连接');
+      pairBtn.title = '生成二维码: 手机扫码打开即连, 收藏成书签免登录 (书签带 token = 拿到链接的人能读你的词库)';
       const disconnectBtn = el('button', 'btn-small btn-danger', '断开同步');
       disconnectBtn.title = '删除当前 user 的 token, 本机不再同步';
       disconnectBtn.disabled = true;
-      syncSec.append(syncStatus, urlInput, secretInput, authBtn, syncBtn, pullBtn, codeBtn, inviteBtn, disconnectBtn);
+      syncSec.append(syncStatus, urlInput, secretInput, authBtn, syncBtn, pullBtn, codeBtn, inviteBtn, pairBtn, disconnectBtn);
        syncPane.appendChild(syncSec);
 
       const refreshStatus = (d) => {
@@ -275,6 +278,60 @@
             syncStatus.textContent = '状态: 未配置';
           }),
         });
+      };
+      // P0-C (2026-08-10): 手机扫码连接 —— 复用 sync_pair_qr (auth/code + auth/device 换独立
+      // device token, 不覆盖本机 token), 弹窗显示二维码 + 安全明示 + 踢设备。
+      pairBtn.onclick = () => {
+        syncStatus.textContent = '生成二维码中…';
+        AiduSyncService.pairQr().then((r) => {
+          if (!r.ok) { syncStatus.textContent = '生成配对码失败: ' + (r.error || ''); return; }
+          syncStatus.textContent = '二维码已生成, 用手机扫一扫连接。';
+          showPairModal(r.data);
+        });
+      };
+      const showPairModal = (d) => {
+        const ov = document.createElement('div');
+        ov.className = 'modal-overlay';
+        const box = document.createElement('div');
+        box.className = 'modal-box';
+        box.setAttribute('role', 'dialog');
+        box.setAttribute('aria-modal', 'true');
+        const title = el('h2', 'modal-title', '手机扫码连接');
+        const body = el('div', 'book-settings-body');
+        const qrWrap = el('div', 'pair-qr-wrap');
+        qrWrap.innerHTML = d.qr_svg || '<span class="profile-meta">二维码生成失败 (内容过长), 请用下方链接或手动配对。</span>';
+        const link = el('div', 'pair-link', d.qr_content || '');
+        const warn = el('div', 'pair-warn', '书签里带 token = 拿到这个链接的人就能读你的词库 (老 AIDU 同款做法)。只在信任的手机上使用; 用完随时可踢掉这台设备。');
+        const actions = el('div', 'modal-actions');
+        const copyBtn = el('button', 'btn-small', '复制链接');
+        copyBtn.onclick = () => {
+          navigator.clipboard.writeText(d.qr_content || '').then(() => {
+            AiduToast.show('配对链接已复制', 'success');
+          }).catch(() => AiduToast.show('复制失败, 请手动选中链接', 'error'));
+        };
+        const kickBtn = el('button', 'btn-small btn-danger', '踢掉这台设备');
+        kickBtn.onclick = () => {
+          kickBtn.disabled = true;
+          kickBtn.textContent = '踢除中…';
+          AiduSyncService.revokeToken(null, d.token).then((rr) => {
+            kickBtn.disabled = false;
+            if (rr.ok && rr.data && rr.data.revoked) {
+              kickBtn.textContent = '已踢掉, 手机将变未配置';
+              kickBtn.classList.add('kick-done');
+              AiduToast.show('已踢掉该设备 token', 'success');
+            } else {
+              kickBtn.textContent = '踢掉失败: ' + ((rr.data && rr.data.error) || rr.error || '未知');
+            }
+          });
+        };
+        const close = el('button', 'btn-small', '关闭');
+        close.onclick = () => ov.remove();
+        actions.append(copyBtn, kickBtn, close);
+        body.append(qrWrap, link, warn);
+        box.append(title, body, actions);
+        ov.appendChild(box);
+        ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+        document.body.appendChild(ov);
       };
 
       AiduSettingsService.get('default').then((res) => {

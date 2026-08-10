@@ -417,6 +417,110 @@ pub fn sync_disconnect(user_id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// P0-C (2026-08-10): 手机扫码配对 —— 复用现成链路 (auth/code 生成 add-device 码 →
+/// auth/device 立即兑换) 换取一个**独立的 device token**, 生成二维码内容
+/// `https://aidulc-mobile.pages.dev/#t=<token>&u=<worker_url>`。
+/// 与 sync_make_code/sync_auth_device 的差别: 新 token **不**写入 Credential Manager,
+/// 桌面端保留自己的 token (手机 token 是给"另一台设备"的, 错了能踢)。
+#[tauri::command]
+pub fn sync_pair_qr(
+    services: State<crate::AppServices>,
+    user_id: String,
+) -> Result<serde_json::Value, String> {
+    let svc = services.inner();
+    let url = svc.cf_worker_url.lock().unwrap().clone();
+    let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
+    if url.is_empty() || token.is_empty() {
+        return Err("先配置同步 (Worker URL + 换 token) 才能生成配对码".into());
+    }
+    // 1. 生成 add-device 码 (绑当前 user, 现成接口)
+    let code = crate::infrastructure::sync_v1_client::make_code(&url, &token, "add-device", None)
+        .map_err(|e| format!("生成配对码失败: {e}"))?;
+    // 2. 立即兑换成独立 device token (现成接口)
+    let auth =
+        crate::infrastructure::sync_v1_client::auth_device(&url, None, Some(&code.code), "手机")
+            .map_err(|e| format!("兑换手机 token 失败: {e}"))?;
+    let mobile_url = crate::infrastructure::sync_v1_client::MOBILE_APP_URL.to_string();
+    let content = format!(
+        "{mobile_url}#t={}&u={}",
+        auth.token,
+        crate::infrastructure::sync_v1_client::url_encode_component(&url)
+    );
+    let svg = qrcode_svg(&content);
+    Ok(serde_json::json!({
+        "worker_url": url,
+        "token": auth.token,
+        "user_id": auth.user_id,
+        "device_id": auth.device_id,
+        "qr_svg": svg,
+        "qr_content": content,
+    }))
+}
+
+/// P0-C (2026-08-10): 踢掉配对设备 —— 调 worker /v1/auth/revoke (删 auth:{token} 即失效)。
+/// 手机端"拿到链接的人就能读你的词库"的收回手段: 配对后随时可踢, 被踢 token 立刻 401。
+#[tauri::command]
+pub fn sync_revoke_token(
+    services: State<crate::AppServices>,
+    user_id: String,
+    target_token: String,
+) -> Result<serde_json::Value, String> {
+    let svc = services.inner();
+    let url = svc.cf_worker_url.lock().unwrap().clone();
+    let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
+    if url.is_empty() || token.is_empty() {
+        return Err("先配置同步才能踢设备".into());
+    }
+    crate::infrastructure::sync_v1_client::revoke_token(&url, &token, &target_token)
+}
+
+/// 二维码 → SVG 字符串 (qrcode crate, ECC 默认 L/M 由 crate 自动选版; 白底黑块)。
+/// 内容太长 (token 48 hex + 编码后的 url) 由 crate 自动升版, 手机相机都能扫。
+fn qrcode_svg(content: &str) -> String {
+    use qrcode::render::svg;
+    use qrcode::QrCode;
+    match QrCode::new(content.as_bytes()) {
+        Ok(code) => {
+            let img = code.render::<svg::Color>().min_dimensions(5, 5).build();
+            img.to_string()
+        }
+        Err(_) => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod pairing_tests {
+    use super::qrcode_svg;
+
+    #[test]
+    fn qr_svg_is_nonempty_svg() {
+        // P0-C: 二维码必须是可渲染的 SVG (内容含 token, 长度 ~260 字符 → 高版本)
+        let content = format!(
+            "https://aidulc-mobile.pages.dev/#t={}&u=https%3A%2F%2Faidulc.example.workers.dev",
+            "a".repeat(48)
+        );
+        let svg = qrcode_svg(&content);
+        assert!(
+            svg.contains("<svg"),
+            "应产出 svg: {}",
+            &svg[..40.min(svg.len())]
+        );
+        assert!(svg.len() > 200, "SVG 内容不应为空壳: len={}", svg.len());
+        assert!(svg.contains("<path"), "应有 path 数据块");
+        assert!(
+            !svg.contains("a".repeat(40).as_str()),
+            "SVG 不应泄漏 token 明文"
+        );
+    }
+
+    #[test]
+    fn qr_svg_handles_unencodable_gracefully() {
+        // 极端长度 → 超 QR 容量时返回空串 (不 panic), 前端降级成文本链接
+        let svg = qrcode_svg(&"x".repeat(4000));
+        assert!(svg.is_empty() || svg.starts_with("<svg"));
+    }
+}
+
 /// 同步配置 (URL + token; token 存 Credential Manager; 即时生效)
 /// 保留旧命令面 (旧前端/兼容); V6 新流程走 sync_auth_device。
 #[tauri::command]

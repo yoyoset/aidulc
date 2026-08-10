@@ -32,8 +32,26 @@
         <div id="word-list" class="word-list"></div>
       </div>
       <nav class="bottom-nav">
-        <span>我的书</span><span class="active">生词本</span><span>设置</span>
+        <span id="nav-mybooks">我的书</span><span id="nav-vocab" class="active">生词本</span><span id="nav-settings">设置</span>
       </nav>
+    </section>
+
+    <!-- P0-C (2026-08-10): 设置 / 手动配对兜底 (二维码扫不了时) -->
+    <section id="view-settings" class="view hidden">
+      <header class="app-top">
+        <span id="settings-back" class="x-btn">←</span>
+        <span class="app-title">设置 · 同步</span>
+      </header>
+      <div class="entry-body settings-body">
+        <div class="sync-warn">书签里带 token = 拿到这个链接的人就能读你的词库 (老 AIDU 同款做法)。介意的话用完可在电脑端设置页"踢掉"这台设备。</div>
+        <label class="field-label">CF Worker URL</label>
+        <input id="pair-url" class="pair-input" placeholder="https://xxx.workers.dev" inputmode="url">
+        <label class="field-label">ROOT_SECRET 或 6 位邀请码</label>
+        <input id="pair-secret" class="pair-input" placeholder="主密钥(给自己) 或 6 位码(别人给你)" autocomplete="off">
+        <button id="pair-connect" class="big-btn">连接</button>
+        <div id="pair-status" class="pair-status"></div>
+        <button id="pair-clear" class="btn-ghost">清除本地凭据 (变未配置)</button>
+      </div>
     </section>
 
     <!-- 复习: 一次一卡 -->

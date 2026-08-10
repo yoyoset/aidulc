@@ -86,6 +86,65 @@
     else { chip.textContent = '已同步'; chip.className = 'sync-chip s-synced'; }
   }
 
+  // ---------- 配对 (P0-C, 2026-08-10) ----------
+  // 桌面端二维码: https://aidulc-mobile.pages.dev/#t=<token>&u=<worker_url>
+  // 解析 fragment → { token, workerUrl }。URLSearchParams 自动 decode `u=`。
+  function parsePairingHash() {
+    try {
+      const h = location.hash || '';
+      if (!h || h === '#') return null;
+      const params = new URLSearchParams(h.replace(/^#\??/, ''));
+      const token = params.get('t');
+      const workerUrl = params.get('u');
+      if (!token) return null;
+      return { token, workerUrl };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function openSettings() {
+    const url = await adapter.storage.getWorkerUrl();
+    const token = await adapter.storage.getToken();
+    $('pair-url').value = url || '';
+    $('pair-secret').value = '';
+    $('pair-status').textContent = (url && token) ? '当前已连接, 可用 ROOT_SECRET/邀请码 换绑。' : '未配置。填 Worker URL + ROOT_SECRET(给自己) 或 6 位码(别人给你)。';
+    show('view-settings');
+  }
+
+  async function connectPair() {
+    const url = $('pair-url').value.trim();
+    const secret = $('pair-secret').value.trim();
+    const isCode = /^\d{6}$/.test(secret);
+    const status = $('pair-status');
+    if (!url) { status.textContent = '先填 Worker URL'; return; }
+    status.textContent = '连接中…';
+    const r = await app.authDevice({
+      workerUrl: url,
+      rootSecret: isCode ? undefined : (secret || undefined),
+      code: isCode ? secret : undefined,
+      deviceName: '手机',
+    });
+    if (r.ok) {
+      status.textContent = '已连接: ' + (r.user_name || r.user_id) + ' · ' + (r.device_id || '');
+      updateSyncChip();
+      loadEntry();
+    } else {
+      status.textContent = '连接失败: ' + (r.error || '未知错误');
+    }
+  }
+
+  async function clearPair() {
+    await adapter.storage.setToken(null);
+    await adapter.storage.setWorkerUrl(null);
+    await adapter.storage.setDeviceName(null);
+    $('pair-status').textContent = '已清除本地凭据, 当前未配置。';
+    $('pair-url').value = '';
+    $('pair-secret').value = '';
+    updateSyncChip();
+    loadEntry();
+  }
+
   async function doSync(auto) {
     const chip = $('sync-chip');
     chip.textContent = '同步中…';
@@ -315,6 +374,13 @@
       };
     });
     $('sync-chip').onclick = () => doSync(false);
+    // P0-C (2026-08-10): 设置页 —— 手动配对 (Worker URL + ROOT_SECRET/6 位码) + 清凭据
+    $('settings-back').onclick = () => show('view-entry');
+    $('pair-connect').onclick = connectPair;
+    $('pair-clear').onclick = clearPair;
+    $('nav-mybooks').onclick = () => show('view-entry');
+    $('nav-vocab').onclick = () => show('view-entry');
+    $('nav-settings').onclick = openSettings;
     // 冲突 6: 手机端"跳到原文/再看一句"都不可用 (无书包) → 提示在电脑上打开 (桌面保留跳转)
     const sourceActionHint = () => {
       $('ba-hint').classList.remove('hidden');
@@ -352,6 +418,14 @@
     bindTouch();
     bindEvents();
     await app.init();
+    // P0-C (2026-08-10): 扫码配对 —— 解析 #t=<token>&u=<worker_url>, 存进 IndexedDB 后
+    // 立即 history.replaceState 把 token 从地址栏剥掉 (不残留可复制的密钥)。
+    const pair = parsePairingHash();
+    if (pair) {
+      await app.applyPairing(pair);
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
+      updateSyncChip();
+    }
     checkUpdate();
     // 尝试自动补推 (离线静默失败, 不打扰)
     await app.sync().catch(() => {});
@@ -359,7 +433,7 @@
   }
 
   // 让 app 暴露内部 (测试 / 调试用)
-  window.mobileApp = { app, adapter, C, boot, checkUpdate, BUILD_VERSION, loadEntry, startReview, grade, undo, exitReview, get state() { return { index, done, queue: queue.slice(), currentEntry }; } };
+  window.mobileApp = { app, adapter, C, boot, checkUpdate, BUILD_VERSION, parsePairingHash, loadEntry, startReview, grade, undo, exitReview, connectPair, openSettings, clearPair, get state() { return { index, done, queue: queue.slice(), currentEntry }; } };
 
   boot();
 })();

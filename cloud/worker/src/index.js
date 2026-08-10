@@ -5,6 +5,7 @@
  * 接口 (全部带 /v1/ 前缀):
  *   POST /v1/auth/device     首台用 ROOT_SECRET 换第一个 user + token; 或 6 位码换 token
  *   POST /v1/auth/code       已登录设备生成 6 位一次性码 (add-device / invite-user)
+ *   POST /v1/auth/revoke     已登录设备踢掉一个 token (P0-C: 手机配对后想收回, 删 auth:{token} 即失效)
  *   GET  /v1/sync?since={rev} 拉取该版本后变更的 SRS 状态
  *   POST /v1/sync            整批推送本地队列, 返回新 rev
  *
@@ -95,6 +96,9 @@ export default {
       }
       if (request.method === 'POST' && p === '/v1/auth/code') {
         return await authCode(request, storage, env);
+      }
+      if (request.method === 'POST' && p === '/v1/auth/revoke') {
+        return await authRevoke(request, storage);
       }
       if (request.method === 'GET' && p === '/v1/sync') {
         return await syncPull(request, storage);
@@ -260,6 +264,38 @@ function bearer(request) {
   const h = request.headers.get('Authorization') || '';
   const m = h.match(/^Bearer\s+(.+)$/i);
   return m ? m[1] : null;
+}
+
+/**
+ * POST /v1/auth/revoke   (需已登录 token)
+ *   { token } → 踢掉该 token (P0-C, 2026-08-10)
+ * 安全边界: 只能踢**同一 user** 的 token (本 worker 一个实例 = 一个家, 仍防跨 user 误伤)。
+ * 踢掉 = 删 `auth:{token}` (删后该 token 请求全部 401) + 清对应设备 meta。
+ * 返回 { ok, revoked: true|false } —— token 不存在/不属于自己时 revoked:false (不报错,
+ * 幂等: 目标已失效即视为已达目的, 前端不用区分"从没配过"和"已踢掉")。
+ */
+async function authRevoke(request, storage) {
+  const token = bearer(request);
+  const caller = token ? await authFromToken(storage, token) : null;
+  const authErr = requireToken(caller);
+  if (authErr) return authErr;
+
+  const body = await readJson(request);
+  const target = String(body.token || '').trim();
+  if (!target) {
+    return error('需要 token 字段', 400);
+  }
+  if (target === token) {
+    return error('不能踢掉当前正在使用的 token (会把自己锁在外面)', 400);
+  }
+  const targetAuth = await authFromToken(storage, target);
+  if (!targetAuth || targetAuth.user_id !== caller.user_id) {
+    // 不存在或不属于当前 user → 幂等视为已踢
+    return json({ ok: true, revoked: false });
+  }
+  await storage.delete('auth:' + target);
+  await storage.delete(`meta:${targetAuth.user_id}:device:${targetAuth.device_id}`);
+  return json({ ok: true, revoked: true });
 }
 
 /**

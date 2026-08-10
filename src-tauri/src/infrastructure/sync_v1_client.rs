@@ -3,6 +3,7 @@
 //! 替换 aidu_worker_client.rs (整包信封 ?profile=)。协议 v1:
 //!   POST /v1/auth/device  { root_secret 或 code, device_name } → { ok, user_id, user_name, device_id, token }
 //!   POST /v1/auth/code    { type: add-device|invite-user, name? } (带 token) → { ok, code, expires_in_ms }
+//!   POST /v1/auth/revoke  { token } (带 token) → { ok, revoked } —— P0-C 踢掉配对设备
 //!   POST /v1/sync         body { words: {word_key: 词条最小集} } → { ok, rev, wrote }
 //!   GET  /v1/sync?since={rev} (带 token) → { ok, rev, changed: [...] }
 //! 只做网络 I/O, 不编排 (编排在 sync_service)。
@@ -11,6 +12,10 @@
 use std::time::Duration;
 
 const MAX_PUSH_BYTES: usize = 25 * 1024 * 1024; // KV 单值上限 25 MiB (V0② 实测)
+
+/// P0-C (2026-08-10): 手机端 PWA 地址 (二维码内容前缀, 改部署域名时同步这里)。
+/// 带尾部 `/`, 二维码内容是 `<base>/#t=<token>&u=<worker_url>` (老 AIDU 同款形态)。
+pub const MOBILE_APP_URL: &str = "https://aidulc-mobile.pages.dev/";
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AuthDeviceResult {
@@ -126,6 +131,40 @@ pub fn make_code(
     serde_json::from_value(v).map_err(|e| format!("解析 code 响应失败: {e}"))
 }
 
+/// P0-C (2026-08-10): 踢掉一个设备 token (手机配对后想收回)。带 caller token,
+/// 服务端只允许踢同 user 的 token。返回 worker 的原始 { ok, revoked } JSON。
+pub fn revoke_token(
+    worker_url: &str,
+    caller_token: &str,
+    target_token: &str,
+) -> Result<serde_json::Value, String> {
+    if worker_url.is_empty() {
+        return Err("未配置 CF Worker URL (离线模式)".into());
+    }
+    let url = format!("{worker_url}/v1/auth/revoke");
+    let body = serde_json::json!({ "token": target_token });
+    post_json(&url, Some(caller_token), &body)
+}
+
+/// RFC 3986 只保留 unreserved 字符的 percent-encoding, 与浏览器 `encodeURIComponent`
+/// 对 `:/?&=#` 等保留字符的行为一致 (非 ASCII 按 UTF-8 逐字节编码)。用于把 worker_url
+/// 安全嵌进二维码 URL 的 `u=` 参数, 手机端 `URLSearchParams` 解码后原样还原。
+pub fn url_encode_component(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => {
+                out.push('%');
+                out.push_str(&format!("{:02X}", b));
+            }
+        }
+    }
+    out
+}
+
 /// 整批推送 (一次会话 O(1) 次 HTTP 写)。words: (word_key, 词条最小集 JSON)。
 pub fn push(
     worker_url: &str,
@@ -204,5 +243,48 @@ mod tests {
         let big = serde_json::json!({ "x": "y".repeat(26 * 1024 * 1024) });
         let err = push("http://x", "t", &[("k".into(), big)]).unwrap_err();
         assert!(err.contains("25"), "应提示超限: {err}");
+    }
+
+    #[test]
+    fn url_encode_component_keeps_unreserved_encodes_rest() {
+        // P0-C: worker_url 嵌进二维码 u= 参数, 手机 URLSearchParams 必须能原样还原
+        let raw = "https://aidulc-mobile.example.workers.dev/path?x=1&y=2#z";
+        let enc = url_encode_component(raw);
+        assert_eq!(
+            enc,
+            "https%3A%2F%2Faidulc-mobile.example.workers.dev%2Fpath%3Fx%3D1%26y%3D2%23z"
+        );
+        // 非 ASCII 按 UTF-8 逐字节编码 (不会原样泄漏)
+        assert_eq!(url_encode_component("a/我 b"), "a%2F%E6%88%91%20b");
+        // 编码后不含任何 reserved 字符 (不会破坏 #t=..&u=.. 的片段解析)
+        for b in enc.bytes() {
+            assert!(
+                b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~' | b'%'),
+                "应只剩 unreserved/百分号: {enc}"
+            );
+        }
+    }
+
+    #[test]
+    fn revoke_requires_worker_url() {
+        // P0-C: 未配置时直接报错 (不发起请求)
+        let err = revoke_token("", "caller", "target").unwrap_err();
+        assert!(err.contains("离线"), "{err}");
+    }
+
+    #[test]
+    fn mobile_pairing_url_shape() {
+        // P0-C: 二维码内容形状 #t=<token>&u=<encodeURIComponent(worker_url)>
+        let worker_url = "https://aidulc.example.workers.dev";
+        let token = "a1b2c3";
+        let content = format!(
+            "{MOBILE_APP_URL}#t={token}&u={}",
+            url_encode_component(worker_url)
+        );
+        assert!(content.starts_with("https://aidulc-mobile.pages.dev/#t="));
+        assert_eq!(
+            content,
+            "https://aidulc-mobile.pages.dev/#t=a1b2c3&u=https%3A%2F%2Faidulc.example.workers.dev"
+        );
     }
 }

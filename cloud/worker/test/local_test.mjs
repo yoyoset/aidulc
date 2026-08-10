@@ -181,6 +181,49 @@ console.log('== 6. 6 位码一次性 + 限速 ==');
   check('5 次错误后锁 (429)', locked === true);
 }
 
+console.log('== 7. 踢 token (P0-C: 手机配对收回) ==');
+{
+  // 未登录不能踢
+  let res = await call('POST', '/v1/auth/revoke', { body: { token: 'x' } });
+  check('无 token 踢 → 401', res.status === 401);
+
+  // 不能踢自己正在用的 token
+  res = await call('POST', '/v1/auth/revoke', { token: tokenMe, body: { token: tokenMe } });
+  check('踢自己 → 400', res.status === 400);
+
+  // 为 me 再换一个 device token (模拟"手机"配对拿到的 token)
+  const extra = await j(await call('POST', '/v1/auth/device', {
+    body: { root_secret: 'test-secret-123', device_name: '手机' },
+  }));
+  check('多设备 token 可用', !!extra.token);
+
+  // 踢掉"手机"token → revoked:true
+  res = await call('POST', '/v1/auth/revoke', { token: tokenMe, body: { token: extra.token } });
+  const rv = await j(res);
+  check('踢掉同 user 的 token → revoked:true', rv.ok && rv.revoked === true, rv);
+
+  // 被踢 token 再拉取 → 401 (删 auth:{token} 即失效)
+  res = await call('GET', '/v1/sync?since=0', { token: extra.token });
+  check('被踢 token 已失效 (401)', res.status === 401);
+
+  // 幂等: 再踢一次不存在/已失效的 token → revoked:false 不报错
+  res = await call('POST', '/v1/auth/revoke', { token: tokenMe, body: { token: extra.token } });
+  const rv2 = await j(res);
+  check('重复踢已失效 token → revoked:false 且 ok', rv2.ok && rv2.revoked === false, rv2);
+
+  // 跨 user 不能踢 (孩子 token 踢不掉 me 的 token)
+  res = await call('POST', '/v1/auth/code', {
+    token: tokenMe, body: { type: 'invite-user', name: '另一个' },
+  });
+  const cd = await j(res);
+  const other = await j(await call('POST', '/v1/auth/device', { body: { code: cd.code, device_name: 'other' } }));
+  const cross = await call('POST', '/v1/auth/revoke', { token: other.token, body: { token: tokenMe } });
+  const crossD = await j(cross);
+  check('跨 user 踢不掉 → revoked:false (me 的 token 仍有效)', crossD.ok && crossD.revoked === false, crossD);
+  const stillOk = await call('GET', '/v1/sync?since=0', { token: tokenMe });
+  check('me 的 token 仍有效 (200)', stillOk.status === 200);
+}
+
 console.log('');
 console.log(`结果: ${pass} 通过 / ${fail} 失败`);
 rmSync(dir, { recursive: true, force: true });

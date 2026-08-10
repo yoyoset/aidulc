@@ -14,6 +14,14 @@ body.reader-active .app-view { max-width: none; padding: 0; }
 body.reader-active #app { height: auto; min-height: 100vh; overflow: visible; }
 body.reader-active .app-view { overflow: visible; }
 
+/* C (2026-08-11): 阅读器文本选中通道 —— 全仓此前只有 app.css 的全局 ::selection
+   (md-sys 层), 阅读器没有独立通道。现在用 --rd-select (5 色系 × 明暗 10 组),
+   与朗读/生词/短语/摘录各占一色, ΔE≥10 两两判别。 */
+body.reader-active ::selection {
+  background: var(--rd-select);
+  color: var(--rd-surface);
+}
+
 .reader-page { min-height: 100vh; position: relative; }
 
 /* ---- 顶栏 单行: 返回 · 书名/章名 · 第 n/N 句 · 设置 (随滚动淡出) ---- */
@@ -161,14 +169,19 @@ body.reader-active .app-view { overflow: visible; }
 .atomic-block.highlighted {
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--rd-hl) 70%, transparent);
 }
-/* R21: 摘录精确 span —— 选中的词软底 (S6: 同通道 --rd-hl) */
+/* R21: 摘录精确 span —— 选中的词软底 (S6: 同通道 --rd-hl)
+   C (2026-08-11): 28% → 30%, 由 check_contrast.mjs 的 ΔL≥0.05 可见性门禁数字决定
+   (sage/ocean 深色 28% 只有 0.046, 不够; 提到 30% 全色系全明暗才过)。 */
 .bubble.hl-span {
-  background: color-mix(in srgb, var(--rd-hl) 28%, transparent);
+  background: color-mix(in srgb, var(--rd-hl) 30%, transparent);
   border-radius: 2px;
 }
 .atomic-block.bookmark-active { box-shadow: inset 3px 0 0 var(--md-sys-color-primary); }
+/* 当前句底色 (S6: accent 独立通道; 与摘录/朗读/生词/短语各占一色)
+   C (2026-08-11): 7% → 28%, 由 check_contrast.mjs 的 ΔL≥0.05 门禁数字决定 —— 7% 时
+   深色模式下渲染合成色 ΔL 只有 0.012, 眼睛看不见"正在读哪句"; 深色要 26-28% 才过。 */
 .atomic-block.sentence-reading {
-  background: color-mix(in srgb, var(--rd-accent) 7%, transparent);
+  background: color-mix(in srgb, var(--rd-accent) 28%, transparent);
 }
 
 /* ---- 句内控件: 三开关, hover 出现 / 当前句常显 (设计 §2.6) ---- */

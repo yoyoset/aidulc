@@ -134,6 +134,9 @@
   --rd-mark: #c08a24;            /* 短语动词连结线 (S6: 从 #a8792e 改亮金色, 与 accent 拉开色相) */
   --rd-saved: #5f7a8c;           /* S6: 已在生词本 1px 下划线 —— 独立通道 (原用 ink-3 灰, 与讲解文字撞) */
   --rd-hl: #3d7d6b;              /* S6: 摘录标记/选中词软底 —— 独立通道 (原用 warning 琥珀, 与 rd-mark 撞) */
+  --rd-select: #7a5fa8;          /* C (2026-08-11): 正文文本选中底色 (阅读器 ::selection) ——
+                                    独立通道, 5 色系 × 明暗 10 组取值经 check_contrast.mjs
+                                    ΔE≥10 两两判别选定 (全部通道与它可判别) */
 
   /* 用户可调, 写回 reader_settings (JS 端写 inline 覆盖) */
   --rd-text: 19px;
@@ -203,6 +206,7 @@ body[data-theme="dark"] {
   --rd-mark: #e3b95a;
   --rd-saved: #7fa3b3;
   --rd-hl: #6fc9a8;
+  --rd-select: #b3a0d8;
   --rd-dim: 0.30;
 
   /* 深色纸纹: 换成更淡的暖灰, 深色下不刺眼 (完整设计交付确认 §09) */
@@ -240,6 +244,7 @@ body[data-palette="sage"] {
   --rd-mark: #c08a24;
   --rd-saved: #5f7a8c;
   --rd-hl: #8a5f8a;
+  --rd-select: #7a5fa8;
 }
 body[data-theme="dark"][data-palette="sage"] {
   --md-sys-color-primary: #b3c79a;
@@ -252,6 +257,7 @@ body[data-theme="dark"][data-palette="sage"] {
   --rd-mark: #e3b95a;
   --rd-saved: #7fa3b3;
   --rd-hl: #c79bc7;
+  --rd-select: #b3a0d8;
 }
 
 /* ocean 海蓝 —— 冷静专注, 深海般的稳定感 */
@@ -269,6 +275,7 @@ body[data-palette="ocean"] {
   --rd-mark: #c08a24;
   --rd-saved: #8a6f5c;
   --rd-hl: #8a5f8a;
+  --rd-select: #7a5fa8;
 }
 body[data-theme="dark"][data-palette="ocean"] {
   --md-sys-color-primary: #a3c1d6;
@@ -281,6 +288,7 @@ body[data-theme="dark"][data-palette="ocean"] {
   --rd-mark: #e3b95a;
   --rd-saved: #b08f7a;
   --rd-hl: #c79bc7;
+  --rd-select: #b3a0d8;
 }
 
 /* rose 蔷薇 —— 温柔温暖, 玫瑰色调不张扬 */
@@ -298,6 +306,7 @@ body[data-palette="rose"] {
   --rd-mark: #c08a24;
   --rd-saved: #5f7a8c;
   --rd-hl: #3d7d6b;
+  --rd-select: #7a5fa8;
 }
 body[data-theme="dark"][data-palette="rose"] {
   --md-sys-color-primary: #d3a6b1;
@@ -310,6 +319,7 @@ body[data-theme="dark"][data-palette="rose"] {
   --rd-mark: #e3b95a;
   --rd-saved: #7fa3b3;
   --rd-hl: #6fc9a8;
+  --rd-select: #b3a0d8;
 }
 
 /* slate 灰蓝 —— 中性冷静, 最克制的选择 */
@@ -327,6 +337,7 @@ body[data-palette="slate"] {
   --rd-mark: #c08a24;
   --rd-saved: #8a6f5c;
   --rd-hl: #3d7d6b;
+  --rd-select: #7a5fa8;
 }
 body[data-theme="dark"][data-palette="slate"] {
   --md-sys-color-primary: #b0bac5;
@@ -339,4 +350,5 @@ body[data-theme="dark"][data-palette="slate"] {
   --rd-mark: #e3b95a;
   --rd-saved: #a08b7a;
   --rd-hl: #6fc9a8;
+  --rd-select: #b3a0d8;
 }

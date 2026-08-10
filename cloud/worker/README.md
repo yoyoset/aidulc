@@ -32,11 +32,12 @@ codefail:{6位码}        → { count, lock_until }
 
 ## 部署 (照文档一条命令跑通)
 
-前置:`wrangler` 已登录 (`wrangler whoami`)。
+前置:`wrangler` 已登录 (`wrangler whoami`)。完整分步说明见 `docs/SELFHOST_CF.md`。
 
 ```powershell
-# 1. 建 KV namespace
-wrangler kv namespace create AIDULC_SYNC
+# 1. 建一个全新的空 KV namespace (名字能看出用途即可, 如 aidulc-sync-kv)
+wrangler kv namespace create aidulc-sync-kv
+#  → 记下返回的 id
 
 # 2. 复制模板 → 填 namespace id
 Copy-Item wrangler.toml.template wrangler.toml
@@ -51,8 +52,17 @@ wrangler deploy
 ```
 
 免费额度实测 (2026-08-09, 见 `docs/DESIGN_NOTES_SRS.md` V0②):
-读 100,000/天 · 写 1,000/天 · 值 25 MiB。同步设计成**一次会话 O(1) 次 HTTP 写**
-(整批 `POST /v1/sync`), 词条数不随卡片数增长网络请求数。
+读 100,000/天 · **写不同键 1,000/天** · 值 25 MiB。
+
+**配额硬约束 (2026-08-10 修正, 别再踩)**: worker 的推送循环是**一词一个 KV 键**
+(`srs:{user}:{word}`), 所以**首次全量同步的写次数 = 待推词条数 + 1 (deck index)**。
+1424 词 = 约 1425 次写, 必然撞爆每天 1000 次写不同键的上限 —— 推到一半失败。
+因此:
+
+- **CF 免费路径 = 从零积累**: 新建空 KV, 词随使用一点点增长, 天然撞不上 1000/天。
+  每次都建**新的空 namespace**, 不要把存量词库推进来。
+- 存量词条数 > ~900 时, 别走 CF 免费档 —— 用自建 VPS 后端 (`docs/SELFHOST_VPS.md`),
+  文件存储没有写配额, 承载全量推送。
 
 ## 本地测试 / 自建 VPS
 

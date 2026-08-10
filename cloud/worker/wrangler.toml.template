@@ -1,10 +1,12 @@
-# aidulc 同步 Worker 配置模板 (V5, 2026-08-09)
+# aidulc 同步 Worker 配置模板 (V5, 2026-08-09; S1 2026-08-10: 对齐真实部署步骤)
 #
 # 使用: 复制本文件为 wrangler.toml, 填你的 KV namespace id 与部署名。
-#   wrangler kv namespace create AIDULC_SYNC
-#   把返回的 id 填到下面的 [[kv_namespaces]]
+#   wrangler kv namespace create aidulc-sync-kv   (建一个全新的空 namespace)
+#   把返回的 id 填到下面的 [[kv_namespaces]] (binding 必须叫 DB, 见 docs/SELFHOST_CF.md)
 #
-# 免费路径 = 用户拿自己的 CF 额度自建 (V0② 实测: 读 100k/天 / 写 1000/天 / 值 25MiB)。
+# 免费路径 = 用户拿自己的 CF 额度自建 (V0② 实测: 读 100k/天 / 写不同键 1000/天 / 值 25MiB)。
+# 配额红线 (2026-08-10 实测修正): 推送一词一个 KV 键, 首次全量写次数 = 词条数+1,
+#   存量词 >~900 别走免费档 (用 docs/SELFHOST_VPS.md), 免费档定位是"从零积累"。
 # ROOT_SECRET 是"这个家的空间"的钥匙: 部署时设, 首台桌面端用它换第一个 user。
 
 name = "aidulc-sync"

@@ -152,3 +152,24 @@
   **修法: 测试 fetchImpl 直接调 worker.fetch(new Request(...)), 不走真实 TCP。**
 - **PS 5.1 Set-Content -Encoding UTF8 破坏中文**: 整文件写回把 dictionary_service.rs 的
   中文注释变 mojibake, 只能 git checkout 重做。**含中文的 .rs/.js 一律用 edit 工具改。**
+
+## 2026-08-10 P0-A: 桌面端"点几个 tab 后整窗未响应"定位 (真机复现级)
+
+- **现象**: `src-tauri/target/release/aidulc.exe` 点几个 tab 后整窗未响应, 只能强杀。
+  强杀后 data.db 里 jobs 有 1 行卡在 running, 书 status=processing, 批 running。
+- **最初以为是 A (mutex 死锁)**: `std::sync::Mutex` 不可重入, 持 conn 锁再调 repo 方法
+  即死锁。静态扫描 repo 方法都是"进函数锁一次、出作用域释放", 没有真的嵌套; 迁移
+  (store_mod::migrate) 全程持锁但那是启动时单线程, 不构成卡窗口。
+- **实测是 B (stale running 任务启动时被自动拉起)**: `reset_stale` 把 running → queued,
+  `setup` 把 queued 收集进 recover_queue 再调 `pump_queue` → 启动即 spawn 侧车。
+  侧车是 66MB PyInstaller onefile, 启动先整包解压 + 加载模型, 机器被拖到
+  "窗口未响应"。**DB 证据链**: 最后一次启动的日志时间戳 1786333621012, 任务
+  updated_at=1786333621755 (+643ms 被 pump 回 running); 任务目录 run.log 仍停在
+  08-09 旧时间戳(0 字节) → 侧车还没解包完就被强杀。日志里几十次"应用启动"也是同一
+  剧本反复重演。
+- **修复 (单独提交)**: `reset_stale` 把 running → **paused**(不是 queued), 保留
+  stage/current/total/progress(暂停行显示"⏸ 讲解 1234/21972", 用户知道断在哪);
+  recover_queue 只收集 queued, 启动不再自动拉起侧车; 用户在处理台点"继续"
+  (= resume, 与暂停→继续同一语义) 才重启。回归测试 `reset_stale_marks_running_as_paused_not_queued`。
+- **遗留观察 (未修)**: 任务 paused 但批次状态仍 running (batches_repo 无 paused 态),
+  批次摘要显示"处理中"但任务行显示"已暂停" —— 不阻塞使用, 未扩大改动面。

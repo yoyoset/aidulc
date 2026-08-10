@@ -289,7 +289,10 @@ fn main() {
 
     jobs::job_guard::init_child_job_object();
 
-    // G2/G7: 启动时重置 stale 任务 (running → queued) 并收集恢复队列
+    // G2/G7: 启动时重置 stale 任务 (P0-A, 2026-08-10: running → paused, **不是** queued)。
+    // 恢复队列只收集真正 queued 的任务 —— stale running 任务已变成 paused, 不会被 pump_queue
+    // 在启动时立刻拉起侧车 (66MB PyInstaller 解包 + 模型加载会拖到整窗未响应, 真机实测过)。
+    // 用户在处理台点"继续"才重启, 与"暂停→继续"同一语义。
     let recover_queue: Vec<String> = {
         let jobs_repo = store::jobs_repo::JobsRepo::new(&db);
         let _ = jobs_repo.reset_stale();
@@ -329,7 +332,8 @@ fn main() {
         // 阶段3 (F46): 书包解析缓存, 消除大书每章整文件重读重解析 (实测 419ms/章)
         .manage(infrastructure::bookpack_cache::BookpackCache::new())
         .setup(|app| {
-            // G7: 启动后自动恢复队列任务
+            // G7: 启动后自动恢复队列任务 —— 只有用户明确 queued 的任务才自动跑;
+            // stale running 任务已被 reset_stale 标记成 paused, 不在此列 (P0-A, 2026-08-10)。
             if let (Some(cfg), Some(db), Some(st)) = (
                 app.try_state::<PrepConfig>(),
                 app.try_state::<store::Db>(),

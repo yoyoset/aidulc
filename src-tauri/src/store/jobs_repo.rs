@@ -18,7 +18,7 @@ pub struct Job {
     pub book_path: String,
     pub profile_id: String,
     pub output_dir: String,
-    pub status: String, // queued | running | done | failed | canceled
+    pub status: String, // queued | running | paused | done | failed | canceled
     pub stage: String,
     pub current: i64,
     pub total: i64,
@@ -183,11 +183,22 @@ impl<'a> JobsRepo<'a> {
         Ok(())
     }
 
-    /// 重启恢复: 把 running 状态的任务标记为 queued (侧车已死), 允许重新拉起
+    /// 重启恢复 (P0-A, 2026-08-10): 把上次退出时卡在 running 的任务标记为 **paused**,
+    /// **不**自动重新排队。
+    ///
+    /// 为什么不是 queued: 启动时 pump_queue 会立刻把 queued 任务拉起来, 而侧车是
+    /// 66MB PyInstaller 一次性解包 + 模型加载, 足够把整机(含 WebView 窗口)拖到"未响应"
+    /// —— 真机实测桌面端"点几个 tab 后整窗未响应"就是这个路径 (DB 证据: 卡住的 running
+    /// 任务每次启动都被 reset 成 queued 再立刻被 pump 成 running, run.log 停在旧时间戳
+    /// 说明侧车还没解包完就被强杀)。
+    ///
+    /// 改成 paused: 恢复动作交还用户 (与"暂停→继续"同一语义), 侧车不在启动时被偷偷拉起;
+    /// 用户在处理台点"继续"才真正重启。保留 stage/current/total/progress (不重置),
+    /// 暂停行能显示"⏸ 讲解 1234/21972", 用户一眼知道断在哪。
     pub fn reset_stale(&self) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
         conn.execute(
-            "UPDATE jobs SET status = 'queued', stage = '', error = NULL, progress = 0,
+            "UPDATE jobs SET status = 'paused', error = NULL,
                              updated_at = strftime('%s','now')*1000
              WHERE status = 'running'",
             [],
@@ -266,17 +277,30 @@ mod tests {
     }
 
     #[test]
-    fn reset_stale_marks_running_as_queued() {
+    fn reset_stale_marks_running_as_paused_not_queued() {
+        // P0-A (2026-08-10): 启动恢复不得自动开跑 —— running → paused (用户点"继续"
+        // 才重启), 不能是 queued (会被 pump_queue 在启动时立刻拉起, 侧车解包+加载模型
+        // 把整机拖到未响应, 真机实测复现过)。
         let db = temp_db();
         let repo = JobsRepo::new(&db);
-        repo.upsert(&job("j1", "running")).unwrap();
+        let mut j = job("j1", "running");
+        j.stage = "explain".into();
+        j.current = 1234;
+        j.total = 21972;
+        j.progress = 55.0;
+        repo.upsert(&j).unwrap();
         repo.upsert(&job("j2", "done")).unwrap();
         repo.reset_stale().unwrap();
+        let j1 = repo.get("j1").unwrap();
         assert_eq!(
-            repo.get("j1").unwrap().status,
-            "queued",
-            "running 应重置为 queued"
+            j1.status,
+            "paused",
+            "running 应重置为 paused, 不能是 queued (启动自动开跑的根因)"
         );
+        assert_eq!(j1.stage, "explain", "暂停后保留断点阶段 (UI 显示⏸ 断在哪)");
+        assert_eq!(j1.current, 1234, "暂停后保留断点进度");
+        assert_eq!(j1.total, 21972);
+        assert_eq!(j1.progress, 55.0, "暂停后保留全书完成度");
         assert_eq!(repo.get("j2").unwrap().status, "done", "done 不受影响");
     }
 

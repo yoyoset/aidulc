@@ -1,7 +1,10 @@
 /* prep.css —— 备料台 (M6 打磨: 柔和拖拽区、统一输入、任务卡纸感) */
+/* S6b (2026-08-10): 补 40% 纸面填充 —— 设计 §07 虚线规则 "1.5px dashed + 40% 纸面填充
+   是全系统唯一允许的虚线"。此前只有 border 没有填充, 与 library.css 空态虚线不一致。 */
 .prep-dropzone {
   border: 1.5px dashed var(--md-sys-color-outline-variant);
   border-radius: var(--md-sys-radius-lg);
+  background: color-mix(in srgb, var(--md-sys-color-surface) 40%, transparent);
   padding: 40px 20px;
   text-align: center;
   color: var(--md-sys-color-on-surface-variant);

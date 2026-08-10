@@ -461,6 +461,23 @@ S3.1(2026-08-07)在 `reader/styles/tokens.css` 建了 `--md-sys-font-size-*`(15 
 
 ---
 
+## S6b 设计语言符合性审计遗留 (2026-08-10, 详见 docs/DESIGN_CONFORMANCE.md)
+
+偏离项分类里"需要大改"的两条, 记这里, 不在 S6b 本轮做:
+
+- **prep 任务状态/进度条用色与设计 §03 三态语义不符**: 设计稿说处理中"已完成用绿、
+  进行中用蓝灰、待办用中性灰"; 现状 `prep.css:50 .prep-task-status` 与
+  `prep.css:61 .prep-bar-fill` 都用陶土 primary。要落地需把 task 状态映射到
+  success/info/neutral 三态 + 阶段条九段分色, 涉及 prep_view 状态文案与后端 stage 映射,
+  是比配色更大的改动, 记这里。
+- **字号/间距存量 rem/px 未迁阶梯令牌**: 已在 P4 记录 (CLAUDE.md 同步标注为存量欠账),
+  不重复。
+
+其余规则 (逐帧动画 / 深色阴影 / 虚线 / Toast / 设置纵列 / 语义通道 / hex 禁令) 已在
+S6b 核对为符合或已修。
+
+---
+
 ## 已完成(仅作为近期变更记录,超过一个 Phase 周期后清理)
 
 - 2026-08-10:**N1-N4 (STAGE-2026-08-10 前四项)**。N1 F38 EPUB spine 全遍历

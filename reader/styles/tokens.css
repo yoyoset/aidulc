@@ -185,6 +185,12 @@ body[data-theme="dark"] {
   /* shadow/scrim 深浅色取值相同(纯黑/暖深), 不覆盖。语义状态色深色下原样使用:
      已调成暖调低饱和, 在暖深背景上仍有足够对比度(与文字均为白字, 达标)。 */
 
+  /* 深色不加阴影 (设计 §10: 层级靠 --rd-surface-raised 的明度点差, 不靠投影)。
+     浅色的暖棕阴影在深底上几乎不可见又占 GPU 合成, 一律置 none。 */
+  --md-sys-elevation-1: none;
+  --md-sys-elevation-2: none;
+  --md-sys-elevation-3: none;
+
   /* 阅读器专用令牌 --rd-* 深色取值 (暖墨纸) */
   --rd-surface: #201e1a;
   --rd-surface-sunken: #171512;

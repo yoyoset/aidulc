@@ -200,6 +200,42 @@ Run-Check "css:no-blk-texture(.atomic-block 禁 backdrop-filter/background-image
     }
 }
 
+# 8.4b (S6b, 2026-08-10): 虚线规则 —— 设计 §07 "1.5px dashed + 40% 纸面填充是全系统唯一
+# 允许的虚线"。任何 dashed 边框必须 1.5px 且带 40% surface 填充; 且只允许出现在空态
+# 类(.book-empty / .prep-dropzone 这类导入/空容器)。新增虚线必须同样满足, 否则门禁失败。
+Run-Check "css:dashed-rule(虚线=1.5px+40%填充, 仅空态)" {
+    $cssFiles = Get-ChildItem "$root\reader\styles\*.css"
+    $viol = @()
+    foreach ($f in $cssFiles) {
+        $content = Get-Content -Raw -Encoding UTF8 $f.FullName
+        # 找所有含 dashed 的规则块
+        foreach ($m in [regex]::Matches($content, '([^{}]+)\{([^{}]*dashed[^{}]*)\}')) {
+            $sel = $m.Groups[1].Value.Trim()
+            $body = $m.Groups[2].Value
+            $dash = [regex]::Match($body, 'dashed')
+            # 1.5px dashed
+            if ($dash.Success -and $body -notmatch '1\.5px\s+dashed') {
+                $viol += "$($f.Name): $sel 虚线不是 1.5px dashed"
+            }
+            # 40% 纸面填充 (color-mix surface 40%)
+            if ($dash.Success -and $body -notmatch '40%\s*,?\s*transparent' -and $body -notmatch 'rgba\([^)]*\.4') {
+                $viol += "$($f.Name): $sel 虚线缺 40% 纸面填充"
+            }
+            # 只允许空态类
+            if ($dash.Success -and $sel -notmatch 'book-empty|dropzone|empty|import') {
+                $viol += "$($f.Name): $sel 虚线出现在非空态类"
+            }
+        }
+    }
+    if ($viol.Count) {
+        $viol | ForEach-Object { Write-Output "违反: $_" }
+        $global:LASTEXITCODE = 1
+    } else {
+        Write-Output "干净: 全部虚线 = 1.5px + 40% 填充, 且仅空态"
+        $global:LASTEXITCODE = 0
+    }
+}
+
 # 8.5 (M7 Round 6, 2026-08-08): 令牌对比度门禁 —— 直接解析 tokens.css 计算每个
 # palette × mode 的关键前景/背景对, WCAG AA 正文 ≥ 4.5 不达标即失败。
 # 防"以后改了某个令牌把无障碍做坏"静默发生。

@@ -143,3 +143,37 @@
   是更大的改动, 且"同一词在不同书里共用一条复习状态"的语义加词性反而会拆散
   (同词不同词性成两条)。与本地 key 用 lemma 一致。记录为第七处偏离, 不执行 §03 原案。
 
+## P1-D 旧 AIDU 生词迁回 (2026-08-10 实测)
+
+> 计划前提是"旧生词在 CF KV 里", **实测推翻**: KV 里没有, 数据在旧 AIDU Chrome 扩展的
+> `chrome.storage.local`。以实测为准。
+
+### 探测结论 (wrangler 实测)
+
+- `wrangler kv namespace list` → 本账户只有 `AIDU_DB` (`eed0445976d94ba4943cea222b208aaa`),
+  且 `wrangler kv key list --namespace-id=...` **0 键** (旧 worker `vocab_<profile>` /
+  `user_data` / `profile_meta` 键一个都不在)。
+- `wrangler deployments list --name aidu-sync` → **该 worker 在本账户已不存在**
+  (code 10007)。旧 AIDU 用的就是同一个 namespace id (见 `F:\my_ai\aidu\wrangler.toml`)。
+- **真正的位置**: 旧 AIDU Chrome 扩展 (`hoomcgkcbkhgknmknelfonccbajiggmk`) 的
+  `chrome.storage.local` (leveldb, snappy 压缩) → `vocab_default` **1424 条** +
+  `dictionary_default` **332 条**。用 `classic-level` 读 leveldb 提取 (临时脚本,
+  不入仓; 提取出的 JSON 是用户数据, 不提交)。
+
+### 导入 (复用现成路径, 不另造一套)
+
+- `scripts/import_old_aidu.mjs` (入仓): 旧 `vocab_default.json` / `dictionary_default.json`
+  → `.aidu-data` v3。唯一必须的规范化: 旧 `interval` 是天(含浮点), 新调度器用
+  `intervalMs` → `interval×86400000` 补上 (否则评分后下次间隔被当成 0/1 分钟重置);
+  `_key` 丢弃; lemma 小写 (DB 主键成分)。字典原样透传。
+- 导入走 app 现成 `transfer_import` → `import_aidu_data` (updatedAt 新者胜合并),
+  测试 `transfer_service::tests::import_real_aidu_data_backup` (`#[ignore]`, env 指定
+  文件+库) 跑真实库。
+- **真实数字 (贴实测)**: 导入前 `vocab=0`, 导入后 `vocab=1424` (源 1424 条, 完全对上);
+  `dictionary` 源 332 条全部在库; 全量 1424 条逐字段抽样比对
+  `stage/easeFactor/nextReview/reviews/meaning/interval/intervalMs` **0 不一致**。
+  样例: ability → stage=review, interval=1.0(天), intervalMs=86400000, ease=1.3,
+  next_review=1785664197048; 另 2 条 (fall in love/universe) next_review=0 → 导入即到期。
+- 原库已备份到 `C:\Users\yoyos\AppData\Local\Temp\opencode\aidu_ext\data.db.bak`
+  (导入前快照, 不入仓)。
+

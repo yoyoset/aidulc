@@ -40,3 +40,7 @@ cloud/worker/wrangler.toml
 cloud/worker/node_modules/
 # cloud/mobile 部署状态(上次部署版本标记, deploy_mobile.ps1 维护; 不入库)
 cloud/mobile/.last-deployed-version
+
+# wrangler 从仓库根跑会建的状态目录 (P1-D 探测 KV 时实测产生, 非项目文件)
+/.wrangler/
+/node_modules/

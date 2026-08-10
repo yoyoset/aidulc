@@ -344,4 +344,55 @@ mod tests {
         assert_eq!(got[0].start_seg, Some(1));
         assert_eq!(got[0].end_seg, Some(2));
     }
+
+    #[test]
+    fn import_preserves_srs_fields_and_interval_ms_from_days() {
+        // P1-D (2026-08-10): 旧 AIDU 扩展数据的 SRS 字段必须无损进库 ——
+        // stage/easeFactor/nextReview/interval 原样; intervalMs 由 scripts/import_old_aidu.mjs
+        // 换算成天×86400000, 调度器评分才有正确的下一次间隔。
+        let db = temp_db();
+        let backup = serde_json::json!({
+            "version": 3,
+            "data": {
+                "vocab": {
+                    "vocab_default": {
+                        "ability": {
+                            "word": "ability", "lemma": "ability", "pos": "NOUN", "meaning": "能力",
+                            "context": "Humans acquired the ability...", "level": "A2",
+                            "collocations": ["natural ability"], "deepData": null,
+                            "stage": "review", "interval": 3, "intervalMs": 259200000_i64,
+                            "easeFactor": 1.3, "nextReview": 1785664197048_i64, "reviews": 6,
+                            "lastReview": 1785577797048_i64, "addedAt": 1772953964358_i64,
+                            "updatedAt": 1785577797048_i64
+                        }
+                    }
+                }
+            }
+        });
+        let report = import_aidu_data(&db, &backup).unwrap();
+        assert_eq!(report["imported_vocab"], 1, "{report}");
+        let e = VocabRepo::new(&db)
+            .get("me", "default", "ability")
+            .expect("应入库");
+        assert_eq!(e.stage, "review", "stage 不能被规范化改坏");
+        assert_eq!(e.interval, 3.0, "interval(天) 原样保留");
+        assert_eq!(e.interval_ms, 259_200_000, "intervalMs 保留 (3 天)");
+        assert_eq!(e.ease_factor, 1.3, "easeFactor 原样保留");
+        assert_eq!(e.next_review, Some(1785664197048), "nextReview 原样保留");
+        assert_eq!(e.reviews, 6);
+        assert_eq!(e.meaning, "能力");
+        assert_eq!(e.pos, "NOUN");
+    }
+
+    #[test]
+    #[ignore = "一次性迁移 (P1-D): 用 env 指定 AIDULC_IMPORT_FILE + AIDULC_IMPORT_DB, 把 .aidu-data v3 导入真实 data.db。cargo test --release -- --ignored import_real_aidu_data_backup --nocapture 运行, 前置已备份原库。"]
+    fn import_real_aidu_data_backup() {
+        let file = std::env::var("AIDULC_IMPORT_FILE").expect("AIDULC_IMPORT_FILE 未设置");
+        let db_path = std::env::var("AIDULC_IMPORT_DB").expect("AIDULC_IMPORT_DB 未设置");
+        let text = std::fs::read_to_string(&file).expect("读备份失败");
+        let backup: serde_json::Value = serde_json::from_str(&text).expect("解析备份失败");
+        let db = Db::open(&db_path).expect("打开目标库失败");
+        let report = import_aidu_data(&db, &backup).expect("导入失败");
+        eprintln!("IMPORT REPORT: {report}");
+    }
 }

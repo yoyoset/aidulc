@@ -44,3 +44,7 @@ cloud/mobile/.last-deployed-version
 # wrangler 从仓库根跑会建的状态目录 (P1-D 探测 KV 时实测产生, 非项目文件)
 /.wrangler/
 /node_modules/
+
+# wrangler 在 cloud/worker 下部署/本地跑也会建状态目录 (只含 tmp 产物)
+cloud/worker/.wrangler/
+cloud/mobile/.wrangler/

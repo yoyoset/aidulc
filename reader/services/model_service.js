@@ -20,6 +20,8 @@
     setRecommended(id) { return AiduBridge.invoke('models_set_recommended', { id }); },
     remove(id) { return AiduBridge.invoke('models_remove', { id }); },
     scan(dir) { return AiduBridge.invoke('models_scan', { modelDir: dir }); },
+    // D (2026-08-11): 探测磁盘是否已有模型文件 (present/healthy/size_bytes)
+    fileCheck(path, minBytes) { return AiduBridge.invoke('model_file_check', { path, minBytes }); },
     bindBook(bookId, src, tgt, llm, tts, nlp) {
       return AiduBridge.invoke('models_bind_book', {
         bookId, sourceLanguage: src, targetLanguage: tgt,

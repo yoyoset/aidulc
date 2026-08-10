@@ -327,6 +327,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "扫描模型目录→可复用候选",
     },
     CommandInfo {
+        path: "commands::models::model_file_check",
+        domain: "模型",
+        desc: "D (UX 2026-08-11): 探测磁盘上是否已有模型文件 (模型中心三态判据)",
+    },
+    CommandInfo {
         path: "commands::models::models_bind_book",
         domain: "模型",
         desc: "书级模型绑定",

@@ -69,7 +69,7 @@
       });
     }
 
-    /** 一键下载区: 每个目录项一行动态显示已装/下载中/失败重试 */
+    /** 一键下载区: 每个目录项一行动态显示已登记 / 磁盘已有点此登记 / 下载 */
     _renderDownloads(sec, models) {
       sec.innerHTML = '';
       const title = el('h2', null, '一键下载');
@@ -87,26 +87,83 @@
            name.appendChild(badge);
          }
         const size = el('span', 'model-meta', `${(item.sizeBytes / 1e6).toFixed(0)} MB`);
-         const btn = el('button', 'btn-primary', registeredModel ? '已登记' : '下载');
-         btn.disabled = !!registeredModel;
-         if (!registeredModel) btn.onclick = () => this._downloadModel(item, btn);
-        const actions = el('div', 'model-actions');
-        actions.appendChild(btn);
-        row.append(name, size, actions);
-        rows.appendChild(row);
+         const btn = el('button', 'btn-primary', '已登记');
+         btn.disabled = true;
+         const actions = el('div', 'model-actions');
+         actions.appendChild(btn);
+         row.append(name, size, actions);
+         rows.appendChild(row);
+         // D (2026-08-11): 三态。判据从"只看注册表"改为"注册表 + 磁盘" —— 文件在磁盘
+         // 但没登记 (或 model_id 不同) 也要显示「磁盘已有 · 点此登记」, 不能叫用户重下。
+         if (registeredModel) return; // 已登记 → 不再探测磁盘
+         this._probeDiskState(item, btn);
       });
       sec.append(title, tip, rows);
+    }
+
+    /** 探测目标路径的磁盘状态 → 把按钮切成 磁盘已有·点此登记 / 下载 (失败一律落 下载, 不阻塞) */
+    _probeDiskState(item, btn) {
+      this._modelDir().then((dir) => {
+        if (!dir) { this._setDownloadBtn(btn, item); return; }
+        const dest = dir.replace(/[\\/]+$/, '') + '/' + item.file;
+        return AiduModelService.fileCheck(dest, Math.round(item.sizeBytes * 0.5)).then((res) => {
+          const d = (res && res.ok && res.data) || {};
+          if (d.present && d.healthy) {
+            btn.textContent = '磁盘已有 · 点此登记';
+            btn.disabled = false;
+            btn.title = '文件已在磁盘, 点此登记进注册表 (不会再下载)';
+            btn.onclick = () => this._registerExisting(item, dest, btn);
+          } else {
+            this._setDownloadBtn(btn, item);
+          }
+        });
+      }).catch(() => this._setDownloadBtn(btn, item));
+    }
+
+    /** 模型目录 (与 _downloadModel 同一来源: 已配置路径的目录, 否则默认目录) */
+    _modelDir() {
+      if (!this._modelDirPromise) {
+        this._modelDirPromise = AiduMiscService.runtimeConfig().then((cfg) => {
+          const d = (cfg && cfg.ok && cfg.data) || {};
+          const configured = d.llm_model || d.tts_model;
+          return configured ? configured.replace(/[\\/][^\\/]+$/, '') : (d.default_model_dir || '');
+        }).catch(() => '');
+      }
+      return this._modelDirPromise;
+    }
+
+    _setDownloadBtn(btn, item) {
+      btn.textContent = '下载';
+      btn.disabled = false;
+      btn.title = '';
+      btn.onclick = () => this._downloadModel(item, btn);
+    }
+
+    /** D: 磁盘已有 → 登记 (不进下载流) */
+    _registerExisting(item, dest, btn) {
+      btn.disabled = true;
+      btn.textContent = '登记中…';
+      AiduModelService.register({
+        family: item.family, language: 'en', model_id: item.name, version: item.version,
+        variant: item.version, path: dest, source_type: 'local',
+        source_ref: item.url, sha256: item.sha256, size_bytes: item.sizeBytes, custom: false,
+      }).then((reg) => {
+        if (!reg.ok) {
+          AiduToast.show('登记失败: ' + reg.error, 'error');
+          btn.textContent = '磁盘已有 · 点此登记';
+          btn.disabled = false;
+          return;
+        }
+        AiduToast.show('已登记磁盘上的模型: ' + item.name, 'success');
+        this._reload();
+      });
     }
 
     /** 后台下载 + 轮询状态 (不冻结 UI) → 完成自动登记 */
     _downloadModel(item, btn) {
       btn.disabled = true;
       btn.textContent = '下载中…';
-      AiduMiscService.runtimeConfig().then((cfg) => {
-        const d = (cfg && cfg.ok && cfg.data) || {};
-        const dir = (d.llm_model || d.tts_model)
-          ? (d.llm_model || d.tts_model).replace(/[\\/][^\\/]+$/, '')
-          : (d.default_model_dir || '');
+      this._modelDir().then((dir) => {
         if (!dir) throw new Error('找不到模型目录');
         const dest = dir.replace(/[\\/]+$/, '') + '/' + item.file;
         // F4: 超时按文件规模算 (至少 600s, 1MB/s 下限)

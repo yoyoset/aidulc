@@ -125,6 +125,21 @@ pub fn models_scan(db: State<store::Db>, model_dir: String) -> Result<serde_json
     Ok(serde_json::json!(suggestions))
 }
 
+/// D (2026-08-11): 探测磁盘上是否已存在某模型文件 (大小校验复用 components::check_file
+/// 的思路: present = 是文件, healthy = size >= min_bytes)。
+/// 模型中心据此显示三态: 已登记 / 磁盘已有·点此登记 / 下载 —— 此前判据只看注册表,
+/// 文件在磁盘但没登记照样显示「下载」, 点了重下 GB 级文件。
+#[tauri::command]
+pub fn model_file_check(path: String, min_bytes: i64) -> Result<serde_json::Value, String> {
+    let s = crate::services::components::check_file(
+        &path,
+        "model-file",
+        "model-file",
+        min_bytes.max(0) as u64,
+    );
+    serde_json::to_value(s).map_err(|e| e.to_string())
+}
+
 /// 书级绑定
 #[tauri::command]
 pub fn models_bind_book(

@@ -731,5 +731,53 @@ console.log('== 8. B: 设置浮层「播放」节 (通篇⇄逐句 + 跟读预�
   check('点「盲跟」→ onPatch preset=blind', patches.some((p) => p.preset === 'blind'), JSON.stringify(patches));
 }
 
+console.log('== 9. D: 模型中心三态 (已登记 / 磁盘已有·点此登记 / 下载, UX 2026-08-11) ==');
+{
+  // 用真实 ModelsView 替换顶部 stub (仅本段), 段末恢复
+  const fakeModelsView = globalThis.ModelsView;
+  load('views/models_view.js');
+  const listCalls = { fileCheck: [], register: [] };
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [
+    { family: 'llm', language: 'en', model_id: 'Qwen3-4B', version: 'Q4_K_M', path: 'C:/models/Qwen3-4B-Q4_K_M.gguf', size_bytes: 2497280256, active: false, asset_status: 'registered' },
+  ] });
+  globalThis.AiduModelService.fileCheck = async (path, minBytes) => {
+    listCalls.fileCheck.push({ path, minBytes });
+    // kokoro 的 dest 存在且健康 → 磁盘已有; qwen 已登记不探测
+    return { ok: true, data: { present: path.includes('kokoro'), healthy: path.includes('kokoro') } };
+  };
+  globalThis.AiduModelService.register = async (m) => { listCalls.register.push(m); return { ok: true }; };
+  globalThis.AiduMiscService.runtimeConfig = async () => ({ ok: true, data: {
+    llm_model: 'C:/models/Qwen3-4B-Q4_K_M.gguf', tts_model: 'C:/models/kokoro-v1_0.pth', default_model_dir: 'C:/models',
+  } });
+  const mv = new globalThis.ModelsView(new globalThis.AiduStore());
+  const mc = makeElement('div');
+  mv.render(mc);
+  await new Promise((r) => setTimeout(r, 80));
+  const dl = queryAll(mc, '.model-download-list')[0];
+  const rows = queryAll(dl, '.model-row');
+  const btnText = rows.map((r) => queryAll(r, 'button')[0].textContent);
+  check('Qwen (已登记) → 按钮 已登记', btnText[0] === '已登记', JSON.stringify(btnText));
+  check('Kokoro (磁盘已有) → 按钮 磁盘已有·点此登记', btnText[1].includes('磁盘已有'), JSON.stringify(btnText));
+  check('探测只查了未登记项 (kokoro)', listCalls.fileCheck.length === 1 && listCalls.fileCheck[0].path.includes('kokoro'), JSON.stringify(listCalls.fileCheck));
+  // 点「磁盘已有 · 点此登记」→ 走 register (不进下载流)
+  const kokoroBtn = queryAll(rows[1], 'button')[0];
+  kokoroBtn.onclick();
+  await new Promise((r) => setTimeout(r, 40));
+  check('点登记 → register 用磁盘路径', listCalls.register.length === 1 && listCalls.register[0].model_id === 'Kokoro-82M' && listCalls.register[0].path.includes('kokoro'), JSON.stringify(listCalls.register));
+  // 磁盘上没有 → 下载 (兜底三态中的第三态)
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [] });
+  globalThis.AiduModelService.fileCheck = async () => ({ ok: true, data: { present: false, healthy: false } });
+  const mv2 = new globalThis.ModelsView(new globalThis.AiduStore());
+  const mc2 = makeElement('div');
+  mv2.render(mc2);
+  await new Promise((r) => setTimeout(r, 80));
+  const dl2 = queryAll(mc2, '.model-download-list')[0];
+  const rows2 = queryAll(dl2, '.model-row');
+  const btnText2 = rows2.map((r) => queryAll(r, 'button')[0].textContent);
+  check('磁盘无文件 → 两行都是 下载', btnText2[0] === '下载' && btnText2[1] === '下载', JSON.stringify(btnText2));
+  // 恢复 stub, 不干扰其它段
+  globalThis.ModelsView = fakeModelsView;
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

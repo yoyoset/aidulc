@@ -17,6 +17,7 @@ pub fn settings_upsert(db: State<Db>, settings: ReaderSettings) -> Result<(), St
 
 #[tauri::command]
 pub fn settings_get(db: State<Db>, profile_id: String) -> Result<ReaderSettings, String> {
+    crate::infrastructure::log::info("cmd", &format!("enter: settings_get profile={profile_id}"));
     let repo = crate::store::settings_repo::SettingsRepo::new(db.inner());
     Ok(repo.get(&profile_id))
 }
@@ -68,6 +69,7 @@ pub fn profile_upsert(db: State<Db>, profile: Profile) -> Result<(), String> {
 
 #[tauri::command]
 pub fn profile_list(db: State<Db>) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", "enter: profile_list");
     let repo = crate::store::profile_repo::ProfileRepo::new(db.inner());
     serde_json::to_value(repo.list()).map_err(|e| e.to_string())
 }

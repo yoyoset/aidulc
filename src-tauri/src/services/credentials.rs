@@ -44,13 +44,23 @@ pub fn save_cf_token_for(user_id: &str, token: &str) -> Result<(), String> {
 }
 
 pub fn get_cf_token_for(user_id: &str) -> Result<String, String> {
+    let t0 = crate::store::now_ms_for_store();
     let account = format!("{TOKEN_ACCOUNT_PREFIX}{user_id}");
     let entry = Entry::new(SERVICE, &account).map_err(|e| format!("创建凭据条目失败: {e}"))?;
-    match entry.get_password() {
+    let r = match entry.get_password() {
         Ok(t) => Ok(t),
         Err(KeyringError::NoEntry) => Ok(String::new()),
         Err(e) => Err(format!("读 token 失败: {e}")),
-    }
+    };
+    // 2026-08-10 排查: keyring (Windows Credential Manager) 读可能慢/卡, 记录耗时
+    crate::infrastructure::log::info(
+        "keyring",
+        &format!(
+            "get_cf_token_for({user_id}) {}ms",
+            crate::store::now_ms_for_store() - t0
+        ),
+    );
+    r
 }
 
 pub fn delete_cf_token_for(user_id: &str) -> Result<(), String> {

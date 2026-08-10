@@ -15,15 +15,31 @@
     return core;
   }
 
-  /** 统一 invoke 封装: 错误归一化为 { ok:false, error } */
+  /** 统一 invoke 封装: 错误归一化为 { ok:false, error }
+   *  2026-08-10 加前后日志: 卡死时 aidulc.log 的最后一条 invoke:<cmd> 就是阻塞点。
+   *  返回后记耗时 (ms) —— 慢命令 (>500ms) 一眼可见。 */
   async function invoke(cmd, args) {
     const core = requireTauri();
+    const start = Date.now();
+    logBridge('invoke:' + cmd);
     try {
       const r = await core.invoke(cmd, args || {});
+      logBridge('ok:' + cmd + ' ' + (Date.now() - start) + 'ms');
       return { ok: true, data: r };
     } catch (e) {
+      logBridge('err:' + cmd + ' ' + (Date.now() - start) + 'ms ' + String(e).slice(0, 200));
       return { ok: false, error: String(e) };
     }
+  }
+
+  /** 写应用日志 (log_from_frontend → aidulc.log) */
+  function logBridge(msg) {
+    try {
+      if (typeof window !== 'undefined' && window.__TAURI__?.core) {
+        window.__TAURI__.core.invoke('log_from_frontend', { level: 'info', module: 'bridge', message: msg })
+          .catch(() => {});
+      }
+    } catch (e) { /* 无 Tauri 环境 (测试) 时跳过 */ }
   }
 
   /** 订阅 Tauri event */

@@ -316,9 +316,18 @@ pub fn sync_status(
     services: State<crate::AppServices>,
     user_id: String,
 ) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", &format!("enter: sync_status user={user_id}"));
+    let t0 = crate::store::now_ms_for_store();
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
     let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
+    crate::infrastructure::log::info(
+        "cmd",
+        &format!(
+            "sync_status keyring_read {}ms",
+            crate::store::now_ms_for_store() - t0
+        ),
+    );
     let s = crate::application::sync_service::get_status(db.inner(), &url, &token, &user_id);
     serde_json::to_value(s).map_err(|e| e.to_string())
 }
@@ -330,10 +339,16 @@ pub fn sync_now(
     services: State<crate::AppServices>,
     user_id: String,
 ) -> Result<serde_json::Value, String> {
+    let t0 = crate::store::now_ms_for_store();
+    crate::infrastructure::log::info("cmd", &format!("enter: sync_now user={user_id}"));
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
     let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
     let s = crate::application::sync_service::sync_now(db.inner(), &url, &token, &user_id)?;
+    crate::infrastructure::log::info(
+        "cmd",
+        &format!("exit: sync_now {}ms", crate::store::now_ms_for_store() - t0),
+    );
     serde_json::to_value(s).map_err(|e| e.to_string())
 }
 
@@ -344,10 +359,19 @@ pub fn sync_pull_now(
     services: State<crate::AppServices>,
     user_id: String,
 ) -> Result<serde_json::Value, String> {
+    let t0 = crate::store::now_ms_for_store();
+    crate::infrastructure::log::info("cmd", &format!("enter: sync_pull_now user={user_id}"));
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
     let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
     let s = crate::application::sync_service::sync_pull(db.inner(), &url, &token, &user_id)?;
+    crate::infrastructure::log::info(
+        "cmd",
+        &format!(
+            "exit: sync_pull_now {}ms",
+            crate::store::now_ms_for_store() - t0
+        ),
+    );
     serde_json::to_value(s).map_err(|e| e.to_string())
 }
 
@@ -363,6 +387,8 @@ pub fn sync_auth_device(
     device_name: String,
 ) -> Result<serde_json::Value, String> {
     use crate::services::config;
+    let t0 = crate::store::now_ms_for_store();
+    crate::infrastructure::log::info("cmd", &format!("enter: sync_auth_device user={user_id}"));
     let auth = crate::infrastructure::sync_v1_client::auth_device(
         &worker_url,
         root_secret.as_deref(),
@@ -386,6 +412,13 @@ pub fn sync_auth_device(
     let svc = services.inner();
     *svc.cf_worker_url.lock().unwrap() = worker_url;
     *svc.cf_token.lock().unwrap() = auth.token.clone();
+    crate::infrastructure::log::info(
+        "cmd",
+        &format!(
+            "exit: sync_auth_device {}ms",
+            crate::store::now_ms_for_store() - t0
+        ),
+    );
     serde_json::to_value(auth).map_err(|e| e.to_string())
 }
 
@@ -397,6 +430,8 @@ pub fn sync_make_code(
     code_type: String,
     name: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    let t0 = crate::store::now_ms_for_store();
+    crate::infrastructure::log::info("cmd", &format!("enter: sync_make_code user={user_id}"));
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
     let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
@@ -406,6 +441,13 @@ pub fn sync_make_code(
         &code_type,
         name.as_deref(),
     )?;
+    crate::infrastructure::log::info(
+        "cmd",
+        &format!(
+            "exit: sync_make_code {}ms",
+            crate::store::now_ms_for_store() - t0
+        ),
+    );
     serde_json::to_value(r).map_err(|e| e.to_string())
 }
 

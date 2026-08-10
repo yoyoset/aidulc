@@ -47,17 +47,20 @@ pub async fn components_health(
     let (llm, tts, _spacy) = model_service::resolve_paths(db.inner(), "en");
     let out_dir = cfg.out_dir.to_string_lossy().to_string();
     let cfg = cfg.inner().clone();
+    crate::infrastructure::log::info("cmd", "enter: components_health (async)");
     let checks = tauri::async_runtime::spawn_blocking(move || {
         crate::services::components::health_check(&cfg, &out_dir, &hf, &llm, &tts)
     })
     .await
     .map_err(|e| format!("健康检查执行失败: {e}"))?;
+    crate::infrastructure::log::info("cmd", "exit: components_health");
     serde_json::to_value(checks).map_err(|e| e.to_string())
 }
 
 /// 书库位置(当前生效的绝对路径, 供设置页展示)
 #[tauri::command]
 pub fn library_dir_get(cfg: State<PrepConfig>) -> String {
+    crate::infrastructure::log::info("cmd", "enter: library_dir_get");
     cfg.out_dir.to_string_lossy().to_string()
 }
 

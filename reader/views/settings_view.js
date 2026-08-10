@@ -143,6 +143,9 @@
       const compList = el('div', 'component-list');
       compSec.appendChild(compList);
       systemPane.appendChild(compSec);
+      // S0 (2026-08-10): 探测侧车可能耗时 (异步命令 + 5 秒超时), 先出"检测中…",
+      // 结果到了再填充 —— 不阻塞设置页渲染; 失败也显示原因 (后台失败必须可见)。
+      compList.appendChild(el('div', 'component-row', '检测中…'));
       AiduMiscService.componentsHealth().then((res) => {
         compList.innerHTML = '';
         if (!res.ok) { compList.appendChild(el('div', 'global-error', '检查失败: ' + res.error)); return; }

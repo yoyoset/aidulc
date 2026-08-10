@@ -611,6 +611,9 @@ mod tests {
     }
 
     /// F29: 解析 Rust fn 的参数名 (跳过 State/AppHandle 注入参数)。
+    /// 按顶层逗号拆分 —— 跟踪 `< >` 深度, 泛型内的逗号 (如 `State<'_, T>`) 不切断参数
+    /// (S0 2026-08-10: async 命令带生命周期注解 `State<'_, T>` 后 naive split 会误把
+    /// `crate`/`store` 当参数名, 让门禁假失败)。
     fn rust_fn_params(src: &str, fn_name: &str) -> Vec<String> {
         let needle = format!("fn {fn_name}(");
         let Some(pos) = src.find(&needle) else {
@@ -620,8 +623,23 @@ mod tests {
         let Some(end) = after.find(')') else {
             return vec![];
         };
-        after[..end]
-            .split(',')
+        let mut params: Vec<&str> = Vec::new();
+        let mut depth = 0usize;
+        let mut start = 0usize;
+        for (i, ch) in after[..end].char_indices() {
+            match ch {
+                '<' | '[' | '(' => depth += 1,
+                '>' | ']' | ')' => depth = depth.saturating_sub(1),
+                ',' if depth == 0 => {
+                    params.push(&after[start..i]);
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        params.push(&after[start..end]);
+        params
+            .into_iter()
             .filter_map(|p| {
                 let p = p.trim();
                 if p.is_empty() {
@@ -879,5 +897,18 @@ mod tests {
 
         let rs = "pub fn settings_get(db: State<Db>, profile_id: String) -> Result<ReaderSettings, String> { }";
         assert_eq!(rust_fn_params(rs, "settings_get"), vec!["profile_id"]);
+    }
+
+    /// S0 (2026-08-10): async 命令带生命周期注解 `State<'_, T>` 时, naive split(',')
+    /// 会把泛型内逗号切断成假参数 (`crate`/`store`), 让门禁误报缺参数。bracket 深度
+    /// 感知的拆分必须能正确只取 book_id。
+    #[test]
+    fn f29_parser_handles_lifetime_state_generics() {
+        let rs = "pub async fn library_preview(\n    cfg: State<'_, crate::PrepConfig>,\n    db: State<'_, store::Db>,\n    book_id: String,\n) -> Result<serde_json::Value, String> { }";
+        assert_eq!(rust_fn_params(rs, "library_preview"), vec!["book_id"]);
+
+        let rs2 = "pub async fn components_health(\n    cfg: State<'_, PrepConfig>,\n    db: State<'_, crate::store::Db>,\n) -> Result<serde_json::Value, String> { }";
+        let params2 = rust_fn_params(rs2, "components_health");
+        assert!(params2.is_empty(), "State 参数都应跳过, 实测: {params2:?}");
     }
 }

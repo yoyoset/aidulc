@@ -85,6 +85,8 @@ pub struct PrepState {
 
 /// prep 侧车路径 + 任务输出目录 + 工具路径
 /// M 系列: 模型路径不再存这里 (单一真相源 = model_registry, 运行时 resolve_paths)
+/// Clone: 供 async 命令把配置拷进 spawn_blocking (S0: 组件健康检查离开主线程)
+#[derive(Clone)]
 pub struct PrepConfig {
     pub prep_path: std::path::PathBuf,
     pub out_dir: std::path::PathBuf,

@@ -670,44 +670,59 @@ pub fn book_import(
 
 /// S4: 原版书预览 (书库"查看原文") — spawn 侧车 preview 模式读原书纯文本
 /// 返回 { title, chapters: [{index, title, sentences: [原文]}], format }
+/// S0 (2026-08-10): 改 async + spawn_blocking + 读超时 —— spawn 子进程读 stdout 是
+/// 阻塞 I/O, 同步命令会卡死主线程 (与 components_health 同类, 一并修)。
 #[tauri::command]
-pub fn library_preview(
-    cfg: State<crate::PrepConfig>,
-    db: State<store::Db>,
+pub async fn library_preview(
+    cfg: State<'_, crate::PrepConfig>,
+    db: State<'_, store::Db>,
     book_id: String,
 ) -> Result<serde_json::Value, String> {
-    use std::io::Read;
+    let prep_path = cfg.prep_path.clone();
+    let source_path = {
+        let repo = store::books_repo::BooksRepo::new(db.inner());
+        let book = repo.get(&book_id).ok_or("书不存在")?;
+        if !std::path::Path::new(&book.source_path).exists() {
+            return Err("原书文件不存在, 请重新导入".into());
+        }
+        book.source_path.clone()
+    };
+    let v = tauri::async_runtime::spawn_blocking(move || {
+        preview_book_blocking(&prep_path, &source_path)
+    })
+    .await
+    .map_err(|e| format!("预览执行失败: {e}"))??;
+    Ok(v)
+}
+
+fn preview_book_blocking(
+    prep_path: &std::path::Path,
+    source_path: &str,
+) -> Result<serde_json::Value, String> {
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
 
-    let repo = store::books_repo::BooksRepo::new(db.inner());
-    let book = repo.get(&book_id).ok_or("书不存在")?;
-    if !std::path::Path::new(&book.source_path).exists() {
-        return Err("原书文件不存在, 请重新导入".into());
-    }
     // 调侧车 preview (复用 loader: 已修复 z-lib EPUB manifest 顺序 + 垃圾句过滤)
-    let mut cmd = Command::new(&cfg.prep_path);
+    let mut cmd = Command::new(prep_path);
     cmd.arg("--preview-book")
-        .arg(&book.source_path)
+        .arg(source_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .creation_flags(0x08000000);
-    let mut child = cmd.spawn().map_err(|e| format!("启动预览失败: {e}"))?;
-    let mut out = String::new();
-    child
-        .stdout
-        .take()
-        .ok_or("无法读取预览输出")?
-        .read_to_string(&mut out)
-        .map_err(|e| format!("读预览输出失败: {e}"))?;
-    let _ = child.wait();
+    let child = cmd.spawn().map_err(|e| format!("启动预览失败: {e}"))?;
+    // S0: 读 stdout 带 60 秒超时 (大书解析可能慢, 但不应无限等)
+    let out = crate::services::components::read_stdout_with_timeout(
+        child,
+        std::time::Duration::from_secs(60),
+    )
+    .map_err(|e| format!("读预览输出失败: {e}"))?;
     let line = out
         .lines()
         .find(|l| l.trim_start().starts_with('{'))
         .ok_or("预览无输出")?;
     let mut v: serde_json::Value =
         serde_json::from_str(line).map_err(|e| format!("预览输出非法: {e}"))?;
-    v["format"] = serde_json::json!(std::path::Path::new(&book.source_path)
+    v["format"] = serde_json::json!(std::path::Path::new(source_path)
         .extension()
         .map(|e| e.to_string_lossy().to_string())
         .unwrap_or_default());

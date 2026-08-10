@@ -33,17 +33,25 @@ pub fn runtime_config(
 /// M 系列: 模型从 model_registry 解析 (单一真相源), 不再读 PrepConfig 第二份状态
 /// 2026-08-07: 磁盘空间检查此前查的是 library_dir 所在盘, 但书实际写入 out_dir——
 /// 如果两者不在同一块盘, 健康检查结果是误导性的。合并成一个概念后这个问题自动消失。
+/// S0 (2026-08-10): 改 async + spawn_blocking —— 探测 prep 侧车(spawn 子进程读 stdout)
+/// 是阻塞 I/O, 同步命令跑在主线程会把整个窗口卡死 (点设置必假死的根因)。探测本身
+/// 还有 5 秒超时兜底 (components::PYMUPDF_PROBE_TIMEOUT), 双重保障主线程永不阻塞。
 #[tauri::command]
-pub fn components_health(
-    cfg: State<PrepConfig>,
-    db: State<crate::store::Db>,
+pub async fn components_health(
+    cfg: State<'_, PrepConfig>,
+    db: State<'_, crate::store::Db>,
 ) -> Result<serde_json::Value, String> {
     use crate::application::model_service;
     let hf = std::env::var("HF_HOME").unwrap_or_default();
     // en 是当前唯一支持语言 (H4); 多语言后按书语言查询
     let (llm, tts, _spacy) = model_service::resolve_paths(db.inner(), "en");
     let out_dir = cfg.out_dir.to_string_lossy().to_string();
-    let checks = crate::services::components::health_check(cfg.inner(), &out_dir, &hf, &llm, &tts);
+    let cfg = cfg.inner().clone();
+    let checks = tauri::async_runtime::spawn_blocking(move || {
+        crate::services::components::health_check(&cfg, &out_dir, &hf, &llm, &tts)
+    })
+    .await
+    .map_err(|e| format!("健康检查执行失败: {e}"))?;
     serde_json::to_value(checks).map_err(|e| e.to_string())
 }
 
@@ -127,13 +135,26 @@ pub fn boot_ping(message: String) -> String {
 ///
 /// 往 prep 侧车所在 venv 里 pip install pymupdf (开发环境侧车从 venv 跑); 若
 /// 侧车是打包产物 (便携/发布, 没有 venv), 返回明确指引"重新构建侧车", 不假装装好了。
+///
+/// S0 (2026-08-10): 改 async + spawn_blocking —— pip 是分钟级阻塞 I/O, 同步命令会
+/// 卡死主线程; 顺带把读 stdout/stderr 加 120 秒超时兜底 (装依赖正常远超 5 秒, 不能用
+/// 探测级短超时; 120 秒只挡"pip 卡死"这种极端情况)。
 #[tauri::command]
-pub fn doc_parser_install(cfg: State<PrepConfig>) -> Result<serde_json::Value, String> {
+pub async fn doc_parser_install(cfg: State<'_, PrepConfig>) -> Result<serde_json::Value, String> {
+    let prep_path = cfg.prep_path.clone();
+    let r = tauri::async_runtime::spawn_blocking(move || install_pymupdf_blocking(&prep_path))
+        .await
+        .map_err(|e| format!("安装任务执行失败: {e}"))?;
+    r
+}
+
+fn install_pymupdf_blocking(prep_path: &std::path::Path) -> Result<serde_json::Value, String> {
     use std::io::Read;
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+    use std::time::Duration;
 
-    let prep_path = &cfg.prep_path;
     // 从侧车路径往上找 venv: .../prep/dist/aidulc-prep/aidulc-prep.exe → .../prep/.venv
     let venv_python = find_prep_venv_python(prep_path);
     let Some(python) = venv_python else {
@@ -152,15 +173,44 @@ pub fn doc_parser_install(cfg: State<PrepConfig>) -> Result<serde_json::Value, S
         .stderr(Stdio::piped())
         .creation_flags(0x08000000);
     let mut child = cmd.spawn().map_err(|e| format!("启动 pip 失败: {e}"))?;
+
+    // S0: 读管道也带超时 (pip 卡死时 120 秒返回失败, 而不是让 spawn_blocking 线程永远挂着)。
+    // 两条管道各起一个线程读, 主线程 recv_timeout; 超时则 kill 子进程。
+    let (tx, rx) = mpsc::channel();
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let tx_out = tx.clone();
+    std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(mut s) = stdout {
+            let _ = s.read_to_string(&mut buf);
+        }
+        let _ = tx_out.send(buf);
+    });
+    std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(mut s) = stderr {
+            let _ = s.read_to_string(&mut buf);
+        }
+        let _ = tx.send(buf);
+    });
     let mut out = String::new();
     let mut err = String::new();
-    if let Some(s) = child.stdout.take() {
-        let mut r = s;
-        let _ = r.read_to_string(&mut out);
-    }
-    if let Some(s) = child.stderr.take() {
-        let mut r = s;
-        let _ = r.read_to_string(&mut err);
+    for _ in 0..2 {
+        match rx.recv_timeout(Duration::from_secs(120)) {
+            Ok(s) => {
+                if out.is_empty() {
+                    out = s;
+                } else {
+                    err = s;
+                }
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("pip 无响应, 已终止安装 (120 秒超时)".into());
+            }
+        }
     }
     let status = child.wait().map_err(|e| format!("等待 pip 失败: {e}"))?;
     let ok = status.success();

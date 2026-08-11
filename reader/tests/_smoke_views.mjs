@@ -462,6 +462,19 @@ console.log('== 5b. 顶栏同步四态 (V6, 2026-08-09) ==');
   check('点击 chip → 跳设置页', routedU === 'settings', 'routed=' + routedU);
 }
 
+console.log('== 5b. H1 (2026-08-11): 顶栏两个每日目的地, 无「背单词」tab ==');
+{
+  const navEl = makeElement('div');
+  const sh = new globalThis.ShellView(navEl);
+  sh.setRouter({ navigate: () => {} });
+  sh.render();
+  const links = queryAll(navEl, '.app-nav-link');
+  const labels = links.map((b) => b.textContent);
+  check('顶栏有 我的书', labels.includes('我的书'), labels.join(','));
+  check('顶栏有 生词本', labels.includes('生词本'), labels.join(','));
+  check('顶栏没有 背单词 (已并入生词本)', !labels.includes('背单词'), labels.join(','));
+}
+
 console.log('== 6. 背单词三栏 (V3, 2026-08-09) ==');
 {
   load('core/review.js');

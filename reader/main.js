@@ -145,23 +145,34 @@
     prepView.cleanup();
     libraryView.cleanup();
     reviewView.cleanup();
-    vocabView.render(container);
+    // H1 (2026-08-11): 生词本页上半「今日队列」卡 + 下半「词表」。
+    // 点「开始复习」进入专注模式 (隐藏顶栏与词表, 只留三栏), Esc/下滑退出、进度保留。
+    if (store.state.reviewFocus) {
+      store.set({ reviewFocus: false });
+      shell.getNavEl() && shell.getNavEl().classList.add('focus-hidden');
+      reviewView.render(container);
+      reviewView.onExit = () => {
+        const nav = shell.getNavEl && shell.getNavEl();
+        if (nav) nav.classList.remove('focus-hidden');
+        router.navigate('vocab');
+      };
+    } else {
+      vocabView.render(container);
+    }
   });
 
-  // V3 (2026-08-09): 桌面三栏背单词
+  // V3 (2026-08-09): 桌面三栏背单词 —— 现在是生词本的模式。H1 (2026-08-11):
+  // 路由保留做重定向 (书签/旧入口不能断): 直接进 review = 生词本专注模式。
   router.register('review', (container) => {
-    shell.setActiveNav('review');
-    readerView.cleanup();
-    prepView.cleanup();
-    libraryView.cleanup();
-    vocabView.cleanup?.();
-    reviewView.render(container);
+    store.set({ reviewFocus: true });
+    router.navigate('vocab');
   });
 
   // V4 (2026-08-09): 背单词右栏"在阅读器中打开" → 打开该书并跳到记录位置
+  // H1 (2026-08-11): review 已重定向到 vocab, 返回路由也指向 vocab
   reviewView.onOpenInReader = (entry) => {
     store.set({ currentBook: { id: entry.edition_id, title: entry.edition_id } });
-    store.set({ readerBackRoute: 'review' });
+    store.set({ readerBackRoute: 'vocab' });
     store.set({ vocabJump: { chapter: entry.chapter_index, sentence: entry.sentence_index } });
     router.navigate('reader');
   };

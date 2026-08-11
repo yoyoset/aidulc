@@ -34,13 +34,15 @@
       this.app.innerHTML = '';
 
       // 阶段6 设计交付 §01/§10 item 3: 三层导航 —— 左「我的书·生词本」右「导入·处理中(n)」
+      // H1 (2026-08-11): 顶栏回到两个每日目的地「我的书 / 生词本」—— 背单词是生词本的
+      // 模式 (入口在生词本页「今日队列」卡), 不是第三个 tab (更晚的设计交付确认里顶栏
+      // 也只有两项)。
       this.navEl = el('nav', 'app-nav');
       const brand = el('span', 'app-brand', 'aidulc 精读工作站');
       const left = el('div', 'app-nav-links app-nav-left');
       const items = [
         ['library', '我的书'],
         ['vocab', '生词本'],
-        ['review', '背单词'],
       ];
       items.forEach(([route, label]) => {
         const a = el('button', 'app-nav-link', label);
@@ -205,6 +207,11 @@
 
     getViewContainer() {
       return this.viewContainer;
+    }
+
+    /** H1: 顶栏元素 (专注模式隐藏用) */
+    getNavEl() {
+      return this.navEl;
     }
 
     setActiveNav(route) {

@@ -72,6 +72,11 @@
       // M7 R34: 近 14 天每日新增条形图 (坚持可见)
       this.chartEl = el('div', 'vocab-chart-wrap');
       wrap.insertBefore(this.chartEl, listEl);
+      // H1 (2026-08-11): 生词本 = 上半「今日队列」卡 + 下半「词表」。
+      // 点「开始复习」进入专注模式 (隐藏顶栏与词表, 只留三栏)。
+      const todayCard = el('div', 'vocab-today-card');
+      wrap.insertBefore(todayCard, listEl);
+      this.todayCardEl = todayCard;
       container.appendChild(wrap);
 
       this.searchInput = searchInput;
@@ -81,6 +86,33 @@
       this._load();
     }
 
+    /** H1: 今日队列卡 —— 上半 (N 词待复习 + 开始复习), 数据来自 review core 同规则 */
+    _renderTodayCard() {
+      if (!this.todayCardEl) return;
+      const now = Date.now();
+      const q = global.AiduReviewCore ? global.AiduReviewCore.buildQueue(this.entries, now) : null;
+      const due = q ? (q.counts.review || 0) + (q.counts.learning || 0) + (q.counts.new || 0) : this.entries.length;
+      const estMin = Math.ceil((q ? q.order.length : 0) * 15 / 60);
+      this.todayCardEl.innerHTML = '';
+      const head = el('div', 'vocab-today-head');
+      head.appendChild(el('div', 'vocab-today-title', '今日队列'));
+      const meta = el('span', 'vocab-today-meta', `${due} 词待复习${estMin ? ' · 约 ' + estMin + ' 分钟' : ''}`);
+      head.appendChild(meta);
+      this.todayCardEl.appendChild(head);
+      const startBtn = el('button', 'btn-primary', '开始复习');
+      startBtn.title = '进入专注模式: 隐藏顶栏与词表, 只留三栏; Esc 退出, 进度保留';
+      startBtn.onclick = () => {
+        if (global.AiduStore && global.AiduRouter) {
+          global.AiduStore.set({ reviewFocus: true });
+          window.location.hash = '#/vocab'; // 触发路由重渲染进专注模式
+        } else {
+          window.location.hash = '#/review';
+        }
+      };
+      startBtn.disabled = due === 0;
+      this.todayCardEl.appendChild(startBtn);
+    }
+
     _load() {
       // M 系列: 走 service (生词本数据源是 vocab_all)
       AiduDictionaryService.vocabAll(this.profileId).then((res) => {
@@ -88,6 +120,7 @@
         this.entries = res.data || [];
         this._renderStats();
         this._renderChart();
+        this._renderTodayCard();
         this._renderList();
       });
     }

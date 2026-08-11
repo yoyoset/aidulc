@@ -38,7 +38,12 @@
       this._container = container;
       const wrap = el('div', 'review-view');
       const header = el('div', 'page-header');
-      header.appendChild(el('h1', null, '背单词'));
+      header.appendChild(el('h1', null, '今日复习'));
+      // H1 (2026-08-11): 专注模式退出 —— 顶栏与词表都隐藏, 只剩三栏; Esc 退出且进度保留。
+      const exitBtn = el('button', 'btn-small', '退出复习');
+      exitBtn.title = 'Esc 退出 (进度保留, 今天背过的不会重排)';
+      exitBtn.onclick = () => this._exit();
+      header.appendChild(exitBtn);
       wrap.appendChild(header);
       // 三栏 grid (设计稿 §02: 264px 队列 | 弹性卡片 | 336px 原文)
       const grid = el('div', 'review-grid');
@@ -265,6 +270,8 @@
     _bindKeys() {
       if (this._onKey) document.removeEventListener('keydown', this._onKey);
       this._onKey = (e) => {
+        // H1: Esc 退出专注模式 (进度保留)
+        if (e.key === 'Escape') { e.preventDefault(); this._exit(); return; }
         const action = global.AiduReviewCore.keyAction(e);
         if (!action) return;
         if (action === 'flip') { e.preventDefault(); this._flip(); }
@@ -273,6 +280,12 @@
         else if (action === 'edit') { this._edit(); }
       };
       document.addEventListener('keydown', this._onKey);
+    }
+
+    /** H1: 退出专注模式 —— 进度保留 (今天背过的词 next_review 已推进, 重进不会重排) */
+    _exit() {
+      this.cleanup();
+      if (this.onExit) this.onExit();
     }
 
     _flip() {

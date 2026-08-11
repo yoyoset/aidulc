@@ -7,4 +7,4 @@ workers_dev = true
 
 [[kv_namespaces]]
 binding = "DB"
-id = "f2916e7e144e4cb7a1c7f7ad9adb61b1"
+id = "a0e75f63220347b5be9fc314de8a9cce"

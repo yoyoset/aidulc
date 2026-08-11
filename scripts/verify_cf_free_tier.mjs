@@ -9,18 +9,24 @@
  *   4. 写次数 ≤ 25: 从 0 开始推 20 词, KV 键数 = 实际写次数
  *      (每条词一个键 + user 索引/rev 等元数据键, 详见 index.js 的键布局)。
  *
- * 用法 (必须配测试 namespace id):
- *   node scripts/verify_cf_free_tier.mjs --namespace-id <id>
- * 只允许打测试 worker / 测试 namespace, 绝不打生产 (F3 纪律)。
+ * 用法 (必须显式给测试 worker URL + 测试 namespace id, 仓库不含真实域名 —— F3 纪律):
+ *   CF_TEST_URL=https://<你的测试worker域名> \
+ *   CF_TEST_SECRET=<测试ROOT_SECRET> \
+ *   node scripts/verify_cf_free_tier.mjs --namespace-id <测试namespace id>
+ * 只允许打测试 worker / 测试 namespace, 绝不打生产 (F3 纪律; 脚本内置防呆拒绝生产 namespace)。
  */
 import { execSync } from 'child_process';
 
-const BASE = process.env.CF_TEST_URL || 'https://aidulc-sync-test.yoyoset.workers.dev';
-const ROOT_SECRET = process.env.CF_TEST_SECRET || 'aidulc-cf-test-root-secret-2026';
+const BASE = process.env.CF_TEST_URL || '';
+const ROOT_SECRET = process.env.CF_TEST_SECRET || '';
 const NAMESPACE_ID = process.argv.includes('--namespace-id')
   ? process.argv[process.argv.indexOf('--namespace-id') + 1]
   : '';
 
+if (!BASE || !ROOT_SECRET) {
+  console.error('必须给 CF_TEST_URL 和 CF_TEST_SECRET 环境变量 (指向测试 worker, 绝不打生产)');
+  process.exit(2);
+}
 if (!NAMESPACE_ID) {
   console.error('必须给 --namespace-id (测试 KV namespace id, 绝不打生产 aidulc-sync-kv)');
   process.exit(2);

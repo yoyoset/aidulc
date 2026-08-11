@@ -398,6 +398,12 @@ body::before {
 .settings-section { margin: 24px 0; }
 .settings-section h2 { font-size: 1.05rem; margin-bottom: 10px; }
 .sync-status { margin-bottom: 8px; color: var(--md-sys-color-on-surface-variant); }
+/* J8 (2026-08-11): 同步低频操作收进「更多」折叠区 */
+.sync-more { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; padding: 8px; border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-radius-sm); }
+.sync-more.hidden { display: none; }
+/* J6 (2026-08-11): 阅读显示只读摘要 (主入口在阅读器浮层) */
+.settings-summary { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.settings-summary-row { font-size: var(--md-sys-font-size-body-s); color: var(--md-sys-color-on-surface-variant); line-height: 1.6; }
 .settings-section .prep-input { margin-bottom: 6px; width: 100%; }
 .settings-section button { margin-right: 6px; margin-top: 4px; }
 

@@ -320,16 +320,19 @@
       const secretInput = el('input', 'prep-input');
       secretInput.type = 'password';
       secretInput.placeholder = 'ROOT_SECRET 或 6 位邀请码 (换 token, 不落明文)';
-      const authBtn = el('button', 'btn-primary', '换 token');
+      const authBtn = el('button', 'btn-small', '换 token');
       authBtn.title = '首台用 ROOT_SECRET; 后续设备用 6 位邀请码 (add-device/invite-user)';
-      const syncBtn = el('button', 'btn-small', '立即同步');
+      const syncBtn = el('button', 'btn-primary', '立即同步');
       const pullBtn = el('button', 'btn-small', '拉取合并');
+      // J8 (2026-08-11): 低频操作收进「更多」—— 主按钮是「立即同步」, 不是「换 token」。
+      const moreBtn = el('button', 'btn-small', '更多');
+      const moreBox = el('div', 'sync-more hidden');
       const codeBtn = el('button', 'btn-small', '生成邀请码');
       codeBtn.title = '给另一台设备: 绑到当前 user (add-device)';
       const inviteBtn = el('button', 'btn-small', '邀请新成员');
       inviteBtn.title = '给另一个人: 服务端新建成员, 对方填名字 (invite-user, 三项已定 ①)';
       // P0-C (2026-08-10): 手机扫码配对 —— 生成二维码, 手机打开即免登录
-      const pairBtn = el('button', 'btn-small btn-primary', '手机扫码连接');
+      const pairBtn = el('button', 'btn-small', '手机扫码连接');
       pairBtn.title = '生成二维码: 手机扫码打开即连, 收藏成书签免登录 (书签带 token = 拿到链接的人能读你的词库)';
       const disconnectBtn = el('button', 'btn-small btn-danger', '断开同步');
       disconnectBtn.title = '删除当前 user 的 token, 本机不再同步';
@@ -339,7 +342,12 @@
       const forceFullBtn = el('button', 'btn-small', '强制全量重推');
       forceFullBtn.title = '服务端词库被清空/损坏后使用: 清掉本机同步进度, 下次立即同步会全量重推所有词';
       forceFullBtn.disabled = true;
-      syncSec.append(syncStatus, urlInput, secretInput, authBtn, syncBtn, pullBtn, forceFullBtn, codeBtn, inviteBtn, pairBtn, disconnectBtn);
+      moreBtn.onclick = () => moreBox.classList.toggle('hidden');
+      moreBox.append(codeBtn, inviteBtn, pairBtn, forceFullBtn, disconnectBtn);
+      const syncRow = el('div', 'settings-row');
+      syncRow.style.flexWrap = 'wrap';
+      syncRow.append(syncBtn, pullBtn, moreBtn);
+      syncSec.append(syncStatus, urlInput, secretInput, authBtn, syncRow, moreBox);
        syncPane.appendChild(syncSec);
 
       // UX A2 (2026-08-11): 显示「本次推 N 条 / 拉 M 条」; 同步后 N=0 且服务端词库为空
@@ -353,9 +361,12 @@
           text = '状态: ' + AiduSyncService.statusLabel(d);
         }
         text += (d.user_id ? ' · ' + d.user_id : '') +
-          (d.pending_count > 0 ? ' · ' + d.pending_count + ' 条待推' : '') +
           (d.worker_url ? ' · ' + d.worker_url : '') +
           (d.last_sync_at ? ' · 上次 ' + new Date(d.last_sync_at).toLocaleTimeString() : '');
+        // J8 (2026-08-11): 「N 条待推」要解释为什么没推 (自动推送只在启动/完成时触发)
+        if (d.pending_count > 0) {
+          text += '\n' + d.pending_count + ' 条待推 —— 自动推送只在启动时和任务完成后触发; 想立刻发点「立即同步」。';
+        }
         if (afterSync && (d.last_wrote !== 0 || d.last_pulled !== 0)) {
           text += '\n本次推 ' + d.last_wrote + ' 条 / 拉 ' + d.last_pulled + ' 条';
         }
@@ -364,6 +375,8 @@
           text += '\n' + d.last_error;
         }
         syncStatus.textContent = text;
+        // J8 (2026-08-11): URL 回填当前值 (用户不输入也能看到已配置的 endpoint)
+        if (d.worker_url && !urlInput.value) urlInput.value = d.worker_url;
         disconnectBtn.disabled = !d.configured;
         forceFullBtn.disabled = !d.configured;
       };
@@ -504,59 +517,33 @@
         const s = res.data || {};
         const form = el('div', 'settings-form');
 
-        // M7 Round 3: 字号/行距/栏宽改图形化档位 (与阅读器浮层一致, 消灭裸数字输入框)
-        const applyPatch = (patch) => {
-          AiduSettingsService.upsert({ ...s, ...patch, updated_at: Date.now() })
-            .catch(() => AiduToast.show('保存失败, 请重试', 'error'));
-          this._applyCss({ ...s, ...patch });
+        // J6 (2026-08-11): 阅读显示参数以阅读器内浮层为主入口 (改的时候就能看到效果),
+        // 设置页这节改成**只读摘要** + 「在阅读器中调整」。同一组参数只保留一个可编辑入口。
+        const summary = el('div', 'settings-summary');
+        const themeLabel = s.theme === 'dark' ? '深色' : '浅色';
+        const palettes = SettingsView.PALETTES;
+        const paletteLabel = (palettes.find(([k]) => k === (s.palette || 'clay')) || [])[1] || '陶土 · 暖';
+        const granLabel = (s.highlight_granularity === 'word' ? '词级' : '句级');
+        const rows = [
+          `字号: ${s.font_size ?? 19}px`,
+          `行距: ${s.line_height ?? 1.85}`,
+          `栏宽: ${s.content_width ?? 660}px`,
+          `主题: ${themeLabel} · ${paletteLabel}`,
+          `高亮: ${granLabel}`,
+          s.child_mode ? '儿童模式: 开' : '儿童模式: 关',
+        ];
+        rows.forEach((r) => summary.appendChild(el('div', 'settings-summary-row', r)));
+        const goReader = el('button', 'btn-small btn-primary', '在阅读器中调整');
+        goReader.title = '打开任意一本书, 点顶栏设置浮层调整字号/行距/主题等 —— 改的时候就能看到效果';
+        goReader.onclick = () => {
+          // 跳到书库, 用户选书进阅读器; 或者已有当前书直接进
+          if (global.AiduStore && global.AiduStore.state && global.AiduStore.state.currentBook) {
+            window.location.hash = '#/reader';
+          } else {
+            window.location.hash = '#/library';
+          }
         };
-        form.appendChild(this._stepRow('字号', [16, 19, 22, 27], s.font_size ?? 19,
-          (v) => applyPatch({ font_size: v }), 'Aa'));
-        form.appendChild(this._stepRow('行距', [1.6, 1.85, 2.1], s.line_height ?? 1.85,
-          (v) => applyPatch({ line_height: v })));
-        form.appendChild(this._stepRow('栏宽', [560, 660, 760], s.content_width ?? 660,
-          (v) => applyPatch({ content_width: v })));
-
-        // 主题
-        const themeRow = el('label', 'settings-row', '主题');
-        const themeSel = el('select', null);
-        ['light', 'dark'].forEach(t => {
-          const opt = el('option', null, t === 'light' ? '浅色' : '深色');
-          opt.value = t;
-          if (s.theme === t) opt.selected = true;
-          themeSel.appendChild(opt);
-        });
-        themeSel.onchange = () => {
-          const patch = { ...s, theme: themeSel.value, updated_at: Date.now() };
-          AiduBridge.settings.upsert(patch).catch(() => AiduToast.show('保存失败, 请重试', 'error'));
-          this._applyCss(patch);
-        };
-        themeRow.appendChild(themeSel);
-        form.appendChild(themeRow);
-
-        // M7 R23: 主题色系 —— 色块 chips + 自定义色
-        const paletteWrap = this._buildPalettePicker(s, (patch) => applyPatch(patch));
-        form.appendChild(paletteWrap);
-
-        // 儿童模式
-        const childRow = el('label', 'settings-row');
-        const childBox = el('input', null);
-        childBox.type = 'checkbox';
-        childBox.checked = !!s.child_mode;
-        childBox.onchange = () => {
-          const patch = {
-            ...s,
-            child_mode: childBox.checked,
-            font_size: childBox.checked ? 24 : 18,
-            line_height: childBox.checked ? 2.0 : 1.7,
-            highlight_granularity: childBox.checked ? 'word' : 'sentence',
-            updated_at: Date.now(),
-          };
-          AiduBridge.settings.upsert(patch).catch(() => AiduToast.show('保存失败, 请重试', 'error'));
-          this._applyCss(patch);
-        };
-        childRow.append(el('span', null, '儿童模式 (更大字号/更高对比度/默认词级高亮)'), childBox);
-        form.appendChild(childRow);
+        form.append(summary, goReader);
 
          readingPane.appendChild(form);
         this._applyCss(s);

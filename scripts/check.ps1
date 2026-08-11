@@ -6,7 +6,9 @@
 # ——警告数超过基线才判失败; 等 S2 拆分 jobs.rs 把这些真正修掉后, 把这个数字
 # 调低, 不要调高。
 param(
-    [int]$ClippyBaseline = 8
+    # R4 (2026-08-11): 实测警告数 7 (修掉 L2 attach_pack_state 的 doc 缩进警告), 棘轮收紧 8→7。
+    # 只降不升; 真清零需把多参数函数改成接收请求结构体 (docs/ROADMAP.md P3), 不要调高绕过。
+    [int]$ClippyBaseline = 7
 )
 
 $ErrorActionPreference = 'Continue'

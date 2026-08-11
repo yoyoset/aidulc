@@ -260,6 +260,7 @@ fn resolve_book_pack_dir(
 ///   - `ok`: pack_dir 存在且 bookpack.json 在 (可读)
 ///   - `missing`: pack_dir 目录不存在 (991MB 事故场景 —— 数据没了)
 ///   - `incomplete`: 目录在但内容不全 (bookpack.json 不在/为空 —— 可能被清理过)
+///
 /// 书卡据此把"已就绪"改成红色「成品文件缺失」并给两个出口, 而不是点了没反应。
 fn attach_pack_state(edition: &mut serde_json::Value) {
     let pack_dir = edition

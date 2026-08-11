@@ -201,14 +201,15 @@ console.log('== 6. 冲突 6: 手机端"跳到原文"不可用 → 提示在电�
 console.log('== 7. P0-C 扫码配对: hash 解析 + 直连存凭据 ==');
 {
   // 桌面端二维码内容 #t=<token>&u=<encodeURIComponent(worker_url)>
-  globalThis.location = { hash: '#t=deadbeef1234&u=https%3A%2F%2Faidulc.example.workers.dev' };
+  // F3 (2026-08-11): 测试禁止指向生产域名 (workers.dev/pages.dev) —— 用 RFC 保留的 example.com
+  globalThis.location = { hash: '#t=deadbeef1234&u=https%3A%2F%2Fexample.com' };
   const p = app.parsePairingHash();
   check('解析出 token', p && p.token === 'deadbeef1234', p);
-  check('解析出 worker_url (URLSearchParams 自动 decode)', p && p.workerUrl === 'https://aidulc.example.workers.dev', p);
+  check('解析出 worker_url (URLSearchParams 自动 decode)', p && p.workerUrl === 'https://example.com', p);
   // applyPairing 直连存凭据 (不经过 authDevice 网络兑换)
   await app.app.applyPairing(p);
   check('配对后 token 已存', (await app.adapter.storage.getToken()) === 'deadbeef1234');
-  check('配对后 worker_url 已存', (await app.adapter.storage.getWorkerUrl()) === 'https://aidulc.example.workers.dev');
+  check('配对后 worker_url 已存', (await app.adapter.storage.getWorkerUrl()) === 'https://example.com');
   // 非配对 hash / 空 hash → null (不误触发)
   globalThis.location = { hash: '' };
   check('空 hash → null', app.parsePairingHash() === null);

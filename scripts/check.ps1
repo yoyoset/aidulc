@@ -169,6 +169,26 @@ Run-Check "node import_old_aidu --self-test" {
     Pop-Location
 }
 
+# 7.12 (F3, 2026-08-11): 验收脚本禁止指向生产端点 —— 08-11 实测污染: 临时脚本用真实域名
+# 对生产 VPS 跑 1424 词 fixture, 落进用户生产库。门禁保证 cloud/**/test/** 与 scripts/**
+# 里出现真实域名 (sync.viiyd.com / *.pages.dev / *.workers.dev) 直接失败; 只允许
+# 127.0.0.1 / localhost / 临时 KV_DIR / RFC 保留 example.com。
+Run-Check "test:no-prod-endpoint(测试/脚本禁真实域名)" {
+    $targets = @()
+    $targets += Get-ChildItem "$root\cloud" -Recurse -Include "*.mjs","*.js" -File |
+        Where-Object { $_.FullName -match "\\(test|tests)\\" }
+    $targets += Get-ChildItem "$root\scripts" -Recurse -Include "*.mjs","*.js","*.ps1" -File |
+        Where-Object { $_.Name -ne "check.ps1" }  # 本门禁定义处提及域名是文档, 不算违规
+    $offenders = $targets | Select-String -Pattern 'sync\.viiyd\.com|\.pages\.dev|\.workers\.dev' -CaseSensitive:$false
+    if ($offenders) {
+        $offenders | ForEach-Object { Write-Output "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }
+        $global:LASTEXITCODE = 1
+    } else {
+        Write-Output "干净: 测试/脚本无生产域名 (只允许 localhost/127.0.0.1/KV_DIR/example.com)"
+        $global:LASTEXITCODE = 0
+    }
+}
+
 # 8. CSS 令牌纪律: tokens.css 之外的样式文件不得出现裸 #hex 颜色(S3.1, 2026-08-07 清零后
 # 立即上强约束, 不设豁免——颜色只能来自 var(--md-sys-color-*))。字号/间距暂不做等价约束:
 # 阶梯令牌刚建立, 存量 px/rem 替换是后续工作, 现在加约束会让门禁对着几百处存量代码常年变红。

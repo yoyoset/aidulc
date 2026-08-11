@@ -132,10 +132,11 @@ console.log('== 3. P0-C applyPairing (扫码直连, 不经过网络兑换) ==');
   const app2 = makeAppLogic(adapter2);
   await app2.init();
   // 桌面端二维码的 #t=..&u=.. 直连: token 是桌面端为手机单独换的 device token
-  const r = await app2.applyPairing({ token: 'phone-token', workerUrl: 'https://w.example.workers.dev' });
+  // F3 (2026-08-11): 测试禁止指向生产域名 (workers.dev/pages.dev) —— 用 RFC 保留的 example.com
+  const r = await app2.applyPairing({ token: 'phone-token', workerUrl: 'https://example.com' });
   check('applyPairing 成功', r === true);
   check('token 已存 IndexedDB', (await adapter2.storage.getToken()) === 'phone-token');
-  check('worker_url 已存', (await adapter2.storage.getWorkerUrl()) === 'https://w.example.workers.dev');
+  check('worker_url 已存', (await adapter2.storage.getWorkerUrl()) === 'https://example.com');
   // 配对后不经过 authDevice 网络调用 (离线也能存)
   check('配对不需要网络', true);
 }

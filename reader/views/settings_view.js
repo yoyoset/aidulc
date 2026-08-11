@@ -98,9 +98,13 @@
       const libBtns = el('div', 'settings-row');
       const libOpenBtn = el('button', 'btn-small', '在资源管理器中打开');
       const libChangeBtn = el('button', 'btn-small', '更改…');
+      // L7 (2026-08-11): 加载已有书库目录 —— 选一个大文件夹, 里面的成品书包可登记
+      const libLoadBtn = el('button', 'btn-small', '加载已有书库…');
+      libLoadBtn.title = '选一个装有成品书包的目录 (比如从另一台电脑整个拷过来的库), 扫描 → 确认后登记, 不复制不移动文件。';
       libRow.append(libPath);
-      libBtns.append(libOpenBtn, libChangeBtn);
+      libBtns.append(libOpenBtn, libChangeBtn, libLoadBtn);
       libSec.appendChild(libRow);
+      libSec.appendChild(libBtns);
       const libMeta = el('div', 'settings-meta');
       libSec.appendChild(libMeta);
       const libMsg = el('div', 'import-tip');
@@ -177,7 +181,7 @@
 
       libChangeBtn.onclick = () => {
         libChangeBtn.disabled = true;
-        libMsg.textContent = '迁移中, 请稍候…(数据量大时可能需要几分钟)';
+        libMsg.textContent = '选择新位置…';
         AiduMiscService.libraryDirPickAndSet().then((r) => {
           libChangeBtn.disabled = false;
           if (!r.ok) {
@@ -190,16 +194,51 @@
             libMsg.textContent = d.same ? '选择的位置和当前一致, 未做改动。' : '';
             return;
           }
-          const movedN = (d.moved || []).length;
-          const failedN = (d.failed || []).length;
-          let msg = `已迁移 ${movedN} 项`;
-          if (failedN > 0) {
-            const reasons = d.failed.map((f) => `${f.name}(${f.reason})`).join('; ');
-            msg += `, ${failedN} 项失败: ${reasons}`;
-          }
-          msg += '。新位置: ' + d.new_dir + '。需要重启应用才能生效。';
-          libMsg.textContent = msg;
+          // L7 (2026-08-11): 只改配置不搬文件 —— 不移动任何书, 重启后从新位置读。
+          libMsg.textContent = '已切换书库位置到: ' + d.new_dir +
+            '。没有移动任何文件。重启应用后生效; 旧位置的书需要时可手动复制过来。';
           refreshLibPath();
+        });
+      };
+
+      // L7 (2026-08-11): 加载已有书库目录 —— 扫描 → 确认 → 登记 (只登记路径, 不复制)。
+      libLoadBtn.onclick = () => {
+        libLoadBtn.disabled = true;
+        libMsg.textContent = '选择要加载的目录…';
+        AiduMiscService.libraryDirPick().then((pick) => {
+          if (!pick.ok || !pick.data || pick.data.cancelled) {
+            libLoadBtn.disabled = false;
+            return;
+          }
+          const dir = pick.data.path;
+          libMsg.textContent = '正在扫描 ' + dir + ' …';
+          AiduMiscService.libraryDirScan(dir).then((scan) => {
+            libLoadBtn.disabled = false;
+            if (!scan.ok) { libMsg.textContent = '扫描失败: ' + scan.error; return; }
+            const d = scan.data || {};
+            const imp = d.importable || [];
+            const ex = d.existing || [];
+            if (imp.length === 0) {
+              libMsg.textContent = '该目录下没有发现可导入的成品书包' +
+                (ex.length ? ' (已有 ' + ex.length + ' 本在书库里)。' : '。');
+              return;
+            }
+            const msg = '在「' + dir + '」下找到 ' + imp.length + ' 本成品 (另有 ' + ex.length +
+              ' 本已在书库中)。登记 = 只把路径写进书库, 不复制不移动任何文件。\n\n' +
+              imp.slice(0, 8).map((x) => '· ' + (x.title || x.id)).join('\n') +
+              (imp.length > 8 ? '\n…' : '') + '\n\n确认登记这 ' + imp.length + ' 本?';
+            AiduModal.confirm({
+              title: '登记外部书库?',
+              message: msg,
+              confirmText: '登记',
+              onConfirm: () => AiduMiscService.libraryDirImport(imp).then((r) => {
+                if (!r.ok) { libMsg.textContent = '登记失败: ' + r.error; return; }
+                libMsg.textContent = '已登记 ' + (r.data && r.data.imported) + ' 本。' +
+                  ((r.data && r.data.failed && r.data.failed.length) ? '失败 ' + r.data.failed.length + ' 本。' : '');
+                this.store.emit('change', this.store.state);
+              }),
+            });
+          });
         });
       };
 

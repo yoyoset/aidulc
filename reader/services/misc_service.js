@@ -12,7 +12,11 @@
     openPath(path) { return AiduBridge.openPath(path); },
     // P1.2: 书库位置("...存放在哪"的产品化入口, 见 docs/ROADMAP.md P1)
     libraryDirGet() { return AiduBridge.invoke('library_dir_get'); },
+    libraryDirPick() { return AiduBridge.invoke('library_dir_pick'); },
     libraryDirPickAndSet() { return AiduBridge.invoke('library_dir_pick_and_set'); },
+    // L7 (2026-08-11): 扫描/登记外部书库目录 (不复制不移动文件)
+    libraryDirScan(dir) { return AiduBridge.invoke('library_dir_scan', { dir }); },
+    libraryDirImport(packs) { return AiduBridge.invoke('library_dir_import', { packs }); },
     // J0 (2026-08-11): 数据目录现状 / 迁移 dry-run / 执行迁移
     dataMigrationStatus() { return AiduBridge.invoke('data_migration_status'); },
     dataMigrationDryRun() { return AiduBridge.invoke('data_migration_dry_run'); },

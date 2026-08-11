@@ -55,7 +55,6 @@ mod infrastructure {
     pub mod bookpack_cache;
     pub mod data_migration;
     pub mod dict_daemon;
-    pub mod dir_migration;
     pub mod downloader;
     pub mod frequency;
     pub mod log;
@@ -542,7 +541,10 @@ fn main() {
             commands::misc::runtime_config,
             commands::misc::components_health,
             commands::misc::library_dir_get,
+            commands::misc::library_dir_pick,
             commands::misc::library_dir_pick_and_set,
+            commands::misc::library_dir_scan,
+            commands::misc::library_dir_import,
             commands::misc::data_migration_status,
             commands::misc::data_migration_dry_run,
             commands::misc::data_migration_run,

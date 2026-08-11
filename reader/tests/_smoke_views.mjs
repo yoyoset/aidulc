@@ -186,7 +186,7 @@ globalThis.AiduReadingService = { get: async () => ({ ok: true, data: null }), s
 globalThis.AiduMiscService = {
   logPath: async () => ({ ok: true, data: { path: 'C:/log' } }), componentsHealth: async () => ({ ok: true, data: [] }),
   runtimeConfig: async () => ({ ok: true, data: {} }), openPath: async () => ({ ok: true }),
-  libraryDirGet: async () => ({ ok: true, data: 'C:/aidulc-data' }), libraryDirPickAndSet: async () => ({ ok: true, data: { cancelled: true } }),
+  libraryDirGet: async () => ({ ok: true, data: 'C:/aidulc-data' }), libraryDirPickAndSet: async () => ({ ok: true, data: { cancelled: true } }), libraryDirPick: async () => ({ ok: true, data: { cancelled: true } }), libraryDirScan: async () => ({ ok: true, data: { importable: [], existing: [] } }), libraryDirImport: async () => ({ ok: true, data: { imported: 0, failed: [] } }),
   docParserInstall: async () => ({ ok: true, data: { ok: true } }),
   // J0 (2026-08-11): 数据目录 / 迁移 (smoke stub: 无待迁移)
   dataMigrationStatus: async () => ({ ok: true, data: { portable: false, data_dir: 'C:/aidulc', db_path: 'C:/aidulc/data.db', out_dir: 'C:/aidulc/jobs_out', pending: false } }),
@@ -393,6 +393,32 @@ console.log('== 2d. L8 (2026-08-11): 在线引擎两档开关, 默认全关, 无
     return (p._children || []).map((y) => String(y.textContent || '')).join('').includes('查词');
   });
   check('L8: 无 key 时开关置灰', lk2 && lk2.disabled === true, 'disabled=' + (lk2 && lk2.disabled));
+}
+
+console.log('== 2e. L7 (2026-08-11): 加载已有书库 —— 扫描→确认→登记, 不移动文件 ==');
+{
+  store.state.settingsTab = 'system';
+  confirmCaptured = null;
+  const scanCalls = [];
+  const importCalls = [];
+  globalThis.AiduMiscService.libraryDirPick = async () => ({ ok: true, data: { cancelled: false, path: 'D:/ext-lib' } });
+  globalThis.AiduMiscService.libraryDirScan = async (dir) => { scanCalls.push(dir); return { ok: true, data: { dir, importable: [{ id: 'b1_default', title: 'Alice', profile_id: 'default', pack_dir: 'D:/ext-lib/jobs/job-1' }], existing: [{ id: 'b2_default', title: 'Old', profile_id: 'default', pack_dir: 'D:/ext-lib/jobs/job-2' }] } }; };
+  globalThis.AiduMiscService.libraryDirImport = async (packs) => { importCalls.push(packs); return { ok: true, data: { imported: packs.length, failed: [] } }; };
+  const sv = new globalThis.SettingsView(store);
+  const container = makeElement('div');
+  try { sv.render(container); } catch (e) { console.log('DEBUG render threw:', e && e.message); }
+  await new Promise((r) => setTimeout(r, 80));
+  store.state.settingsTab = null;
+  const allBtns = queryAll(container, 'button').map((b) => b.textContent);
+  const loadBtn = queryAll(container, 'button').find((b) => b.textContent && b.textContent.includes('加载已有书库'));
+  check('L7: 有「加载已有书库…」按钮', !!loadBtn, 'btns=' + allBtns.join(','));
+  loadBtn && loadBtn.onclick();
+  await new Promise((r) => setTimeout(r, 40));
+  check('L7: 点击 → pick 目录 → scan(dir)', scanCalls.join(',') === 'D:/ext-lib', scanCalls.join(','));
+  check('L7: 确认弹窗出现 (登记前让用户确认)', confirmCaptured && confirmCaptured.title && String(confirmCaptured.title).includes('登记外部书库'), confirmCaptured && confirmCaptured.title);
+  confirmCaptured && confirmCaptured.onConfirm && confirmCaptured.onConfirm();
+  await new Promise((r) => setTimeout(r, 40));
+  check('L7: 确认后调 import (只登记)', importCalls.length === 1 && importCalls[0].length === 1, JSON.stringify(importCalls));
 }
 
 console.log('== 3. library_view 导入格 (G1): 网格最后一格, 无下拉, 点击走 pickFiles ==');

@@ -198,10 +198,12 @@ pub fn online_config_test(
     crate::infrastructure::online_client::test_connection(&ep, &key, &md)
 }
 
-/// 书库位置"更改..."(P1: 用户明确要求的产品能力)
+/// 书库位置"更改..."(L7, 2026-08-11 重定义)
 ///
-/// 流程: 原生文件夹选择对话框 → 自动搬迁旧目录下的全部内容(见
-/// infrastructure::dir_migration, 单条失败不中断整体) → 写回 config.toml 持久化。
+/// **切换书库位置不移动、不删除任何文件** —— 只改配置 + 重启后按新位置读取。
+/// 旧的"选新目录后自动搬迁文件"行为已按 L7 安全边界移除: 用户要的绿色版场景是
+/// "整个库目录拷到另一台机器, 选中即用", 自动搬迁反而危险 (中途断掉会两边各缺一半)。
+/// 真要搬文件, 走 L1 那套带校验和清单的迁移流程 (data_migration), 不是这里。
 ///
 /// **重启后生效, 不是热切换**: PrepConfig 是 Tauri 启动时一次性 `.manage()` 的不可变
 /// 状态, 让 out_dir 运行时可变需要把它包进 Mutex 并改遍所有读取点(job_orchestrator/
@@ -233,9 +235,7 @@ pub fn library_dir_pick_and_set(
         return Ok(serde_json::json!({ "cancelled": true, "same": true }));
     }
 
-    let report =
-        crate::infrastructure::dir_migration::migrate_directory_contents(&old_dir, &new_dir)?;
-
+    // L7: 只改配置, 不移动任何文件 (安全边界: 切换书库位置不移动、不删除)。
     // J0: 配置文件随数据根走 (便携=exe_dir, 否则用户数据目录), 不再固定 exe 同目录
     let cfg_dir = paths.inner().data_dir.clone();
     let mut file_cfg = crate::services::config::Config::load(&cfg_dir);
@@ -246,12 +246,175 @@ pub fn library_dir_pick_and_set(
         "cancelled": false,
         "old_dir": old_dir.to_string_lossy(),
         "new_dir": new_dir.to_string_lossy(),
-        "moved": report.moved,
-        "failed": report.failed.iter()
-            .map(|(name, reason)| serde_json::json!({ "name": name, "reason": reason }))
-            .collect::<Vec<_>>(),
-        "all_ok": report.all_ok(),
+        "moved": Vec::<String>::new(),
+        "failed": Vec::<String>::new(),
+        "all_ok": true,
         "restart_required": true,
+    }))
+}
+
+/// L7 (2026-08-11): 仅打开文件夹选择对话框返回路径 (加载已有书库用) —— 不改配置。
+#[tauri::command]
+pub fn library_dir_pick() -> Result<serde_json::Value, String> {
+    let picked = rfd::FileDialog::new()
+        .set_title("选择书库目录")
+        .pick_folder();
+    match picked {
+        Some(p) => Ok(serde_json::json!({ "cancelled": false, "path": p.to_string_lossy() })),
+        None => Ok(serde_json::json!({ "cancelled": true })),
+    }
+}
+
+/// L7 (2026-08-11): 扫描一个目录, 找出可导入的成品书包 (含 bookpack.json 的子目录),
+/// 与 DB 比对后返回「可导入 N 本 / 已存在 M 本」。**不复制不移动文件, 只登记路径**。
+#[tauri::command]
+pub fn library_dir_scan(
+    db: State<crate::store::Db>,
+    dir: String,
+) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", &format!("enter: library_dir_scan {dir}"));
+    let root = std::path::Path::new(&dir);
+    if !root.is_dir() {
+        return Err(format!("目录不存在: {dir}"));
+    }
+    let (importable, existing) = scan_packs_for_import(db.inner(), root);
+    crate::infrastructure::log::info(
+        "cmd",
+        &format!(
+            "library_dir_scan 结果: 可导入 {} 本, 已存在 {} 本",
+            importable.len(),
+            existing.len()
+        ),
+    );
+    Ok(serde_json::json!({
+        "dir": dir,
+        "importable": importable,
+        "existing": existing,
+    }))
+}
+
+/// L7: 扫描逻辑抽成纯函数 (可单测): 找含 bookpack.json 的目录, 从 bookpack 读 title/
+/// profile 推导 id, 与 DB 的 editions 比对。返回 (可导入, 已存在)。
+fn scan_packs_for_import(
+    db: &crate::store::Db,
+    root: &std::path::Path,
+) -> (Vec<serde_json::Value>, Vec<serde_json::Value>) {
+    let editions = crate::store::editions_repo::EditionsRepo::new(db);
+    let mut importable = Vec::new();
+    let mut existing = Vec::new();
+    // 扫描一层子目录 (每本书成品一个目录); 再深一层 (jobs/job-xxx) 也找
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                dirs.push(p.clone());
+                // jobs/job-* 两层
+                if let Ok(sub) = std::fs::read_dir(&p) {
+                    for se in sub.flatten() {
+                        let sp = se.path();
+                        if sp.is_dir() {
+                            dirs.push(sp);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for p in dirs {
+        let bp = p.join("bookpack.json");
+        if !bp.is_file() {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&bp) else {
+            continue;
+        };
+        let Ok(v): Result<serde_json::Value, _> = serde_json::from_str(&text) else {
+            continue;
+        };
+        let title = v
+            .get("title")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
+        let profile_id = v
+            .get("profile")
+            .and_then(|pr| pr.get("id"))
+            .and_then(|i| i.as_str())
+            .unwrap_or("default")
+            .to_string();
+        let id = crate::commands::library::book_id_from_path(&p.to_string_lossy(), &profile_id);
+        let entry = serde_json::json!({
+            "id": id,
+            "title": title,
+            "profile_id": profile_id,
+            "pack_dir": p.to_string_lossy(),
+        });
+        if editions.get(&id).is_some() {
+            existing.push(entry);
+        } else {
+            importable.push(entry);
+        }
+    }
+    (importable, existing)
+}
+
+/// L7 (2026-08-11): 把扫描到的成品书包登记进书库 —— **只登记 DB, 不复制不移动文件**。
+/// 复用 register_book 的幂等登记 (读 bookpack.json → 建 book + edition)。
+#[tauri::command]
+pub fn library_dir_import(
+    db: State<crate::store::Db>,
+    packs: Vec<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info(
+        "cmd",
+        &format!("enter: library_dir_import {} 本", packs.len()),
+    );
+    let mut imported = 0usize;
+    let mut failed = Vec::new();
+    for p in packs {
+        let id = p
+            .get("id")
+            .and_then(|i| i.as_str())
+            .unwrap_or("")
+            .to_string();
+        let pack_dir = p
+            .get("pack_dir")
+            .and_then(|d| d.as_str())
+            .unwrap_or("")
+            .to_string();
+        let profile_id = p
+            .get("profile_id")
+            .and_then(|i| i.as_str())
+            .unwrap_or("default")
+            .to_string();
+        if id.is_empty() || pack_dir.is_empty() {
+            failed.push(serde_json::json!({ "id": id, "reason": "缺 id 或 pack_dir" }));
+            continue;
+        }
+        // source_path 不可知 (外部库没有原书), 登记时留空; 书卡显示来源=外部库目录
+        let r = crate::application::library_service::register_book(
+            db.inner(),
+            id.clone(),
+            &pack_dir,
+            String::new(),
+            format!("synthetic-source-{id}"),
+            profile_id,
+            "en".into(),
+            "zh-CN".into(),
+            None,
+            None,
+            None,
+        );
+        match r {
+            Some(()) => imported += 1,
+            None => failed
+                .push(serde_json::json!({ "id": id, "reason": "登记失败 (无 bookpack.json?)" })),
+        }
+    }
+    Ok(serde_json::json!({
+        "imported": imported,
+        "failed": failed,
     }))
 }
 
@@ -379,7 +542,7 @@ fn find_prep_venv_python(prep_path: &std::path::Path) -> Option<std::path::PathB
 
 #[cfg(test)]
 mod tests {
-    use super::find_prep_venv_python;
+    use super::{find_prep_venv_python, scan_packs_for_import};
 
     #[test]
     fn finds_venv_up_the_tree() {
@@ -404,6 +567,56 @@ mod tests {
         std::fs::write(exe_dir.join("aidulc-prep.exe"), b"x").unwrap();
         let got = find_prep_venv_python(&exe_dir.join("aidulc-prep.exe"));
         assert_eq!(got, None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn l7_scan_imports_external_library_without_moving_files() {
+        // L7 (2026-08-11): 加载已有书库 —— 扫描外部目录里的成品书包 → 登记到 DB。
+        // 关键断言: 登记后原目录文件原封不动 (只登记路径, 不复制不移动)。
+        let root = std::env::temp_dir().join(format!("aidulc_l7_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        // 外部库: 一本成品 (jobs/job-xxx/bookpack.json)
+        let ext = root.join("external_library");
+        let pack = ext.join("jobs").join("job-12345-1");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(
+            pack.join("bookpack.json"),
+            r#"{"schemaVersion":1,"title":"Alice in Wonderland","profile":{"id":"default","name":"成人自读"},"chapters":[],"quality":{},"generatedAt":1}"#,
+        )
+        .unwrap();
+        let marker = pack.join("marker.txt");
+        std::fs::write(&marker, b"do-not-move").unwrap();
+
+        let db_path = root.join("t.db");
+        let db = crate::store::Db::open(db_path.to_str().unwrap()).unwrap();
+        // 扫描: 外部目录下应发现 1 本可导入
+        let (importable, existing) = scan_packs_for_import(&db, &ext);
+        assert_eq!(importable.len(), 1, "应发现 1 本可导入");
+        assert_eq!(existing.len(), 0);
+        // 登记 (走 library_dir_import 的同一 register_book 路径)
+        let imported = crate::application::library_service::register_book(
+            &db,
+            importable[0]["id"].as_str().unwrap().to_string(),
+            importable[0]["pack_dir"].as_str().unwrap(),
+            String::new(),
+            format!("synthetic-source-{}", importable[0]["id"].as_str().unwrap()),
+            "default".into(),
+            "en".into(),
+            "zh-CN".into(),
+            None,
+            None,
+            None,
+        );
+        assert!(imported.is_some(), "登记应成功");
+        // 关键: 原目录文件一个没动
+        assert!(marker.exists(), "登记不能移动/删除原文件");
+        assert!(pack.join("bookpack.json").exists());
+        // 再次扫描 → 现在归入"已存在"
+        let (imp2, ex2) = scan_packs_for_import(&db, &ext);
+        assert_eq!(imp2.len(), 0, "登记后不再重复可导入");
+        assert_eq!(ex2.len(), 1, "已登记的书归入 existing");
         let _ = std::fs::remove_dir_all(&root);
     }
 }

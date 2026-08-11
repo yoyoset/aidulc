@@ -430,7 +430,22 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         path: "commands::misc::library_dir_pick_and_set",
         domain: "设置",
-        desc: "更改书库位置(自动搬迁旧数据, 重启后生效)",
+        desc: "L7: 更改书库位置(只改配置不移动文件, 重启后生效)",
+    },
+    CommandInfo {
+        path: "commands::misc::library_dir_pick",
+        domain: "设置",
+        desc: "L7: 仅选择书库目录并返回路径(不改配置)",
+    },
+    CommandInfo {
+        path: "commands::misc::library_dir_scan",
+        domain: "设置",
+        desc: "L7: 扫描目录里的成品书包(可导入 N / 已存在 M, 不复制文件)",
+    },
+    CommandInfo {
+        path: "commands::misc::library_dir_import",
+        domain: "设置",
+        desc: "L7: 登记扫描到的成品书包到书库(只登记路径, 不移动文件)",
     },
     CommandInfo {
         path: "commands::misc::data_migration_status",

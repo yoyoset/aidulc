@@ -434,6 +434,9 @@ fn main() {
                     db.inner(),
                     &cfg.inner().out_dir,
                 );
+                // I3 (2026-08-11): 清理孤儿批次 (批次建了但没有任何 job; 安全边界: 有活跃
+                // job 的批次不清 —— 单测锁住)。删书时已级联清理, 这里是兜底清历史存量。
+                let _ = application::library_asset_service::cleanup_orphan_batches(db.inner());
                 // N6 (2026-08-10): 清终态且超保留期(30 天)的批次行, 批次表不再无界累积
                 let _ = store::batches_repo::BatchesRepo::new(db.inner()).cleanup_old(30);
                 // N6b (2026-08-10): 清终态且超保留期的任务行 (不删 running/queued 和

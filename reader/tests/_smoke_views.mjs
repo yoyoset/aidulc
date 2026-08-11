@@ -247,29 +247,42 @@ console.log('== 1. prep_view 移除确认 (running/queued/done 三态) ==');
   check('实时状态中文 (翻译 100/240)', ls.textContent.includes('翻译') && ls.textContent.includes('100/240'), ls.textContent);
 }
 
-console.log('== 1c. 批次状态中文映射 (completed → 完成, N3 2026-08-10) ==');
+console.log('== 1c. I1/I4 (2026-08-11): 批次降级为组头人话标签, 不再有独立批次进度条 ==');
 {
   const pv = new globalThis.PrepView(store);
   pv._listEl = makeElement('div');
   const origBatches = globalThis.AiduJobService.listBatches;
+  const origList = globalThis.AiduJobService.list;
   globalThis.AiduJobService.listBatches = async () => ({
     ok: true,
     data: [
-      { id: 'batch-x', status: 'completed', total_books: 1, done_books: 1, failed_books: 0 },
-      { id: 'batch-y', status: 'running', total_books: 1, done_books: 0, failed_books: 0 },
+      { id: 'batch-1786205582838-11852-0', status: 'running', total_books: 2, done_books: 1, failed_books: 0, created_at: Date.now() },
     ],
   });
-  await pv._refreshBatches();
-  const rows = queryAll(pv._listEl, '.batch-row');
-  const txts = rows.map((r) => {
-    const s = r.querySelector('span');
-    return s && s.textContent;
+  globalThis.AiduJobService.list = async () => ({
+    ok: true,
+    data: [
+      { id: 'j1', book_path: 'C:/Books/Alice.epub', profile_id: 'default', status: 'running', batch_id: 'batch-1786205582838-11852-0', stage: 'translate', current: 3, total: 240, progress: 35 },
+      { id: 'j2', book_path: 'C:/Books/Number the Stars.epub', profile_id: 'default', status: 'queued', batch_id: 'batch-1786205582838-11852-0', stage: '', current: 0, total: 0 },
+    ],
   });
-  const completed = txts.find((t) => t && t.includes('batch-x'));
-  const running = txts.find((t) => t && t.includes('batch-y'));
-  check('completed 批次显示中文"完成" (不再是英文 completed)', !!completed && completed.includes('完成'), completed);
-  check('running 批次显示"处理中"', !!running && running.includes('处理中'), running);
+  await pv._refreshJobs();
+  const heads = queryAll(pv._listEl, '.prep-batch-head');
+  const headTexts = heads.map((h) => h.textContent).join(' | ');
+  check('组头不显示原始批次 id 片段', !headTexts.includes('1786205582838') && !headTexts.includes('-11852-0'), headTexts);
+  check('组头显示人话 (N 本书 · 今天 HH:MM)', /2 本书 · 今天/.test(headTexts), headTexts);
+  check('不再渲染独立批次进度条 (.batch-row)', queryAll(pv._listEl, '.batch-row').length === 0);
+  check('三段标题出现 (进行中/排队中)', queryAll(pv._listEl, '.prep-section-title').length >= 2);
+  // I5: 全局按钮随活跃任务启停 (2 个活跃 → 可用); 无活跃 → 禁用
+  pv._pauseAllBtn = makeElement('button');
+  pv._resumeAllBtn = makeElement('button');
+  await pv._refreshJobs();
+  check('有活跃任务时全局按钮可用', pv._pauseAllBtn.disabled === false);
+  globalThis.AiduJobService.list = async () => ({ ok: true, data: [{ id: 'j3', book_path: 'C:/Books/old.epub', profile_id: 'default', status: 'done', batch_id: null, stage: '', current: 0, total: 0 }] });
+  await pv._refreshJobs();
+  check('无活跃任务时全局按钮禁用', pv._pauseAllBtn.disabled === true, 'disabled=' + pv._pauseAllBtn.disabled);
   globalThis.AiduJobService.listBatches = origBatches;
+  globalThis.AiduJobService.list = origList;
 }
 
 console.log('== 2. settings_view 直达"模型中心" tab ==');

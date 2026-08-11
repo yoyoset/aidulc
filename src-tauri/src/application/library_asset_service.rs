@@ -198,12 +198,42 @@ pub fn delete_source(db: &store::Db, source_id: &str) -> Result<Vec<String>, Str
         conn.execute("DELETE FROM jobs WHERE source_id=?1", [source_id])
             .map_err(|e| format!("清理原书任务失败: {e}"))?;
     }
+    // I3 (2026-08-11): 删书级联清批次 —— 只删已没有 job 的批次 (书都删了, 记录还在 = 僵尸)。
+    conn.execute(
+        "DELETE FROM batches WHERE NOT EXISTS (
+            SELECT 1 FROM jobs WHERE jobs.batch_id = batches.id
+        )",
+        [],
+    )
+    .map_err(|e| format!("清理孤儿批次失败: {e}"))?;
     drop(conn);
     // G5 存储所有权: books 表只走 books_repo 删 (2026-08-09 从裸 SQL 改为接线 repo,
     // 消除 books_repo::remove 的 [allow(dead_code)])。v19+ books 表只剩 kind='original',
     // 与 delete_source 只删原书的语义一致。
     store::books_repo::BooksRepo::new(db).remove(source_id)?;
     Ok(packs)
+}
+
+/// I3 (2026-08-11): 启动期清理孤儿批次 —— 批次建了但没有任何 job (书可能已被删/导入失败),
+/// 且**没有 running/queued/paused job** 的批次才删。安全边界: 不能只凭"书不存在"就删,
+/// 必须确认该批次没有活跃 job, 否则会删掉正在跑的任务的账。启动早期调用 (与
+/// cleanup_orphan_job_dirs 同阶段, 队列泵起之前)。
+pub fn cleanup_orphan_batches(db: &store::Db) -> Result<usize, String> {
+    let conn = db.conn.lock().unwrap();
+    let deleted = conn
+        .execute(
+            "DELETE FROM batches WHERE NOT EXISTS (
+                SELECT 1 FROM jobs WHERE jobs.batch_id = batches.id
+            )",
+            [],
+        )
+        .map_err(|e| format!("清理孤儿批次失败: {e}"))?;
+    drop(conn);
+    crate::infrastructure::log::info(
+        "cleanup",
+        &format!("清理孤儿批次 {deleted} 个 (无任何 job 引用)"),
+    );
+    Ok(deleted)
 }
 
 #[cfg(test)]
@@ -476,6 +506,101 @@ mod tests {
             })
             .unwrap();
         assert_eq!(b, 0);
+        drop(c);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn cleanup_orphan_batches_removes_only_batches_without_jobs() {
+        // I3 (2026-08-11): 批次建了但没有任何 job (书可能已被删/导入失败) → 僵尸批次被清。
+        let path =
+            std::env::temp_dir().join(format!("aidulc_orphan_batch_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = store::Db::open(path.to_str().unwrap()).unwrap();
+        let c = db.conn.lock().unwrap();
+        // 孤儿批次: 无任何 job 引用
+        c.execute(
+            "INSERT INTO batches(id,profile_id,source_language,target_language,status,total_books,done_books,failed_books,created_at,updated_at)
+             VALUES('batch-orphan','default','en','zh-CN','created',1,0,0,1,1)",
+            [],
+        )
+        .unwrap();
+        // 有 job 的批次: 保留
+        c.execute(
+            "INSERT INTO batches(id,profile_id,source_language,target_language,status,total_books,done_books,failed_books,created_at,updated_at)
+             VALUES('batch-owned','default','en','zh-CN','running',1,0,0,1,1)",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO jobs(id,book_path,profile_id,output_dir,batch_id,created_at,updated_at)
+             VALUES('j1','x','default','d','batch-owned',1,1)",
+            [],
+        )
+        .unwrap();
+        drop(c);
+
+        let deleted = cleanup_orphan_batches(&db).unwrap();
+        assert_eq!(deleted, 1, "只清无 job 引用的批次");
+        let c = db.conn.lock().unwrap();
+        assert!(
+            c.query_row(
+                "SELECT COUNT(*) FROM batches WHERE id='batch-orphan'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap()
+                == 0
+        );
+        assert!(
+            c.query_row(
+                "SELECT COUNT(*) FROM batches WHERE id='batch-owned'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap()
+                == 1,
+            "有 job 的批次保留"
+        );
+        drop(c);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn cleanup_orphan_batches_never_touches_batch_with_active_job() {
+        // I3 安全边界 (2026-08-11): 不能只凭"书不存在"就删 —— 批次里有 running/queued/paused
+        // job 时批次必须保留 (否则会删掉正在跑的任务的账)。这里构造"批次在但书不在" +
+        // job running → 批次不被清。
+        let path =
+            std::env::temp_dir().join(format!("aidulc_orphan_active_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = store::Db::open(path.to_str().unwrap()).unwrap();
+        let c = db.conn.lock().unwrap();
+        c.execute(
+            "INSERT INTO batches(id,profile_id,source_language,target_language,status,total_books,done_books,failed_books,created_at,updated_at)
+             VALUES('batch-running','default','en','zh-CN','running',1,0,0,1,1)",
+            [],
+        )
+        .unwrap();
+        // job 关联这个批次, status=running (活跃)
+        c.execute(
+            "INSERT INTO jobs(id,book_path,profile_id,output_dir,batch_id,status,created_at,updated_at)
+             VALUES('j1','x','default','d','batch-running','running',1,1)",
+            [],
+        )
+        .unwrap();
+        drop(c);
+
+        cleanup_orphan_batches(&db).unwrap();
+        let c = db.conn.lock().unwrap();
+        let n: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM batches WHERE id='batch-running'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "有活跃 job 的批次绝不能被清 (会丢正在跑的任务的账)");
         drop(c);
         let _ = std::fs::remove_file(&path);
     }

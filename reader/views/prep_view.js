@@ -33,19 +33,22 @@
       const wrap = el('div', 'prep-view');
 
       const header = el('div', 'page-header');
-      header.appendChild(el('h1', null, '阅读准备'));
+      // I6 (2026-08-11): 页面标题统一为「处理中」(顶栏也叫处理中, 不再叫"阅读准备")
+      header.appendChild(el('h1', null, '处理中'));
       const sub = el('div', 'prep-subtitle', '书籍导入在"书库"页完成; 这里负责处理队列、暂停/继续与失败修复。');
       header.appendChild(sub);
-      // R3: 全局暂停/继续
+      // R3: 全局暂停/继续 —— I7 (2026-08-11): 无活跃任务时禁用 (点了没暂停 = 假反馈)
       const ctrl = el('div', 'prep-controls');
       const pauseAllBtn = el('button', 'btn-small', '全部暂停');
       pauseAllBtn.onclick = () => AiduJobService.pauseAll().then(() => { AiduToast.show('已全部暂停', 'info'); this._refreshJobs(); });
       const resumeAllBtn = el('button', 'btn-small btn-primary', '全部继续');
       resumeAllBtn.onclick = () => AiduJobService.resumeAll().then(() => { AiduToast.show('已全部继续', 'success'); this._refreshJobs(); });
       ctrl.append(pauseAllBtn, resumeAllBtn);
+      this._pauseAllBtn = pauseAllBtn;
+      this._resumeAllBtn = resumeAllBtn;
       header.appendChild(ctrl);
 
-      // 任务列表
+      // 任务列表 (I1: 三段式 — 进行中 / 排队中 / 最近完成)
       const listEl = el('div', 'prep-list');
       this._listEl = listEl;
 
@@ -66,11 +69,10 @@
           this._refreshJobs();
         }),
         AiduBridge.listen('batch-progress', () => {
-          this._refreshBatches();
+          this._refreshJobs();
         }),
       ];
       this._refreshJobs();
-      this._refreshBatches();
     }
 
     /** F33 (2026-08-08): 路由离开时注销事件订阅, 不残留对游离 DOM 的更新/重复拉取 */
@@ -82,19 +84,27 @@
       this._listEl = null;
     }
 
+    /** I1/I2/I4/I7 (2026-08-11): 处理中页三段式 —— 进行中 / 排队中 / 最近完成。
+     *  批次降级为分组标题 (不再有独立进度条列表); 完成满一天的批次进「查看历史」。
+     *  徽章口径 (I5): running+queued+paused 三种都算活跃。 */
     _refreshJobs() {
-      AiduJobService.list().then((res) => {
+      return Promise.all([AiduJobService.list(), AiduJobService.listBatches()]).then(([res, bres]) => {
         if (!res.ok) return;
-        // 重建任务列表 (持久任务 P4), 保留批次摘要区
         const listEl = this._listEl;
-        const batchSummary = listEl.querySelector('.batch-summary');
         listEl.innerHTML = '';
-        if (batchSummary) listEl.appendChild(batchSummary);
         const jobs = res.data || [];
+        const batches = (bres.ok && bres.data) || [];
+        const now = Date.now();
+
+        // I5: 活跃任务 = running+queued+paused (与顶栏徽章同口径)
+        const activeCount = jobs.filter((j) => ['running', 'queued', 'paused'].includes(j.status)).length;
+        // I7: 无活跃任务 → 全局按钮禁用 (避免"已全部暂停"但什么都没暂停的假反馈)
+        if (this._pauseAllBtn) this._pauseAllBtn.disabled = activeCount === 0;
+        if (this._resumeAllBtn) this._resumeAllBtn.disabled = activeCount === 0;
+
         if (jobs.length === 0) {
-          // 苹果级空态: 引导下一步 (去书库导入)
-          const empty = el('div', 'book-empty');
-          empty.textContent = '这里还没有任务。去书库导入一本书, 会在这里排队处理。';
+          // I7 (2026-08-11): 空态文案 + 去书库导入入口
+          const empty = el('div', 'book-empty', '这里还没有任务。去书库导入一本书, 会在这里排队处理。');
           const goLib = el('button', 'btn-small btn-primary', '去书库导入');
           goLib.onclick = () => {
             if (window.AiduRouter) {
@@ -108,26 +118,89 @@
           listEl.appendChild(emptyWrap);
           return;
         }
-        // M7 R32: 按批次分组 (导入多本书成一个批次 → 组头展示), 未分组任务归"单本"
-        const groups = {};
-        const order = [];
-        jobs.forEach((j) => {
-          const key = j.batch_id || '__single__';
-          if (!groups[key]) { groups[key] = []; order.push(key); }
-          groups[key].push(j);
+
+        // 批次 id → 人话 (I4): 「N 本书 · 今天 14:22」, 原始 id 进 title 悬浮
+        const batchInfo = (id) => {
+          const b = batches.find((x) => x.id === id);
+          if (!b) return { label: '任务', title: id };
+          const d = new Date(b.created_at);
+          const sameDay = d.toDateString() === new Date(now).toDateString();
+          const when = sameDay
+            ? '今天 ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
+            : d.toLocaleDateString();
+          return { label: `${b.total_books} 本书 · ${when}`, title: id };
+        };
+
+        // 三段归类 (I1): running→进行中, queued/paused→排队中, 其余终态→最近完成
+        const running = jobs.filter((j) => j.status === 'running');
+        const queued = jobs.filter((j) => ['queued', 'paused'].includes(j.status));
+        // I2: 最近完成只显示今天的; 更早的进「查看历史」
+        const todayDone = jobs.filter((j) => ['done', 'partial', 'failed', 'canceled'].includes(j.status));
+        const recent = todayDone.filter((j) => {
+          const t = j.updated_at || j.created_at || 0;
+          return new Date(t).toDateString() === new Date(now).toDateString();
         });
-        order.forEach((key) => {
-          const group = groups[key];
-          if (key !== '__single__') {
-            // M7 R35: 组头完成率 (done/partial = 完成)
-            const done = group.filter((j) => j.status === 'done' || j.status === 'partial').length;
-            const head = el('div', 'prep-batch-head',
-              `批次 ${String(key).replace(/^batch-/, '').slice(0, 16)} · ${done}/${group.length} 完成`);
-            listEl.appendChild(head);
+        const history = todayDone.filter((j) => !recent.includes(j));
+
+        const section = (title, items) => {
+          const sec = el('div', 'prep-section');
+          sec.appendChild(el('div', 'prep-section-title', title));
+          items.forEach((j) => sec.appendChild(this._buildTaskRow(j)));
+          return sec;
+        };
+        // 批次作为组头 (I1): 同一批的归到一起, 组头显示人话
+        const groupByBatch = (items) => {
+          const groups = {};
+          const order = [];
+          items.forEach((j) => {
+            const key = j.batch_id || '__single__';
+            if (!groups[key]) { groups[key] = []; order.push(key); }
+            groups[key].push(j);
+          });
+          const out = [];
+          order.forEach((key) => {
+            const group = groups[key];
+            if (key !== '__single__') {
+              const info = batchInfo(key);
+              const head = el('div', 'prep-batch-head', info.label);
+              head.title = info.title;
+              out.push(head);
+            }
+            group.forEach((j) => out.push(this._buildTaskRow(j)));
+          });
+          return out;
+        };
+
+        if (running.length || queued.length) {
+          const activeSec = el('div', 'prep-section');
+          activeSec.appendChild(el('div', 'prep-section-title', '进行中'));
+          groupByBatch(running).forEach((n) => activeSec.appendChild(n));
+          if (queued.length) {
+            activeSec.appendChild(el('div', 'prep-section-title', '排队中'));
+            groupByBatch(queued).forEach((n) => activeSec.appendChild(n));
           }
-          group.forEach((job) => listEl.appendChild(this._buildTaskRow(job)));
-        });
+          listEl.appendChild(activeSec);
+        }
+        if (recent.length) {
+          listEl.appendChild(section('今天完成', recent));
+        }
+        if (history.length) {
+          const histBtn = el('button', 'prep-history-toggle', `查看历史 (${history.length})`);
+          histBtn.onclick = () => {
+            const body = el('div', 'prep-history');
+            history.forEach((j) => body.appendChild(this._buildTaskRow(j)));
+            histBtn.replaceWith(body);
+          };
+          listEl.appendChild(histBtn);
+        }
       });
+    }
+
+    /** I8 (2026-08-11): profile id → 档案名 (default → 成人自读), 不把内部 id 上屏 */
+    _profileName(id) {
+      if (!id || id === 'default') return '成人自读';
+      if (id === 'kid') return '陪小孩读';
+      return id;
     }
 
     /** 构建单任务行 (暂停/继续/重试/移除/打开书籍 + 进度 + 阶段条 + 失败详情) */
@@ -135,7 +208,11 @@
       const row = el('div', 'prep-task');
       row.dataset.jobId = job.id;
       const header = el('div', 'prep-task-header');
-      const title = el('span', 'prep-task-title', `${job.book_path.split(/[\\/]/).pop()} (${job.profile_id})`);
+      // I8: 书名走 G5 清洗 (剥来源站后缀/扩展名); 档案显示名字不显示 (default)
+      const rawName = String(job.book_path || '').split(/[\\/]/).pop() || job.id;
+      const parsed = global.AiduTitleCleanup ? global.AiduTitleCleanup.parseBookTitle(rawName) : { title: rawName, author: null };
+      const title = el('span', 'prep-task-title', `${parsed.title} · ${this._profileName(job.profile_id)}`);
+      title.title = rawName;
       // 易用性审查: 状态显示中文 (用户看不懂 running/done)
       const statusMeta = {
         queued: { t: '排队中', cls: 'st-idle' },
@@ -340,44 +417,7 @@
       return pipe;
     }
 
-    _refreshBatches() {
-      // 批次进度 = 批内 job 句进度聚合 (单本处理中也实时显示, 不再是 0%)
-      // 返回 Promise (2026-08-10): 冒烟测试要等它完成后断言
-      return Promise.all([AiduJobService.listBatches(), AiduJobService.list()]).then(([bres, jres]) => {
-        if (!bres.ok) return;
-        const jobs = (jres.ok && jres.data) || [];
-        let batchEl = this._listEl.querySelector('.batch-summary');
-        if (!batchEl) {
-          batchEl = el('div', 'batch-summary');
-          this._listEl.prepend(batchEl);
-        }
-        batchEl.innerHTML = '';
-        (bres.data || []).slice(0, 5).forEach(b => {
-          // 批次状态词与 DB 实际写入值逐个对上 (batches_repo: created|running|completed|partial|failed|canceled)。
-          // 2026-08-10 修: 此前映射写错成 done (jobs 的状态词), DB 写的是 completed → 批次行显示英文。
-          // 别和 jobs 那套 (queued|running|done|failed|paused) 互相抄。
-          const statusText = { created: '已创建', running: '处理中', completed: '完成', partial: '部分完成', failed: '失败', canceled: '已取消' }[b.status] || b.status;
-          const batchJobs = jobs.filter(j => j.batch_id === b.id);
-          let sumC = 0, sumT = 0;
-          batchJobs.forEach(j => { sumC += j.current || 0; sumT += j.total || 0; });
-          // 整本完成计数 + 句进度聚合
-          const booksTotal = b.total_books || batchJobs.length || 0;
-          const booksDone = b.done_books + b.failed_books;
-          const pct = sumT > 0 ? Math.round((sumC / sumT) * 100)
-            : (booksTotal > 0 ? Math.round((booksDone / booksTotal) * 100) : 0);
-          const row = el('div', 'batch-row');
-          const info = el('span', null,
-            `批次 ${b.id.slice(-8)} · ${booksDone}/${booksTotal} 本 · ${statusText} · ${pct}%`);
-          row.appendChild(info);
-          const pbar = el('div', 'prep-bar');
-          const pfill = el('div', 'prep-bar-fill');
-          pfill.style.width = pct + '%';
-          pbar.appendChild(pfill);
-          row.appendChild(pbar);
-          batchEl.appendChild(row);
-        });
-      });
-    }
+    /** I1 (2026-08-11): 批次进度并入 _refreshJobs (作为组头人话标签), 原独立批次摘要条已撤。 */
 
     _updateTask(p) {
       const jobId = p.jobId;

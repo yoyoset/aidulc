@@ -62,6 +62,29 @@ body::before {
   top: 0;
   z-index: 200;
 }
+/* L6 (2026-08-11): 开源图标字体 Material Symbols Rounded, 本地打包 (reader/assets/fonts),
+   不引 CDN —— 应用是离线优先的。顶栏右侧统一为定宽图标 + 数字角标形态。 */
+@font-face {
+  font-family: 'Material Symbols Rounded';
+  src: url('../assets/fonts/material-symbols-rounded.ttf') format('truetype');
+  font-weight: 100 700;
+  font-display: block;
+}
+.icon-msr {
+  font-family: 'Material Symbols Rounded', sans-serif;
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
 /* H1 (2026-08-11): 复习专注模式 —— 隐藏顶栏, 只留三栏 */
 .app-nav.focus-hidden { display: none; }
 .app-brand {
@@ -72,21 +95,61 @@ body::before {
   white-space: nowrap;
 }
 .app-nav-links { display: flex; gap: 2px; height: 100%; }
-/* 闃舵6 璁捐浜や粯 搂01: 涓夊眰瀵艰埅 鈥斺€?宸︾洰鐨勫湴 / 鍙冲伐浣滄祦鍏ュ彛 */
+/* 闃舵6 璁捐浜や粯 搂01: 涓夊眰瀵艰埅 鈥斺€?宸︾洰鐨勫湴 / 鍙冲伐浣滄祦鍏ュ彛 */
 .app-nav-left { margin-left: 8px; }
-.app-nav-right { margin-left: auto; }
+.app-nav-right { margin-left: auto; align-items: center; }
 .app-nav-settings { margin-left: 8px; }
-.nav-count {
-  min-width: 18px;
-  margin-left: 6px;
-  padding: 1px 5px;
+/* L6 (2026-08-11): 顶栏右侧定宽图标按钮 —— 与左侧文字导航区分 (右侧是状态/工具)。
+   图标 20px 定宽 + 数字角标, 离线↔已同步切换不改 DOM 结构, 右侧不位移。 */
+.app-nav-icon {
+  border: none;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border-radius: var(--md-sys-radius-pill);
+  transition: color 0.15s ease, background 0.15s ease;
+  font-family: var(--md-sys-font-sans);
+}
+.app-nav-icon:hover { color: var(--md-sys-color-on-surface); background: var(--md-sys-color-surface-container); }
+.app-nav-icon .icon-msr { font-size: 22px; }
+.app-nav-icon .nav-count {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  margin: 0;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 4px;
   border-radius: var(--md-sys-radius-pill);
   background: var(--md-sys-color-primary);
   color: var(--md-sys-color-on-primary);
   font-size: var(--md-sys-font-size-label-s);
-  line-height: 1.2;
   text-align: center;
 }
+.app-nav-icon.active .icon-msr { color: var(--md-sys-color-primary); }
+.app-nav-icon.active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--md-sys-color-primary);
+}
+/* 同步状态着色 (图标 + tooltip, 文字进 title 不占位) */
+.nav-sync-synced .icon-msr { color: var(--md-sys-color-success); }
+.nav-sync-pending .icon-msr { color: var(--md-sys-color-warning); }
+.nav-sync-offline .icon-msr { color: var(--md-sys-color-on-surface-variant); }
+.nav-sync-failed .icon-msr { color: var(--md-sys-color-error); }
+.nav-sync-unconfigured .icon-msr { color: var(--md-sys-color-outline); }
 .app-nav-link {
   border: none;
   background: transparent;

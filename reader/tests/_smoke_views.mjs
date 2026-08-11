@@ -502,9 +502,9 @@ console.log('== 5. 顶栏切人 (V1 身份模型, 2026-08-09) ==');
   check('新建成员后 currentName 解析', globalThis.AiduUserService.currentName([{ id: 'u-son', name: '儿子' }, { id: 'me', name: '我' }]) === '儿子');
 }
 
-console.log('== 5b. 顶栏同步四态 (V6, 2026-08-09) ==');
+console.log('== 5b. 顶栏同步四态 (V6, 2026-08-09; L6 图标+tooltip) ==');
 {
-  // stub sync_status 返回四态之一, 验证顶栏 chip 文案
+  //  stub sync_status 返回四态之一, 验证顶栏同步图标 tooltip (L6: 不再用文字块)
   const chipStates = ['synced', 'pending', 'offline', 'failed'];
   for (const st of chipStates) {
     globalThis.AiduSyncService.status = async () => ({ ok: true, data: { status: st, configured: true, pending_count: 3, user_id: 'me' } });
@@ -512,12 +512,12 @@ console.log('== 5b. 顶栏同步四态 (V6, 2026-08-09) ==');
     const shell = new globalThis.ShellView(appEl);
     shell.render();
     await new Promise((r) => setTimeout(r, 30));
-    const chip = queryAll(appEl, '.nav-sync-chip')[0];
-    const text = chip && chip.textContent;
-    if (st === 'synced') check('已同步 chip', chip && text === '已同步', text);
-    if (st === 'pending') check('N 条待推 chip (不转圈)', chip && text === '3 条待推', text);
-    if (st === 'offline') check('离线 chip', chip && text === '离线', text);
-    if (st === 'failed') check('失败 chip', chip && text === '同步失败', text);
+    const chip = queryAll(appEl, '.nav-sync')[0];
+    const tip = chip && chip.title;
+    if (st === 'synced') check('已同步 tooltip', chip && tip === '已同步', tip);
+    if (st === 'pending') check('N 条待推 tooltip (不转圈)', chip && tip === '3 条待推', tip);
+    if (st === 'offline') check('离线 tooltip', chip && tip === '离线', tip);
+    if (st === 'failed') check('失败 tooltip', chip && tip === '同步失败', tip);
   }
   // P0-B (2026-08-10): unconfigured 文案改"同步未连接" + 点击直达设置同步区
   globalThis.AiduSyncService.status = async () => ({ ok: true, data: { status: 'unconfigured', configured: false, pending_count: 0, user_id: 'me' } });
@@ -529,14 +529,14 @@ console.log('== 5b. 顶栏同步四态 (V6, 2026-08-09) ==');
   shellU.setRouter({ navigate: (r) => { routedU = r; } });
   shellU.render();
   await new Promise((r) => setTimeout(r, 30));
-  const chipU = queryAll(appElU, '.nav-sync-chip')[0];
-  check('未配置 chip 文案是 同步未连接', chipU && chipU.textContent === '同步未连接', 'text=' + (chipU && chipU.textContent));
+  const chipU = queryAll(appElU, '.nav-sync')[0];
+  check('未配置 tooltip 是 同步未连接', chipU && chipU.title === '同步未连接', 'title=' + (chipU && chipU.title));
   chipU.onclick();
   check('点击 chip → settingsTab=sync 意图', storeU.state.settingsTab === 'sync', 'settingsTab=' + storeU.state.settingsTab);
   check('点击 chip → 跳设置页', routedU === 'settings', 'routed=' + routedU);
 }
 
-console.log('== 5b. H1 (2026-08-11): 顶栏两个每日目的地, 无「背单词」tab ==');
+console.log('== 5b. H1/L6 (2026-08-11): 顶栏两个每日目的地, 无「背单词」无「导入」 ==');
 {
   const navEl = makeElement('div');
   const sh = new globalThis.ShellView(navEl);
@@ -547,6 +547,14 @@ console.log('== 5b. H1 (2026-08-11): 顶栏两个每日目的地, 无「背单�
   check('顶栏有 我的书', labels.includes('我的书'), labels.join(','));
   check('顶栏有 生词本', labels.includes('生词本'), labels.join(','));
   check('顶栏没有 背单词 (已并入生词本)', !labels.includes('背单词'), labels.join(','));
+  check('L6: 顶栏没有 导入 (书库已有导入格)', !labels.includes('导入'), labels.join(','));
+  // L6: 右侧是定宽图标按钮 (处理中/同步/设置), 不混用文字按钮
+  const icons = queryAll(navEl, '.app-nav-icon');
+  const iconNames = icons.map((b) => b.querySelector && b.querySelector('.icon-msr') && b.querySelector('.icon-msr').textContent);
+  check('L6: 右侧图标按钮 ≥ 3 (处理中/同步/设置)', icons.length >= 3, 'icons=' + iconNames.join(','));
+  const prepIcon = icons.find((b) => b.querySelector && b.querySelector('.icon-msr') && b.querySelector('.icon-msr').textContent === 'progress_activity');
+  check('L6: 处理中图标带角标', prepIcon && prepIcon.querySelector && prepIcon.querySelector('.nav-count') && prepIcon.querySelector('.nav-count').textContent === '0', 'badge=' + (prepIcon && prepIcon.querySelector && prepIcon.querySelector('.nav-count') && prepIcon.querySelector('.nav-count').textContent));
+  check('L6: 设置图标是 icon 不是文字 ⚙', iconNames.includes('settings'), iconNames.join(','));
 }
 
 console.log('== 6. 背单词三栏 (V3, 2026-08-09) ==');

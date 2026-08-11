@@ -276,3 +276,99 @@
 | 16 | 撤销条桌面落位 = 卡片正上方 (手机稿是顶部进度条下方) | ② 有意偏离 | 等效落位, 写清理由 (桌面三栏, 进度条在左栏队列头, 放那=视线之外) |
 | 4 | prep 状态三态配色 | ③ 大改 | ROADMAP S6b 遗留 (不在本轮) |
 
+
+---
+
+# UX3 真机第二轮走查 (GOAL_2026-08-11_UX3, 2026-08-11) 补充判据
+
+## 22. 成品文件缺失必须红色报错 (L2)
+
+**判据**: 打开译本前探测 editions.pack_dir 是否存在。不存在 → 书卡状态改红色「成品文件
+缺失」, 徽章不再显示"已就绪", 给「重新生成译本」/「移除这个译本记录」两出口; 展开项标红,
+点击给明确错误不静默。
+
+**当前实现**: commands/library.rs::attach_pack_state 三态 (missing=目录不存在 /
+incomplete=目录在但 bookpack 缺 / ok), 挂在 library_list 每个 edition 上; library_view.js
+product 卡与译本子卡据此红徽章 + 两出口。单测 l2_pack_state_detects_missing_incomplete_ok。
+
+**结论**: 符合。
+
+## 23. 顶栏两个每日目的地 + 图标一致 (L6)
+
+**判据**: 去掉「导入」(书库页已有导入格, 重复入口); 右侧统一为定宽图标 + 数字/短标签一致
+形态, 尺寸间距对等; 离线等状态用图标+tooltip 不用文字块; 「我」放最左紧邻品牌。
+
+**当前实现**: shell_view.js 去掉导入; 右侧 pp-nav-icon 定宽图标 (处理中带角标 /
+同步状态 / 设置齿轮), Material Symbols Rounded 本地打包字体 (eader/assets/fonts, 不引
+CDN); 用户选择器移最左; 同步四态改图标 + title tooltip。
+
+**结论**: 符合。
+
+## 24. 页头动作按钮成组 (L5)
+
+**判据**: 页头标题靠左、动作按钮成组靠右且组内间距固定 (gap: var(--md-sys-space-2)),
+按钮之间不被 space-between 撑开; 做成共用组件, 新页面复用。
+
+**当前实现**: pp/page_toolbar.js::AiduPageToolbar.build (标题 + .page-toolbar 单一 flex
++ gap), 生词本/模型与依赖/同步三处改用。smoke 9b 断言无直系散列按钮。
+
+**结论**: 符合。
+
+## 25. 书设置弹窗补学习档案 (L10)
+
+**判据**: 弹窗补学习档案选择 (与创建译本弹窗同一组件); 表单纵向对齐; 说清改的是下次生成
+默认, 不影响已生成译本。
+
+**当前实现**: library_view.js::_openBookSettings 档案/语言/模型三段竖排 (同 _profiles
+数据源) + 边界说明; library_book_set_profile 只改 books.profile_id (editions 快照不动)。
+
+**结论**: 符合。
+
+## 26. 阅读显示 tab 是全局设置 (L9)
+
+**判据**: 移除只读摘要 (字号/行距/栏宽/高亮只在阅读器浮层); 这节放主题(浅/深/跟随系统)/
+主题色/儿童模式; 儿童模式写明改了什么; 与学习档案边界一句话点明。
+
+**当前实现**: settings_view.js 移除只读摘要; 主题三档 + 色块 chips + 儿童模式说明;
+core/theme.js::resolveTheme 支持 system。单测 +4。
+
+**结论**: 符合。
+
+## 27. 在线引擎两档授权 (L8)
+
+**判据**: 两个独立开关默认全关: ①查词失败时可用在线AI(发1词+1句) ②整本翻译/讲解可用在线
+引擎(默认关, 开启告知外发量); 未配置 key 时开关置灰指向配置区; K3 三条不变。
+
+**当前实现**: settings_view.js 两档 checkbox 默认 off + 无 key 置灰; word_lookup_online
+门禁①(默认关返回明确错误); config 两字段 serde(default)=false。
+
+**结论**: 符合。
+
+## 28. 书库位置可选 + 加载旧库 (L7)
+
+**判据**: 设置页书库位置可改; 支持加载已有书库目录 (扫描成品 → 可导入N/已存在M → 确认后
+只登记路径); 切换不移动不删除文件。
+
+**当前实现**: library_dir_pick_and_set 只改配置不搬文件; library_dir_scan/import 扫描
+登记 (复用 register_book 幂等); 修 libBtns 从未挂进 libSec 的存量 bug。
+
+**结论**: 符合。
+
+## 29. 多后端配置 (L11)
+
+**判据**: 设置页同步改为后端列表 (名称+URL+状态), 可新增/切换/删除, 当前高亮; 切换即换库
+(endpoint_key 按 URL+服务端 user 分账, 不匹配全量重推)。
+
+**当前实现**: config sync_backends + ackends_including_active (自动补默认项); 命令
+sync_backends_list/add/switch/remove; 设置页后端列表。单测 l11_backends_include_active_once。
+
+**结论**: 符合。
+
+---
+
+## UX3 偏离项去向补充
+
+| 编号 | 偏离 | 类别 | 去向 |
+|---|---|---|---|
+| L6 | 图标字体用 Material Symbols 本地打包 (设计稿提到 Lucide 亦可, 均为开源可本地) | ② 有意偏离 | 本地 ttf 1.2MB, 不引 CDN, 满足离线优先 |
+| L11 | CF 免费档验证打在测试 worker/namespace (设计稿验收前提"绝不打生产") | ② 有意偏离 | 干净测试 namespace, 防呆拒绝生产 id |

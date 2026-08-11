@@ -152,7 +152,14 @@
       }
 
       this.cardCol.innerHTML = '';
-      this.cardCol.append(card, gradeRow);
+      // H2 (2026-08-11): 撤销条占位常驻在卡片正上方 —— 不出现/不消失/不位移,
+      // 3 秒内可点、之后转灰失效; 只动透明度, 不动位置 (周边视野的运动才是分心源)。
+      const undoSlot = el('div', 'review-undo-slot');
+      const undoBar = el('div', 'review-undo-bar', '撤销评分 (Ctrl+Z / Backspace)');
+      undoBar.onclick = () => this._undo();
+      undoSlot.appendChild(undoBar);
+      this._undoBar = undoBar;
+      this.cardCol.append(undoSlot, card, gradeRow);
       this._cardEl = card;
 
       // 翻面后拉预览时间
@@ -272,6 +279,9 @@
       this._onKey = (e) => {
         // H1: Esc 退出专注模式 (进度保留)
         if (e.key === 'Escape') { e.preventDefault(); this._exit(); return; }
+        // H2: Ctrl+Z / Backspace 撤销 (不用鼠标的人根本不用看撤销条)
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); this._undo(); return; }
+        if (e.key === 'Backspace') { e.preventDefault(); this._undo(); return; }
         const action = global.AiduReviewCore.keyAction(e);
         if (!action) return;
         if (action === 'flip') { e.preventDefault(); this._flip(); }
@@ -333,13 +343,17 @@
 
     _armUndo() {
       if (this._undoTimer) clearTimeout(this._undoTimer);
-      // 3 秒后撤销入口失效 (core.UNDO_WINDOW_MS)
-      const bar = el('div', 'review-undo-bar', '撤销评分');
-      bar.onclick = () => this._undo();
-      this.cardCol.appendChild(bar);
-      this._undoBar = bar;
+      // H2: 撤销条占位常驻在卡片正上方 —— 不出现/不消失/不位移; 只切 opacity。
+      // 3 秒窗口内 active (可点), 之后转灰 expired (失效)。键盘 Ctrl+Z/Backspace 直接撤。
+      if (this._undoBar) {
+        this._undoBar.classList.remove('expired');
+        this._undoBar.classList.add('active');
+      }
       this._undoTimer = setTimeout(() => {
-        if (this._undoBar && this._undoBar.parentNode) this._undoBar.parentNode.removeChild(this._undoBar);
+        if (this._undoBar) {
+          this._undoBar.classList.remove('active');
+          this._undoBar.classList.add('expired');
+        }
         this._undoTimer = null;
       }, global.AiduReviewCore.UNDO_WINDOW_MS);
     }
@@ -356,7 +370,9 @@
         if (this.queue.length > this.index) this.queue[this.index] = top.entry;
         else this.queue.push(top.entry);
         this.flipLock.next();
-        if (this._undoBar && this._undoBar.parentNode) this._undoBar.parentNode.removeChild(this._undoBar);
+        if (this._undoBar) {
+          this._undoBar.classList.remove('active', 'expired');
+        }
         this._renderCurrent();
       });
     }

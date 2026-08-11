@@ -638,7 +638,37 @@ body::before {
 .review-grade-btn.g3 .review-grade-label, .review-grade-btn.g3 .review-grade-time { color: var(--md-sys-color-on-primary); }
 .review-grade-btn.g3 .review-grade-time { color: var(--md-sys-color-on-primary); opacity: .8; }
 
-.review-undo-bar { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--md-sys-color-scrim-surface); color: var(--md-sys-color-on-scrim-surface); padding: var(--md-sys-space-2) var(--md-sys-space-4); border-radius: var(--md-sys-radius-pill); font-size: var(--md-sys-font-size-title-s); cursor: pointer; z-index: 300; box-shadow: var(--md-sys-elevation-2); }
+/* H2 (2026-08-11): 撤销条 —— 桌面等效位置 = 中间卡片区正上方 (评分动作的正上方,
+ * 视线自然落点), 不再浮在底部正中 (那里是评分完视线回落的位置, 每评一张弹一次)。
+ * 占位常驻: 不出现/不消失/不位移 (始终占位, 不导致布局跳动); 3 秒内可点,
+ * 之后转灰失效。动效只允许透明度, 不允许位移 (周边视野里的运动才是分心源)。 */
+.review-undo-slot {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.review-undo-bar {
+  background: var(--md-sys-color-scrim-surface);
+  color: var(--md-sys-color-on-scrim-surface);
+  padding: var(--md-sys-space-2) var(--md-sys-space-4);
+  border-radius: var(--md-sys-radius-pill);
+  font-size: var(--md-sys-font-size-title-s);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  user-select: none;
+}
+.review-undo-bar.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+.review-undo-bar.expired {
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: default;
+}
 
 .review-source-head { padding: var(--md-sys-space-4); border-bottom: 1px solid var(--md-sys-color-outline-variant); display: flex; flex-direction: column; gap: var(--md-sys-space-1); }
 .review-source-title { font-size: var(--md-sys-font-size-title-m); font-weight: 600; color: var(--md-sys-color-on-surface); }

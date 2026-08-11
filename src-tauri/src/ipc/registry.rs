@@ -44,6 +44,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "打开一本书(登记打开时间)",
     },
     CommandInfo {
+        path: "commands::library::library_book_set_profile",
+        domain: "书库",
+        desc: "L10: 改书的学习档案(下次生成默认, 不影响已生成译本)",
+    },
+    CommandInfo {
         path: "commands::library::edition_lookup",
         domain: "书库",
         desc: "按 edition_id 查译本元信息 (背单词右栏书名/章节 + 跳转, V4)",

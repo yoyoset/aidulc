@@ -128,6 +128,10 @@ pub async fn word_lookup_online(
     crate::infrastructure::log::info("cmd", "enter: word_lookup_online");
     let cfg_dir = paths.inner().data_dir.clone();
     let cfg = crate::services::config::Config::load(&cfg_dir);
+    // L8 (2026-08-11): 查词失败时可用在线 AI —— 必须用户显式开启才放行, 默认关。
+    if !cfg.online_lookup_enabled {
+        return Err("在线查词未开启 (设置页·在线引擎: 「查词失败时可用在线 AI」)".into());
+    }
     let key = crate::services::credentials::get_online_key().unwrap_or_default();
     let w = word.trim().to_lowercase();
     let ctx = context;

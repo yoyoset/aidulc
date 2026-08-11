@@ -134,22 +134,33 @@ pub fn online_config_get(paths: State<crate::DataPaths>) -> Result<serde_json::V
         "endpoint": cfg.online_endpoint,
         "model": cfg.online_model,
         "key_configured": key_configured,
+        "lookup_enabled": cfg.online_lookup_enabled,
+        "whole_book_enabled": cfg.online_whole_book_enabled,
     }))
 }
 
 /// 写在线引擎配置 (endpoint + model; key 可选, 传入则存 Credential Manager)
+/// L8: 两档授权开关独立保存, 默认关; 只有端点+key 齐了才允许开。
 #[tauri::command]
 pub fn online_config_set(
     paths: State<crate::DataPaths>,
     endpoint: String,
     model: String,
     api_key: Option<String>,
+    lookup_enabled: Option<bool>,
+    whole_book_enabled: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     crate::infrastructure::log::info("cmd", "enter: online_config_set");
     let cfg_dir = paths.inner().data_dir.clone();
     let mut cfg = crate::services::config::Config::load(&cfg_dir);
     cfg.online_endpoint = endpoint;
     cfg.online_model = model;
+    if let Some(b) = lookup_enabled {
+        cfg.online_lookup_enabled = b;
+    }
+    if let Some(b) = whole_book_enabled {
+        cfg.online_whole_book_enabled = b;
+    }
     cfg.save(&cfg_dir)?;
     if let Some(k) = api_key {
         if !k.is_empty() {
@@ -159,7 +170,12 @@ pub fn online_config_set(
     let key_configured = crate::services::credentials::get_online_key()
         .map(|k| !k.is_empty())
         .unwrap_or(false);
-    Ok(serde_json::json!({ "saved": true, "key_configured": key_configured }))
+    Ok(serde_json::json!({
+        "saved": true,
+        "key_configured": key_configured,
+        "lookup_enabled": cfg.online_lookup_enabled,
+        "whole_book_enabled": cfg.online_whole_book_enabled,
+    }))
 }
 
 /// 在线引擎连通性测试 (最小请求, 确认 endpoint+key+model 可用)

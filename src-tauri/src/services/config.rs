@@ -146,6 +146,24 @@ mod data_dir_tests {
         assert!(is_portable(&d));
         let _ = fs::remove_dir_all(&d);
     }
+
+    #[test]
+    fn l8_online_permission_flags_default_off() {
+        // L8 (2026-08-11): 在线引擎两档授权开关默认全关 —— 查词/整本都默认不允许外发。
+        let c = Config::default();
+        assert!(!c.online_lookup_enabled, "查词在线默认必须关");
+        assert!(!c.online_whole_book_enabled, "整本在线默认必须关");
+        // 序列化往返不丢字段 (serde(default) 保护旧 config.toml 读入)
+        let json = serde_json::to_string(&c).unwrap();
+        let c2: Config = serde_json::from_str(&json).unwrap();
+        assert!(!c2.online_lookup_enabled);
+        assert!(!c2.online_whole_book_enabled);
+        // 旧 config.toml 没有这两个字段 (default) → 读入后仍为 false
+        let old_toml = "out_dir = 'jobs_out'\n";
+        let c3: Config = toml::from_str(old_toml).unwrap();
+        assert!(!c3.online_lookup_enabled);
+        assert!(!c3.online_whole_book_enabled);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,6 +184,14 @@ pub struct Config {
     /// Credential Manager 不落明文)。作为离线查词的兜底, 不是替代。
     pub online_endpoint: String,
     pub online_model: String,
+    /// L8 (2026-08-11): 三档授权的两档开关, **默认全关**。① 查词失败时可用在线 AI
+    /// (发 1 词 + 1 句, ~200 字符); ② 整本翻译/讲解可用在线引擎 (发全书正文,
+    /// **默认关**, 开启时 UI 必须明确告知外发量)。K3 的"绝不自动回退/绝不代理转发/
+    /// 每次外发可见发什么"三条不随开关改变。
+    #[serde(default)]
+    pub online_lookup_enabled: bool,
+    #[serde(default)]
+    pub online_whole_book_enabled: bool,
     /// 工具路径 (M 系列: 模型路径已归 model_registry, 此处只留 ffmpeg)
     pub ffmpeg_path: PathBuf,
 }
@@ -180,6 +206,8 @@ impl Default for Config {
             cf_namespace: String::new(),
             online_endpoint: String::new(),
             online_model: String::new(),
+            online_lookup_enabled: false,
+            online_whole_book_enabled: false,
             ffmpeg_path: PathBuf::new(),
         }
     }

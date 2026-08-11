@@ -192,8 +192,8 @@ globalThis.AiduMiscService = {
   dataMigrationStatus: async () => ({ ok: true, data: { portable: false, data_dir: 'C:/aidulc', db_path: 'C:/aidulc/data.db', out_dir: 'C:/aidulc/jobs_out', pending: false } }),
   dataMigrationDryRun: async () => ({ ok: true, data: { pending: false } }),
   dataMigrationRun: async () => ({ ok: true, data: { ok: true, restart_required: true, backup_path: 'C:/aidulc/backups/x.aidu-data', out_moved: 0, target_out: 'C:/aidulc/jobs_out', target_db: 'C:/aidulc/data.db' } }),
-  onlineConfigGet: async () => ({ ok: true, data: { endpoint: '', model: '', key_configured: false } }),
-  onlineConfigSet: async () => ({ ok: true, data: { saved: true, key_configured: false } }),
+  onlineConfigGet: async () => ({ ok: true, data: { endpoint: '', model: '', key_configured: false, lookup_enabled: false, whole_book_enabled: false } }),
+  onlineConfigSet: async () => ({ ok: true, data: { saved: true, key_configured: false, lookup_enabled: false, whole_book_enabled: false } }),
   onlineConfigTest: async () => ({ ok: true, data: { ok: true, reply: 'ok' } }),
 };
 globalThis.ModelsView = class { constructor() {} render(c) { c.innerHTML = 'MODELS'; } };
@@ -344,6 +344,55 @@ console.log('== 2c. L9 (2026-08-11): 阅读显示 tab 是全局设置 (主题/�
   if (themeSel) { themeSel.value = 'system'; themeSel.onchange && themeSel.onchange(); }
   await new Promise((r) => setTimeout(r, 30));
   check('L9: 选「跟随系统」→ upsert theme=system', upserts.some((u) => u.theme === 'system'), JSON.stringify(upserts));
+}
+
+console.log('== 2d. L8 (2026-08-11): 在线引擎两档开关, 默认全关, 无key置灰 ==');
+{
+  store.state.settingsTab = 'system';
+  const onlineCalls = [];
+  globalThis.AiduMiscService.onlineConfigGet = async () => ({ ok: true, data: { endpoint: 'https://x/v1', model: 'm', key_configured: true, lookup_enabled: false, whole_book_enabled: false } });
+  globalThis.AiduMiscService.onlineConfigSet = async (ep, md, key, lookup, whole) => { onlineCalls.push([lookup, whole]); return { ok: true, data: { saved: true, key_configured: true, lookup_enabled: lookup, whole_book_enabled: whole } }; };
+  const sv = new globalThis.SettingsView(store);
+  const container = makeElement('div');
+  sv.render(container);
+  await new Promise((r) => setTimeout(r, 80));
+  store.state.settingsTab = null;
+  const checks = queryAll(container, 'input[type="checkbox"]');
+  // 找到两个在线开关 (按 label 文本, 只匹配 checkbox)
+  const allInputs = queryAll(container, 'input');
+  const chk = (labelPart) => allInputs.find((c) => {
+    if (c.type !== 'checkbox') return false;
+    const p = c.parentNode;
+    if (!p) return false;
+    const labelText = (p._children || []).map((x) => String(x.textContent || '')).join('');
+    return labelText.includes(labelPart);
+  });
+  const lookupCb = chk('查词失败时可用在线 AI');
+  const wholeCb = chk('整本翻译/讲解');
+  check('L8: 有①查词开关', !!lookupCb);
+  check('L8: 有②整本开关', !!wholeCb);
+  check('L8: 两档默认关', lookupCb && !lookupCb.checked && wholeCb && !wholeCb.checked);
+  check('L8: key已配置时开关可点', lookupCb && !lookupCb.disabled);
+  lookupCb && (lookupCb.checked = true);
+  lookupCb && lookupCb.onchange();
+  await new Promise((r) => setTimeout(r, 30));
+  check('L8: 开①→ onlineConfigSet(lookup=true)', onlineCalls.some(([l]) => l === true), JSON.stringify(onlineCalls));
+  // 未配置 key → 开关置灰
+  const getCalls = [];
+  globalThis.AiduMiscService.onlineConfigGet = async () => { getCalls.push('get'); return { ok: true, data: { endpoint: '', model: '', key_configured: false, lookup_enabled: false, whole_book_enabled: false } }; };
+  store.state.settingsTab = 'system';
+  const sv2 = new globalThis.SettingsView(store);
+  const c2 = makeElement('div');
+  sv2.render(c2);
+  await new Promise((r) => setTimeout(r, 80));
+  store.state.settingsTab = null;
+  const lk2 = queryAll(c2, 'input').find((x) => {
+    if (x.type !== 'checkbox') return false;
+    const p = x.parentNode;
+    if (!p) return false;
+    return (p._children || []).map((y) => String(y.textContent || '')).join('').includes('查词');
+  });
+  check('L8: 无 key 时开关置灰', lk2 && lk2.disabled === true, 'disabled=' + (lk2 && lk2.disabled));
 }
 
 console.log('== 3. library_view 导入格 (G1): 网格最后一格, 无下拉, 点击走 pickFiles ==');

@@ -255,7 +255,7 @@
       const onlineSec = el('div', 'settings-section');
       onlineSec.appendChild(el('h2', null, '在线引擎 (AI 兜底)'));
       onlineSec.appendChild(el('div', 'import-tip',
-        '离线模型查词失败时的兜底: 填 OpenAI 兼容 endpoint + 模型名, API key 只存本机凭据管理器。查词只发 1 个词 + 1 句上下文, 从本机直连服务商 (不经任何中转)。'));
+        '离线模型查词失败时的兜底: 填 OpenAI 兼容 endpoint + 模型名, API key 只存本机凭据管理器。从本机直连服务商 (不经任何中转)。'));
       const onlineEndpoint = el('input', 'prep-input');
       onlineEndpoint.placeholder = 'OpenAI 兼容 endpoint (如 https://api.openai.com/v1 或自建 vLLM)';
       const onlineModel = el('input', 'prep-input');
@@ -269,7 +269,52 @@
       const onlineRow = el('div', 'settings-row');
       onlineRow.style.flexWrap = 'wrap';
       onlineRow.append(onlineSave, onlineTest);
-      onlineSec.append(onlineEndpoint, onlineModel, onlineKey, onlineRow, onlineStatus);
+      // L8 (2026-08-11): 三档授权落成两个独立开关, 默认全关。
+      // ① 查词失败时可用在线 AI (发 1 词 + 1 句, ~200 字符)
+      // ② 整本翻译/讲解可用在线引擎 (发全书正文, **默认关**, 开启时明确告知外发量)
+      const mkSwitch = (label, tip, checked, onChange) => {
+        const row = el('label', 'settings-row');
+        const cb = el('input', '');
+        cb.type = 'checkbox';
+        cb.checked = !!checked;
+        cb.disabled = true; // 未配置 key 时置灰, 指向配置区
+        cb.onchange = () => onChange(cb.checked, cb);
+        row.appendChild(cb);
+        row.appendChild(el('span', null, label));
+        const tipEl = el('div', 'settings-hint', tip);
+        const wrap = el('div', 'settings-section');
+        wrap.append(row, tipEl);
+        return { cb, wrap };
+      };
+      const lookupSwitch = mkSwitch(
+        '① 查词失败时可用在线 AI',
+        '只发 1 个词 + 所在那 1 句 (~200 字符)。绝不自动回退 —— 本地查词失败时面板给「用在线 AI 查一次」, 点一下才外发, 发前显示将发送内容。',
+        false,
+        (v, cb) => {
+          onlineStatus.textContent = v ? '开启①中…' : '关闭①中…';
+          AiduMiscService.onlineConfigSet(onlineEndpoint.value.trim(), onlineModel.value.trim(), onlineKey.value.trim(), v, null)
+            .then((r) => {
+              if (!r.ok) { cb.checked = !v; onlineStatus.textContent = '保存失败: ' + r.error; return; }
+              onlineKey.value = '';
+              onlineStatus.textContent = '已保存 · 查词在线 ' + (v ? '开启' : '关闭') + ' · key: ' + (r.data && r.data.key_configured ? '已配置' : '未配置');
+            });
+        }
+      );
+      const wholeBookSwitch = mkSwitch(
+        '② 整本翻译/讲解可用在线引擎',
+        '会发送全书正文 (外发量可能很大)。默认关闭 —— 开启时每本确认后才发送。',
+        false,
+        (v, cb) => {
+          onlineStatus.textContent = v ? '开启②中…' : '关闭②中…';
+          AiduMiscService.onlineConfigSet(onlineEndpoint.value.trim(), onlineModel.value.trim(), onlineKey.value.trim(), null, v)
+            .then((r) => {
+              if (!r.ok) { cb.checked = !v; onlineStatus.textContent = '保存失败: ' + r.error; return; }
+              onlineKey.value = '';
+              onlineStatus.textContent = '已保存 · 整本在线 ' + (v ? '开启' : '关闭') + ' · key: ' + (r.data && r.data.key_configured ? '已配置' : '未配置');
+            });
+        }
+      );
+      onlineSec.append(onlineEndpoint, onlineModel, onlineKey, lookupSwitch.wrap, wholeBookSwitch.wrap, onlineRow, onlineStatus);
       systemPane.appendChild(onlineSec);
 
       AiduMiscService.onlineConfigGet().then((res) => {
@@ -279,14 +324,30 @@
         onlineModel.value = d.model || '';
         onlineStatus.textContent = 'key: ' + (d.key_configured ? '已配置' : '未配置') +
           (d.endpoint ? ' · ' + d.endpoint : '') + (d.model ? ' · ' + d.model : '');
+        // L8: 回显两档开关; 只有端点+key 都齐了才允许开 (否则置灰指向配置区)
+        const canEnable = !!(d.endpoint && d.key_configured);
+        lookupSwitch.cb.checked = !!d.lookup_enabled;
+        wholeBookSwitch.cb.checked = !!d.whole_book_enabled;
+        lookupSwitch.cb.disabled = !canEnable;
+        wholeBookSwitch.cb.disabled = !canEnable;
+        if (!canEnable) {
+          onlineStatus.textContent = '先填 endpoint + API key 并保存, 再启用上面的开关。' +
+            (d.key_configured ? '' : ' (key 未配置)');
+        }
       });
       onlineSave.onclick = () => {
         onlineStatus.textContent = '保存中…';
-        AiduMiscService.onlineConfigSet(onlineEndpoint.value.trim(), onlineModel.value.trim(), onlineKey.value.trim())
+        AiduMiscService.onlineConfigSet(onlineEndpoint.value.trim(), onlineModel.value.trim(), onlineKey.value.trim(),
+          lookupSwitch.cb.checked, wholeBookSwitch.cb.checked)
           .then((r) => {
             if (!r.ok) { onlineStatus.textContent = '保存失败: ' + r.error; return; }
             onlineKey.value = '';
-            onlineStatus.textContent = '已保存 · key: ' + (r.data.key_configured ? '已配置' : '未配置');
+            const d = r.data || {};
+            onlineStatus.textContent = '已保存 · key: ' + (d.key_configured ? '已配置' : '未配置') +
+              ' · ①' + (d.lookup_enabled ? '开' : '关') + ' · ②' + (d.whole_book_enabled ? '开' : '关');
+            // 保存后 key/endpoint 齐了才允许开开关
+            lookupSwitch.cb.disabled = !(onlineEndpoint.value.trim() && d.key_configured);
+            wholeBookSwitch.cb.disabled = !(onlineEndpoint.value.trim() && d.key_configured);
           });
       };
       onlineTest.onclick = () => {

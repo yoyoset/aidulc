@@ -906,5 +906,36 @@ console.log('== 9. J1/J2: 模型按功能分组, 判据=该功能有无可用模
   globalThis.ModelsView = fakeModelsView;
 }
 
+console.log('== 9b. L5 (2026-08-11): 页头动作按钮成组 (.page-toolbar + gap), 不再被 space-between 撑开 ==');
+{
+  // 三处页头 (生词本/模型与依赖/同步) 的动作按钮必须收进 .page-toolbar 单一 flex 容器。
+  load('app/page_toolbar.js');
+  const toolbarCss = readFileSync(join(root, 'styles/app.css'), 'utf8');
+  const hasGap = /\.page-toolbar\s*\{[^}]*gap:\s*var\(--md-sys-space-2\)/.test(toolbarCss);
+  check('L5: .page-toolbar 用 gap: var(--md-sys-space-2) (组内间距固定)', hasGap);
+  // 模型与依赖页头: 动作按钮在 .page-toolbar 里, 不再直接是 page-header 的子按钮。
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [] });
+  globalThis.AiduMiscService.runtimeConfig = async () => ({ ok: true, data: {} });
+  load('views/models_view.js');
+  const mv5 = new globalThis.ModelsView(new globalThis.AiduStore());
+  const mc5 = makeElement('div');
+  mv5.render(mc5);
+  await new Promise((r) => setTimeout(r, 60));
+  const ph5 = mc5.querySelector && mc5.querySelector('.page-header');
+  const tb5 = ph5 && ph5.querySelector('.page-toolbar');
+  const tbButtons = tb5 ? queryAll(tb5, 'button').length : 0;
+  const headerDirectButtons = ph5 ? queryAll(ph5, 'button').length - tbButtons : 0;
+  check('L5: 页头动作按钮收进 .page-toolbar (无直系散列按钮)', ph5 && tb5 && headerDirectButtons === 0, 'direct=' + headerDirectButtons + ' inToolbar=' + tbButtons);
+  // 生词本页头同样用 .page-toolbar
+  load('views/vocab_view.js');
+  const fakeVocabModels = globalThis.ModelsView; // 占位, 不影响
+  const vv5 = new globalThis.VocabView(new globalThis.AiduStore());
+  const vc5 = makeElement('div');
+  vv5.render(vc5);
+  await new Promise((r) => setTimeout(r, 60));
+  const phv = vc5.querySelector && vc5.querySelector('.page-header');
+  check('L5: 生词本页头也用 .page-toolbar (备份/恢复/导出成组)', phv && !!phv.querySelector('.page-toolbar'));
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

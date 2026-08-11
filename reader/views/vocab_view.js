@@ -30,9 +30,6 @@
     render(container) {
       container.innerHTML = '';
       const wrap = el('div', 'vocab-view');
-      const header = el('div', 'page-header');
-      header.appendChild(el('h1', null, '生词本'));
-
       // F27 (2026-08-08): .aidu-data 备份/恢复 —— 用户需求 item 9 的 UI 出口,
       // 此前 transfer_export/import 命令注册了但零前端调用。
       const backupBtn = el('button', 'btn-small', '备份');
@@ -43,7 +40,15 @@
       restoreBtn.onclick = () => this._restore();
       const exportBtn = el('button', 'btn-small', '导出 JSON');
       exportBtn.onclick = () => this._export();
-      header.append(backupBtn, restoreBtn, exportBtn);
+      // L5 (2026-08-11): 页头工具条 —— 按钮成组靠右、组内间距固定, 不再被 space-between 撑开。
+      const header = global.AiduPageToolbar
+        ? global.AiduPageToolbar.build('生词本', [backupBtn, restoreBtn, exportBtn])
+        : (() => {
+            const h = el('div', 'page-header');
+            h.appendChild(el('h1', null, '生词本'));
+            h.append(backupBtn, restoreBtn, exportBtn);
+            return h;
+          })();
       wrap.appendChild(header);
 
       // 搜索 + 筛选

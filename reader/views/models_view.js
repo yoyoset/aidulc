@@ -47,16 +47,21 @@
       this.host = container;
       container.innerHTML = '';
       const wrap = el('div', 'models-view');
-      const header = el('div', 'page-header');
-      header.appendChild(el('h1', null, '模型与依赖'));
       // J1 (2026-08-11): 扫描保留但降为次要操作
       const scanBtn = el('button', 'btn-small', '扫描已有模型');
       scanBtn.onclick = () => this._scanAndRegister();
-      header.appendChild(scanBtn);
       // J4 (2026-08-11): 自定义模型 —— 粘 HF 链接添加
       const customBtn = el('button', 'btn-small', '添加自定义模型');
       customBtn.onclick = () => this._openCustomModelForm();
-      header.appendChild(customBtn);
+      // L5 (2026-08-11): 页头工具条 —— 按钮成组靠右、组内间距固定, 不再被 space-between 撑开。
+      const header = global.AiduPageToolbar
+        ? global.AiduPageToolbar.build('模型与依赖', [scanBtn, customBtn])
+        : (() => {
+            const h = el('div', 'page-header');
+            h.appendChild(el('h1', null, '模型与依赖'));
+            h.append(scanBtn, customBtn);
+            return h;
+          })();
       wrap.appendChild(header);
 
       const listEl = el('div', 'models-list');

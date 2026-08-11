@@ -235,6 +235,15 @@ body::before {
   margin: 0;
   color: var(--md-sys-color-on-surface);
 }
+/* L5 (2026-08-11): 页头动作工具条 —— 标题靠左, 动作按钮成组靠右且组内间距固定。
+   此前的空间题根因是 page-header { justify-content: space-between } 把标题和 2~3 个按钮
+   撑到整行两端, 中间巨大空白。现在动作按钮收进这一个容器 (单一 flex + gap), 由页面组件
+   复用, 不再让按钮之间被 space-between 撑开。 */
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-space-2);
+}
 
 /* ---- M7 涓婚鑹插潡閫夋嫨鍣?(璁剧疆椤?闃呰鍣ㄦ诞灞傚叡鐢? ---- */
 .rd-theme-chips { display: flex; gap: 8px; align-items: center; }

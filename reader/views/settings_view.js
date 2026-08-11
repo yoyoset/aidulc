@@ -344,7 +344,9 @@
       forceFullBtn.disabled = true;
       moreBtn.onclick = () => moreBox.classList.toggle('hidden');
       moreBox.append(codeBtn, inviteBtn, pairBtn, forceFullBtn, disconnectBtn);
-      const syncRow = el('div', 'settings-row');
+      // L5 (2026-08-11): 同步动作按钮成组、组内间距固定 —— 不再被 space-between 撑开
+      // (此前是 settings-row 里的散列按钮, 用户抱怨"间隔太远")。
+      const syncRow = el('div', 'page-toolbar');
       syncRow.style.flexWrap = 'wrap';
       syncRow.append(syncBtn, pullBtn, moreBtn);
       syncSec.append(syncStatus, urlInput, secretInput, authBtn, syncRow, moreBox);

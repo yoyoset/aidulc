@@ -880,9 +880,12 @@ console.log('== 9. J1/J2: 模型按功能分组, 判据=该功能有无可用模
   // 段标题直接读第一个子元素 (stub 的 querySelector 对 tag 选择器有兼容问题, 直读更稳)
   const groupTitle = (g) => { const h2 = (g._children || []).find((x) => x.tagName === 'H2'); return h2 ? h2.textContent : ''; };
   const groupTexts = groups.map(groupTitle);
-  check('三段标题: 翻译/讲解 + 语音合成 + 语音识别', groupTexts.some((t) => t.includes('翻译')) && groupTexts.some((t) => t.includes('语音合成')) && groupTexts.some((t) => t.includes('语音识别')), JSON.stringify(groupTexts));
+  check('三段标题: 翻译/讲解 + 语音合成 + 分词/NLP', groupTexts.some((t) => t.includes('翻译')) && groupTexts.some((t) => t.includes('语音合成')) && groupTexts.some((t) => t.includes('分词')), JSON.stringify(groupTexts));
+  check('L4: 界面不再出现「语音识别」', !groupTexts.some((t) => t.includes('语音识别')), JSON.stringify(groupTexts));
+  const mcText = (mc.textContent || '').replace(/\s+/g, '');
+  check('L4: 界面不再出现「跟读打分」', !mcText.includes('跟读打分'));
   // 翻译段: 有可用模型 → 显示"可用" + 换一个, 不显示"去下载"
-  const llmSec = groups.find((g) => groupTitle(g).includes('翻译 / 讲解'));
+  const llmSec = groups.find((g) => groupTitle(g).includes('翻译/讲解'));
   const llmRow = llmSec && llmSec.querySelector('.model-row');
   const llmName = llmRow && llmRow.querySelector('.model-name').textContent;
   const llmBadge = llmRow && queryAll(llmRow, '.book-badge').map((b) => b.textContent);

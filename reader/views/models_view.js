@@ -30,6 +30,14 @@
     },
   ];
 
+  // L4 (2026-08-11): nlp 家族的真实身份是 spaCy 分词/NLP (分句、词形还原、短语识别),
+  // 不是"语音识别" —— 全项目没有任何 ASR/跟读打分实现。统一从这里取标签, 不再散落。
+  const FAM_LABEL = {
+    llm: '翻译/讲解',
+    tts: '语音合成',
+    nlp: '分词 / NLP',
+  };
+
   class ModelsView {
     constructor(store) {
       this.store = store;
@@ -79,7 +87,7 @@
       box.className = 'modal-box';
       box.setAttribute('role', 'dialog');
       box.setAttribute('aria-modal', 'true');
-      const famLabel = { llm: '翻译/讲解', tts: '语音合成', nlp: '语音识别' }[family] || family;
+      const famLabel = FAM_LABEL[family] || family;
       const title = el('h2', 'modal-title', `下载${famLabel}模型`);
       const body = el('div', 'book-settings-body');
       const rows = el('div', 'model-download-list');
@@ -113,7 +121,7 @@
       box.className = 'modal-box';
       box.setAttribute('role', 'dialog');
       box.setAttribute('aria-modal', 'true');
-      const famLabel = { llm: '翻译/讲解', tts: '语音合成', nlp: '语音识别' }[family] || family;
+      const famLabel = FAM_LABEL[family] || family;
       const title = el('h2', 'modal-title', `切换${famLabel}模型`);
       const body = el('div', 'book-settings-body');
       usable.forEach((m) => {
@@ -159,7 +167,7 @@
       const status = el('div', 'sync-status', '');
       const famRow = el('div', 'prep-row');
       const famSel = el('select', 'prep-select');
-      [['llm', '翻译/讲解'], ['tts', '语音合成'], ['nlp', '语音识别']].forEach(([v, l]) => {
+      [['llm', '翻译/讲解'], ['tts', '语音合成'], ['nlp', '分词 / NLP']].forEach(([v, l]) => {
         const opt = el('option', null, l); opt.value = v; famSel.appendChild(opt);
       });
       famRow.append(el('span', null, '用途:'), famSel);
@@ -317,15 +325,16 @@
     }
 
     /** J1/J2 (2026-08-11): 按功能分组 —— 每段回答"当前用什么/有没有/要不要补/更新"。
-     *  翻译讲解 / 语音合成 / 语音识别(可选) 三段。一键下载不再是独立区块, 而是每段里
-     *  没有可用模型时的「去下载」。判据 (J2): 该 family 有没有已登记且文件存在的模型,
-     *  有 → 「已配置(名称)」+「换一个」; 没有 → 提供下载。 */
+     *  翻译讲解 / 语音合成 / 分词NLP 三段 (L4: nlp 是 spaCy 分词, 不是语音识别)。
+     *  一键下载不再是独立区块, 而是每段里没有可用模型时的「去下载」。判据 (J2):
+     *  该 family 有没有已登记且文件存在的模型, 有 → 「已配置(名称)」+「换一个」;
+     *  没有 → 提供下载。 */
     _renderGrouped(listEl, models) {
       listEl.innerHTML = '';
       const all = (models || []).filter((m) => ['llm', 'tts', 'nlp'].includes(m.family));
       // J2 核心判据: 该 family 是否有"已登记且文件存在"的模型
       const usableOf = (family) => all.filter((m) => m.family === family && m.path && String(m.path).trim() !== '');
-      const famLabel = { llm: '翻译 / 讲解', tts: '语音合成', nlp: '语音识别 (可选)' };
+      const famLabel = FAM_LABEL;
 
       const section = (family, tip, missingTip) => {
         const sec = el('div', 'model-group');
@@ -361,7 +370,7 @@
 
       section('llm', '解释词义、例句翻译、讲解。处理书籍前必须先有这个。', '未配置 —— 翻译/讲解需要它, 否则无法处理书籍。');
       section('tts', '朗读原文/译文。没有语音不影响文字阅读。', '未配置 —— 没有语音合成不影响文字阅读, 需要跟读/听读时再下载。');
-      section('nlp', '未配置不影响阅读, 仅"跟读打分"需要。', '未配置 —— 不影响阅读, 仅"跟读打分"需要。');
+      section('nlp', '分词 / NLP: 分句、词形还原 (lemma)、短语识别, 备料时自动用。未配置时用内置兜底, 不影响阅读。', '未配置 —— 用内置兜底分词, 不影响阅读; 需要精确分词时再下载。');
 
       // 其余已登记模型收进"全部模型"折叠区 (J1: 不再两套并列, 这里是次要的登记清单)
       if (all.length) {

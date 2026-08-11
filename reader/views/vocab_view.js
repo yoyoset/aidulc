@@ -18,6 +18,7 @@
       this.profileId = 'default';
       this.entries = [];
       this.filter = 'all'; // all | new | learning | review | mastered
+      this.selected = new Set(); // H3: 批量选择的 lemma
     }
 
     render(container) {
@@ -69,6 +70,10 @@
 
       const listEl = el('div', 'vocab-list');
       wrap.appendChild(listEl);
+      // H3: 批量选择条 (勾选词后出现, 在词表上方)
+      const batchBar = el('div', 'vocab-batch-bar hidden');
+      wrap.insertBefore(batchBar, listEl);
+      this.batchBarEl = batchBar;
       // M7 R34: 近 14 天每日新增条形图 (坚持可见)
       this.chartEl = el('div', 'vocab-chart-wrap');
       wrap.insertBefore(this.chartEl, listEl);
@@ -164,18 +169,26 @@
     _renderList() {
       const q = (this.searchInput.value || '').toLowerCase();
       const filter = this.filter;
+      // H3 (2026-08-11): 「已掌握」默认不在「全部」里占位 —— 设计的筛选本就把它单列。
+      // "全部" = 还在学/还没学的词; 已掌握只通过"已掌握"筛选看。
       const items = this.entries.filter(e => {
-        if (filter !== 'all' && e.stage !== filter) return false;
+        if (filter === 'all') {
+          if (e.stage === 'mastered') return false;
+        } else if (e.stage !== filter) return false;
         if (q && !(e.word + ' ' + e.meaning).toLowerCase().includes(q)) return false;
         return true;
       });
       this.listEl.innerHTML = '';
+      // H3: 批量选择条 (勾选词后出现)
+      this._renderBatchBar();
       if (!items.length) {
         // 苹果级空态: 三步引导 (下一步做什么)
         const empty = el('div', 'book-empty',
           this.entries.length === 0
             ? '生词本还是空的。三步加入生词:'
-            : '没有符合条件的生词。');
+            : (filter === 'all' && this.entries.every((e) => e.stage === 'mastered'))
+              ? '全部词都已掌握 🎉 用「已掌握」筛选回顾。'
+              : '没有符合条件的生词。');
         if (this.entries.length === 0) {
           const steps = el('div', 'vocab-steps');
           ['① 打开一本就绪的书', '② 点句子里的单词, 查看释义', '③ 点"加入生词本"'].forEach(s => {
@@ -192,35 +205,163 @@
         return;
       }
       items.forEach(e => {
-        const row = el('div', 'vocab-row');
+        // H3: 单行压缩 —— 词 · 释义 · 阶段 · 到期; 原句默认收起 (点行展开)。
+        const row = el('div', 'vocab-row' + (this.selected.has(e.lemma) ? ' selected' : ''));
         const head = el('div', 'vocab-row-head');
+        const check = el('input', 'vocab-check');
+        check.type = 'checkbox';
+        check.checked = this.selected.has(e.lemma);
+        check.title = '批量选择';
+        check.onclick = (ev) => { ev.stopPropagation(); this._toggleSelect(e.lemma); };
         const word = el('span', 'vocab-word', e.word);
         const meaning = el('span', 'vocab-meaning', e.meaning || '—');
         const stageLabel = { new: '新词', learning: '学习中', review: '复习中', mastered: '已掌握' }[e.stage] || e.stage;
         const stage = el('span', 'vocab-stage', stageLabel);
         const added = el('span', 'vocab-added',
           new Date(e.added_at || Date.now()).toLocaleDateString());
-        head.append(word, meaning, stage, added);
+        // H3: 行尾 ⋯ 菜单 (维护动作): 移出生词本 / 标记已掌握 / 编辑释义 / 在阅读器中打开
+        const menuBtn = el('button', 'vocab-menu-btn', '⋯');
+        menuBtn.title = '更多操作';
+        menuBtn.onclick = (ev) => { ev.stopPropagation(); this._openRowMenu(e, row); };
+        head.append(check, word, meaning, stage, added, menuBtn);
         row.appendChild(head);
-        // 阶段6 设计交付 §04: 来源句上下文 —— 原句, 左侧 2px 强调竖线 (苹果级: 词脱离句子背不下来)
-        if (e.context && String(e.context).trim()) {
-          const ctx = el('div', 'vocab-context', String(e.context).trim());
+        // 原句: 默认收起 (点行展开)
+        const hasCtx = e.context && String(e.context).trim();
+        if (hasCtx) {
+          const ctx = el('div', 'vocab-context collapsed', String(e.context).trim());
           row.appendChild(ctx);
+          head.onclick = () => {
+            row.classList.toggle('expanded');
+            ctx.classList.toggle('collapsed');
+          };
+        } else {
+          head.onclick = () => row.classList.toggle('expanded');
         }
-        const del = el('button', 'btn-small btn-danger', '删除');
-        del.onclick = () => {
+        this.listEl.appendChild(row);
+      });
+    }
+
+    /** H3: 批量选择条 —— 勾选词后出现: 批量移出 / 批量标记已掌握 */
+    _renderBatchBar() {
+      if (!this.batchBarEl) return;
+      if (!this.selected.size) { this.batchBarEl.classList.add('hidden'); return; }
+      this.batchBarEl.classList.remove('hidden');
+      this.batchBarEl.innerHTML = '';
+      this.batchBarEl.appendChild(el('span', 'vocab-batch-count', `已选 ${this.selected.size} 词`));
+      const removeBtn = el('button', 'btn-small btn-danger', '批量移出');
+      removeBtn.onclick = () => {
+        AiduModal.confirm({
+          title: `移出 ${this.selected.size} 个生词?`,
+          message: '这些词将从生词本移除。',
+          confirmText: '移出',
+          danger: true,
+          onConfirm: () => this._batchAction((lemma) => AiduDictionaryService.vocabRemove(this.profileId, lemma)),
+        });
+      };
+      const masterBtn = el('button', 'btn-small', '批量标记已掌握');
+      masterBtn.onclick = () => {
+        AiduModal.confirm({
+          title: `把 ${this.selected.size} 个词标记为已掌握?`,
+          message: '已掌握的词不再进今日队列, 可在筛选里查看。',
+          confirmText: '标记',
+          onConfirm: () => this._batchAction((lemma) => {
+            const entry = this.entries.find((e) => e.lemma === lemma);
+            if (!entry) return Promise.resolve({ ok: true });
+            const now = Date.now();
+            const updated = Object.assign({}, entry, {
+              stage: 'mastered', updated_at: now, next_review: now + 30 * 86400000,
+            });
+            return AiduDictionaryService.srsRestore(this.profileId, updated);
+          }),
+        });
+      };
+      const clearBtn = el('button', 'btn-small', '取消选择');
+      clearBtn.onclick = () => { this.selected.clear(); this._renderList(); };
+      this.batchBarEl.append(removeBtn, masterBtn, clearBtn);
+    }
+
+    /** H3: 批量动作顺序执行, 完成后重载 */
+    async _batchAction(fn) {
+      const lemmas = Array.from(this.selected);
+      for (const l of lemmas) {
+        const r = await fn(l);
+        if (!r.ok) { AiduToast.show('批量操作中断: ' + r.error, 'error'); break; }
+      }
+      this.selected.clear();
+      AiduToast.show(`已处理 ${lemmas.length} 词`, 'success');
+      this._load();
+    }
+
+    _toggleSelect(lemma) {
+      if (this.selected.has(lemma)) this.selected.delete(lemma);
+      else this.selected.add(lemma);
+      this._renderList();
+    }
+
+    /** H3: 行尾 ⋯ 菜单 —— 维护动作不进满宽按钮 */
+    _openRowMenu(e, row) {
+      const ov = document.createElement('div');
+      ov.className = 'modal-overlay';
+      const box = document.createElement('div');
+      box.className = 'vocab-menu';
+      box.setAttribute('role', 'menu');
+      const items = [
+        ['移出生词本', () => {
           AiduModal.confirm({
             title: `删除生词 ${e.word}?`,
             message: '这个词将从生词本移除。',
-            confirmText: '删除',
-            danger: true,
+            confirmText: '删除', danger: true,
             onConfirm: () => AiduDictionaryService.vocabRemove(this.profileId, e.lemma)
-              .then(() => { this._load(); AiduToast.show('已删除 ' + e.word, 'info'); }),
+              .then(() => { this._load(); AiduToast.show('已移出 ' + e.word, 'info'); }),
           });
-        };
-        row.appendChild(del);
-        this.listEl.appendChild(row);
+        }],
+        ['标记已掌握', () => {
+          const now = Date.now();
+          const updated = Object.assign({}, e, { stage: 'mastered', updated_at: now, next_review: now + 30 * 86400000 });
+          AiduDictionaryService.srsRestore(this.profileId, updated).then((r) => {
+            if (!r.ok) { AiduToast.show('失败: ' + r.error, 'error'); return; }
+            AiduToast.show('已标记已掌握: ' + e.word, 'success');
+            this._load();
+          });
+        }],
+        ['编辑释义', () => {
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.value = e.meaning || '';
+          const m = global.AiduModal.confirm({
+            title: `编辑释义: ${e.word}`,
+            message: '',
+            confirmText: '保存',
+            onConfirm: () => {
+              const updated = Object.assign({}, e, { meaning: input.value, updated_at: Date.now() });
+              return AiduDictionaryService.srsRestore(this.profileId, updated).then((r) => {
+                if (r.ok) { AiduToast.show('释义已更新', 'success'); this._load(); }
+                return r;
+              });
+            },
+          });
+          const msg = m.box && m.box.querySelector('.modal-message');
+          if (msg) { msg.textContent = ''; msg.appendChild(input); input.focus(); }
+        }],
+        ['在阅读器中打开', () => {
+          if (!e.edition_id) { AiduToast.show('这个词没有来源定位, 无法打开', 'info'); return; }
+          if (global.AiduStore && global.AiduRouter) {
+            global.AiduStore.set({ currentBook: { id: e.edition_id, title: e.edition_id } });
+            global.AiduStore.set({ readerBackRoute: 'vocab' });
+            global.AiduStore.set({ vocabJump: { chapter: e.chapter_index, sentence: e.sentence_index } });
+            window.location.hash = '#/reader';
+          }
+        }],
+      ];
+      items.forEach(([label, fn]) => {
+        const it = el('button', 'vocab-menu-item', label);
+        it.onclick = () => { ov.remove(); fn(); };
+        box.appendChild(it);
       });
+      ov.appendChild(box);
+      ov.addEventListener('click', (ev) => { if (ev.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
+      if (row) row.classList.add('menu-open');
     }
 
     /** H5 (2026-08-11): 词频批量剔除 —— dry-run 先给数字, 用户确认后执行 */

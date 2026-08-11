@@ -677,3 +677,38 @@ body::before {
 .review-source-sentence { font-size: var(--md-sys-font-size-body-l); line-height: 1.8; color: var(--md-sys-color-on-surface); }
 .review-source-empty { font-size: var(--md-sys-font-size-body-m); color: var(--md-sys-color-on-surface-variant); }
 .review-done { font-size: var(--md-sys-font-size-title-l); color: var(--md-sys-color-on-surface-variant); }
+
+/* ---- H3 (2026-08-11): 生词本单行压缩 + ⋯ 菜单 + 批量选择 ---- */
+.vocab-row { cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease; }
+.vocab-row:hover { background: color-mix(in srgb, var(--md-sys-color-surface-variant) 40%, transparent); }
+.vocab-row.selected { border-color: var(--md-sys-color-primary); }
+.vocab-context.collapsed { display: none; }
+.vocab-menu-btn {
+  border: 0; background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 1.1rem; line-height: 1; padding: 4px 8px; cursor: pointer;
+  border-radius: var(--md-sys-radius-sm);
+}
+.vocab-menu-btn:hover { background: var(--md-sys-color-surface-variant); }
+.vocab-check { accent-color: var(--md-sys-color-primary); cursor: pointer; flex: none; }
+.vocab-batch-bar {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin-bottom: 8px;
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 45%, transparent);
+  border-radius: var(--md-sys-radius-sm);
+  background: color-mix(in srgb, var(--md-sys-color-primary) 6%, transparent);
+}
+.vocab-batch-bar.hidden { display: none; }
+.vocab-batch-count { font-size: 0.82rem; color: var(--md-sys-color-on-surface); font-weight: 600; }
+.vocab-menu {
+  min-width: 220px; background: var(--md-sys-color-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-md); padding: var(--md-sys-space-2);
+  box-shadow: var(--md-sys-elevation-2); display: flex; flex-direction: column;
+}
+.vocab-menu-item {
+  border: 0; background: transparent; text-align: left;
+  padding: var(--md-sys-space-2) var(--md-sys-space-3);
+  border-radius: var(--md-sys-radius-sm); color: var(--md-sys-color-on-surface);
+  cursor: pointer; font-size: 0.9rem;
+}
+.vocab-menu-item:hover { background: var(--md-sys-color-surface-variant); }

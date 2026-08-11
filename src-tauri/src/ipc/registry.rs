@@ -205,6 +205,26 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "F4: 强制全量重推(清 sync_state, 服务端数据被清后用)",
     },
     CommandInfo {
+        path: "commands::reader::sync_backends_list",
+        domain: "同步",
+        desc: "L11: 后端列表(名称+URL+是否当前生效/已连接)",
+    },
+    CommandInfo {
+        path: "commands::reader::sync_backend_add",
+        domain: "同步",
+        desc: "L11: 新增后端(只加列表不切换)",
+    },
+    CommandInfo {
+        path: "commands::reader::sync_backend_switch",
+        domain: "同步",
+        desc: "L11: 切换后端(改 cf_worker_url; endpoint_key 不匹配自动全量重推)",
+    },
+    CommandInfo {
+        path: "commands::reader::sync_backend_remove",
+        domain: "同步",
+        desc: "L11: 删除后端(不能删当前生效的)",
+    },
+    CommandInfo {
         path: "commands::reader::sync_auth_device",
         domain: "同步",
         desc: "V6: ROOT_SECRET/6 位码 换该 user 的 token (协议 v1)",

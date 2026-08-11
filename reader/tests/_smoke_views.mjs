@@ -180,6 +180,9 @@ globalThis.AiduSyncService = {
   disconnect: async () => ({ ok: true }), authDevice: async () => ({ ok: true, data: { user_id: 'me', device_id: 'd' } }),
   makeCode: async () => ({ ok: true, data: { code: '123456' } }),
   forceFull: async () => ({ ok: true }),
+  // L11 (2026-08-11): 多后端 (空列表; 各测试覆盖时自行 stub)
+  backendsList: async () => ({ ok: true, data: [] }),
+  backendAdd: async () => ({ ok: true }), backendSwitch: async () => ({ ok: true }), backendRemove: async () => ({ ok: true }),
 };
 globalThis.AiduDictionaryService = { list: async () => ({ ok: true, data: [] }), vocabAll: async () => ({ ok: true, data: [] }), lookup: async () => ({ ok: true, data: {} }), lookupOnline: async () => ({ ok: true, data: ['NOUN', '', ['在线释义'], [], [], '', []] }), addToVocab: async () => ({ ok: true, data: { added: 'x', common_word: false } }), vocabRemove: async () => ({ ok: true }), srsPreview: async () => ({ ok: true, data: { options: [1,2,3,4].map((g) => ({ grade: g, human: g + ' 天' })) } }), srsGrade: async (p, l, g) => ({ ok: true, data: {} }), srsRestore: async () => ({ ok: true, data: {} }), vocabCommonPreview: async () => ({ ok: true, data: { count: 0, top_n: 3000, lemmas: [] } }), vocabRemoveCommon: async () => ({ ok: true, data: { removed: 0, backup_path: '' } }), vocabBacklogPreview: async () => ({ ok: true, data: { backlog_count: 0, daily_cap: 40, days: 0, today_after: 0, today_before: 0 } }), vocabBacklogSpread: async () => ({ ok: true, data: { spread: 0, days: 0, backup_path: '' } }) };
 globalThis.AiduReadingService = { get: async () => ({ ok: true, data: null }), save: async () => ({ ok: true }), stats: async () => ({ ok: true, data: {} }) };
@@ -419,6 +422,51 @@ console.log('== 2e. L7 (2026-08-11): 加载已有书库 —— 扫描→确认�
   confirmCaptured && confirmCaptured.onConfirm && confirmCaptured.onConfirm();
   await new Promise((r) => setTimeout(r, 40));
   check('L7: 确认后调 import (只登记)', importCalls.length === 1 && importCalls[0].length === 1, JSON.stringify(importCalls));
+}
+
+console.log('== 2f. L11 (2026-08-11): 多后端列表 —— 当前高亮 / 切换 / 新增 ==');
+{
+  store.state.settingsTab = 'sync';
+  const backendCalls = { list: [], add: [], sw: [], rm: [] };
+  globalThis.AiduSyncService.backendsList = async () => {
+    backendCalls.list.push(1);
+    return { ok: true, data: [
+      { name: '默认后端', url: 'https://a.workers.dev', active: true, connected: true },
+      { name: '家里', url: 'https://b.workers.dev', active: false, connected: false },
+    ] };
+  };
+  globalThis.AiduSyncService.backendAdd = async (name, url) => { backendCalls.add.push([name, url]); return { ok: true }; };
+  globalThis.AiduSyncService.backendSwitch = async (name) => { backendCalls.sw.push(name); return { ok: true }; };
+  globalThis.AiduSyncService.backendRemove = async (name) => { backendCalls.rm.push(name); return { ok: true }; };
+  const sv = new globalThis.SettingsView(store);
+  const container = makeElement('div');
+  sv.render(container);
+  await new Promise((r) => setTimeout(r, 80));
+  store.state.settingsTab = null;
+  const rows = queryAll(container, '.sync-backend-row');
+  check('L11: 后端列表渲染 2 行', rows.length === 2, 'rows=' + rows.length);
+  const activeRow = rows[0];
+  check('L11: 当前后端高亮 (active)', activeRow && activeRow.className.includes('active'));
+  check('L11: 当前后端无「切换/删除」按钮', rows[0] && queryAll(rows[0], 'button').length === 0);
+  const homeRow = rows[1];
+  const swBtn = homeRow && queryAll(homeRow, 'button').find((b) => b.textContent === '切换');
+  const rmBtn = homeRow && queryAll(homeRow, 'button').find((b) => b.textContent === '删除');
+  check('L11: 非当前后端有「切换/删除」', !!swBtn && !!rmBtn);
+  swBtn && swBtn.onclick();
+  await new Promise((r) => setTimeout(r, 20));
+  check('L11: 点切换 → backendSwitch(家里)', backendCalls.sw.join(',') === '家里', backendCalls.sw.join(','));
+  rmBtn && rmBtn.onclick();
+  await new Promise((r) => setTimeout(r, 20));
+  check('L11: 点删除 → backendRemove(家里)', backendCalls.rm.join(',') === '家里', backendCalls.rm.join(','));
+  // 新增
+  const nameInput = queryAll(container, 'input').find((i) => i.placeholder === '名称 (如 家里的 / 单位 的)');
+  const urlInput2 = queryAll(container, 'input').find((i) => i.placeholder === 'Worker URL');
+  const addBtn2 = queryAll(container, 'button').find((b) => b.textContent === '新增后端');
+  nameInput && (nameInput.value = '单位');
+  urlInput2 && (urlInput2.value = 'https://c.workers.dev');
+  addBtn2 && addBtn2.onclick();
+  await new Promise((r) => setTimeout(r, 20));
+  check('L11: 新增 → backendAdd(单位, url)', backendCalls.add.some(([n, u]) => n === '单位' && u === 'https://c.workers.dev'), JSON.stringify(backendCalls.add));
 }
 
 console.log('== 3. library_view 导入格 (G1): 网格最后一格, 无下拉, 点击走 pickFiles ==');

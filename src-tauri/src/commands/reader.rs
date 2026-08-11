@@ -681,6 +681,125 @@ pub fn sync_force_full(db: State<store::Db>, user_id: String) -> Result<(), Stri
     crate::application::sync_service::force_full_reset(db.inner(), &user_id)
 }
 
+// ---- L11 (2026-08-11): 多后端配置 —— "谁的库选谁的" ----
+
+/// 后端列表: 每项 = 名称 + URL + 状态 (当前生效高亮 / 该后端是否已连接)。
+/// 首次读时把当前 cf_worker_url 补成「默认后端」, 列表不为空。
+#[tauri::command]
+pub fn sync_backends_list(
+    paths: State<'_, crate::DataPaths>,
+    services: State<'_, crate::AppServices>,
+    user_id: String,
+) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", &format!("enter: sync_backends_list user={user_id}"));
+    let cfg_dir = paths.inner().data_dir.clone();
+    let mut cfg = crate::services::config::Config::load(&cfg_dir);
+    let (list, changed) = cfg.backends_including_active();
+    if changed {
+        let _ = cfg.save(&cfg_dir);
+    }
+    let active_url = services.inner().cf_worker_url.lock().unwrap().clone();
+    let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
+    let out: Vec<serde_json::Value> = list
+        .into_iter()
+        .map(|b| {
+            let connected = !b.url.is_empty() && !token.is_empty();
+            serde_json::json!({
+                "name": b.name,
+                "url": b.url,
+                "active": b.url == active_url,
+                "connected": connected,
+            })
+        })
+        .collect();
+    crate::infrastructure::log::info("cmd", &format!("sync_backends_list {} 个", out.len()));
+    serde_json::to_value(out).map_err(|e| e.to_string())
+}
+
+/// 新增后端 (只加进列表, 不切换)。名称重复或 URL 重复 → 拒绝。
+#[tauri::command]
+pub fn sync_backend_add(
+    paths: State<'_, crate::DataPaths>,
+    name: String,
+    url: String,
+) -> Result<(), String> {
+    crate::infrastructure::log::info("cmd", &format!("enter: sync_backend_add {name} {url}"));
+    let name = name.trim().to_string();
+    let url = url.trim().to_string();
+    if name.is_empty() || url.is_empty() {
+        return Err("名称和 Worker URL 都要填".into());
+    }
+    let cfg_dir = paths.inner().data_dir.clone();
+    let mut cfg = crate::services::config::Config::load(&cfg_dir);
+    if cfg.sync_backends.iter().any(|b| b.name == name) {
+        return Err(format!("已存在同名后端: {name}"));
+    }
+    if cfg.sync_backends.iter().any(|b| b.url == url) {
+        return Err("已存在相同 URL 的后端".into());
+    }
+    cfg.sync_backends
+        .push(crate::services::config::SyncBackend::new(name, url));
+    cfg.save(&cfg_dir)
+}
+
+/// 切换后端 —— 改 cf_worker_url。sync_state.endpoint_key 按 URL+服务端 user 分账,
+/// 不匹配时下次同步自动全量重推 (A1 机制, 天然支持, 不新造)。
+#[tauri::command]
+pub fn sync_backend_switch(
+    paths: State<'_, crate::DataPaths>,
+    services: State<'_, crate::AppServices>,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", &format!("enter: sync_backend_switch {name}"));
+    let cfg_dir = paths.inner().data_dir.clone();
+    let mut cfg = crate::services::config::Config::load(&cfg_dir);
+    let target = cfg
+        .sync_backends
+        .iter()
+        .find(|b| b.name == name)
+        .cloned()
+        .ok_or_else(|| format!("后端不存在: {name}"))?;
+    if cfg.cf_worker_url == target.url {
+        return Ok(serde_json::json!({ "switched": false, "already": true, "url": target.url }));
+    }
+    cfg.cf_worker_url = target.url.clone();
+    cfg.save(&cfg_dir)?;
+    // 运行时生效 (AppServices.cf_worker_url 是同步命令读的)
+    *services.inner().cf_worker_url.lock().unwrap() = target.url.clone();
+    crate::infrastructure::log::info(
+        "cmd",
+        &format!("sync_backend_switch -> {url}", url = target.url),
+    );
+    Ok(serde_json::json!({
+        "switched": true,
+        "url": target.url,
+        "full_repush_on_next_sync": true,
+    }))
+}
+
+/// 删除后端 (不能删当前生效的那个)。
+#[tauri::command]
+pub fn sync_backend_remove(
+    paths: State<'_, crate::DataPaths>,
+    services: State<'_, crate::AppServices>,
+    name: String,
+) -> Result<(), String> {
+    crate::infrastructure::log::info("cmd", &format!("enter: sync_backend_remove {name}"));
+    let cfg_dir = paths.inner().data_dir.clone();
+    let mut cfg = crate::services::config::Config::load(&cfg_dir);
+    let active_url = services.inner().cf_worker_url.lock().unwrap().clone();
+    let idx = cfg
+        .sync_backends
+        .iter()
+        .position(|b| b.name == name)
+        .ok_or_else(|| format!("后端不存在: {name}"))?;
+    if cfg.sync_backends[idx].url == active_url {
+        return Err("不能删除当前生效的后端, 先切换到别处再删".into());
+    }
+    cfg.sync_backends.remove(idx);
+    cfg.save(&cfg_dir)
+}
+
 /// 拉取合并 (某 user)
 /// K2 (2026-08-11): 改 async (同 sync_now)。
 #[tauri::command]

@@ -555,7 +555,9 @@ mod meta_tests {
         b.profile_id = "kid".into();
         b.updated_at = now;
         books.upsert(&b).unwrap();
-        let edition = store::editions_repo::EditionsRepo::new(&db).get("e1").unwrap();
+        let edition = store::editions_repo::EditionsRepo::new(&db)
+            .get("e1")
+            .unwrap();
         assert_eq!(edition.profile_id, "default", "已生成译本档案不动");
         let book2 = books.get("s1").unwrap();
         assert_eq!(book2.profile_id, "kid", "书的默认档案更新");

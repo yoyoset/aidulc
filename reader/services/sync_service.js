@@ -35,6 +35,11 @@
       return AiduBridge.invoke('sync_config_set', { workerUrl, token });
     },
     disconnect(userId) { return AiduBridge.invoke('sync_disconnect', { userId: userId || currentUser() }); },
+    // L11 (2026-08-11): 多后端配置 —— "谁的库选谁的"
+    backendsList(userId) { return AiduBridge.invoke('sync_backends_list', { userId: userId || currentUser() }); },
+    backendAdd(name, url) { return AiduBridge.invoke('sync_backend_add', { name, url }); },
+    backendSwitch(name) { return AiduBridge.invoke('sync_backend_switch', { name }); },
+    backendRemove(name) { return AiduBridge.invoke('sync_backend_remove', { name }); },
     statusLabel(s) {
       return {
         unconfigured: '未配置',

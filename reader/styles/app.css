@@ -473,6 +473,19 @@ body::before {
 /* J8 (2026-08-11): 同步低频操作收进「更多」折叠区 */
 .sync-more { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; padding: 8px; border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-radius-sm); }
 .sync-more.hidden { display: none; }
+/* L11 (2026-08-11): 多后端列表 —— 每行一个后端, 当前生效高亮 */
+.sync-backend-list { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.sync-backend-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 10px; border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-sm);
+}
+.sync-backend-row.active {
+  border-color: var(--md-sys-color-primary);
+  background: color-mix(in srgb, var(--md-sys-color-primary-container) 40%, transparent);
+}
+.sync-backend-name { font-weight: 600; }
+.sync-backend-row .j0-path { font-size: 0.8rem; flex: 1; min-width: 120px; word-break: break-all; }
 /* J6 (2026-08-11): 阅读显示只读摘要 (主入口在阅读器浮层) */
 .settings-summary { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .settings-summary-row { font-size: var(--md-sys-font-size-body-s); color: var(--md-sys-color-on-surface-variant); line-height: 1.6; }

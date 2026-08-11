@@ -1,0 +1,10 @@
+﻿# aidulc 同步 Worker —— L11 测试配置 (干净 namespace, 绝不打生产 aidulc-sync-kv)
+name = "aidulc-sync-test"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[[kv_namespaces]]
+binding = "DB"
+id = "f2916e7e144e4cb7a1c7f7ad9adb61b1"

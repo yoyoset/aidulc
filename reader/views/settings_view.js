@@ -415,6 +415,61 @@
       const syncSec = el('div', 'settings-section');
       syncSec.appendChild(el('h2', null, '同步 (背单词状态跨设备)'));
       const syncStatus = el('div', 'sync-status', '读取中…');
+      // L11 (2026-08-11): 后端列表 —— "谁的库选谁的"。每项 = 名称 + URL + 状态,
+      // 当前生效高亮; 可切换 / 新增 / 删除。
+      const backendList = el('div', 'sync-backend-list');
+      const backendAddRow = el('div', 'settings-row');
+      const backendNameInput = el('input', 'prep-input');
+      backendNameInput.placeholder = '名称 (如 家里的 / 单位 的)';
+      const backendUrlInput = el('input', 'prep-input');
+      backendUrlInput.placeholder = 'Worker URL';
+      const backendAddBtn = el('button', 'btn-small btn-primary', '新增后端');
+      backendAddRow.append(backendNameInput, backendUrlInput, backendAddBtn);
+      backendAddBtn.onclick = () => {
+        AiduSyncService.backendAdd(backendNameInput.value.trim(), backendUrlInput.value.trim()).then((r) => {
+          backendNameInput.value = ''; backendUrlInput.value = '';
+          if (!r.ok) { syncStatus.textContent = '新增后端失败: ' + r.error; return; }
+          renderBackends();
+          syncStatus.textContent = '已新增后端。切过去后立即同步即可换库。';
+        });
+      };
+      const renderBackends = () => {
+        backendList.innerHTML = '';
+        AiduSyncService.backendsList().then((res) => {
+          if (!res.ok) { syncStatus.textContent = '读后端列表失败: ' + res.error; return; }
+          const list = res.data || [];
+          if (!list.length) {
+            backendList.appendChild(el('div', 'import-tip', '还没有后端。填名称 + Worker URL 新增第一个。'));
+            return;
+          }
+          list.forEach((b) => {
+            const row = el('div', 'sync-backend-row' + (b.active ? ' active' : ''));
+            const nameEl = el('span', 'sync-backend-name', b.name + (b.active ? ' (当前)' : ''));
+            const urlEl = el('code', 'j0-path', b.url);
+            const stateEl = el('span', 'book-badge ' + (b.connected ? 'badge-ok' : 'badge-idle'),
+              b.connected ? '已连接' : '未连接');
+            const actions = el('div', 'settings-row');
+            if (!b.active) {
+              const swBtn = el('button', 'btn-small btn-primary', '切换');
+              swBtn.onclick = () => AiduSyncService.backendSwitch(b.name).then((r) => {
+                if (!r.ok) { syncStatus.textContent = '切换失败: ' + r.error; return; }
+                renderBackends();
+                syncStatus.textContent = '已切换到「' + b.name + '」。下次立即同步会按新后端的库全量对齐 (endpoint 变了)。';
+              });
+              actions.appendChild(swBtn);
+              const rmBtn = el('button', 'btn-small', '删除');
+              rmBtn.onclick = () => AiduSyncService.backendRemove(b.name).then((r) => {
+                if (!r.ok) { syncStatus.textContent = '删除失败: ' + r.error; return; }
+                renderBackends();
+              });
+              actions.appendChild(rmBtn);
+            }
+            row.append(nameEl, urlEl, stateEl, actions);
+            backendList.appendChild(row);
+          });
+        });
+      };
+      renderBackends();
       const urlInput = el('input', 'prep-input');
       urlInput.placeholder = 'CF Worker URL (自建 worker 链接)';
       const secretInput = el('input', 'prep-input');
@@ -449,7 +504,7 @@
       const syncRow = el('div', 'page-toolbar');
       syncRow.style.flexWrap = 'wrap';
       syncRow.append(syncBtn, pullBtn, moreBtn);
-      syncSec.append(syncStatus, urlInput, secretInput, authBtn, syncRow, moreBox);
+      syncSec.append(syncStatus, backendList, backendAddRow, urlInput, secretInput, authBtn, syncRow, moreBox);
        syncPane.appendChild(syncSec);
 
       // UX A2 (2026-08-11): 显示「本次推 N 条 / 拉 M 条」; 同步后 N=0 且服务端词库为空

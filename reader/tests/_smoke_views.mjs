@@ -1146,6 +1146,16 @@ console.log('== 9b. L5 (2026-08-11): 页头动作按钮成组 (.page-toolbar + g
   await new Promise((r) => setTimeout(r, 60));
   const phv = vc5.querySelector && vc5.querySelector('.page-header');
   check('L5: 生词本页头也用 .page-toolbar (备份/恢复/导出成组)', phv && !!phv.querySelector('.page-toolbar'));
+  // 同步页动作按钮 (立即同步/拉取合并/更多) 也在 .page-toolbar (三处中的第三处)
+  store.state.settingsTab = 'sync';
+  const sv5 = new globalThis.SettingsView(store);
+  const sc5 = makeElement('div');
+  sv5.render(sc5);
+  await new Promise((r) => setTimeout(r, 60));
+  store.state.settingsTab = null;
+  const syncToolbars = queryAll(sc5, '.page-toolbar');
+  const syncToolbar = syncToolbars.find((tb) => (tb._children || []).map((x) => String(x.textContent)).join('').includes('拉取合并'));
+  check('L5: 同步动作按钮也用 .page-toolbar (立即同步/拉取合并/更多)', !!syncToolbar, 'toolbars=' + syncToolbars.length);
 }
 
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);

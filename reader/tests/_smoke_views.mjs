@@ -307,18 +307,56 @@ console.log('== 2b. settings 同步区: 邀请新成员 (invite-user, 三项已�
   globalThis.AiduSyncService.makeCode = async () => ({ ok: true, data: { code: '654321' } });
 }
 
-console.log('== 3. library_view 导入卡: 无隐藏 input, 点击走 pickFiles ==');
+console.log('== 3. library_view 导入格 (G1): 网格最后一格, 无下拉, 点击走 pickFiles ==');
 {
   const lv = new globalThis.LibraryView(store, 'original');
-  const card = lv._buildImportCard();
-  const inputs = queryAll(card, 'input');
-  check('导入卡不再有隐藏文件 input', inputs.length === 0, 'inputs=' + inputs.length);
-  const dropZone = card.querySelector('.prep-dropzone');
+  const cell = lv._buildImportGridCell();
+  const inputs = queryAll(cell, 'input');
+  const selects = queryAll(cell, 'select');
+  check('导入格无隐藏文件 input', inputs.length === 0, 'inputs=' + inputs.length);
+  check('导入格无档案/语言下拉 (参数只在创建译本弹窗)', selects.length === 0, 'selects=' + selects.length);
+  const dropZone = cell.querySelector('.import-grid-drop');
   check('dropZone 存在且有点击回调', !!dropZone && typeof dropZone.onclick === 'function');
   const before = calls.pickFiles.length;
   dropZone.onclick();
   await new Promise((r) => setTimeout(r, 10));
   check('点击直接触发一次 pickFiles', calls.pickFiles.length === before + 1);
+}
+
+console.log('== 3b. G2 (2026-08-11): 每张书卡至多一个主按钮 (.btn-primary ≤ 1) ==');
+{
+  load('core/title_cleanup.js');
+  const lv = new globalThis.LibraryView(store, 'original');
+  const listEl = makeElement('div');
+  const bookWithEditions = {
+    id: 's1', title: 'Alice (Lewis Carroll) (z-library.sk).epub', kind: 'original', status: 'done',
+    source_language: 'en', chapter_count: 0, failed_count: 0,
+    editions: [
+      { id: 'e1', title: 'Alice 译本', status: 'ready', profile_id: 'default', chapter_count: 12, llm_id: 'llm|en|qwen3-4b|2507', tts_id: 'tts|en|kokoro|v1' },
+    ],
+  };
+  lv._profiles = [{ id: 'default', name: '成人自读' }];
+  lv._renderBooks(listEl, [bookWithEditions], makeElement('input'), null);
+  const cards = queryAll(listEl, '.book-card');
+  const editionCards = queryAll(listEl, '.edition-card');
+  check('渲染出书卡', cards.length >= 1, 'cards=' + cards.length);
+  // G2: 主卡自己的操作区 (book-card-actions 直系) 至多 1 个 btn-primary; 每个译本子卡各自 ≤1。
+  const mainActions = cards.map((c) => c.querySelector(':scope > .book-card-actions'));
+  const mainPrimary = mainActions.map((a) => a ? queryAll(a, '.btn-primary').length : 0);
+  check('主卡操作区 btn-primary ≤ 1', mainPrimary.every((n) => n <= 1), 'main=' + mainPrimary.join(','));
+  const editionPrimary = editionCards.map((c) => queryAll(c, '.btn-primary').length);
+  check('译本子卡各自 btn-primary ≤ 1', editionPrimary.every((n) => n <= 1), 'edition=' + editionPrimary.join(','));
+  // G5: 书名清洗剥掉来源站后缀 + 作者拆出
+  const titleEl = cards[0] && cards[0].querySelector('.book-card-title');
+  const authorEl = cards[0] && cards[0].querySelector('.book-card-author');
+  check('书名清洗剥掉来源站后缀', titleEl && !titleEl.textContent.includes('z-library'), 'title=' + (titleEl && titleEl.textContent));
+  check('作者拆出 (Lewis Carroll)', authorEl && authorEl.textContent === 'Lewis Carroll', 'author=' + (authorEl && authorEl.textContent));
+  // G3: 译本列表默认折叠
+  const editionBody = cards[0] && cards[0].querySelector('.edition-body');
+  check('译本列表默认折叠', editionBody && editionBody.className.includes('collapsed'));
+  // G6: 主按钮措辞统一为「创建译本」
+  const createBtn = cards[0] && queryAll(cards[0], '.btn-primary').find((b) => b.textContent === '创建译本');
+  check('主按钮叫「创建译本」(无译本时也统一)', !!createBtn, 'primary=' + (cards[0] && queryAll(cards[0], '.btn-primary').map((b) => b.textContent).join(',')));
 }
 
 console.log('== 4. library_view 创建译本弹窗挂载顺序 (A1 回归) ==');

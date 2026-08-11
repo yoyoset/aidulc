@@ -83,3 +83,59 @@
   background: color-mix(in srgb, var(--md-sys-color-surface) 40%, transparent);
   line-height: 2;
 }
+
+/* G1 (2026-08-11): 导入格 = 书卡网格最后一格 (同尺寸) */
+.import-grid-cell {
+  min-height: 140px;
+  border: 1.5px dashed var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-lg);
+  background: color-mix(in srgb, var(--md-sys-color-surface) 40%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+.import-grid-drop {
+  width: 100%;
+  height: 100%;
+  min-height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-radius: var(--md-sys-radius-md);
+  cursor: pointer;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-font-size-body-s);
+  line-height: 1.7;
+}
+.import-grid-drop:hover { background: var(--md-sys-state-hover); }
+.import-grid-drop.drag-over {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent);
+  border: 1.5px dashed var(--md-sys-color-primary);
+}
+
+/* ---- G 系列 (2026-08-11): 书卡信息补齐 ---- */
+.book-card-author {
+  font-size: var(--md-sys-font-size-body-s);
+  color: var(--md-sys-color-on-surface-variant);
+  margin-top: -6px;
+}
+.book-card-progress {
+  font-size: var(--md-sys-font-size-label-m);
+  color: var(--md-sys-color-primary);
+  line-height: 1.5;
+}
+/* G3: 译本列表默认折叠 */
+.edition-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--md-sys-color-primary);
+  font-size: var(--md-sys-font-size-body-s);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 0;
+  text-align: left;
+}
+.edition-body { margin-top: 6px; }
+.edition-body.collapsed { display: none; }

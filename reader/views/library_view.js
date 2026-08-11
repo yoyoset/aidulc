@@ -38,8 +38,9 @@
         done: { label: '已就绪', cls: 'badge-ok' },
         partial: { label: '部分失败', cls: 'badge-warn' },
         processing: { label: '处理中', cls: 'badge-busy' },
-        pending: { label: '待处理', cls: 'badge-idle' },
-        failed: { label: '失败', cls: 'badge-err' },
+        // G6 (2026-08-11): 措辞统一 —— 卡片徽章与筛选条都叫「未处理」(设计稿用词)
+        pending: { label: '未处理', cls: 'badge-idle' },
+        failed: { label: '未处理', cls: 'badge-idle' },
       };
       return map[book.status] || { label: book.status, cls: 'badge-idle' };
     }
@@ -107,9 +108,9 @@
       }
 
       // 区隔: 书籍导入卡片 (只原版书库显示; 成品架只负责阅读)
-      const importCard = isOriginal ? this._buildImportCard() : null;
-      if (importCard) wrap.append(header, importCard);
-      else wrap.append(header);
+      // G1 (2026-08-11): 导入卡不再占半屏顶部, 而是书卡网格的最后一格 (同尺寸);
+      // 「成人自读/英文」两个下拉移除 —— 参数只留在创建译本弹窗一处。
+      if (isOriginal) wrap.append(header);
 
       const listEl = el('div', 'book-list');
       wrap.append(listEl);
@@ -206,29 +207,59 @@
         if (filter !== 'all' && !this._inStatusBucket(b, filter)) return false;
         return true;
       });
+      if (!filtered.length && !(this.kind === 'original')) {
+        listEl.appendChild(el('div', 'book-empty', '没有符合条件的书。'));
+        return;
+      }
+      // G1 (2026-08-11): 原书库网格最后一格是"导入"虚线格 (同书卡尺寸)。
+      // 搜索/筛选时导入格仍显示 (它是入口, 不是书)。
+      if (this.kind === 'original') {
+        listEl.appendChild(this._buildImportGridCell());
+      }
       if (!filtered.length) {
         listEl.appendChild(el('div', 'book-empty', '没有符合条件的书。'));
         return;
       }
       filtered.forEach(book => {
         const card = el('div', 'book-card');
-        const name = el('div', 'book-card-title', book.title || book.id);
+        // G5 (2026-08-11): 书名/作者清洗 —— 文件名原样上屏不是设计 (z-library 后缀/作者括括号)。
+        // 拆成 书名 + 作者 两行; 解析不出就保留原串。
+        const parsed = global.AiduTitleCleanup ? global.AiduTitleCleanup.parseBookTitle(book.title || book.id) : { title: book.title || book.id, author: null };
+        const name = el('div', 'book-card-title', parsed.title);
+        if (parsed.author) {
+          const authorEl = el('div', 'book-card-author', parsed.author);
+          card.appendChild(authorEl);
+        }
         const profileLabel = this._profileName(book.profile_id);
         const langLabel = { en: '英文', ja: '日文' }[book.source_language] || book.source_language || '英文';
         const st = this._bookStatus(book);
         const badge = el('span', 'book-badge ' + st.cls, st.label);
+        // G4 (2026-08-11): 章数从 edition 取 (原书登记时不填 chapter_count); 句数/时长/进度补齐。
+        // 书卡信息按设计: 书名 / 作者 / 状态徽章 / 「N 章 · M 句 · XhYm」/ 阅读进度。
+        const editionsArr = Array.isArray(book.editions) ? book.editions : [];
+        const chapterCount = editionsArr.length
+          ? Math.max(...editionsArr.map((e) => e.chapter_count || 0))
+          : (book.chapter_count || 0);
+        const sentenceCount = editionsArr.reduce((s, e) => s + (e.sentence_count || 0), 0);
+        const audioSec = editionsArr.reduce((s, e) => s + (e.audio_seconds || 0), 0);
+        const metaBits = [];
+        metaBits.push(`${chapterCount} 章`);
+        if (sentenceCount) metaBits.push(`${sentenceCount} 句`);
+        if (audioSec) {
+          const h = Math.floor(audioSec / 3600), m = Math.floor((audioSec % 3600) / 60);
+          metaBits.push(h > 0 ? `${h}h${m}m` : `${m}m`);
+        }
         const meta = el('div', 'book-card-meta',
-          `${book.chapter_count || 0} 章 · ${langLabel}→中文 · ${profileLabel}` +
-          (book.failed_count ? ` · ${book.failed_count} 句失败` : '') +
-          // M7 R18: 阅读进度反馈 (微信读书/kindle 书架同款)
-          (book.reading_chapter != null ? ` · 已读至第 ${book.reading_chapter + 1} 章` : '') +
-          (book.time_spent_ms > 60000 ? ` · 已读 ${Math.round(book.time_spent_ms / 60000)} 分钟` : ''));
+          metaBits.join(' · ') + (metaBits.length ? ' · ' : '') + `${langLabel}→中文 · ${profileLabel}` +
+          (book.failed_count ? ` · ${book.failed_count} 句失败` : ''));
         meta.prepend(badge);
-        // S5 资产模型: 成品卡显示用了什么模型 (不同模型=不同资产)
-        if (this.kind === 'product') {
-          const modelTag = book.llm_id || book.tts_id || '';
-          const tag = el('span', 'model-tag', modelTag.split('|').slice(0, 2).join('/') || '默认模型');
-          meta.appendChild(tag);
+        // 阅读进度: 「读到第 5 章 · 38%」
+        if (book.reading_chapter != null && chapterCount > 0) {
+          const pct = Math.round(((book.reading_chapter + 1) / chapterCount) * 100);
+          const prog = el('div', 'book-card-progress',
+            `读到第 ${book.reading_chapter + 1} 章 · ${pct}%` +
+            (book.time_spent_ms > 60000 ? ` · 已读 ${Math.round(book.time_spent_ms / 60000)} 分钟` : ''));
+          card.appendChild(prog);
         }
         // R6 改进: 处理中的书显示实时进度 (来自 job_list 匹配)
         if (book.status === 'processing') {
@@ -247,101 +278,70 @@
           }
         }
 
-        // 打开: 就绪/部分失败可开; 处理中/待处理禁用 (苹果级: 禁用要给原因)
-        const canOpen = book.status === 'ready' || book.status === 'partial';
-        const openBtn = el('button', 'btn-small', this.kind === 'product' ? '打开阅读' : '打开');
-        openBtn.disabled = !canOpen;
-        if (!canOpen) {
-          openBtn.title = '这本书还在准备中, 完成后再来读';
-          openBtn.classList.add('btn-disabled');
-        }
-        openBtn.onclick = () => this.onOpenBook && this.onOpenBook(book);
-
+        // G2 (2026-08-11): 每卡至多一个主按钮。删除/预览/设置收进「详情」overflow 菜单。
         const actions = el('div', 'book-card-actions');
+        const canOpen = book.status === 'ready' || book.status === 'partial';
         if (this.kind === 'product') {
-          // 成品架: 阅读 + 导出(资产可跨设备迁移) + 删除
+          // 成品架: 主按钮 = 打开阅读; 导出/删除进菜单
+          const openBtn = el('button', 'btn-small btn-primary', '打开阅读');
+          openBtn.disabled = !canOpen;
+          if (!canOpen) { openBtn.title = '这本书还在准备中, 完成后再来读'; openBtn.classList.add('btn-disabled'); }
+          openBtn.onclick = () => this.onOpenBook && this.onOpenBook(book);
           actions.append(openBtn);
-          const exportBtn = el('button', 'btn-small', '导出');
-          exportBtn.onclick = () => this._exportBookZip(book);
-          actions.appendChild(exportBtn);
-          const delBtn = el('button', 'btn-small btn-danger', '删除');
-          delBtn.onclick = () => {
-            AiduModal.confirm({
-              title: `删除《${book.title}》?`,
-              message: '这本书的成品内容会移除, 无法恢复。需要重新处理才能再读。',
-              confirmText: '删除',
-              danger: true,
-              onConfirm: () => AiduLibraryService.remove(book.id, true)
-                .then(() => { this.store.emit('change', this.store.state); AiduToast.show('已删除《' + book.title + '》', 'success'); }),
-            });
-          };
-          actions.appendChild(delBtn);
+          const menuBtn = el('button', 'btn-small', '⋯');
+          menuBtn.onclick = () => this._openBookMenu(book, { export: true, delete: true });
+          actions.appendChild(menuBtn);
         } else {
-          // 原版书库 (source): 阶段2 —— 原书不可直接阅读, 主动作是"创建译本"
-          const previewBtn = el('button', 'btn-small', '预览原文');
-          previewBtn.onclick = () => this._openPreview(book);
-          const setBtn = el('button', 'btn-small', '设置');
-          setBtn.onclick = () => this._openBookSettings(book);
-           // 阶段2 (F45/BOOK_WORKFLOW): 原书没有 pack/进度/书签, 不可打开阅读。
-           // 统一主动作 = 创建/新增译本; 处理中时不伪装可操作(有译本的处理中也可再增)。
-           const hasEditions = Array.isArray(book.editions) && book.editions.length > 0;
-           const createBtn = el('button', 'btn-small btn-primary', hasEditions ? '新增译本' : '创建译本');
-           createBtn.onclick = () => this._chooseEditionProfile(book);
-           if (book.status === 'processing' && !hasEditions) {
-             // 首次备料中: 还没译本可展示, 隐藏主动作, 用状态徽章表示"处理中"
-             createBtn.style.display = 'none';
-           }
-          const delBtn = el('button', 'btn-small btn-danger', '删除');
-          delBtn.onclick = () => {
-            AiduModal.confirm({
-              title: `删除《${book.title}》?`,
-               message: '原书及其全部译本、阅读进度、书签和处理任务都会移除，无法恢复。',
-              confirmText: '删除',
-              danger: true,
-              onConfirm: () => AiduLibraryService.remove(book.id, true)
-                .then(() => { this.store.emit('change', this.store.state); AiduToast.show('已删除《' + book.title + '》', 'success'); }),
-            });
-          };
-           actions.append(previewBtn, setBtn, createBtn, delBtn);
+          // 原版书库: 主按钮 = 创建/新增译本 (G6: 措辞统一不再因有无译本换词);
+          // 预览/设置/删除收进「详情」。
+          const hasEditions = Array.isArray(book.editions) && book.editions.length > 0;
+          const createBtn = el('button', 'btn-small btn-primary', '创建译本');
+          createBtn.onclick = () => this._chooseEditionProfile(book);
+          if (book.status === 'processing' && !hasEditions) {
+            createBtn.style.display = 'none';
+          }
+          actions.append(createBtn);
+          const menuBtn = el('button', 'btn-small', '⋯');
+          menuBtn.onclick = () => this._openBookMenu(book, { preview: true, settings: true, delete: true });
+          actions.appendChild(menuBtn);
         }
          card.append(name, meta, actions);
+         // G3 (2026-08-11): 译本/成品列表默认折叠 —— 显示「译本 (N) ▾」, 点开才铺。
          if (this.kind === 'original' && Array.isArray(book.editions) && book.editions.length) {
            const editions = el('div', 'edition-list');
-           editions.appendChild(el('div', 'settings-hint', `译本/成品 (${book.editions.length})`));
+           const toggle = el('button', 'edition-toggle', `译本 (${book.editions.length}) ▾`);
+           toggle.onclick = () => {
+             const collapsed = editions.classList.toggle('collapsed');
+             toggle.textContent = `译本 (${book.editions.length}) ${collapsed ? '▸' : '▾'}`;
+           };
+           editions.appendChild(toggle);
+           const body = el('div', 'edition-body collapsed');
            book.editions.forEach((edition) => {
              const child = el('div', 'edition-card');
              const childTitle = el('div', 'book-card-title', edition.title || edition.id);
              const childProfile = this._profileName(edition.profile_id);
-             // 模型快照是路径, 卡片只显示文件名 (苹果级: 不把 F:/hf_cache/... 长路径糊在卡上)
-             const shortModel = (p) => {
-               if (!p) return '';
-               const s = String(p);
-               return s.split(/[\\/]/).pop() || s;
-             };
-             const childModel = [edition.llm_id, edition.tts_id].map(shortModel).filter(Boolean).join(' / ') || '默认模型';
+             // G7 (2026-08-11): 模型显示登记时的人话展示名, 原始文件名收进 title 悬浮。
+             const childModel = [edition.llm_id, edition.tts_id].map((p) => this._modelDisplayName(p)).filter(Boolean).join(' · ') || '默认模型';
              const childMeta = el('div', 'book-card-meta',
                `${childProfile} · ${edition.source_language || 'en'}→${edition.target_language || 'zh-CN'} · ${childModel}`);
+             childMeta.title = [edition.llm_id, edition.tts_id].filter(Boolean).join('\n');
              const childActions = el('div', 'book-card-actions');
               const childCanOpen = ['ready', 'partial'].includes(edition.status);
-              const childOpen = el('button', 'btn-small', '打开阅读');
+              const childOpen = el('button', 'btn-small btn-primary', '打开阅读');
               childOpen.disabled = !childCanOpen;
               if (!childCanOpen) {
                 childOpen.title = '这本书还在准备中, 完成后再来读';
                 childOpen.classList.add('btn-disabled');
               }
               childOpen.onclick = () => this.onOpenBook && this.onOpenBook(edition);
-             const childDelete = el('button', 'btn-small btn-danger', '删除译本');
-             childDelete.onclick = () => AiduModal.confirm({
-               title: `删除译本《${edition.title || edition.id}》?`,
-               message: '只删除这个译本，原书和其它译本保留。',
-               confirmText: '删除', danger: true,
-               onConfirm: () => AiduLibraryService.remove(edition.id, true)
-                 .then(() => { this.store.emit('change', this.store.state); AiduToast.show('译本已删除', 'success'); }),
-             });
-             childActions.append(childOpen, childDelete);
+             // G2: 译本卡主按钮一个, 删除进 ⋯
+             const childMenu = el('button', 'btn-small', '⋯');
+             childMenu.onclick = () => this._openBookMenu(edition, { delete: true, editionChild: true });
+             childActions.append(childOpen, childMenu);
              child.append(childTitle, childMeta, childActions);
-             editions.appendChild(child);
+             body.appendChild(child);
            });
+           editions.appendChild(body);
            card.appendChild(editions);
          }
          listEl.appendChild(card);
@@ -356,6 +356,64 @@
       if (builtin) return builtin.name;
       if (!id) return AiduBuiltinProfiles.BUILTIN_PROFILES.default.name;
       return '未知档案';
+    }
+
+    /** G7 (2026-08-11): 模型 id → 人话展示名。模型 id 形如 llm|en|qwen3-4b|2507-q4_k_m,
+     *  原始文件名 (Qwen3-4B-Instruct-2507-Q4_K_M.gguf) 收进 title 悬浮。 */
+    _modelDisplayName(id) {
+      if (!id) return '';
+      const s = String(id);
+      // 从模型注册表里查展示名 (models_list 数据); 查不到退化用 id 末段
+      if (this._models && Array.isArray(this._models)) {
+        const m = this._models.find((x) => x.id === s || x.model_id === s);
+        if (m) {
+          const family = m.family === 'tts' ? '语音' : m.family === 'nlp' ? 'NLP' : '讲解';
+          const short = (m.model_id || '').split('-').slice(0, 2).join(' ') || m.model_id;
+          return `${short} · ${family}`;
+        }
+      }
+      // 退化: id 是路径时取文件名; 是注册表 id 时取中间段
+      const isPath = /[\\/]/.test(s);
+      const base = isPath ? s.split(/[\\/]/).pop() : s;
+      const segs = base.split('|').filter(Boolean);
+      const model = segs[2] || segs[0] || base;
+      const short = model.replace(/\.(gguf|pth|bin)$/i, '').split('-').slice(0, 2).join(' ');
+      return short || base;
+    }
+
+    /** G2 (2026-08-11): 书卡 ⋯ 详情菜单 —— 删除等危险动作必须进二级 + 二次确认 */
+    _openBookMenu(book, opts) {
+      const ov = document.createElement('div');
+      ov.className = 'modal-overlay';
+      const box = document.createElement('div');
+      box.className = 'vocab-menu';
+      box.setAttribute('role', 'menu');
+      const items = [];
+      if (opts && opts.preview) items.push(['预览原文', () => this._openPreview(book)]);
+      if (opts && opts.settings) items.push(['设置', () => this._openBookSettings(book)]);
+      if (opts && opts.export) items.push(['导出 (zip)', () => this._exportBookZip(book)]);
+      if (opts && opts.delete) {
+        items.push(['删除' + (opts.editionChild ? '译本' : ''), () => {
+          const isChild = !!opts.editionChild;
+          AiduModal.confirm({
+            title: isChild ? `删除译本《${book.title || book.id}》?` : `删除《${book.title}》?`,
+            message: isChild
+              ? '只删除这个译本, 原书和其它译本保留。'
+              : '原书及其全部译本、阅读进度、书签和处理任务都会移除, 无法恢复。',
+            confirmText: '删除', danger: true,
+            onConfirm: () => AiduLibraryService.remove(book.id, true)
+              .then(() => { this.store.emit('change', this.store.state); AiduToast.show('已删除' + (isChild ? '译本' : '《' + (book.title || '') + '》'), 'success'); }),
+          });
+        }]);
+      }
+      items.forEach(([label, fn]) => {
+        const it = el('button', 'vocab-menu-item', label);
+        it.onclick = () => { ov.remove(); fn(); };
+        box.appendChild(it);
+      });
+      ov.appendChild(box);
+      ov.addEventListener('click', (ev) => { if (ev.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
     }
 
     /** 默认与预填 (UX 审计 2026-08-09): 记住上次选的档案, 导入/创建译本自动预选 */
@@ -749,12 +807,10 @@
       });
     }
 
-    /** 导入卡片: 拖拽 + 文件选择; 不要求用户输入任何路径 (易用性审查: 删除手动路径输入) */
-    _buildImportCard() {
-      const card = el('div', 'import-card');
-      card.appendChild(el('div', 'import-card-title', '导入书籍'));
-
-      const dropZone = el('div', 'prep-dropzone', '把一本或多本 EPUB / PDF / TXT 拖到这里, 或点击选择文件');
+    /** G1 (2026-08-11): 导入格 —— 书卡网格的最后一格, 同尺寸; 拖入/点选即可 */
+    _buildImportGridCell() {
+      const cell = el('div', 'import-grid-cell');
+      const dropZone = el('div', 'prep-dropzone import-grid-drop', '拖入 EPUB / TXT, 或点「导入」逐本选择');
       dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); };
       dropZone.ondragleave = () => dropZone.classList.remove('drag-over');
       if (window.AiduBridge && window.__TAURI__?.event) {
@@ -765,57 +821,22 @@
           if (paths && paths.length) this._startBatchImport(paths);
         }));
       }
-      // UX 审计 (2026-08-09): 去掉隐藏 <input type=file> —— 它先弹一次 WebView 原生
-      // 选择框, onchange 又调 pickFiles(rfd) 弹第二次, 用户每次导入被问两次文件。
-      // 点击直接走 pickFiles 拿真实路径 (Tauri 2 WebView2 的 File 无 .path, 见 library.rs)。
       dropZone.onclick = () => {
         window.AiduBridge.pickFiles(['epub', 'pdf', 'txt']).then((r) => {
           if (r.ok && r.data && r.data.length) this._startBatchImport(r.data);
         });
       };
-
-      const optsRow = el('div', 'prep-row');
-      const profileSelect = el('select', 'prep-select');
-      profileSelect.title = '用哪个学习档案处理 (音色/讲解策略/语速在设置里管理)';
-      // M6: 档案从表里动态加载 (内建 default/kid + 用户自建), 内建项参数/名称统一走 core/builtin_profiles
-      AiduBridge.profiles.list().then((res) => {
-        const profiles = AiduBuiltinProfiles.ensureBuiltins(res.ok && Array.isArray(res.data) ? res.data : []);
-        profileSelect.innerHTML = '';
-        profiles.forEach((p) => {
-          const opt = el('option', null, p.name);
-          opt.value = p.id;
-          profileSelect.appendChild(opt);
-        });
-        // 默认与预填 (UX 审计 2026-08-09): 回填上次选的档案
-        const lastProfile = this._storedProfile();
-        if (lastProfile && profiles.some((p) => p.id === lastProfile)) {
-          profileSelect.value = lastProfile;
-        }
-      });
-      const langSelect = el('select', 'prep-select');
-      langSelect.id = 'prep-source-lang';
-      [['en', '英文'], ['ja', '日文 (即将支持)'], ['other', '其他']].forEach(([code, label]) => {
-        const opt = el('option', null, label);
-        opt.value = code;
-        if (code !== 'en') opt.disabled = true;
-        langSelect.appendChild(opt);
-      });
-      const tip = el('div', 'import-tip', '导入后书籍进入"阅读准备"排队处理, 完成后回到书库。');
-      optsRow.append(profileSelect, langSelect);
-      card.append(dropZone, optsRow, tip);
-      return card;
+      cell.appendChild(dropZone);
+      return cell;
     }
 
-    /** 导入 (R1: 只登记 source 到书库, 不开始处理; 下一步由 source 卡"创建译本"触发) */
+    /** 导入 (R1: 只登记 source 到书库, 不开始处理; 下一步由 source 卡"创建译本"触发)
+     *  G1 (2026-08-11): 档案/语言参数只在创建译本弹窗一处 —— 导入不再有下拉 */
     _startBatchImport(paths) {
-      const profileSel = document.querySelector('.import-card .prep-select');
-      const profileId = profileSel ? profileSel.value : 'default';
-      // 默认与预填 (UX 审计 2026-08-09): 记住本次导入选的档案
-      this._saveProfile(profileId);
+      const profileId = 'default';
+      const sourceLang = 'en';
       // 阶段2 (F45): 单次动作只导一次 —— 拖拽事件与文件选择同时命中/快速连点都只放行第一次
       if (this._importDedup && !this._importDedup.shouldFire(paths, profileId)) return;
-      const langSel = document.getElementById('prep-source-lang');
-      const sourceLang = langSel ? langSel.value : 'en';
       // 苹果级: 立即反馈"正在登记"
       AiduToast.show(`正在导入 ${paths.length} 本书…`, 'info');
       AiduImportService.importBooks(paths, profileId, { source: sourceLang, target: 'zh-CN' })

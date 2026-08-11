@@ -30,6 +30,37 @@ pub fn parse_bookpack_meta(text: &str) -> Option<(String, i64, i64)> {
     Some((title, chapters, failed))
 }
 
+/// G4 (2026-08-11): 从 bookpack.json 文本算 (句子数, 总音频秒数)。
+/// 句子数 = 各章 sentences 长度之和; 音频秒数 = 每章最后一个句子的 audio.end_ms (章时长)。
+/// 解析失败返回 (0, 0) (书卡信息是展示性的, 失败不阻断列表)。
+pub fn parse_bookpack_counts(text: &str) -> (i64, i64) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else {
+        return (0, 0);
+    };
+    let Some(chapters) = v.get("chapters").and_then(|c| c.as_array()) else {
+        return (0, 0);
+    };
+    let mut sentences = 0i64;
+    let mut audio_ms = 0i64;
+    for ch in chapters {
+        let mut ch_audio_end = 0i64;
+        if let Some(sents) = ch.get("sentences").and_then(|s| s.as_array()) {
+            sentences += sents.len() as i64;
+            for s in sents {
+                if let Some(end) = s
+                    .get("audio")
+                    .and_then(|a| a.get("end_ms"))
+                    .and_then(|e| e.as_i64())
+                {
+                    ch_audio_end = ch_audio_end.max(end);
+                }
+            }
+        }
+        audio_ms += ch_audio_end;
+    }
+    (sentences, audio_ms / 1000)
+}
+
 /// 登记一本书到书库 (幂等: 同 id 覆盖)。
 /// v8 资产模型: source_book_id 关联原书; llm_id/tts_id/nlp_id 是本次处理用的模型快照
 /// (不同模型组合 = 不同资产, 完成库按 (原书, 模型) 分组展示)。
@@ -186,6 +217,32 @@ mod tests {
         assert_eq!(title, "X");
         assert_eq!(chapters, 0);
         assert_eq!(failed, 0);
+    }
+
+    #[test]
+    fn parse_counts_sums_sentences_and_audio() {
+        // G4: 句数 = 各章 sentences 之和; 音频 = 每章最后一个句子 end_ms (章时长) 之和
+        let text = r#"{
+            "chapters": [
+                {"sentences": [
+                    {"audio": {"end_ms": 5000}},
+                    {"audio": {"end_ms": 12000}}
+                ]},
+                {"sentences": [
+                    {"audio": {"end_ms": 3000}}
+                ]}
+            ]
+        }"#;
+        let (sentences, audio_sec) = parse_bookpack_counts(text);
+        assert_eq!(sentences, 3, "2+1 句");
+        assert_eq!(audio_sec, 15, "12s + 3s");
+    }
+
+    #[test]
+    fn parse_counts_invalid_is_zero_not_error() {
+        assert_eq!(parse_bookpack_counts("not json"), (0, 0));
+        assert_eq!(parse_bookpack_counts(r#"{"no":"chapters"}"#), (0, 0));
+        assert_eq!(parse_bookpack_counts(r#"{"chapters":[]}"#), (0, 0));
     }
 
     #[test]

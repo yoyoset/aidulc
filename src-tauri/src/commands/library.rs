@@ -71,6 +71,19 @@ pub fn library_list(
                     o.insert("time_spent_ms".into(), serde_json::json!(rs.time_spent_ms));
                 }
             }
+            // G4 (2026-08-11): 书卡信息需要 句数/音频时长 (设计「12 章 · 3 480 句 · 6h12m」)。
+            // 从 edition 的 bookpack.json 轻量解析 (失败给 0, 展示性数据不阻断列表)。
+            if let Some(pack_dir) = x.get("pack_dir").and_then(|p| p.as_str()) {
+                let bp = std::path::Path::new(pack_dir).join("bookpack.json");
+                if let Ok(text) = std::fs::read_to_string(&bp) {
+                    let (sentences, audio_seconds) =
+                        crate::application::library_service::parse_bookpack_counts(&text);
+                    if let Some(o) = x.as_object_mut() {
+                        o.insert("sentence_count".into(), serde_json::json!(sentences));
+                        o.insert("audio_seconds".into(), serde_json::json!(audio_seconds));
+                    }
+                }
+            }
             ev.push(x);
         }
         if let Some(o) = v.as_object_mut() {

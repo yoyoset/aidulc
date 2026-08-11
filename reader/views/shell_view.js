@@ -56,8 +56,8 @@
       importBtn.dataset.route = 'library';
       importBtn.onclick = () => {
         this.router.navigate('library');
-        // 焦点落到导入卡, 让用户下一步明确
-        const card = document.querySelector('.import-card');
+        // 焦点落到导入格 (G1: 导入现在是书卡网格最后一格)
+        const card = document.querySelector('.import-grid-cell');
         if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
       };
       right.appendChild(importBtn);
@@ -179,9 +179,10 @@
           window.addEventListener('aidulc:user-changed', () => setTimeout(refreshSync, 50));
         }
       }
-      const settingsBtn = el('button', 'app-nav-link app-nav-settings', '设置');
+      const settingsBtn = el('button', 'app-nav-link app-nav-settings', '⚙');
       settingsBtn.dataset.route = 'settings';
-      settingsBtn.setAttribute('aria-label', '打开设置');
+      settingsBtn.setAttribute('aria-label', '设置');
+      settingsBtn.title = '设置';
       settingsBtn.onclick = () => this.router.navigate('settings');
       right.appendChild(settingsBtn);
       this.navEl.append(brand, left, right);

@@ -26,6 +26,9 @@ pub struct WordLookup {
 }
 
 /// LLM 补全签名: (word, context) -> (pos, phonetic, meanings, examples, example_zh, usage, phrases)
+/// K2 (2026-08-11): 生产路径 word_lookup 已改用 lookup_local + spawn_blocking + persist_llm;
+/// 这个复合闭包版 lookup 只在测试里用 (fake_llm 注入)。
+#[cfg(test)]
 pub type LookupFn = dyn Fn(
     &str,
     &str,
@@ -43,6 +46,9 @@ pub type LookupFn = dyn Fn(
 >;
 
 /// 查词: 本地优先; 未命中调 llm; 结果写入词典 (沉淀); 永不自动进生词本
+/// K2 (2026-08-11): 生产路径已拆成 lookup_local → (spawn_blocking) → persist_llm;
+/// 这个复合函数只在测试用 (注入 fake_llm), 避免生产走旧的单线程路径。
+#[cfg(test)]
 pub fn lookup(
     db: &Db,
     user_id: &str,
@@ -51,14 +57,29 @@ pub fn lookup(
     context: &str,
     lookup_llm: &LookupFn,
 ) -> Result<WordLookup, String> {
-    let repo = DictRepo::new(db);
     let key = word.trim().to_lowercase();
     if key.is_empty() {
         return Err("空词".into());
     }
-
     // 1. 本地命中
-    if let Some(payload) = repo.get(&key, user_id, profile_id) {
+    if let Some(r) = lookup_local(db, user_id, profile_id, &key)? {
+        return Ok(r);
+    }
+    // 2. LLM 补全 + 沉淀词典 (不自动进生词本)
+    let tuple = lookup_llm(&key, context)?;
+    persist_llm(db, user_id, profile_id, &key, tuple)
+}
+
+/// K2 (2026-08-11): 只做本地词典命中查询 (纯 DB 读, 快), 未命中返回 None。
+/// 从 lookup 拆出, 让异步命令可以把"慢的 LLM 调用"单独丢进 spawn_blocking。
+pub fn lookup_local(
+    db: &Db,
+    user_id: &str,
+    profile_id: &str,
+    key: &str,
+) -> Result<Option<WordLookup>, String> {
+    let repo = DictRepo::new(db);
+    if let Some(payload) = repo.get(key, user_id, profile_id) {
         let meanings = payload
             .get("meanings")
             .and_then(|m| m.as_array())
@@ -75,9 +96,9 @@ pub fn lookup(
                     .unwrap_or_default()
             });
         let vocab_repo = VocabRepo::new(db);
-        let in_vocab = vocab_repo.get(user_id, profile_id, &key).is_some();
-        return Ok(WordLookup {
-            word: key.clone(),
+        let in_vocab = vocab_repo.get(user_id, profile_id, key).is_some();
+        return Ok(Some(WordLookup {
+            word: key.to_string(),
             pos: payload
                 .get("pos")
                 .and_then(|p| p.as_str())
@@ -127,12 +148,20 @@ pub fn lookup(
                 .and_then(|c| c.as_f64())
                 .unwrap_or(0.8),
             in_vocab,
-        });
+        }));
     }
+    Ok(None)
+}
 
-    // 2. LLM 补全 + 沉淀词典 (不自动进生词本)
-    let (pos, phonetic, meanings, examples, example_zh, usage, phrases) =
-        lookup_llm(&key, context)?;
+/// K2 (2026-08-11): LLM 补全结果沉淀词典并组装 WordLookup。从 lookup 拆出,
+/// 供异步命令在 spawn_blocking 拿到 tuple 后回主线程写库 (写库是快操作)。
+pub fn persist_llm(
+    db: &Db,
+    user_id: &str,
+    profile_id: &str,
+    key: &str,
+    (pos, phonetic, meanings, examples, example_zh, usage, phrases): crate::commands::reader::LookupTuple,
+) -> Result<WordLookup, String> {
     let payload = serde_json::json!({
         "word": key, "lemma": key, "pos": pos, "phonetic": phonetic,
         "meanings": meanings, "examples": examples,
@@ -141,10 +170,11 @@ pub fn lookup(
         "createdAt": crate::store::now_ms_for_store(),
         "updatedAt": crate::store::now_ms_for_store(),
     });
-    let _ = repo.upsert(&key, &payload, user_id, profile_id); // 沉淀失败不阻断 (词典是缓存性质)
+    let repo = DictRepo::new(db);
+    let _ = repo.upsert(key, &payload, user_id, profile_id); // 沉淀失败不阻断 (词典是缓存性质)
 
     Ok(WordLookup {
-        word: key.clone(),
+        word: key.to_string(),
         pos,
         phonetic,
         meanings,

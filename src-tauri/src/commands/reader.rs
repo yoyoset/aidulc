@@ -4,80 +4,120 @@ use crate::application::dictionary_service;
 use crate::store;
 use tauri::State;
 
+/// 查词元组 (pos, phonetic, meanings, examples, example_zh, usage, phrases)。
+/// 抽取为类型别名: 三处返回它的函数共用, 避免 clippy 的 very-complex-type 警告
+/// (clippy 基线 8 只降不升, 2026-08-11 K2 新增 daemon_outcome/fallback/persist 共用)。
+pub type LookupTuple = (
+    String,
+    String,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+    String,
+    Vec<String>,
+);
+
 /// 查词 (本地优先 → LLM 补全)
 /// 未命中本地词典时 spawn 侧车 dict-lookup (复用 PrepConfig.llm_model);
 /// 侧车不可用/超时 → 占位兜底 (source=llm, 可读提示)。
+///
+/// K2 (2026-08-11): 改 async + spawn_blocking —— dict_daemon 是 spawn 子进程 + 阻塞读
+/// (现已有超时), 同步命令跑主线程会让整窗假死。照 S0 对 components_health 的做法:
+/// 本地词典命中 (纯 DB 读, 快) 留在异步线程; 只有"未命中 → 起侧车"这步进 spawn_blocking。
 #[tauri::command]
-pub fn word_lookup(
-    db: State<store::Db>,
-    cfg: State<crate::PrepConfig>,
+pub async fn word_lookup(
+    db: State<'_, store::Db>,
+    cfg: State<'_, crate::PrepConfig>,
     word: String,
     user_id: String,
     profile_id: String,
     context: String,
 ) -> Result<serde_json::Value, String> {
+    use crate::application::dictionary_service;
+    crate::infrastructure::log::info("cmd", "enter: word_lookup (async)");
+    let key = word.trim().to_lowercase();
+    if key.is_empty() {
+        return Err("空词".into());
+    }
+
+    // 1. 本地命中 → 直接返回 (纯 DB 读, 快)
+    if let Some(local) = dictionary_service::lookup_local(db.inner(), &user_id, &profile_id, &key)?
+    {
+        crate::infrastructure::log::info("cmd", "exit: word_lookup (local hit)");
+        return serde_json::to_value(local).map_err(|e| e.to_string());
+    }
+
+    // 2. 未命中 → 侧车查词放 spawn_blocking (子进程 + 阻塞读 + 30s 超时都在后台)
     let prep_path = cfg.inner().prep_path.clone();
-    // M 系列 (单一真相源): LLM 路径从 model_registry 推荐解析
     let (llm_model, _, _) = crate::application::model_service::resolve_paths(db.inner(), "en");
-    let lookup_fn = move |w: &str, ctx: &str| {
-        let configured = !llm_model.is_empty() && std::path::Path::new(&llm_model).exists();
+    let w = key.clone();
+    let ctx = context;
+    let configured = !llm_model.is_empty() && std::path::Path::new(&llm_model).exists();
+    let daemon_result = tauri::async_runtime::spawn_blocking(move || {
         if configured {
-            // F21 (2026-08-08): 常驻词典守护 —— 侧车加载模型一次, 不再每次重载 2.4GB
-            if let Ok(v) =
-                crate::infrastructure::dict_daemon::lookup(&prep_path, &llm_model, w, ctx)
-            {
-                if let Ok(parsed) = daemon_result_to_tuple(&v) {
-                    return Ok(parsed);
-                }
-            }
-            // F40 (2026-08-08): 模型在但查询失败 → 明确说"查询失败", 别误导成"未配置"
-            return Ok((
+            let call = crate::infrastructure::dict_daemon::lookup(&prep_path, &llm_model, &w, &ctx);
+            daemon_outcome_to_tuple(call, &w)
+        } else {
+            // 兜底: 未配置 → 占位 (不阻断查词), 措辞保持原样"待补充"
+            (
                 "NOUN".into(),
                 String::new(),
-                vec![format!("{w} 的词义查询失败 (模型已配置但未返回结果)")],
+                vec![format!("{w} 的词义待补充(未配置 LLM 模型)")],
                 vec![],
                 vec![],
                 String::new(),
                 vec![],
-            ));
+            )
         }
-        // 兜底: 未配置 → 占位 (不阻断查词)
-        Ok((
-            "NOUN".into(),
-            String::new(),
-            vec![format!("{w} 的词义待补充(未配置 LLM 模型)")],
-            vec![],
-            vec![],
-            String::new(),
-            vec![],
-        ))
-    };
-    let result = dictionary_service::lookup(
-        db.inner(),
-        &user_id,
-        &profile_id,
-        &word,
-        &context,
-        &lookup_fn,
-    )?;
+    })
+    .await
+    .map_err(|e| format!("查词任务执行失败: {e}"))?;
+
+    // 3. 回主线程写库 (快操作) + 组装响应
+    let result =
+        dictionary_service::persist_llm(db.inner(), &user_id, &profile_id, &key, daemon_result)?;
+    crate::infrastructure::log::info("cmd", "exit: word_lookup (llm)");
     serde_json::to_value(result).map_err(|e| e.to_string())
 }
 
-/// 词典守护的 result JSON → dictionary_service 的元组。字段缺失给空值, 不报错。
-fn daemon_result_to_tuple(
-    v: &serde_json::Value,
-) -> Result<
+/// K1 (2026-08-11): 词典守护调用结果 → 面板元组。真实失败原因上屏 + 记日志,
+/// 不再统一说成"未返回结果"。纯函数, 便于对四种失败逐类单测。
+fn daemon_outcome_to_tuple(call: Result<serde_json::Value, String>, w: &str) -> LookupTuple {
+    match call {
+        Ok(v) => match daemon_result_to_tuple(&v) {
+            Ok(parsed) => parsed,
+            Err(parse_err) => {
+                // 侧车回了, 但内容看不懂 —— 一句话说清"不是没回, 是回了看不懂"
+                crate::infrastructure::log::error(
+                    "dict",
+                    &format!("{w} 词典守护响应解析失败: {parse_err}"),
+                );
+                fallback_tuple(w, "侧车已返回但结果无法解析, 详见 aidulc.log")
+            }
+        },
+        Err(call_err) => {
+            // 侧车没回 —— 把调用层的真实原因直接上屏
+            crate::infrastructure::log::error("dict", &format!("{w} 词典守护调用失败: {call_err}"));
+            fallback_tuple(w, &call_err)
+        }
+    }
+}
+
+/// 失败占位元组: 面板能看到 {w} 的词义查询失败 ({原因})
+fn fallback_tuple(w: &str, detail: &str) -> LookupTuple {
     (
-        String,
-        String,
-        Vec<String>,
-        Vec<String>,
-        Vec<String>,
-        String,
-        Vec<String>,
-    ),
-    String,
-> {
+        "NOUN".into(),
+        String::new(),
+        vec![format!("{w} 的词义查询失败 ({detail})")],
+        vec![],
+        vec![],
+        String::new(),
+        vec![],
+    )
+}
+
+/// 词典守护的 result JSON → dictionary_service 的元组。字段缺失给空值, 不报错。
+fn daemon_result_to_tuple(v: &serde_json::Value) -> Result<LookupTuple, String> {
     let str_vec = |key: &str| -> Vec<String> {
         v.get(key)
             .and_then(|a| a.as_array())
@@ -310,10 +350,12 @@ pub fn srs_grade(
 // ---- 同步 (I-C: 状态机 + 配置, V6 按 user 分账) ----
 
 /// 当前 user 的同步状态
+/// K2 (2026-08-11): 改 async —— keyring (Credential Manager) 读可能慢/卡 (实测记录过耗时),
+/// 网络状态查询也可能走同步链, 不再跑主线程。
 #[tauri::command]
-pub fn sync_status(
-    db: State<store::Db>,
-    services: State<crate::AppServices>,
+pub async fn sync_status(
+    db: State<'_, store::Db>,
+    services: State<'_, crate::AppServices>,
     user_id: String,
 ) -> Result<serde_json::Value, String> {
     crate::infrastructure::log::info("cmd", &format!("enter: sync_status user={user_id}"));
@@ -333,10 +375,13 @@ pub fn sync_status(
 }
 
 /// 立即同步 (某 user): 先推后拉
+/// K2 (2026-08-11): 改 async —— reqwest::blocking 网络调用 (15s 超时 ×3 重试) 会阻塞主线程
+/// 至多几十秒。async 命令跑在 tokio 线程池, 不在主线程, 窗口全程 Responding。
+/// (sync_service 内部穿插 DB 读写, 无法整体挪进 spawn_blocking; async 已满足"不卡主线程"。)
 #[tauri::command]
-pub fn sync_now(
-    db: State<store::Db>,
-    services: State<crate::AppServices>,
+pub async fn sync_now(
+    db: State<'_, store::Db>,
+    services: State<'_, crate::AppServices>,
     user_id: String,
 ) -> Result<serde_json::Value, String> {
     let t0 = crate::store::now_ms_for_store();
@@ -363,10 +408,11 @@ pub fn sync_now(
 }
 
 /// 拉取合并 (某 user)
+/// K2 (2026-08-11): 改 async (同 sync_now)。
 #[tauri::command]
-pub fn sync_pull_now(
-    db: State<store::Db>,
-    services: State<crate::AppServices>,
+pub async fn sync_pull_now(
+    db: State<'_, store::Db>,
+    services: State<'_, crate::AppServices>,
     user_id: String,
 ) -> Result<serde_json::Value, String> {
     let t0 = crate::store::now_ms_for_store();
@@ -395,10 +441,11 @@ pub fn sync_pull_now(
 
 /// V6: 首台 (ROOT_SECRET) 或 6 位码 换该 user 的 token (协议 v1 auth/device)。
 /// root_secret 与 code 二选一; 成功后存 Credential Manager (按 user 分账) + 存 worker_url。
+/// K2 (2026-08-11): 改 async + spawn_blocking —— auth_device 是网络调用 (15s 超时 ×3 重试)。
 #[tauri::command]
-pub fn sync_auth_device(
-    services: State<crate::AppServices>,
-    paths: State<crate::DataPaths>,
+pub async fn sync_auth_device(
+    services: State<'_, crate::AppServices>,
+    paths: State<'_, crate::DataPaths>,
     worker_url: String,
     user_id: String,
     root_secret: Option<String>,
@@ -408,12 +455,15 @@ pub fn sync_auth_device(
     use crate::services::config;
     let t0 = crate::store::now_ms_for_store();
     crate::infrastructure::log::info("cmd", &format!("enter: sync_auth_device user={user_id}"));
-    let auth = crate::infrastructure::sync_v1_client::auth_device(
-        &worker_url,
-        root_secret.as_deref(),
-        code.as_deref(),
-        &device_name,
-    )?;
+    let rs = root_secret.clone();
+    let cd = code.clone();
+    let dn = device_name.clone();
+    let wu = worker_url.clone();
+    let auth = tauri::async_runtime::spawn_blocking(move || {
+        crate::infrastructure::sync_v1_client::auth_device(&wu, rs.as_deref(), cd.as_deref(), &dn)
+    })
+    .await
+    .map_err(|e| format!("换 token 任务执行失败: {e}"))??;
     if !auth.token.is_empty() {
         crate::services::credentials::save_cf_token_for(&user_id, &auth.token)?;
     }
@@ -443,9 +493,10 @@ pub fn sync_auth_device(
 }
 
 /// V6: 已登录 user 生成 6 位一次性码 (add-device / invite-user)
+/// K2 (2026-08-11): 改 async + spawn_blocking —— make_code 是网络调用。
 #[tauri::command]
-pub fn sync_make_code(
-    services: State<crate::AppServices>,
+pub async fn sync_make_code(
+    services: State<'_, crate::AppServices>,
     user_id: String,
     code_type: String,
     name: Option<String>,
@@ -455,12 +506,13 @@ pub fn sync_make_code(
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
     let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
-    let r = crate::infrastructure::sync_v1_client::make_code(
-        &url,
-        &token,
-        &code_type,
-        name.as_deref(),
-    )?;
+    let nm = name;
+    let ct = code_type;
+    let r = tauri::async_runtime::spawn_blocking(move || {
+        crate::infrastructure::sync_v1_client::make_code(&url, &token, &ct, nm.as_deref())
+    })
+    .await
+    .map_err(|e| format!("生成邀请码任务执行失败: {e}"))??;
     crate::infrastructure::log::info(
         "cmd",
         &format!(
@@ -472,6 +524,7 @@ pub fn sync_make_code(
 }
 
 /// V6: 断开该 user 的同步 —— 删该 user 的 token (URL 共享, 只清 token)。
+/// K2: 本地操作 (Credential Manager + 读内存态), 无网络, 无需 async。
 #[tauri::command]
 pub fn sync_disconnect(user_id: String) -> Result<(), String> {
     let _ = crate::services::credentials::delete_cf_token_for(&user_id);
@@ -484,9 +537,10 @@ pub fn sync_disconnect(user_id: String) -> Result<(), String> {
 /// `https://aidulc-mobile.pages.dev/#t=<token>&u=<worker_url>`。
 /// 与 sync_make_code/sync_auth_device 的差别: 新 token **不**写入 Credential Manager,
 /// 桌面端保留自己的 token (手机 token 是给"另一台设备"的, 错了能踢)。
+/// K2 (2026-08-11): 改 async + spawn_blocking —— 两次网络调用。
 #[tauri::command]
-pub fn sync_pair_qr(
-    services: State<crate::AppServices>,
+pub async fn sync_pair_qr(
+    services: State<'_, crate::AppServices>,
     user_id: String,
 ) -> Result<serde_json::Value, String> {
     let svc = services.inner();
@@ -495,13 +549,20 @@ pub fn sync_pair_qr(
     if url.is_empty() || token.is_empty() {
         return Err("先配置同步 (Worker URL + 换 token) 才能生成配对码".into());
     }
-    // 1. 生成 add-device 码 (绑当前 user, 现成接口)
-    let code = crate::infrastructure::sync_v1_client::make_code(&url, &token, "add-device", None)
-        .map_err(|e| format!("生成配对码失败: {e}"))?;
-    // 2. 立即兑换成独立 device token (现成接口)
-    let auth =
-        crate::infrastructure::sync_v1_client::auth_device(&url, None, Some(&code.code), "手机")
-            .map_err(|e| format!("兑换手机 token 失败: {e}"))?;
+    let u = url.clone();
+    let t = token;
+    let (_code, auth) = tauri::async_runtime::spawn_blocking(move || {
+        // 1. 生成 add-device 码 (绑当前 user, 现成接口)
+        let code = crate::infrastructure::sync_v1_client::make_code(&u, &t, "add-device", None)
+            .map_err(|e| format!("生成配对码失败: {e}"))?;
+        // 2. 立即兑换成独立 device token (现成接口)
+        let auth =
+            crate::infrastructure::sync_v1_client::auth_device(&u, None, Some(&code.code), "手机")
+                .map_err(|e| format!("兑换手机 token 失败: {e}"))?;
+        Ok::<_, String>((code, auth))
+    })
+    .await
+    .map_err(|e| format!("配对任务执行失败: {e}"))??;
     let mobile_url = crate::infrastructure::sync_v1_client::MOBILE_APP_URL.to_string();
     let content = format!(
         "{mobile_url}#t={}&u={}",
@@ -521,9 +582,10 @@ pub fn sync_pair_qr(
 
 /// P0-C (2026-08-10): 踢掉配对设备 —— 调 worker /v1/auth/revoke (删 auth:{token} 即失效)。
 /// 手机端"拿到链接的人就能读你的词库"的收回手段: 配对后随时可踢, 被踢 token 立刻 401。
+/// K2 (2026-08-11): 改 async + spawn_blocking —— revoke 是网络调用。
 #[tauri::command]
-pub fn sync_revoke_token(
-    services: State<crate::AppServices>,
+pub async fn sync_revoke_token(
+    services: State<'_, crate::AppServices>,
     user_id: String,
     target_token: String,
 ) -> Result<serde_json::Value, String> {
@@ -533,7 +595,12 @@ pub fn sync_revoke_token(
     if url.is_empty() || token.is_empty() {
         return Err("先配置同步才能踢设备".into());
     }
-    crate::infrastructure::sync_v1_client::revoke_token(&url, &token, &target_token)
+    let tt = target_token;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::infrastructure::sync_v1_client::revoke_token(&url, &token, &tt)
+    })
+    .await
+    .map_err(|e| format!("踢设备任务执行失败: {e}"))?
 }
 
 /// 二维码 → SVG 字符串 (qrcode crate, ECC 默认 L/M 由 crate 自动选版; 白底黑块)。
@@ -648,4 +715,73 @@ pub fn log_from_frontend(level: String, module: String, message: String) -> Resu
 #[tauri::command]
 pub fn log_path() -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "path": crate::infrastructure::log::log_path() }))
+}
+
+#[cfg(test)]
+mod k1_tests {
+    //! K1 (2026-08-11): 查词失败的真实原因必须上屏 —— 四种失败给四种不同文案,
+    //! 没有一种说成"未返回结果"。daemon_outcome_to_tuple 是纯函数, 逐类锁住。
+    use super::{daemon_outcome_to_tuple, daemon_result_to_tuple};
+    use serde_json::json;
+
+    #[test]
+    fn ok_result_passes_through() {
+        // daemon_outcome_to_tuple 收到的是 lookup() 的返回值 = result 字段本身 (已剥掉 ok 包装)
+        let v = json!({
+            "pos": "NOUN", "phonetic": "/dɔː/", "meanings": ["门"],
+            "examples": ["knock the door"], "example_zh": ["敲门"],
+            "usage": "可数名词", "phrases": ["next door"]
+        });
+        let t = daemon_outcome_to_tuple(Ok(v), "door");
+        assert_eq!(t.0, "NOUN");
+        assert_eq!(t.2, vec!["门"]);
+    }
+
+    #[test]
+    fn four_failure_types_give_four_distinct_messages() {
+        let failures = [
+            // 守护起不动 (spawn 失败)
+            "启动词典守护失败: 系统找不到指定的程序",
+            // 中途 kill (进程退出)
+            "词典守护进程已退出",
+            // 返回非 JSON
+            "词典守护响应非法: expected value at line 1 column 1",
+            // 返回 ok:false (侧车自报)
+            "模型加载失败: 显存不足",
+        ];
+        let msgs: Vec<String> = failures
+            .iter()
+            .map(|e| {
+                let t = daemon_outcome_to_tuple(Err(e.to_string()), "doorway");
+                t.2.join(" ")
+            })
+            .collect();
+        // 四条文案互不相同
+        let mut uniq = std::collections::HashSet::new();
+        for m in &msgs {
+            assert!(!m.contains("未返回结果"), "不应再出现笼统文案: {m}");
+            assert!(m.contains("doorway"), "应含词: {m}");
+            uniq.insert(m.clone());
+        }
+        assert_eq!(uniq.len(), 4, "四种失败应给四种不同文案: {msgs:?}");
+        // 各自带上原始原因
+        assert!(msgs[0].contains("系统找不到指定的程序"));
+        assert!(msgs[1].contains("进程已退出"));
+        assert!(msgs[2].contains("响应非法"));
+        assert!(msgs[3].contains("显存不足"));
+    }
+
+    #[test]
+    fn unparseable_result_is_not_called_not_returned() {
+        // 侧车回了, 但内容缺 meanings → 解析失败, 不是"未返回结果"
+        let v = json!({"ok": true, "result": {"pos": "NOUN"}});
+        assert!(
+            daemon_result_to_tuple(&v).is_err(),
+            "缺 meanings 应解析失败"
+        );
+        let t = daemon_outcome_to_tuple(Ok(v), "door");
+        let msg = t.2.join(" ");
+        assert!(!msg.contains("未返回结果"), "解析失败 ≠ 未返回: {msg}");
+        assert!(msg.contains("无法解析"), "应说明是解析问题: {msg}");
+    }
 }

@@ -125,7 +125,8 @@ nlp 标签改「分词 / NLP」,删"仅跟读打分需要"表述。对照表见�
 
 ### L5(P1) 页头动作工具条
 `app/page_toolbar.js`(AiduPageToolbar.build)共用组件,生词本/模型与依赖/同步三处改用
-`.page-toolbar`(单一 flex + `gap: var(--md-sys-space-2)`)。smoke `9b` 断言无直系散列按钮。
+`.page-toolbar`(单一 flex + `gap: var(--md-sys-space-2)`)。smoke `9b` 断言无直系散列按钮
++ **三处页头全断言**(补测 196e399: 同步页的立即同步/拉取合并/更多也在 .page-toolbar)。
 
 ### L6(P1) 顶栏重排
 去掉「导入」;右侧统一定宽图标(处理中带角标/同步状态/设置齿轮),用 Material Symbols Rounded
@@ -158,6 +159,12 @@ import`(扫描 bookpack → 可导入N/已存在M → 确认后只登记路径)�
 config 加 `sync_backends` 列表 + `backends_including_active`(自动补默认项,单测);命令
 `sync_backends_list/add/switch/remove`;设置页后端列表(当前高亮/切换/新增/删除);切换改
 cf_worker_url, endpoint_key 不匹配自动全量重推。
+**"切换后生词本内容随之切换"机制证据 (补测 f9a9354)**: `backend_switch_target` 纯函数单测
+(切到不同 URL 标记全量重推 / 同 URL noop / 未知名报错) + 已锁的
+`endpoint_change_triggers_full_repush`(URL 变 → 全量重推) 合起来构成完整链路:
+切换 → 运行时 URL 变 (sync_backend_switch 写 AppServices.cf_worker_url, sync_now 读它)
+→ endpoint_key 不匹配 → 下次同步全量对齐 → 生词本内容切换。命令与单测共用同一
+`backend_switch_target` 逻辑 (729ab19 消除死代码)。
 **CF 免费档真实链路**(干净测试 namespace `a0e7…`,非生产): 7/7 通过 — 桌面 ROOT_SECRET
 换 token → 推 20 词 wrote=20 → 手机拉到 ≥20 → **实际写 25 个 KV 键 = 预算上限**。脚本
 `scripts/verify_cf_free_tier.mjs` 入库(环境变量注入,仓库不含真实域名,防呆拒绝生产

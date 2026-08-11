@@ -170,6 +170,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "拉取合并(某 user)",
     },
     CommandInfo {
+        path: "commands::reader::sync_force_full",
+        domain: "同步",
+        desc: "F4: 强制全量重推(清 sync_state, 服务端数据被清后用)",
+    },
+    CommandInfo {
         path: "commands::reader::sync_auth_device",
         domain: "同步",
         desc: "V6: ROOT_SECRET/6 位码 换该 user 的 token (协议 v1)",

@@ -407,6 +407,15 @@ pub async fn sync_now(
     serde_json::to_value(s).map_err(|e| e.to_string())
 }
 
+/// F4 (2026-08-11): 强制全量重推 —— 清该 user 的 sync_state (last_push_at=0, endpoint_key 清空),
+/// 下次"立即同步"按从未同步全量重推。服务端数据被清后 endpoint_key 仍匹配, A1 不会自动重推,
+/// 用户需要这个手动兜底。本地操作, 无需 async。
+#[tauri::command]
+pub fn sync_force_full(db: State<store::Db>, user_id: String) -> Result<(), String> {
+    crate::infrastructure::log::info("cmd", &format!("enter: sync_force_full user={user_id}"));
+    crate::application::sync_service::force_full_reset(db.inner(), &user_id)
+}
+
 /// 拉取合并 (某 user)
 /// K2 (2026-08-11): 改 async (同 sync_now)。
 #[tauri::command]

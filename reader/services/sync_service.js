@@ -12,6 +12,8 @@
     status(userId) { return AiduBridge.invoke('sync_status', { userId: userId || currentUser() }); },
     now(userId) { return AiduBridge.invoke('sync_now', { userId: userId || currentUser() }); },
     pull(userId) { return AiduBridge.invoke('sync_pull_now', { userId: userId || currentUser() }); },
+    // F4 (2026-08-11): 强制全量重推 —— 清 sync_state, 服务端数据被清/损坏后手动兜底
+    forceFull(userId) { return AiduBridge.invoke('sync_force_full', { userId: userId || currentUser() }); },
     authDevice(workerUrl, userId, rootSecret, code, deviceName) {
       return AiduBridge.invoke('sync_auth_device', {
         workerUrl, userId: userId || currentUser(),

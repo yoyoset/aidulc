@@ -486,6 +486,7 @@ fn main() {
             commands::reader::sync_status,
             commands::reader::sync_now,
             commands::reader::sync_pull_now,
+            commands::reader::sync_force_full,
             commands::reader::sync_auth_device,
             commands::reader::sync_make_code,
             commands::reader::sync_pair_qr,

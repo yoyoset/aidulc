@@ -276,7 +276,12 @@
       const disconnectBtn = el('button', 'btn-small btn-danger', '断开同步');
       disconnectBtn.title = '删除当前 user 的 token, 本机不再同步';
       disconnectBtn.disabled = true;
-      syncSec.append(syncStatus, urlInput, secretInput, authBtn, syncBtn, pullBtn, codeBtn, inviteBtn, pairBtn, disconnectBtn);
+      // F4 (2026-08-11): 强制全量重推 —— 服务端数据被清/损坏后, endpoint 没变 A1 不会自动重推,
+      // 用户需要手动兜底。清本 user 的 sync_state 后下次"立即同步"即全量重推。
+      const forceFullBtn = el('button', 'btn-small', '强制全量重推');
+      forceFullBtn.title = '服务端词库被清空/损坏后使用: 清掉本机同步进度, 下次立即同步会全量重推所有词';
+      forceFullBtn.disabled = true;
+      syncSec.append(syncStatus, urlInput, secretInput, authBtn, syncBtn, pullBtn, forceFullBtn, codeBtn, inviteBtn, pairBtn, disconnectBtn);
        syncPane.appendChild(syncSec);
 
       // UX A2 (2026-08-11): 显示「本次推 N 条 / 拉 M 条」; 同步后 N=0 且服务端词库为空
@@ -302,6 +307,7 @@
         }
         syncStatus.textContent = text;
         disconnectBtn.disabled = !d.configured;
+        forceFullBtn.disabled = !d.configured;
       };
       AiduSyncService.status().then((res) => {
         if (res.ok && res.data) refreshStatus(res.data, false);
@@ -330,6 +336,20 @@
         AiduSyncService.pull().then((r) => {
           if (r.ok && r.data) refreshStatus(r.data, true);
           else syncStatus.textContent = '拉取失败: ' + (r.error || '');
+        });
+      };
+      // F4: 强制全量重推 —— 清 sync_state 后引导用户立即同步 (清后点"立即同步"即全量重推)
+      forceFullBtn.onclick = () => {
+        AiduModal.confirm({
+          title: '强制全量重推?',
+          message: '将清空本机的同步进度记录, 下次"立即同步"会把所有词全量推到服务端。\n\n用于服务端词库被清空/损坏后恢复。不会删除本地任何词。',
+          confirmText: '清空进度',
+          danger: true,
+          onConfirm: () => AiduSyncService.forceFull().then((r) => {
+            if (!r.ok) { throw new Error(r.error); }
+            syncStatus.textContent = '已清空同步进度。点「立即同步」执行全量重推。';
+            return;
+          }),
         });
       };
       // V6: 生成 add-device 邀请码 (绑当前 user)

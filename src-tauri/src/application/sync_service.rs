@@ -159,6 +159,18 @@ pub fn reset_last_sync(user_id: &str) {
     m.lock().unwrap().remove(user_id);
 }
 
+/// F4 (2026-08-11): 强制全量重推 —— 清掉该 user 的 sync_state 行 (last_push_at 归 0,
+/// endpoint_key 清空), 下次同步按"从未同步"全量重推。用于: 服务端数据被清/损坏后,
+/// endpoint 没变 (endpoint_key 匹配) 所以 A1 不会触发全量重推的场景。
+pub fn force_full_reset(db: &Db, user_id: &str) -> Result<(), String> {
+    let conn = db.conn.lock().unwrap();
+    conn.execute("DELETE FROM sync_state WHERE user_id = ?1", [user_id])
+        .map_err(|e| format!("清同步状态失败: {e}"))?;
+    drop(conn);
+    reset_last_sync(user_id);
+    Ok(())
+}
+
 fn record_sync(user_id: &str, result: Result<(), String>) {
     let now = crate::store::now_ms_for_store();
     let m = LAST_SYNC.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
@@ -792,6 +804,49 @@ mod tests {
             .filter(|x| x.starts_with("push:"))
             .count();
         assert_eq!(pushes3, 2, "同端点第三次同步不应再 push: {pushes3}");
+    }
+
+    #[test]
+    fn force_full_reset_triggers_repush_on_same_endpoint() {
+        // F4 验收 (2026-08-11): 服务端数据被清后, endpoint 没变 (endpoint_key 匹配) → A1
+        // 不会自动全量重推。force_full_reset 清 sync_state → 下次同步即使同端点也全量重推。
+        let (url, order) = start_mock_worker();
+        let db = temp_db();
+        let repo = crate::store::vocab_repo::VocabRepo::new(&db);
+        repo.upsert_content(entry("bank", 100), "me", "default")
+            .unwrap();
+
+        // 首轮同步成功 (推 1 条, 同端点下次不推)
+        let s1 = sync_now(&db, &url, "token-a", "me", "me").unwrap();
+        assert_eq!(s1.last_wrote, 1, "首轮推 1 条: {s1:?}");
+        let pushes1 = order
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|x| x.starts_with("push:"))
+            .count();
+        assert_eq!(pushes1, 1, "首轮 1 次 push");
+
+        // 同端点无新词 → 推 0
+        let s2 = sync_now(&db, &url, "token-a", "me", "me").unwrap();
+        assert_eq!(s2.last_wrote, 0, "同端点无新词推 0: {s2:?}");
+
+        // 强制全量重推: 清 sync_state
+        force_full_reset(&db, "me").unwrap();
+
+        // 同端点再同步 → 必须全量重推 1 条 (A1 不会触发, 是 force_full 兜底的场景)
+        let s3 = sync_now(&db, &url, "token-a", "me", "me").unwrap();
+        assert_eq!(s3.last_wrote, 1, "强制重推后应再推 1 条: {s3:?}");
+        let pushes3 = order
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|x| x.starts_with("push:"))
+            .count();
+        assert_eq!(
+            pushes3, 2,
+            "同端点 force_full 后应发生第二次 push: {pushes3}"
+        );
     }
 
     #[test]

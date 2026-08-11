@@ -483,6 +483,8 @@ fn main() {
             commands::reader::vocab_stats,
             commands::reader::vocab_common_preview,
             commands::reader::vocab_remove_common,
+            commands::reader::vocab_backlog_preview,
+            commands::reader::vocab_backlog_spread,
             commands::reader::srs_preview,
             commands::reader::srs_grade,
             commands::reader::vocab_restore,

@@ -370,6 +370,134 @@ pub fn vocab_remove_common(
     }))
 }
 
+/// H4 (2026-08-11): 存量打散 dry-run —— 当前有多少词 next_review 在过去 (存量到期),
+/// 按每日可承受量 (daily_cap) 会摊到多少天、今天还剩多少词。不实际改动。
+#[tauri::command]
+pub fn vocab_backlog_preview(
+    db: State<store::Db>,
+    user_id: String,
+    profile_id: String,
+    daily_cap: i64,
+) -> Result<serde_json::Value, String> {
+    let cap = daily_cap.clamp(1, 500) as usize;
+    let repo = store::vocab_repo::VocabRepo::new(db.inner());
+    let now = crate::store::now_ms_for_store();
+    let entries = repo.list(&user_id, &profile_id);
+    // 存量 = next_review 在过去 (含 null), 且不是 mastered (已掌握不参与复习排程)
+    let backlog: Vec<(&str, i64)> = entries
+        .iter()
+        .filter(|e| e.stage != "mastered")
+        .filter(|e| e.next_review.map(|t| t <= now).unwrap_or(true))
+        .map(|e| (e.lemma.as_str(), e.added_at))
+        .collect();
+    let days = if cap > 0 {
+        backlog.len().div_ceil(cap)
+    } else {
+        0
+    };
+    let today_after = backlog.len().min(cap);
+    let spread = crate::domain::srs::spread_backlog_dates(&backlog, cap, now);
+    Ok(serde_json::json!({
+        "backlog_count": backlog.len(),
+        "daily_cap": cap,
+        "days": days,
+        "today_after": today_after,
+        "today_before": entries.iter().filter(|e| e.stage != "mastered").filter(|e| e.next_review.map(|t| t <= now).unwrap_or(true)).count(),
+        "sample_after": spread.iter().take(5).map(|(l, t)| serde_json::json!({"lemma": l, "next_review": t})).collect::<Vec<_>>(),
+    }))
+}
+
+/// H4 (2026-08-11): 存量打散 —— 按加入顺序把 next_review 摊到未来 N 天。
+///
+/// 数据安全 (GOAL_2026-08-11_UX2): 执行前自动备份 (export_aidu_data → 时间戳文件);
+/// 批量写必须**单事务**, 中途失败整体回滚; dry-run (vocab_backlog_preview) 先给数字。
+#[tauri::command]
+pub fn vocab_backlog_spread(
+    db: State<store::Db>,
+    user_id: String,
+    profile_id: String,
+    daily_cap: i64,
+) -> Result<serde_json::Value, String> {
+    let cap = daily_cap.clamp(1, 500) as usize;
+    let repo = store::vocab_repo::VocabRepo::new(db.inner());
+    let now = crate::store::now_ms_for_store();
+    let entries = repo.list(&user_id, &profile_id);
+    let backlog: Vec<(&str, i64)> = entries
+        .iter()
+        .filter(|e| e.stage != "mastered")
+        .filter(|e| e.next_review.map(|t| t <= now).unwrap_or(true))
+        .map(|e| (e.lemma.as_str(), e.added_at))
+        .collect();
+    if backlog.is_empty() {
+        return Ok(serde_json::json!({ "spread": 0, "days": 0, "backup_path": "" }));
+    }
+
+    // 1. 执行前自动备份 (数据安全第 1 条)
+    let backup_dir = std::env::var("AIDULC_BACKUP_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::env::temp_dir().join(format!("aidulc-backups-{}", std::process::id()))
+        });
+    let _ = std::fs::create_dir_all(&backup_dir);
+    let backup_path = backup_dir.join(format!(
+        "aidulc-vocab-spread-{}.aidu-data",
+        crate::store::now_ms_for_store()
+    ));
+    let backup_json = crate::application::transfer_service::export_aidu_data(db.inner())
+        .map_err(|e| format!("备份失败: {e}"))?;
+    std::fs::write(
+        &backup_path,
+        serde_json::to_string_pretty(&backup_json).unwrap_or_default(),
+    )
+    .map_err(|e| format!("写备份文件失败: {e}"))?;
+
+    // 2. 打散计划
+    let spread = crate::domain::srs::spread_backlog_dates(&backlog, cap, now);
+    let days = if cap > 0 {
+        backlog.len().div_ceil(cap)
+    } else {
+        0
+    };
+
+    // 3. 单事务写 next_review, 中途失败整体回滚
+    //    注意: 权威数据在 canonical payload JSON (repo.list 读 payload), 必须 json_set
+    //    payload 的 nextReview, 只改散列列会让 list 读到旧值 (单测锁住了这个坑)。
+    {
+        let conn = db.conn.lock().unwrap();
+        conn.execute_batch("BEGIN IMMEDIATE;")
+            .map_err(|e| format!("打散事务开始失败: {e}"))?;
+        let result = (|| -> Result<(), String> {
+            let mut stmt = conn
+                .prepare(
+                    "UPDATE vocab SET next_review = ?1, updated_at = ?2,
+                     payload = json_set(payload, '$.nextReview', ?1, '$.updatedAt', ?2)
+                     WHERE user_id = ?3 AND profile_id = ?4 AND lemma = ?5",
+                )
+                .map_err(|e| e.to_string())?;
+            for (lemma, ts) in &spread {
+                stmt.execute(rusqlite::params![ts, now, user_id, profile_id, lemma])
+                    .map_err(|e| format!("打散 {lemma} 失败: {e}"))?;
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => conn
+                .execute_batch("COMMIT;")
+                .map_err(|e| format!("打散事务提交失败: {e}"))?,
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK;");
+                return Err(format!("存量打散失败, 已整体回滚: {e}"));
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "spread": spread.len(),
+        "days": days,
+        "backup_path": backup_path.to_string_lossy(),
+    }))
+}
+
 // ---- 背单词调度器 (V2, 2026-08-09) ----
 
 /// 撤销评分: 把词条恢复到评分前的完整状态 (含 SRS), 用 sync 语义整体覆盖。
@@ -1067,6 +1195,81 @@ mod h5_tests {
         assert!(
             repo.get("me", "default", "either").is_some(),
             "失败后要么仍在 (回滚), 要么从未被删"
+        );
+    }
+
+    #[test]
+    fn backlog_spread_moves_due_into_future() {
+        // H4: 存量打散 —— 模拟命令的"取到期 → 单事务写 next_review"链路
+        use crate::domain::srs;
+        let db = temp_db();
+        let repo = VocabRepo::new(&db);
+        let now = crate::store::now_ms_for_store();
+        let mut e1 = entry("bank");
+        e1.next_review = Some(now - 1000); // 已到期
+        e1.added_at = now - 5000;
+        let mut e2 = entry("languid");
+        e2.next_review = Some(now - 2000); // 已到期
+        e2.added_at = now - 1000;
+        let mut e3 = entry("future");
+        e3.next_review = Some(now + 86_400_000); // 未到期, 不应被打散
+        e3.added_at = now;
+        repo.upsert_content(e1, "me", "default").unwrap();
+        repo.upsert_content(e2, "me", "default").unwrap();
+        repo.upsert_content(e3, "me", "default").unwrap();
+
+        // 取存量 (next_review <= now)
+        let entries = repo.list("me", "default");
+        let backlog: Vec<(&str, i64)> = entries
+            .iter()
+            .filter(|e| e.next_review.map(|t| t <= now).unwrap_or(true))
+            .map(|e| (e.lemma.as_str(), e.added_at))
+            .collect();
+        assert_eq!(backlog.len(), 2, "只有 2 个到期");
+
+        // 打散 (每日 1 词 → 摊到 2 天)
+        let spread = srs::spread_backlog_dates(&backlog, 1, now);
+        assert_eq!(spread.len(), 2);
+        // 按 added_at 排序: bank 先 (更早加入) → 今天; languid → 明天
+        assert_eq!(spread[0].0, "bank");
+        assert_eq!(spread[1].0, "languid");
+        let day0 = now - (now % srs::DAY_1);
+        assert_eq!(spread[0].1, day0);
+        assert_eq!(spread[1].1, day0 + srs::DAY_1);
+
+        // 单事务写回 (与命令一致: json_set payload, 只改散列列会让 repo.list 读到旧值)
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute_batch("BEGIN IMMEDIATE;").unwrap();
+            let mut stmt = conn
+                .prepare(
+                    "UPDATE vocab SET next_review = ?1, updated_at = ?2,
+                     payload = json_set(payload, '$.nextReview', ?1, '$.updatedAt', ?2)
+                     WHERE user_id='me' AND profile_id='default' AND lemma = ?3",
+                )
+                .unwrap();
+            for (lemma, ts) in &spread {
+                stmt.execute(rusqlite::params![ts, now, lemma]).unwrap();
+            }
+            conn.execute_batch("COMMIT;").unwrap();
+        }
+        // 今天只留 1 词 (每日上限 1), 未到期的 future 不动
+        let now2 = crate::store::now_ms_for_store();
+        let due_after: Vec<String> = repo
+            .list("me", "default")
+            .iter()
+            .filter(|e| e.next_review.map(|t| t <= now2).unwrap_or(true))
+            .map(|e| e.lemma.clone())
+            .collect();
+        assert_eq!(
+            due_after,
+            vec!["bank"],
+            "打散后今天只留 1 词: {due_after:?}"
+        );
+        assert_eq!(
+            repo.get("me", "default", "future").unwrap().next_review,
+            Some(now + 86_400_000),
+            "未到期词不受影响"
         );
     }
 }

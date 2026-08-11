@@ -183,6 +183,96 @@ pub fn apply_outcome(
     e
 }
 
+// ---- H4 (2026-08-11): 存量打散 ----
+
+/// H4: 首次导入/迁移进来的存量词打散到未来 N 天。
+///
+/// 背景 (实测): 一次性导入 1424 词, `next_review` 全部在过去 (最晚 2026-08-04),
+/// 今日队列 1291 词 ≈ 323 分钟 —— "到期复习不封顶"的前提是日常增量, 存量撞上来第一天
+/// 就是 5.4 小时, 没人会开始。
+///
+/// 规则: 按加入顺序 (added_at 升序) 把 next_review 摊到未来 ceil(N/daily_cap) 天,
+/// 每天至多 daily_cap 词。day = i / daily_cap, next_review = 今天 0 点 + day 天。
+/// 纯函数: 输入 (lemma, added_at, due) 列表, 输出 (lemma, next_review)。零 I/O。
+pub fn spread_backlog_dates(
+    items: &[(&str, i64)], // (lemma, added_at)
+    daily_cap: usize,
+    now: i64,
+) -> Vec<(String, i64)> {
+    if daily_cap == 0 || items.is_empty() {
+        return Vec::new();
+    }
+    let mut sorted: Vec<(&str, i64)> = items.to_vec();
+    sorted.sort_by_key(|(_, added_at)| *added_at);
+    let day_ms = DAY_1;
+    let today_start = now - (now % day_ms); // 今天 0 点 (epoch, 简单确定性, 不掺时区)
+    sorted
+        .into_iter()
+        .enumerate()
+        .map(|(i, (lemma, _))| {
+            let day = (i / daily_cap) as i64;
+            (lemma.to_string(), today_start + day * day_ms)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod h4_tests {
+    use super::*;
+
+    const NOW: i64 = 1_700_000_000_000; // 某个 epoch ms
+    const DAY: i64 = DAY_1;
+
+    #[test]
+    fn spreads_evenly_by_join_order() {
+        // 10 词, 每日 4 → 摊到 3 天 (4/4/2)
+        let items: Vec<(String, i64)> = (0..10).map(|i| (format!("w{i}"), 1000 + i)).collect();
+        let refs: Vec<(&str, i64)> = items.iter().map(|(l, a)| (l.as_str(), *a)).collect();
+        let out = spread_backlog_dates(&refs, 4, NOW);
+        assert_eq!(out.len(), 10);
+        let day0 = NOW - (NOW % DAY);
+        // 前 4 个今天, 4-7 明天, 8-9 后天
+        assert_eq!(out[0].1, day0);
+        assert_eq!(out[3].1, day0);
+        assert_eq!(out[4].1, day0 + DAY);
+        assert_eq!(out[7].1, day0 + DAY);
+        assert_eq!(out[8].1, day0 + 2 * DAY);
+        assert_eq!(out[9].1, day0 + 2 * DAY);
+    }
+
+    #[test]
+    fn join_order_determines_slot() {
+        // 后加入的排到后面 (按 added_at)
+        let items: Vec<(String, i64)> =
+            vec![("late".to_string(), 5000), ("early".to_string(), 1000)];
+        let refs: Vec<(&str, i64)> = items.iter().map(|(l, a)| (l.as_str(), *a)).collect();
+        let out = spread_backlog_dates(&refs, 1, NOW);
+        let day0 = NOW - (NOW % DAY);
+        assert_eq!(out[0].0, "early", "先加入的先排");
+        assert_eq!(out[0].1, day0);
+        assert_eq!(out[1].0, "late");
+        assert_eq!(out[1].1, day0 + DAY);
+    }
+
+    #[test]
+    fn empty_or_zero_cap_is_noop() {
+        assert!(spread_backlog_dates(&[], 10, NOW).is_empty());
+        let items: Vec<(&str, i64)> = vec![("a", 1)];
+        assert!(spread_backlog_dates(&items, 0, NOW).is_empty());
+    }
+
+    #[test]
+    fn all_fit_in_one_day_when_under_cap() {
+        let items: Vec<(String, i64)> = (0..3).map(|i| (format!("w{i}"), i)).collect();
+        let refs: Vec<(&str, i64)> = items.iter().map(|(l, a)| (l.as_str(), *a)).collect();
+        let out = spread_backlog_dates(&refs, 40, NOW);
+        let day0 = NOW - (NOW % DAY);
+        for (_, ts) in &out {
+            assert_eq!(*ts, day0, "3 词 < 40 上限 → 全在今天");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

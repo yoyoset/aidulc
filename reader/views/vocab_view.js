@@ -59,6 +59,12 @@
       freqBtn.title = '把最常见的高频词 (either/lead/...) 批量移出生词本 —— 5.4 小时队列里一半是这类词, 毁掉复习。先预览将影响多少条, 确认后才删。';
       freqBtn.onclick = () => this._removeCommonWords();
       toolbar.appendChild(freqBtn);
+      // H4 (2026-08-11): 存量打散 —— 首次导入的 1424 词 next_review 全在过去, 今日队列 1291 词
+      // ≈323 分钟。按加入顺序摊到未来 N 天 (每天 ~40 词), 而不是全堆在今天。先 H5 剔词再打散。
+      const spreadBtn = el('button', 'btn-small', '打散存量到期');
+      spreadBtn.title = '把已到期的存量词 (next_review 在过去) 按加入顺序摊到未来 N 天, 今天只留每日可承受量。5.4 小时 → 约 40 分钟/天。';
+      spreadBtn.onclick = () => this._spreadBacklog();
+      toolbar.appendChild(spreadBtn);
       wrap.appendChild(toolbar);
 
       const listEl = el('div', 'vocab-list');
@@ -206,6 +212,39 @@
             AiduToast.show(`已剔除 ${rm.removed} 条最常见词`, 'success');
             if (rm.backup_path) {
               setTimeout(() => AiduToast.show('备份: ' + rm.backup_path, 'info'), 1200);
+            }
+            this._load();
+            return;
+          }),
+        });
+      });
+    }
+
+    /** H4 (2026-08-11): 存量打散 —— dry-run 先给数字 (今天 1291 → 摊成每天 ~40), 确认后执行 */
+    _spreadBacklog() {
+      const cap = 40;
+      AiduDictionaryService.vocabBacklogPreview(this.profileId, cap).then((res) => {
+        if (!res.ok) { AiduToast.show('读取失败: ' + res.error, 'error'); return; }
+        const d = res.data || {};
+        if (!d.backlog_count) {
+          AiduToast.show('没有存量到期词, 无需打散', 'info');
+          return;
+        }
+        const before = d.today_before;
+        const after = d.today_after;
+        const mins = Math.ceil(before * 15 / 60);
+        const minsAfter = Math.ceil(after * 15 / 60);
+        AiduModal.confirm({
+          title: `打散 ${d.backlog_count} 个存量到期词?`,
+          message: `今天到期 ${before} 词 (约 ${mins} 分钟)。打散后今天只留 ${after} 词 (约 ${minsAfter} 分钟), 其余按加入顺序摊到未来 ${d.days} 天。\n\n执行前自动备份, 完成后告诉你备份位置。`,
+          confirmText: `打散 (今天 ${before} → ${after})`,
+          danger: true,
+          onConfirm: () => AiduDictionaryService.vocabBacklogSpread(this.profileId, cap).then((r) => {
+            if (!r.ok) { throw new Error(r.error); }
+            const s = r.data || {};
+            AiduToast.show(`已打散 ${s.spread} 词到未来 ${s.days} 天`, 'success');
+            if (s.backup_path) {
+              setTimeout(() => AiduToast.show('备份: ' + s.backup_path, 'info'), 1200);
             }
             this._load();
             return;

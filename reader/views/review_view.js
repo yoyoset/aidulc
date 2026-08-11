@@ -90,11 +90,22 @@
       );
       const est = global.AiduReviewCore.estimateSeconds(this.queue.length);
       const estEl = el('div', 'review-queue-foot', `预计约 ${Math.ceil(est / 60)} 分钟 · 已复习 ${this.done} 词`);
+      // H4 (2026-08-11): 今日队列可见的每日上限 + 「剩余 N 词顺延到明天」。
+      // 存量打散后 dueCount ≤ 每日上限; 若仍超限 (还没打散 / 新到期积累), 明确说
+      // 有多少词会顺延, 而不是让用户面对 1291 词 323 分钟一头雾水。
       this.queueCol.innerHTML = '';
       this.queueCol.append(head, progress, chips, estEl);
+      if (q.dueCount > this.dailyCap()) {
+        const deferred = q.dueCount - this.dailyCap();
+        const warn = el('div', 'review-cap-warn', `到期 ${q.dueCount} 词, 超过每日上限 ${this.dailyCap()} —— ${deferred} 词将顺延到后续日期。可在生词本「打散存量到期」摊开。`);
+        this.queueCol.appendChild(warn);
+      }
       this._queueList = el('div', 'review-queue-list');
       this.queueCol.appendChild(this._queueList);
     }
+
+    /** H4: 每日可承受量 (与生词本打散按钮的 daily_cap 一致, 单一数字来源) */
+    dailyCap() { return 40; }
 
     _renderCurrent() {
       if (this.index >= this.queue.length) {

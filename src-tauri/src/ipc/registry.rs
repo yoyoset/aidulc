@@ -150,6 +150,16 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "H5: 词频批量剔除 (备份+单事务删除, 确认后执行)",
     },
     CommandInfo {
+        path: "commands::reader::vocab_backlog_preview",
+        domain: "生词",
+        desc: "H4: 存量打散 dry-run (到期存量有多少/摊到几天/今天剩几词)",
+    },
+    CommandInfo {
+        path: "commands::reader::vocab_backlog_spread",
+        domain: "生词",
+        desc: "H4: 存量打散 (备份+单事务把 next_review 摊到未来 N 天)",
+    },
+    CommandInfo {
         path: "commands::reader::srs_preview",
         domain: "复习",
         desc: "四档间隔预览 (调度器对当前词算出按钮时间, V2)",

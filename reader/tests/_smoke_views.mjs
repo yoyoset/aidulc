@@ -645,6 +645,33 @@ console.log('== 6c. E: 今日队列上限 + 折叠 (UX 2026-08-11) ==');
   rv3.cleanup();
 }
 
+console.log('== 6d. L3 (2026-08-11): 点「开始复习」必须触发重渲染 (不再赋同值 hash) ==');
+{
+  load('views/vocab_view.js');
+  globalThis.AiduDictionaryService.vocabAll = async () => ({ ok: true, data: [
+    { word: 'reticent', lemma: 'reticent', stage: 'review', interval_ms: 3 * 86400000, next_review: Date.now() - 1000, meaning: '沉默寡言的', context: 'He was reticent.', edition_id: 'e-1', chapter_index: 2, sentence_index: 5 },
+  ] });
+  const navCalls = [];
+  const fakeRouter = { navigate: (r) => navCalls.push(r) };
+  const vv = new globalThis.VocabView(new globalThis.AiduStore());
+  // 真实 app 里 main.js 用单例 store 并挂到 global; 测试里让视图与点击路径读同一个实例
+  const storeV = new globalThis.AiduStore();
+  const AiduStoreClass = globalThis.AiduStore;
+  globalThis.AiduStore = storeV;
+  vv.store = storeV;
+  vv.setRouter(fakeRouter);
+  const vc = makeElement('div');
+  vv.render(vc);
+  await new Promise((r) => setTimeout(r, 60));
+  // 进入专注模式: reviewFocus=true + router.navigate('vocab') (同路由也强制重渲染)
+  const startBtn = queryAll(vc, 'button').find((b) => b.textContent === '开始复习');
+  check('今日队列卡有「开始复习」按钮', !!startBtn);
+  startBtn.onclick();
+  check('点击设置 reviewFocus=true', storeV.state.reviewFocus === true);
+  check('点击调用 router.navigate(vocab) (不再赋同值 hash)', navCalls.join(',') === 'vocab', 'nav=' + navCalls.join(','));
+  globalThis.AiduStore = AiduStoreClass;
+}
+
 console.log('== 7. S5 只播这一句 (player.playOne 单句停) ==');
 {
   load('core/shadow.js');

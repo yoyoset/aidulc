@@ -19,6 +19,12 @@
       this.entries = [];
       this.filter = 'all'; // all | new | learning | review | mastered
       this.selected = new Set(); // H3: 批量选择的 lemma
+      this.router = null; // 由 main.js setRouter 注入
+    }
+
+    /** L3 (2026-08-11): 注入路由实例 —— 「开始复习」需要"同路由强制重渲染"进专注模式 */
+    setRouter(router) {
+      this.router = router;
     }
 
     render(container) {
@@ -107,9 +113,17 @@
       const startBtn = el('button', 'btn-primary', '开始复习');
       startBtn.title = '进入专注模式: 隐藏顶栏与词表, 只留三栏; Esc 退出, 进度保留';
       startBtn.onclick = () => {
-        if (global.AiduStore && global.AiduRouter) {
+        if (global.AiduStore) {
           global.AiduStore.set({ reviewFocus: true });
-          window.location.hash = '#/vocab'; // 触发路由重渲染进专注模式
+          // L3 (2026-08-11): 不能再靠 location.hash 赋同值触发路由 —— 当前 hash 已经就是
+          // #/vocab, 赋同值不触发 hashchange, 点「开始复习」就什么都不发生。
+          // 直接走 router.navigate('vocab') (同路由时强制 dispatch 重渲染进专注模式)。
+          if (this.router) {
+            this.router.navigate('vocab');
+          } else {
+            // 兜底: 无路由引用时主动派发一次 hashchange 模拟 (旧实现完全不动)
+            window.dispatchEvent(new Event('hashchange'));
+          }
         } else {
           window.location.hash = '#/review';
         }

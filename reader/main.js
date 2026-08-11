@@ -44,6 +44,9 @@
   const wizardView = new WizardView(store);
   const vocabView = new VocabView(store);
   const reviewView = new ReviewView(store);
+  // L3 (2026-08-11): 「开始复习」要"同路由强制重渲染"进专注模式 —— 视图持有路由引用,
+  // 不再靠 location.hash 赋同值 (赋同值不触发 hashchange, 点了没反应)。
+  vocabView.setRouter(router);
 
   // ---- 首次运行: 向导拦截 ----
   AiduModelService.wizardState().then((res) => {

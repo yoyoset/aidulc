@@ -679,32 +679,43 @@
           head.append(name, builtin);
           const strategy = { none: '不讲', brief: '简要讲解', deep: '深入讲解' }[p.explain_strategy] || p.explain_strategy;
           const gran = p.highlight_granularity === 'word' ? '词级' : '句级';
-          const meta = el('div', 'profile-meta', `${strategy} · ${p.voice} · ${p.speed}x · ${gran}`);
+          // J7 (2026-08-11): 音色显示人话名 (af_heart → 女声温暖), 不把内部 id 上屏
+          const voiceName = this._voiceHumanName(p.voice);
+          const meta = el('div', 'profile-meta', `${strategy} · ${voiceName} · ${p.speed}x · ${gran}`);
           const actions = el('div', 'profile-actions');
           const edit = el('button', 'btn-small', '编辑');
           edit.onclick = () => this._editProfileModal(p, () => this._renderProfiles(listEl));
           actions.appendChild(edit);
-          if (p.id !== 'default') {
-            const del = el('button', 'btn-small btn-danger', '删除');
-            del.onclick = () => {
-              AiduModal.confirm({
-                title: `删除档案「${p.name}」?`,
-                message: '删除后, 用这个档案处理过的书在书卡上会显示"未知档案" (不影响已生成的书)。',
-                confirmText: '删除',
-                danger: true,
-                onConfirm: () => AiduBridge.profiles.remove(p.id).then((r) => {
-                  if (!r.ok) { AiduToast.show('删除失败: ' + r.error, 'error'); return; }
-                  AiduToast.show('已删除档案', 'info');
-                  this._renderProfiles(listEl);
-                }),
-              });
-            };
-            actions.appendChild(del);
-          }
+          // J7 (2026-08-11): 内建档案也能删 (且可恢复) —— 统一: 能删就都能删。
+          // 删除后 ensureBuiltins 会补回内建参数, 下次进来还是那两套默认。
+          const del = el('button', 'btn-small btn-danger', '删除');
+          del.onclick = () => {
+            AiduModal.confirm({
+              title: `删除档案「${p.name}」?`,
+              message: (p.id === 'default' || p.id === 'kid')
+                ? '删除后, 用这个档案处理过的书在书卡上会显示"未知档案" (不影响已生成的书)。内建档案可从设置里随时重新创建 (参数用默认值)。'
+                : '删除后, 用这个档案处理过的书在书卡上会显示"未知档案" (不影响已生成的书)。',
+              confirmText: '删除',
+              danger: true,
+              onConfirm: () => AiduBridge.profiles.remove(p.id).then((r) => {
+                if (!r.ok) { AiduToast.show('删除失败: ' + r.error, 'error'); return; }
+                AiduToast.show('已删除档案', 'info');
+                this._renderProfiles(listEl);
+              }),
+            });
+          };
+          actions.appendChild(del);
           row.append(head, meta, actions);
           listEl.appendChild(row);
         });
       });
+    }
+
+    /** J7: 音色 id → 人话名 (af_heart → 女声温暖 (默认)) */
+    _voiceHumanName(voiceId) {
+      const found = SettingsView.VOICES.find(([id]) => id === voiceId);
+      if (found) return found[1].split(' · ').slice(1).join(' · ') || found[1];
+      return voiceId || '默认音色';
     }
 
     /** 新建/编辑档案模态 (M6): 名称 + 讲解策略 + 音色 + 语速 + 高亮粒度 */

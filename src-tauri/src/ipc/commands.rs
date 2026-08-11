@@ -74,13 +74,11 @@ pub fn profile_list(db: State<Db>) -> Result<serde_json::Value, String> {
     serde_json::to_value(repo.list()).map_err(|e| e.to_string())
 }
 
-/// 删除自建档案 (M6). 内建档案 ('default') 不允许删 —— 它是所有书的兜底配置,
-/// 删了会让读不到档案的书静默落到 DB 默认值, 用户困惑。
+/// 删除档案 (M6). J7 (2026-08-11): 内建档案也能删 (且可恢复) —— 统一"能删就都能删",
+/// 不搞"成人自读不能删、陪小孩读能删"的不对称。删除后前端 ensureBuiltins 会按内建
+/// 默认参数重新补回 (设置页可随时再见到这两套), 不影响已生成的书。
 #[tauri::command]
 pub fn profile_delete(db: State<Db>, id: String) -> Result<(), String> {
-    if id == "default" {
-        return Err("内建档案「成人自读」不能删除".into());
-    }
     let repo = crate::store::profile_repo::ProfileRepo::new(db.inner());
     repo.delete(&id)
 }

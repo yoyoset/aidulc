@@ -91,15 +91,21 @@ function makeAppLogic(adapter) {
       }
 
       // 3. 合并远端 (新者胜), 写回本地; 清待推
+      // F1 (2026-08-11): 原实现 getWords() 在循环内全表扫描 + 每条独立事务 ——
+      // 2845 条 → ~400 万次反序列化 + 2845 个独立事务, 同步永远不返回 (页面停在初始 0)。
+      // 改成: getWords() 提到循环外建 Map<lemma, entry>, 批量 setWords 一次写完。
       let mergedCount = 0;
+      const existing = (await storage.getWords()) || [];
+      const map = new Map();
+      for (const w of existing) map.set(w.lemma, w);
       for (const remote of pullRes.changed || []) {
-        const existing = await storage.getWords();
-        const local = existing.find((w) => w.lemma === remote.lemma) || null;
+        const local = map.get(remote.lemma) || null;
         if (!local || (remote.updated_at || 0) > (local.updated_at || 0)) {
-          await storage.putWord(remote);
+          map.set(remote.lemma, remote);
           mergedCount++;
         }
       }
+      await storage.setWords(Array.from(map.values()));
       await storage.clearPending();
       // UX A3: 同步诊断元数据 (设置页展示: 上次 rev / 本次从服务端拉回多少条 ——
       // 拉回条数是"从服务端实际拿到的", 不是合并写回的, 用 changed.length)

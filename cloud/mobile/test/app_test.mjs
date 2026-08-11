@@ -218,6 +218,40 @@ console.log('== 5. UX A3 同步诊断区分: "拉到 1424 词但今日只放 6 �
   check('空词库 → 队列 0 且总数 0 (一眼可辨)', q0.order.length === 0 && q0.counts.newTotal === 0, q0.counts);
 }
 
+console.log('== 6. F1 (2026-08-11): 合并 O(n²)→Map 一次批量, 1421 条 < 1s 验收 ==');
+{
+  // 验收口径 = F1 修的那一段: 合并 (getWords 建 Map + 新者胜 + setWords 批量写回)。
+  // 网络/服务端文件 KV 耗时不属于"合并", 不混进打点。直接注入 pullRes.changed 模拟。
+  const adapter = nodeAdapter({ fetchImpl: async () => ({ ok: true }) });
+  const app = makeAppLogic(adapter);
+  await app.init();
+  const now = Date.now();
+
+  // 本地预置 1421 条 (模拟真实词库), 远端全是更新版本 → 触发全量合并写回
+  const localWords = [];
+  for (let i = 0; i < 1421; i++) {
+    localWords.push({ word: 'w' + i, lemma: 'w' + i, meaning: '旧含义', stage: 'new', updated_at: now - 10000 });
+  }
+  await adapter.storage.setWords(localWords);
+  await adapter.storage.setToken('t');
+  await adapter.storage.setWorkerUrl('http://test.local');
+  const changed = [];
+  for (let i = 0; i < 1421; i++) {
+    changed.push({ word: 'w' + i, lemma: 'w' + i, meaning: '新含义', stage: 'review', updated_at: now - i });
+  }
+  // 注入远端响应 (绕过网络): 直接驱动 app.sync 的合并段 —— 用 stub 把 pull 换成合成数据
+  const origPull = adapter.net.syncPull;
+  adapter.net.syncPull = async () => ({ ok: true, rev: 4268, changed, deck_exists: true });
+  const t0 = Date.now();
+  const r = await app.sync();
+  const elapsed = Date.now() - t0;
+  adapter.net.syncPull = origPull;
+  check('F1: 合并同步完成 (不挂起)', r.ok === true, r);
+  check('F1: 合并写回 1421 条 (新含义)', (await app.loadWords()).filter((w) => w.meaning === '新含义').length === 1421);
+  console.log('  F1 打点: 1421 条合并+批量写回耗时 ' + elapsed + 'ms');
+  check('F1: 1421 条合并 < 1 秒 (验收)', elapsed < 1000, elapsed + 'ms');
+}
+
 console.log('');
 console.log(`结果: ${pass} 通过 / ${fail} 失败`);
 // 显式 exit: undici keep-alive 与 server.close 在 Windows 上偶发 libuv 断言, 直接退干净

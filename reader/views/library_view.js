@@ -282,15 +282,33 @@
         const actions = el('div', 'book-card-actions');
         const canOpen = book.status === 'ready' || book.status === 'partial';
         if (this.kind === 'product') {
-          // 成品架: 主按钮 = 打开阅读; 导出/删除进菜单
-          const openBtn = el('button', 'btn-small btn-primary', '打开阅读');
-          openBtn.disabled = !canOpen;
-          if (!canOpen) { openBtn.title = '这本书还在准备中, 完成后再来读'; openBtn.classList.add('btn-disabled'); }
-          openBtn.onclick = () => this.onOpenBook && this.onOpenBook(book);
-          actions.append(openBtn);
-          const menuBtn = el('button', 'btn-small', '⋯');
-          menuBtn.onclick = () => this._openBookMenu(book, { export: true, delete: true });
-          actions.appendChild(menuBtn);
+          // L2 (2026-08-11): 成品文件缺失 —— pack_state = missing/incomplete 时书卡红色报错,
+          // 不再显示"已就绪"假装可读。给出两个出口: 重新生成译本 / 移除这个译本记录。
+          if (book.pack_state && book.pack_state !== 'ok') {
+            const missingBadge = el('span', 'book-badge badge-err',
+              book.pack_state === 'missing' ? '成品文件缺失' : '成品文件不完整');
+            card.prepend(missingBadge);
+            const reason = el('div', 'book-card-err-hint',
+              book.pack_state === 'missing'
+                ? '这本书的成品文件找不到了 (目录已被移动或删除)。可以从原书重新生成, 或移除这个译本记录。'
+                : '这本书的目录还在但内容不完整 (可能被清理过)。可以重新生成, 或移除这个译本记录。');
+            card.appendChild(reason);
+            const regenBtn = el('button', 'btn-small btn-primary', '重新生成译本');
+            regenBtn.onclick = () => this._regenerateEdition(book);
+            actions.append(regenBtn);
+            const rmBtn = el('button', 'btn-small', '移除这个译本记录');
+            rmBtn.onclick = () => this._removeEdition(book);
+            actions.appendChild(rmBtn);
+          } else {
+            const openBtn = el('button', 'btn-small btn-primary', '打开阅读');
+            openBtn.disabled = !canOpen;
+            if (!canOpen) { openBtn.title = '这本书还在准备中, 完成后再来读'; openBtn.classList.add('btn-disabled'); }
+            openBtn.onclick = () => this.onOpenBook && this.onOpenBook(book);
+            actions.append(openBtn);
+            const menuBtn = el('button', 'btn-small', '⋯');
+            menuBtn.onclick = () => this._openBookMenu(book, { export: true, delete: true });
+            actions.appendChild(menuBtn);
+          }
         } else {
           // 原版书库: 主按钮 = 创建/新增译本 (G6: 措辞统一不再因有无译本换词);
           // 预览/设置/删除收进「详情」。
@@ -325,20 +343,31 @@
              const childMeta = el('div', 'book-card-meta',
                `${childProfile} · ${edition.source_language || 'en'}→${edition.target_language || 'zh-CN'} · ${childModel}`);
              childMeta.title = [edition.llm_id, edition.tts_id].filter(Boolean).join('\n');
-             const childActions = el('div', 'book-card-actions');
-              const childCanOpen = ['ready', 'partial'].includes(edition.status);
-              const childOpen = el('button', 'btn-small btn-primary', '打开阅读');
-              childOpen.disabled = !childCanOpen;
-              if (!childCanOpen) {
-                childOpen.title = '这本书还在准备中, 完成后再来读';
-                childOpen.classList.add('btn-disabled');
+              const childActions = el('div', 'book-card-actions');
+               const childCanOpen = ['ready', 'partial'].includes(edition.status);
+              // L2 (2026-08-11): 展开的译本子卡同样标红 + 点击给明确错误, 不静默无反应。
+              if (edition.pack_state && edition.pack_state !== 'ok') {
+                const childErr = el('span', 'book-badge badge-err',
+                  edition.pack_state === 'missing' ? '成品文件缺失' : '成品文件不完整');
+                childMeta.prepend(childErr);
+                const childRegen = el('button', 'btn-small btn-primary', '重新生成译本');
+                childRegen.onclick = () => this._regenerateEdition(edition);
+                const childRm = el('button', 'btn-small', '移除这个译本记录');
+                childRm.onclick = () => this._removeEdition(edition);
+                childActions.append(childRegen, childRm);
+              } else {
+                const childOpen = el('button', 'btn-small btn-primary', '打开阅读');
+                childOpen.disabled = !childCanOpen;
+                if (!childCanOpen) {
+                  childOpen.title = '这本书还在准备中, 完成后再来读';
+                  childOpen.classList.add('btn-disabled');
+                }
+                childOpen.onclick = () => this.onOpenBook && this.onOpenBook(edition);
+                const childMenu = el('button', 'btn-small', '⋯');
+                childMenu.onclick = () => this._openBookMenu(edition, { delete: true, editionChild: true });
+                childActions.append(childOpen, childMenu);
               }
-              childOpen.onclick = () => this.onOpenBook && this.onOpenBook(edition);
-             // G2: 译本卡主按钮一个, 删除进 ⋯
-             const childMenu = el('button', 'btn-small', '⋯');
-             childMenu.onclick = () => this._openBookMenu(edition, { delete: true, editionChild: true });
-             childActions.append(childOpen, childMenu);
-             child.append(childTitle, childMeta, childActions);
+              child.append(childTitle, childMeta, childActions);
              body.appendChild(child);
            });
            editions.appendChild(body);
@@ -414,6 +443,32 @@
       ov.appendChild(box);
       ov.addEventListener('click', (ev) => { if (ev.target === ov) ov.remove(); });
       document.body.appendChild(ov);
+    }
+
+    /** L1-d/L2 (2026-08-11): 成品文件缺失 → 重新生成译本 (复用创建译本流程, 源 EPUB 路径在 books.source_path)。 */
+    _regenerateEdition(edition) {
+      const source = {
+        id: edition.source_id,
+        title: edition.title || edition.id,
+        profile_id: edition.profile_id || this._storedProfile() || 'default',
+        source_language: edition.source_language || 'en',
+        target_language: edition.target_language || 'zh-CN',
+        llm_id: edition.llm_id,
+        tts_id: edition.tts_id,
+        nlp_id: edition.nlp_id,
+      };
+      this._chooseEditionProfile(source);
+    }
+
+    /** L2 (2026-08-11): 成品文件缺失 → 移除这个译本记录 (仅删 DB 行, 不碰磁盘文件 —— 磁盘本来就没了)。 */
+    _removeEdition(edition) {
+      AiduModal.confirm({
+        title: `移除译本《${edition.title || edition.id}》记录?`,
+        message: '这本书的成品文件已经找不到了, 只移除这条记录 (原书保留, 可以随时重新生成)。',
+        confirmText: '移除', danger: true,
+        onConfirm: () => AiduLibraryService.remove(edition.id, true)
+          .then(() => { this.store.emit('change', this.store.state); AiduToast.show('已移除译本记录', 'success'); }),
+      });
     }
 
     /** 默认与预填 (UX 审计 2026-08-09): 记住上次选的档案, 导入/创建译本自动预选 */

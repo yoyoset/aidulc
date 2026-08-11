@@ -292,6 +292,61 @@ mod tests {
     }
 
     #[test]
+    fn l1a_cleanup_keeps_edition_pack_dir_like_production() {
+        // L1-a (2026-08-11): 991MB 成品丢失根因排查 —— 按目标文档构造精确用例:
+        // DB 里 edition.pack_dir 指向 out_dir/jobs/ 下的目录 (真实事故数据:
+        // 'Number the Stars' edition id=job_1786205609337_11852_1_default,
+        // pack_dir=...\jobs_out\jobs\job-1786205609337-11852-1), 另有 job 行与批次行
+        // 引用同一目录。跑 cleanup_orphan_job_dirs → 该目录必须不被删。
+        let root = std::env::temp_dir().join(format!("aidulc_l1a_{}", std::process::id()));
+        let jobs = root.join("jobs");
+        let prod_dir = jobs.join("job-1786205609337-11852-1");
+        std::fs::create_dir_all(prod_dir.join("checkpoints")).unwrap();
+        std::fs::write(prod_dir.join("run.log"), "x").unwrap();
+        std::fs::create_dir_all(jobs.join("job-orphan-real")).unwrap();
+
+        let path = root.join(format!("l1a{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = store::Db::open(path.to_str().unwrap()).unwrap();
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO editions(id,source_id,title,pack_dir,profile_id,status,chapter_count,
+                failed_count,source_language,target_language,created_at,updated_at)
+             VALUES('job_1786205609337_11852_1_default','s','Number the Stars',?1,'default',
+                'partial',1,0,'en','zh-CN',1,1)",
+            [prod_dir.to_string_lossy().to_string()],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO jobs(id,edition_id,book_path,profile_id,output_dir,status,created_at,updated_at)
+             VALUES('job-1786205609337-11852-1','job_1786205609337_11852_1_default','x','default',
+                ?1,'done',1,1)",
+            [prod_dir.to_string_lossy().to_string()],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO batches(id,profile_id,source_language,target_language,status,total_books,
+                done_books,failed_books,created_at,updated_at)
+             VALUES('batch-1786205582838-11852-0','default','en','zh-CN','completed',1,1,0,1,1)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        cleanup_orphan_job_dirs(&db, &root).unwrap();
+        assert!(
+            prod_dir.exists(),
+            "edition.pack_dir 指向的目录绝不能被孤儿清理删掉 (真实事故场景)"
+        );
+        assert!(
+            !jobs.join("job-orphan-real").exists(),
+            "无引用的孤儿目录仍应被清"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn delete_edition_cleans_all_references() {
         let path = std::env::temp_dir().join(format!("aidulc_asset_{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);

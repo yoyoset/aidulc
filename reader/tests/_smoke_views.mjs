@@ -372,6 +372,29 @@ console.log('== 3b. G2 (2026-08-11): 每张书卡至多一个主按钮 (.btn-pri
   check('主按钮叫「创建译本」(无译本时也统一)', !!createBtn, 'primary=' + (cards[0] && queryAll(cards[0], '.btn-primary').map((b) => b.textContent).join(',')));
 }
 
+console.log('== 3c. L2 (2026-08-11): 成品文件缺失 → 红色徽章 + 重新生成/移除两个出口 ==');
+{
+  const lv = new globalThis.LibraryView(store, 'product');
+  const listEl = makeElement('div');
+  const missingBook = {
+    id: 'e1', title: 'Number the Stars 译本', kind: 'product', status: 'ready',
+    pack_state: 'missing', source_id: 's1', profile_id: 'default', chapter_count: 12,
+  };
+  lv._profiles = [{ id: 'default', name: '成人自读' }];
+  lv._renderBooks(listEl, [missingBook], makeElement('input'), null);
+  const cards = queryAll(listEl, '.book-card');
+  const badge = cards[0] && cards[0].querySelector('.badge-err');
+  check('成品文件缺失显示红色徽章', badge && badge.textContent.includes('缺失'), 'badge=' + (badge && badge.textContent));
+  const regen = cards[0] && queryAll(cards[0], '.btn-primary').find((b) => b.textContent === '重新生成译本');
+  const rm = cards[0] && queryAll(cards[0], 'button').find((b) => b.textContent === '移除这个译本记录');
+  check('有「重新生成译本」出口', !!regen);
+  check('有「移除这个译本记录」出口', !!rm);
+  check('不再显示「打开阅读」(数据没了不能假装可读)', !queryAll(cards[0] || {}, 'button').some((b) => b.textContent === '打开阅读'), 'btns=' + queryAll(cards[0] || {}, 'button').map((b) => b.textContent).join(','));
+  // 移除出口要确认弹窗 (不静默)
+  rm.onclick();
+  check('移除前弹确认 (不静默删)', confirmCaptured && confirmCaptured.confirmText === '移除', 'confirm=' + (confirmCaptured && confirmCaptured.title));
+}
+
 console.log('== 4. library_view 创建译本弹窗挂载顺序 (A1 回归) ==');
 {
   const lv = new globalThis.LibraryView(store, 'original');

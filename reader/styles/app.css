@@ -477,6 +477,11 @@ body::before {
 .badge-idle { background: var(--md-sys-color-neutral); color: var(--md-sys-color-on-neutral); }
 .badge-err { background: var(--md-sys-color-error); color: var(--md-sys-color-on-error); }
 .btn-disabled { opacity: 0.5; cursor: not-allowed; }
+/* L2 (2026-08-11): 成品文件缺失的人话原因 —— 红色, 与徽章同语义, 不混入普通 meta。 */
+.book-card-err-hint {
+  color: var(--md-sys-color-error); font-size: 0.82rem; line-height: 1.5;
+  margin: 2px 0 8px;
+}
 
 /* ---- 涔﹁缃脊绐?---- */
 .book-settings-body { margin: 12px 0; }

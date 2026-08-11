@@ -45,6 +45,7 @@ pub fn library_list(
                         obj.insert("time_spent_ms".into(), serde_json::json!(rs.time_spent_ms));
                     }
                 }
+                attach_pack_state(&mut v);
                 v
             })
             .collect::<Vec<_>>();
@@ -84,6 +85,9 @@ pub fn library_list(
                     }
                 }
             }
+            // L2 (2026-08-11): 成品文件缺失检测 —— 书卡"已就绪"必须对应磁盘上真实存在的
+            // pack_dir, 否则数据没了界面还说着"已就绪"是最差情况。
+            attach_pack_state(&mut x);
             ev.push(x);
         }
         if let Some(o) = v.as_object_mut() {
@@ -232,6 +236,39 @@ fn resolve_book_pack_dir(
             // 沿用此前 library_dir 分支的相对语义, 只是指向的根换成了合并后的 out_dir。
             cfg.out_dir.join(book_id)
         }
+    }
+}
+
+/// L2 (2026-08-11): 给 edition JSON 附上 `pack_state` 字段, 区分三种成品文件状态:
+///   - `ok`: pack_dir 存在且 bookpack.json 在 (可读)
+///   - `missing`: pack_dir 目录不存在 (991MB 事故场景 —— 数据没了)
+///   - `incomplete`: 目录在但内容不全 (bookpack.json 不在/为空 —— 可能被清理过)
+/// 书卡据此把"已就绪"改成红色「成品文件缺失」并给两个出口, 而不是点了没反应。
+fn attach_pack_state(edition: &mut serde_json::Value) {
+    let pack_dir = edition
+        .get("pack_dir")
+        .and_then(|p| p.as_str())
+        .unwrap_or("");
+    let state = if pack_dir.is_empty() {
+        "missing".to_string()
+    } else {
+        let dir = std::path::Path::new(pack_dir);
+        if !dir.is_dir() {
+            "missing".to_string()
+        } else {
+            let bp = dir.join("bookpack.json");
+            let complete = std::fs::metadata(&bp)
+                .map(|m| m.is_file() && m.len() > 0)
+                .unwrap_or(false);
+            if complete {
+                "ok".to_string()
+            } else {
+                "incomplete".to_string()
+            }
+        }
+    };
+    if let Some(o) = edition.as_object_mut() {
+        o.insert("pack_state".into(), serde_json::json!(state));
     }
 }
 
@@ -407,6 +444,39 @@ mod meta_tests {
         let mut bp2 = serde_json::json!({ "chapters": [{ "title": "no sentences field" }] });
         strip_chapters_to_meta(&mut bp2); // 不 panic
         assert_eq!(bp2["chapters"][0]["title"], "no sentences field");
+    }
+
+    #[test]
+    fn l2_pack_state_detects_missing_incomplete_ok() {
+        // L2 (2026-08-11): 成品文件缺失三态 —— missing(目录不存在) / incomplete(目录在但
+        // bookpack 缺) / ok。书卡据此红色报错而不是"已就绪"点了没反应。
+        let root = std::env::temp_dir().join(format!("aidulc_l2_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let missing_dir = root.join("job-gone");
+        let incomplete_dir = root.join("job-incomplete");
+        let ok_dir = root.join("job-ok");
+        std::fs::create_dir_all(&incomplete_dir).unwrap();
+        std::fs::create_dir_all(&ok_dir).unwrap();
+        std::fs::write(ok_dir.join("bookpack.json"), "{}").unwrap();
+
+        for (dir, expected) in [
+            (&missing_dir, "missing"),
+            (&incomplete_dir, "incomplete"),
+            (&ok_dir, "ok"),
+        ] {
+            let mut v = serde_json::json!({ "id": "e", "pack_dir": dir.to_string_lossy() });
+            attach_pack_state(&mut v);
+            assert_eq!(
+                v["pack_state"], expected,
+                "pack_dir={dir:?} 应判为 {expected}"
+            );
+        }
+        // pack_dir 空字符串也判 missing (避免 panic / 误判 ok)
+        let mut v = serde_json::json!({ "id": "e", "pack_dir": "" });
+        attach_pack_state(&mut v);
+        assert_eq!(v["pack_state"], "missing");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
 

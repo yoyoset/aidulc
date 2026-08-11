@@ -27,6 +27,12 @@ pub struct MigrationMarker {
     pub legacy_out: PathBuf,
     pub legacy_db: PathBuf,
     pub legacy_cfg: PathBuf,
+    /// L1-c (2026-08-11): 删源前核验的目标位置 —— 清单比对的对象是"新位置",
+    /// 不是旧位置 (旧位置马上要删, 比它没意义)。
+    pub target_out: PathBuf,
+    /// L1-b (2026-08-11): 迁移前对 jobs_out 落盘的校验和清单 (每个文件的相对路径 +
+    /// 大小 + sha256)。Phase 2 删源前逐条比对; 清单不匹配 → 不删源、报错。
+    pub manifest: Vec<ManifestEntry>,
 }
 
 /// J0: 一次迁移的完整计划 (前端提示 + migration_run 执行用)。
@@ -40,11 +46,119 @@ pub struct MigrationPlan {
     pub target_cfg: PathBuf,
 }
 
+/// L1-b (2026-08-11): 校验和清单条目 —— 迁移前逐文件记录 (相对路径 + 大小 + sha256),
+/// 迁移后与目标目录逐条比对。**这是 991MB 事故的直接善后**: 此前的自动备份
+/// (export_aidu_data) 只导数据库行, 成品文件一个字节都没备; 迁移靠 copy_tree_with_verify
+/// 的数数+字节数, 而那次校验通过是因为复制那一刻源已经是空的。清单比对能抓住
+/// "源本来就是空的 / 复制漏文件" 这类真实情形。
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ManifestEntry {
+    /// 相对路径 (正斜杠, 不含根)
+    pub rel: String,
+    /// 文件大小 (字节)
+    pub size: u64,
+    /// sha256 十六进制小写
+    pub sha256: String,
+}
+
+/// 递归构建目录校验和清单 (相对路径 + 大小 + sha256)。
+/// 目录本身不进清单 (清单只量文件; 空目录的存在与否由 copy_tree_with_verify 的数数兜底)。
+pub fn build_manifest(root: &Path) -> Result<Vec<ManifestEntry>, String> {
+    fn walk(dir: &Path, root: &Path, out: &mut Vec<ManifestEntry>) -> Result<(), String> {
+        for entry in std::fs::read_dir(dir).map_err(|e| format!("读目录失败 {dir:?}: {e}"))? {
+            let entry = entry.map_err(|e| format!("读目录项失败 {dir:?}: {e}"))?;
+            let path = entry.path();
+            let rel = path
+                .strip_prefix(root)
+                .map_err(|_| format!("路径越界: {path:?}"))?;
+            if path.is_dir() {
+                walk(&path, root, out)?;
+            } else {
+                let size = std::fs::metadata(&path)
+                    .map_err(|e| format!("读元数据失败 {path:?}: {e}"))?
+                    .len();
+                let sha = file_sha256(&path)?;
+                out.push(ManifestEntry {
+                    rel: rel.to_string_lossy().replace('\\', "/"),
+                    size,
+                    sha256: sha,
+                });
+            }
+        }
+        Ok(())
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out)?;
+    out.sort_by(|a, b| a.rel.cmp(&b.rel));
+    Ok(out)
+}
+
+fn file_sha256(path: &Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut f = std::fs::File::open(path).map_err(|e| format!("打开 {path:?} 失败: {e}"))?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 1 << 16];
+    loop {
+        let n = f
+            .read(&mut buf)
+            .map_err(|e| format!("读 {path:?} 失败: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex_encode(&hasher.finalize()))
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push(HEX[(b >> 4) as usize] as char);
+        s.push(HEX[(b & 0xf) as usize] as char);
+    }
+    s
+}
+
+/// 逐条比对目录与清单: 每个文件在、大小一致、sha256 一致。任何一条不满足 → Err
+/// (返回第一条不匹配的详情)。目录为空或清单为空 = 一致 (各自都是空)。
+pub fn verify_manifest(root: &Path, manifest: &[ManifestEntry]) -> Result<(), String> {
+    for m in manifest {
+        let p = root.join(m.rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+        if !p.is_file() {
+            return Err(format!(
+                "清单条目不匹配: {} 不存在于 {}",
+                m.rel,
+                root.to_string_lossy()
+            ));
+        }
+        let size = std::fs::metadata(&p)
+            .map_err(|e| format!("读元数据失败 {p:?}: {e}"))?
+            .len();
+        if size != m.size {
+            return Err(format!(
+                "清单条目不匹配: {} 大小 {}≠{}",
+                m.rel, size, m.size
+            ));
+        }
+        let sha = file_sha256(&p)?;
+        if sha != m.sha256 {
+            return Err(format!("清单条目不匹配: {} sha256 不一致", m.rel));
+        }
+    }
+    Ok(())
+}
+
 pub fn marker_path(data_dir: &Path) -> PathBuf {
     data_dir.join("migration_done.json")
 }
 
 /// 下次启动时执行: 旧文件已解锁, 按标记清理。幂等, 不存在即无事可做。
+///
+/// L1-c (2026-08-11): 删源前的最后一道闸 —— 先核对新位置文件数与清单条数一致
+/// (清单在迁移时落盘在 marker 里)。**任何一步不确定, 宁可留着旧目录让用户手删。**
+/// 判断依据: 目标是"新位置确实有清单里全部文件", 而不是"复制时数数对上了"。
 pub fn cleanup_pending(data_dir: &Path) -> Result<(), String> {
     let marker = marker_path(data_dir);
     if !marker.exists() {
@@ -53,6 +167,23 @@ pub fn cleanup_pending(data_dir: &Path) -> Result<(), String> {
     let text = fs::read_to_string(&marker).map_err(|e| format!("读迁移标记失败: {e}"))?;
     let m: MigrationMarker =
         serde_json::from_str(&text).map_err(|e| format!("解析迁移标记失败: {e}"))?;
+    // L1-c: 新位置必须通过清单核验才允许删源。
+    if !m.manifest.is_empty() {
+        match verify_manifest(&m.target_out, &m.manifest) {
+            Ok(()) => {}
+            Err(e) => {
+                // 不清除 marker, 下次启动再核 (幂等); 但绝不删源。
+                crate::infrastructure::log::warn(
+                    "migration",
+                    &format!(
+                        "删源前核验失败, 保留旧目录: {e} (源: {}; 请人工确认后再手动清理)",
+                        m.legacy_out.to_string_lossy()
+                    ),
+                );
+                return Err(format!("删源前清单核验失败, 保留旧目录: {e}"));
+            }
+        }
+    }
     for p in [&m.legacy_out, &m.legacy_db, &m.legacy_cfg] {
         remove_any(p);
     }
@@ -191,9 +322,36 @@ pub fn run_migration(
         &format!("备份已写入: {}", backup_path.to_string_lossy()),
     );
 
+    // L1-b: 迁移前先对 jobs_out 落校验和清单 (相对路径 + 大小 + sha256) ——
+    // 991MB 事故教训: 复制校验通过 ≠ 源真的有东西, 那次是"复制那一刻源已经是空的"
+    // 也能通过数数比对。清单在复制前建 (从源), 迁移后比对目标, 并随 marker 落盘
+    // 供 Phase 2 删源前再核一遍。
+    let manifest = if plan.legacy_out.exists() {
+        build_manifest(&plan.legacy_out)?
+    } else {
+        Vec::new()
+    };
+    crate::infrastructure::log::info(
+        "migration",
+        &format!(
+            "已生成校验和清单: {} 个文件 (sha256 逐文件)",
+            manifest.len()
+        ),
+    );
+
     // 2. 复制 jobs_out (复制 → 校验 → 源保留, 删除交给 cleanup_pending)
     let out_moved = top_level_count(&plan.legacy_out);
     copy_tree_with_verify(&plan.legacy_out, &plan.target_out)?;
+    // L1-b: 复制后逐条比对目标与清单 (文件在 / 大小 / sha256)。不匹配 → 报错, 源不动。
+    verify_manifest(&plan.target_out, &manifest)?;
+    crate::infrastructure::log::info(
+        "migration",
+        &format!(
+            "校验和清单核验通过: 目标 {} 与清单 {} 个文件一致",
+            plan.target_out.to_string_lossy(),
+            manifest.len()
+        ),
+    );
 
     // 3. 复制 data.db: SQLite 在线备份 VACUUM INTO → 一致性快照
     {
@@ -227,11 +385,13 @@ pub fn run_migration(
         fs::write(&plan.target_cfg, text).map_err(|e| format!("写新配置失败: {e}"))?;
     }
 
-    // 5. 写迁移完成标记 (Phase 2 清理旧文件用)
+    // 5. 写迁移完成标记 (Phase 2 清理旧文件用; 含 L1-b 清单 + L1-c 目标位置)
     let marker = MigrationMarker {
         legacy_out: plan.legacy_out.clone(),
         legacy_db: plan.legacy_db.clone(),
         legacy_cfg: plan.legacy_cfg.clone(),
+        target_out: plan.target_out.clone(),
+        manifest,
     };
     let marker_text = serde_json::to_string(&marker).map_err(|e| e.to_string())?;
     fs::write(
@@ -333,6 +493,8 @@ mod tests {
             legacy_out: old.clone(),
             legacy_db: old.join("old.db"),
             legacy_cfg: old.join("config.toml"),
+            target_out: old.join("moved"),
+            manifest: vec![],
         };
         fs::write(marker_path(&data), serde_json::to_string(&m).unwrap()).unwrap();
         cleanup_pending(&data).unwrap();
@@ -344,11 +506,126 @@ mod tests {
     }
 
     #[test]
+    fn l1b_build_and_verify_manifest_roundtrip() {
+        // L1-b: 迁移前落盘清单 → 迁移后逐条比对 (相对路径+大小+sha256)。
+        let src = tmp("m_src");
+        fs::create_dir_all(src.join("sub")).unwrap();
+        fs::write(src.join("a.txt"), b"aaa").unwrap();
+        fs::write(src.join("sub").join("b.bin"), vec![0u8, 1, 2, 3, 255]).unwrap();
+        let manifest = build_manifest(&src).unwrap();
+        assert_eq!(manifest.len(), 2);
+        let rels: Vec<&str> = manifest.iter().map(|m| m.rel.as_str()).collect();
+        assert!(rels.contains(&"a.txt"), "rel 应为相对路径: {rels:?}");
+        assert!(
+            rels.contains(&"sub/b.bin"),
+            "rel 应为正斜杠相对路径: {rels:?}"
+        );
+        // 复制到目标 → 比对通过
+        let dst = tmp("m_dst");
+        copy_tree_with_verify(&src, &dst).unwrap();
+        verify_manifest(&dst, &manifest).unwrap();
+        // 改动一个字节 → 必须报错
+        fs::write(dst.join("a.txt"), b"aab").unwrap();
+        assert!(
+            verify_manifest(&dst, &manifest).is_err(),
+            "大小不同必须报错"
+        );
+        let _ = fs::remove_dir_all(&src);
+        let _ = fs::remove_dir_all(&dst);
+    }
+
+    #[test]
+    fn l1c_cleanup_pending_refuses_to_delete_when_target_missing_files() {
+        // L1-c 安全边界: 目标缺文件时, 旧目录绝不能被删 (991MB 事故场景的直接回归)。
+        let data = tmp("data");
+        let old = tmp("old");
+        let moved = tmp("moved");
+        fs::write(old.join("bookpack.json"), b"x").unwrap();
+        fs::write(moved.join("bookpack.json"), b"x").unwrap();
+        let manifest = build_manifest(&old).unwrap();
+        assert_eq!(manifest.len(), 1);
+        // 目标少一个文件 (模拟迁移后目标不完整)
+        fs::remove_file(moved.join("bookpack.json")).unwrap();
+        let m = MigrationMarker {
+            legacy_out: old.clone(),
+            legacy_db: old.join("old.db"),
+            legacy_cfg: old.join("config.toml"),
+            target_out: moved.clone(),
+            manifest,
+        };
+        fs::write(marker_path(&data), serde_json::to_string(&m).unwrap()).unwrap();
+        assert!(cleanup_pending(&data).is_err(), "目标缺文件时必须拒绝删源");
+        assert!(
+            old.join("bookpack.json").exists(),
+            "核验失败时旧目录必须保留"
+        );
+        assert!(
+            marker_path(&data).exists(),
+            "核验失败时标记不清除 (下次启动再核)"
+        );
+        let _ = fs::remove_dir_all(&data);
+        let _ = fs::remove_dir_all(&old);
+        let _ = fs::remove_dir_all(&moved);
+    }
+
+    #[test]
     fn count_matches() {
         let d = tmp("cnt");
         fs::create_dir_all(d.join("x")).unwrap();
         fs::write(d.join("x").join("f"), b"12345").unwrap();
         assert_eq!(count_and_size(&d).unwrap(), (1, 5));
         let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn l1_full_migration_roundtrip_with_counts() {
+        // L1 (2026-08-11) 验收: 真实数据副本上跑一次完整迁移 (run_migration →
+        // cleanup_pending), 报告前后文件数与字节数; 目标缺文件时 Phase 2 拒绝删源。
+        let root = tmp("full");
+        // 源: 真实形状的 jobs_out (job 目录 + 嵌套子目录)
+        let legacy_out = root.join("exe").join("jobs_out");
+        let src_job = legacy_out.join("jobs").join("job-1786205609337-11852-1");
+        fs::create_dir_all(src_job.join("checkpoints")).unwrap();
+        fs::write(src_job.join("bookpack.json"), br#"{"ok":true}"#).unwrap();
+        fs::write(src_job.join("checkpoints").join("c0.json"), b"{}").unwrap();
+        fs::write(src_job.join("run.log"), b"x").unwrap();
+        let src_db = root.join("exe").join("data.db");
+        let target_out = root.join("data").join("jobs_out");
+        let target_db = root.join("data").join("data.db");
+        let target_cfg = root.join("data").join("config.toml");
+        let legacy_cfg = root.join("exe").join("config.toml");
+
+        let db_path = src_db.to_str().unwrap();
+        let _ = fs::remove_file(db_path);
+        let db = crate::store::Db::open(db_path).unwrap();
+        let plan = MigrationPlan {
+            legacy_out: legacy_out.clone(),
+            legacy_db: src_db.clone(),
+            legacy_cfg: legacy_cfg.clone(),
+            target_out: target_out.clone(),
+            target_db: target_db.clone(),
+            target_cfg: target_cfg.clone(),
+        };
+        let report = run_migration(&db, &plan).unwrap();
+        // 前后计数与字节数
+        let (sc, sb) = count_and_size(&legacy_out).unwrap();
+        let (tc, tb) = count_and_size(&target_out).unwrap();
+        assert_eq!(
+            report.out_moved, 1,
+            "top_level_count(jobs_out)=1 (只有 jobs 目录)"
+        );
+        assert_eq!(sc, tc, "迁移后源与目标文件数一致: 源 {sc} 目标 {tc}");
+        assert_eq!(sb, tb, "迁移后源与目标字节数一致: 源 {sb} 目标 {tb}");
+
+        // Phase 2: 目标完整 → cleanup_pending 删除源
+        let data_dir = root.join("data");
+        cleanup_pending(&data_dir).unwrap();
+        assert!(!legacy_out.exists(), "清单核验通过后旧目录才被删");
+        assert!(target_out
+            .join("jobs")
+            .join("job-1786205609337-11852-1")
+            .join("bookpack.json")
+            .exists());
+        let _ = fs::remove_dir_all(&root);
     }
 }

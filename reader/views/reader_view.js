@@ -234,6 +234,10 @@
       root.style.setProperty('--rd-lh', String(this._settings.line_height || 1.85));
       root.style.setProperty('--rd-measure', (this._settings.content_width || 660) + 'px');
       document.body.dataset.theme = this._settings.theme || 'light';
+      // L9 (2026-08-11): theme 支持 system (跟随系统) —— 解析后再上 body
+      document.body.dataset.theme = (global.AiduTheme && AiduTheme.resolveTheme)
+        ? AiduTheme.resolveTheme(this._settings.theme)
+        : (this._settings.theme || 'light');
       document.body.dataset.palette = this._settings.palette || 'clay';
       root.dataset.kid = this._settings.child_mode ? '1' : '0';
       // M7 R23: 自定义强调色 —— palette='custom' 且给了色值才派生内联变量

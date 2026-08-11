@@ -37,6 +37,25 @@
   }
 
   /**
+   * L9 (2026-08-11): 解析主题设置 → 实际明暗值。
+   * 支持三种: light / dark / system (跟随系统 prefers-color-scheme)。
+   * @param {string|null|undefined} theme 设置的 theme 字段
+   * @param {() => boolean} [systemDark] 注入系统深色判定 (测试用); 默认用 matchMedia
+   * @returns {'light'|'dark'}
+   */
+  function resolveTheme(theme, systemDark) {
+    if (theme === 'dark') return 'dark';
+    if (theme === 'system') {
+      if (systemDark !== undefined) return systemDark ? 'dark' : 'light';
+      if (typeof window !== 'undefined' && window.matchMedia) {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      return 'light';
+    }
+    return 'light';
+  }
+
+  /**
    * 从自定义强调色推导完整色变量表 (JS 内联写 --md-sys-* / --rd-*, 不碰 tokens.css)。
    * @returns {Object<string,string>} CSS 变量名 → 值
    */
@@ -61,5 +80,5 @@
     };
   }
 
-  global.AiduTheme = { deriveCustomPalette, contrast, relativeLuminance, parseHex, mix };
+  global.AiduTheme = { deriveCustomPalette, contrast, relativeLuminance, parseHex, mix, resolveTheme };
 })(window);

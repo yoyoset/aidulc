@@ -41,3 +41,23 @@ describe('AiduTheme.deriveCustomPalette', () => {
     expect(p['--md-sys-state-hover']).toContain('59, 107, 138');
   });
 });
+
+describe('AiduTheme.resolveTheme (L9 跟随系统)', () => {
+  it('light → light, dark → dark', () => {
+    expect(T.resolveTheme('light')).toBe('light');
+    expect(T.resolveTheme('dark')).toBe('dark');
+  });
+  it('system → 注入的系统深色判定', () => {
+    expect(T.resolveTheme('system', true)).toBe('dark');
+    expect(T.resolveTheme('system', false)).toBe('light');
+  });
+  it('未设置/未知 → light', () => {
+    expect(T.resolveTheme(undefined)).toBe('light');
+    expect(T.resolveTheme('')).toBe('light');
+    expect(T.resolveTheme('neon')).toBe('light');
+  });
+  it('system 无注入且无 matchMedia → light', () => {
+    // 测试环境 window 存在但 matchMedia 不可用 → 回落 light
+    expect(T.resolveTheme('system')).toBe('light');
+  });
+});

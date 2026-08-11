@@ -320,6 +320,32 @@ console.log('== 2b. settings 同步区: 邀请新成员 (invite-user, 三项已�
   globalThis.AiduSyncService.makeCode = async () => ({ ok: true, data: { code: '654321' } });
 }
 
+console.log('== 2c. L9 (2026-08-11): 阅读显示 tab 是全局设置 (主题/主题色/儿童模式+说明) ==');
+{
+  // 切到阅读显示 tab
+  store.state.settingsTab = 'reading';
+  const upserts = [];
+  globalThis.AiduSettingsService.upsert = async (s) => { upserts.push(s); return { ok: true }; };
+  const sv = new globalThis.SettingsView(store);
+  const container = makeElement('div');
+  sv.render(container);
+  await new Promise((r) => setTimeout(r, 60));
+  store.state.settingsTab = null;
+  const hints = queryAll(container, '.settings-hint').map((n) => n.textContent).join(' ');
+  check('L9: 无只读摘要 (无「在阅读器中调整」按钮)', !queryAll(container, 'button').some((b) => b.textContent.includes('在阅读器中调整')));
+  check('L9: 有与档案的边界说明 (显示不影响生成)', hints.includes('显示') && hints.includes('不影响生成'), hints.slice(0, 60));
+  // 主题三档: 浅色/深色/跟随系统
+  const themeSel = queryAll(container, 'select').find((s) => (s._children || []).some((o) => o.tagName === 'OPTION' && o.value === 'system'));
+  check('L9: 主题有「跟随系统」档', !!themeSel && (themeSel._children || []).some((o) => o.textContent === '跟随系统'));
+  // 儿童模式说明
+  const kidExplain = hints.includes('更大') && hints.includes('对比度') && hints.includes('词级高亮');
+  check('L9: 儿童模式写明改了什么 (更大字号/更高对比度/词级高亮)', kidExplain);
+  // 改主题 → upsert 被调 (完整 ReaderSettings)
+  if (themeSel) { themeSel.value = 'system'; themeSel.onchange && themeSel.onchange(); }
+  await new Promise((r) => setTimeout(r, 30));
+  check('L9: 选「跟随系统」→ upsert theme=system', upserts.some((u) => u.theme === 'system'), JSON.stringify(upserts));
+}
+
 console.log('== 3. library_view 导入格 (G1): 网格最后一格, 无下拉, 点击走 pickFiles ==');
 {
   const lv = new globalThis.LibraryView(store, 'original');

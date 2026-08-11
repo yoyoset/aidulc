@@ -398,6 +398,34 @@ console.log('== 2d. L8 (2026-08-11): 在线引擎两档开关, 默认全关, 无
   check('L8: 无 key 时开关置灰', lk2 && lk2.disabled === true, 'disabled=' + (lk2 && lk2.disabled));
 }
 
+console.log('== 2d2. L8 (2026-08-11): 查词失败面板 —— 开关①开才有在线入口, 关则无 ==');
+{
+  load('components/dictionary_panel.js');
+  globalThis.AiduDictionaryService.lookup = async () => ({ ok: true, data: { word: 'reticent', pos: '', phonetic: '', meanings: ['词义查询失败: 词典守护超时'], examples: [], example_zh: '', usage: '', phrases: [] } });
+  globalThis.AiduDictionaryService.lookupOnline = async (w) => ({ ok: true, data: ['NOUN', '', ['在线释义'], [], [], '', []] });
+  // ① 关: 面板无「用在线 AI 查一次」
+  globalThis.AiduMiscService.onlineConfigGet = async () => ({ ok: true, data: { endpoint: 'https://x/v1', model: 'm', key_configured: true, lookup_enabled: false, whole_book_enabled: false } });
+  const p1 = new globalThis.DictionaryPanel();
+  p1.body = makeElement('div');
+  p1._word = 'reticent'; p1._context = 'He was reticent.';
+  p1._setError('词义查询失败: 词典守护超时');
+  await new Promise((r) => setTimeout(r, 40));
+  check('L8: 开关①关 → 面板无在线入口', !queryAll(p1.body, 'button').some((b) => b.textContent === '用在线 AI 查一次'), 'btns=' + queryAll(p1.body, 'button').map((b) => b.textContent).join(','));
+  // ① 开: 面板出现「用在线 AI 查一次」+ 点它发前显示将发送内容
+  globalThis.AiduMiscService.onlineConfigGet = async () => ({ ok: true, data: { endpoint: 'https://x/v1', model: 'm', key_configured: true, lookup_enabled: true, whole_book_enabled: false } });
+  const p2 = new globalThis.DictionaryPanel();
+  p2.body = makeElement('div');
+  p2._word = 'reticent'; p2._context = 'He was reticent.';
+  p2._setError('词义查询失败: 词典守护超时');
+  await new Promise((r) => setTimeout(r, 40));
+  const onlineBtn = queryAll(p2.body, 'button').find((b) => b.textContent === '用在线 AI 查一次');
+  check('L8: 开关①开 → 面板有在线入口', !!onlineBtn);
+  onlineBtn && onlineBtn.onclick();
+  await new Promise((r) => setTimeout(r, 20));
+  const sendHint = queryAll(p2.body, '.dict-online-send')[0];
+  check('L8: 发前显示"将发送" (外发内容可见)', sendHint && String(sendHint.textContent).includes('将发送'), 'hint=' + (sendHint && sendHint.textContent));
+}
+
 console.log('== 2e. L7 (2026-08-11): 加载已有书库 —— 扫描→确认→登记, 不移动文件 ==');
 {
   store.state.settingsTab = 'system';

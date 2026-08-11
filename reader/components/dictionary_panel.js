@@ -67,8 +67,26 @@
       err.textContent = msg || '查词失败, 本地与 AI 均未找到释义';
       this.body.append(err);
 
-      // K3 (2026-08-11): 查词失败 → 就地给「用在线 AI 查一次」出口; 未配置 → 去设置。
-      // 发前明确显示"将发送: word + 该句" (外发内容可见, 不做一揽子授权)。
+      const retry = document.createElement('button');
+      retry.className = 'btn-small';
+      retry.textContent = '重试本地';
+      retry.onclick = () => this._lookup();
+      this.body.appendChild(retry);
+
+      // L8 (2026-08-11): 「用在线 AI 查一次」出口只在用户开启①时才出现 ——
+      // 关闭时查词失败面板不提供在线入口 (发不出去的东西不该有按钮)。
+      // 先查在线引擎配置, 再决定是否挂这个按钮。
+      if (global.AiduMiscService && AiduMiscService.onlineConfigGet) {
+        AiduMiscService.onlineConfigGet().then((res) => {
+          const enabled = res && res.ok && res.data && res.data.lookup_enabled;
+          if (enabled) this._appendOnlineLookup();
+        }).catch(() => { /* 查配置失败 = 不提供在线入口 */ });
+      }
+    }
+
+    /** K3: 查词失败 → 就地「用在线 AI 查一次」(仅 L8 开关①开启时被调用)。
+     *  发前明确显示"将发送: word + 该句" (外发内容可见, 不做一揽子授权)。 */
+    _appendOnlineLookup() {
       const onlineBtn = document.createElement('button');
       onlineBtn.className = 'btn-small';
       onlineBtn.textContent = '用在线 AI 查一次';
@@ -92,12 +110,6 @@
         this.body.appendChild(confirm);
       };
       this.body.appendChild(onlineBtn);
-
-      const retry = document.createElement('button');
-      retry.className = 'btn-small';
-      retry.textContent = '重试本地';
-      retry.onclick = () => this._lookup();
-      this.body.appendChild(retry);
     }
 
     /** K3: 在线查词也失败 → 区分"没配置"与"配置了但失败" */

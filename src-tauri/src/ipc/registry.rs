@@ -96,8 +96,13 @@ pub const COMMANDS: &[CommandInfo] = &[
     // ---- 阅读/生词/词典/同步/书签/日志 (commands/reader.rs) ----
     CommandInfo {
         path: "commands::reader::word_lookup",
-        domain: "阅读",
-        desc: "点词查词(本地优先, 侧车不可用/超时→占位兜底)",
+        domain: "生词",
+        desc: "查词(本地优先 → LLM 补全, 异步)",
+    },
+    CommandInfo {
+        path: "commands::reader::word_lookup_online",
+        domain: "在线引擎",
+        desc: "K3: 用在线 AI 查一次(本地失败后用户显式点击, 绝不自动回退)",
     },
     CommandInfo {
         path: "commands::reader::add_vocab",
@@ -431,6 +436,21 @@ pub const COMMANDS: &[CommandInfo] = &[
         path: "commands::misc::data_migration_run",
         domain: "数据",
         desc: "J0: 执行迁移(备份→复制→校验→写标记, 完成后需重启)",
+    },
+    CommandInfo {
+        path: "commands::misc::online_config_get",
+        domain: "在线引擎",
+        desc: "K3: 读在线 AI 配置 (endpoint+model, key 只报是否配置)",
+    },
+    CommandInfo {
+        path: "commands::misc::online_config_set",
+        domain: "在线引擎",
+        desc: "K3: 写在线 AI 配置 (key 存 Credential Manager 不落明文)",
+    },
+    CommandInfo {
+        path: "commands::misc::online_config_test",
+        domain: "在线引擎",
+        desc: "K3: 在线引擎连通性测试",
     },
     CommandInfo {
         path: "commands::misc::boot_ping",

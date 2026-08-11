@@ -116,6 +116,37 @@ fn fallback_tuple(w: &str, detail: &str) -> LookupTuple {
     )
 }
 
+/// K3 (2026-08-11): 用在线 AI 查一次 —— 本地失败后由用户显式点击触发, 绝不自动回退。
+/// 外发内容: 1 个词 + 所在那 1 句 (~200 字符)。发前 UI 已显示"将发送: word + 该句"。
+/// 读 endpoint/model 从 config, key 从 Credential Manager, 从本机直连服务商。
+#[tauri::command]
+pub async fn word_lookup_online(
+    paths: State<'_, crate::DataPaths>,
+    word: String,
+    context: String,
+) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", "enter: word_lookup_online");
+    let cfg_dir = paths.inner().data_dir.clone();
+    let cfg = crate::services::config::Config::load(&cfg_dir);
+    let key = crate::services::credentials::get_online_key().unwrap_or_default();
+    let w = word.trim().to_lowercase();
+    let ctx = context;
+    // 网络调用放 spawn_blocking (K2 纪律: 网络不阻塞主线程)
+    let r = tauri::async_runtime::spawn_blocking(move || {
+        crate::infrastructure::online_client::lookup_word(
+            &cfg.online_endpoint,
+            &key,
+            &cfg.online_model,
+            &w,
+            &ctx,
+        )
+    })
+    .await
+    .map_err(|e| format!("在线查词任务执行失败: {e}"))??;
+    crate::infrastructure::log::info("cmd", "exit: word_lookup_online");
+    serde_json::to_value(r).map_err(|e| e.to_string())
+}
+
 /// 词典守护的 result JSON → dictionary_service 的元组。字段缺失给空值, 不报错。
 fn daemon_result_to_tuple(v: &serde_json::Value) -> Result<LookupTuple, String> {
     let str_vec = |key: &str| -> Vec<String> {

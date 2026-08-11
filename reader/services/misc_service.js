@@ -17,6 +17,10 @@
     dataMigrationStatus() { return AiduBridge.invoke('data_migration_status'); },
     dataMigrationDryRun() { return AiduBridge.invoke('data_migration_dry_run'); },
     dataMigrationRun() { return AiduBridge.invoke('data_migration_run'); },
+    // K3 (2026-08-11): 在线 AI 引擎配置 (endpoint + model; key 存 Credential Manager)
+    onlineConfigGet() { return AiduBridge.invoke('online_config_get'); },
+    onlineConfigSet(endpoint, model, apiKey) { return AiduBridge.invoke('online_config_set', { endpoint, model, apiKey: apiKey || null }); },
+    onlineConfigTest(endpoint, model, apiKey) { return AiduBridge.invoke('online_config_test', { endpoint, model, apiKey: apiKey || null }); },
     // R3.4: 一键安装文档解析器 PyMuPDF
     docParserInstall() { return AiduBridge.invoke('doc_parser_install'); },
   };

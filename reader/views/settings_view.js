@@ -240,6 +240,55 @@
         });
       });
 
+      // K3 (2026-08-11): 在线 AI 引擎 —— 离线查词的兜底 (不是替代)。
+      // endpoint + model 存 config.toml; API key 存 Credential Manager (不落明文)。
+      // 外发粒度三档: 查词(1词+1句) / 单句讲解 / 整本外发(默认关,每本确认)。这里只管配置。
+      const onlineSec = el('div', 'settings-section');
+      onlineSec.appendChild(el('h2', null, '在线引擎 (AI 兜底)'));
+      onlineSec.appendChild(el('div', 'import-tip',
+        '离线模型查词失败时的兜底: 填 OpenAI 兼容 endpoint + 模型名, API key 只存本机凭据管理器。查词只发 1 个词 + 1 句上下文, 从本机直连服务商 (不经任何中转)。'));
+      const onlineEndpoint = el('input', 'prep-input');
+      onlineEndpoint.placeholder = 'OpenAI 兼容 endpoint (如 https://api.openai.com/v1 或自建 vLLM)';
+      const onlineModel = el('input', 'prep-input');
+      onlineModel.placeholder = '模型名 (如 gpt-4o-mini / deepseek-chat / qwen2.5:14b)';
+      const onlineKey = el('input', 'prep-input');
+      onlineKey.type = 'password';
+      onlineKey.placeholder = 'API key (存本机, 不落 config.toml; 留空 = 不修改)';
+      const onlineStatus = el('div', 'sync-status', '读取中…');
+      const onlineSave = el('button', 'btn-small btn-primary', '保存配置');
+      const onlineTest = el('button', 'btn-small', '连通性测试');
+      const onlineRow = el('div', 'settings-row');
+      onlineRow.style.flexWrap = 'wrap';
+      onlineRow.append(onlineSave, onlineTest);
+      onlineSec.append(onlineEndpoint, onlineModel, onlineKey, onlineRow, onlineStatus);
+      systemPane.appendChild(onlineSec);
+
+      AiduMiscService.onlineConfigGet().then((res) => {
+        if (!res.ok) { onlineStatus.textContent = '读取失败: ' + res.error; return; }
+        const d = res.data || {};
+        onlineEndpoint.value = d.endpoint || '';
+        onlineModel.value = d.model || '';
+        onlineStatus.textContent = 'key: ' + (d.key_configured ? '已配置' : '未配置') +
+          (d.endpoint ? ' · ' + d.endpoint : '') + (d.model ? ' · ' + d.model : '');
+      });
+      onlineSave.onclick = () => {
+        onlineStatus.textContent = '保存中…';
+        AiduMiscService.onlineConfigSet(onlineEndpoint.value.trim(), onlineModel.value.trim(), onlineKey.value.trim())
+          .then((r) => {
+            if (!r.ok) { onlineStatus.textContent = '保存失败: ' + r.error; return; }
+            onlineKey.value = '';
+            onlineStatus.textContent = '已保存 · key: ' + (r.data.key_configured ? '已配置' : '未配置');
+          });
+      };
+      onlineTest.onclick = () => {
+        onlineStatus.textContent = '测试中…';
+        AiduMiscService.onlineConfigTest(onlineEndpoint.value.trim() || null, onlineModel.value.trim() || null, onlineKey.value.trim() || null)
+          .then((r) => {
+            if (!r.ok) { onlineStatus.textContent = '测试失败: ' + r.error; return; }
+            onlineStatus.textContent = '连通 ✓ 模型回复: ' + (r.data && r.data.reply ? r.data.reply : 'ok');
+          });
+      };
+
       // M6: 学习档案 (每个人不同的英文库: 讲解深度/音色/语速/高亮粒度)
       const profSec = el('div', 'settings-section');
       profSec.appendChild(el('h2', null, '学习档案'));

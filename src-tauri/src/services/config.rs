@@ -162,6 +162,10 @@ pub struct Config {
     /// CF 同步 (可为空 = 离线模式)
     pub cf_worker_url: String,
     pub cf_namespace: String,
+    /// K3 (2026-08-11): 在线 AI 引擎 (OpenAI 兼容 endpoint + 模型名; API key 存
+    /// Credential Manager 不落明文)。作为离线查词的兜底, 不是替代。
+    pub online_endpoint: String,
+    pub online_model: String,
     /// 工具路径 (M 系列: 模型路径已归 model_registry, 此处只留 ffmpeg)
     pub ffmpeg_path: PathBuf,
 }
@@ -174,6 +178,8 @@ impl Default for Config {
             log_level: "info".into(),
             cf_worker_url: String::new(),
             cf_namespace: String::new(),
+            online_endpoint: String::new(),
+            online_model: String::new(),
             ffmpeg_path: PathBuf::new(),
         }
     }

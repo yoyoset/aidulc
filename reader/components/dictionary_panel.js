@@ -65,14 +65,73 @@
       const err = document.createElement('div');
       err.className = 'dict-error';
       err.textContent = msg || '查词失败, 本地与 AI 均未找到释义';
+      this.body.append(err);
+
+      // K3 (2026-08-11): 查词失败 → 就地给「用在线 AI 查一次」出口; 未配置 → 去设置。
+      // 发前明确显示"将发送: word + 该句" (外发内容可见, 不做一揽子授权)。
+      const onlineBtn = document.createElement('button');
+      onlineBtn.className = 'btn-small';
+      onlineBtn.textContent = '用在线 AI 查一次';
+      onlineBtn.onclick = () => {
+        const before = this.body.querySelector('.dict-online-send');
+        const confirm = document.createElement('div');
+        confirm.className = 'dict-online-send';
+        confirm.textContent = '将发送: ' + this._word + (this._context ? ' + 「' + String(this._context).slice(0, 60) + '」' : '') + ' 到在线引擎 (你配置的 endpoint)';
+        const go = document.createElement('button');
+        go.className = 'btn-small';
+        go.textContent = '确认发送';
+        go.onclick = () => {
+          this.body.innerHTML = `<div class="dict-word">${this._word}</div><div class="dict-loading">在线查词中…</div>`;
+          AiduDictionaryService.lookupOnline(this._word, this._context).then((r) => {
+            if (!r.ok) { this._setOnlineError(r.error); return; }
+            this._render({ word: this._word, pos: r.data[0], phonetic: r.data[1], meanings: r.data[2], examples: r.data[3], example_zh: r.data[4], usage: r.data[5], phrases: r.data[6] });
+          });
+        };
+        if (before) before.remove();
+        confirm.appendChild(go);
+        this.body.appendChild(confirm);
+      };
+      this.body.appendChild(onlineBtn);
+
       const retry = document.createElement('button');
       retry.className = 'btn-small';
-      retry.textContent = '重试';
+      retry.textContent = '重试本地';
       retry.onclick = () => this._lookup();
-      this.body.append(err, retry);
+      this.body.appendChild(retry);
+    }
+
+    /** K3: 在线查词也失败 → 区分"没配置"与"配置了但失败" */
+    _setOnlineError(msg) {
+      this.body.innerHTML = '';
+      const err = document.createElement('div');
+      err.className = 'dict-error';
+      err.textContent = msg || '在线查词失败';
+      this.body.appendChild(err);
+      const isUnconfigured = /未配置/.test(msg || '');
+      const btn = document.createElement('button');
+      btn.className = 'btn-small';
+      btn.textContent = isUnconfigured ? '去设置配置在线引擎' : '再试一次';
+      btn.onclick = () => {
+        if (isUnconfigured) {
+          // 设置页"在线引擎"区块 (K3 配置入口)
+          window.location.hash = '#/settings';
+        } else {
+          this._lookup();
+        }
+      };
+      this.body.appendChild(btn);
     }
 
     _render(d) {
+      // K3 (2026-08-11): 本地查词失败 → 面板就地给出「用在线 AI 查一次」出口。
+      // 失败特征: meanings 第一条以"词义查询失败"或"词义待补充"开头 (K1 上屏的真实原因)。
+      // 绝不自动回退 —— 必须用户点一下才外发。
+      const failed = (d.meanings || []).some((m) =>
+        /词义查询失败|词义待补充/.test(m));
+      if (failed) {
+        this._setError((d.meanings || [])[0] || '查词失败');
+        return;
+      }
       const parts = [];
       const wordRow = document.createElement('div');
       wordRow.className = 'dict-word';

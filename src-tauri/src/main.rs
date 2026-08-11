@@ -59,6 +59,7 @@ mod infrastructure {
     pub mod downloader;
     pub mod frequency;
     pub mod log;
+    pub mod online_client;
     pub mod model_store {
         pub mod scan;
     }
@@ -473,6 +474,7 @@ fn main() {
             commands::library::book_export,
             commands::library::book_import,
             commands::reader::word_lookup,
+            commands::reader::word_lookup_online,
             commands::reader::add_vocab,
             commands::reader::dict_list,
             commands::reader::dict_search,
@@ -539,6 +541,9 @@ fn main() {
             commands::misc::data_migration_status,
             commands::misc::data_migration_dry_run,
             commands::misc::data_migration_run,
+            commands::misc::online_config_get,
+            commands::misc::online_config_set,
+            commands::misc::online_config_test,
             commands::misc::boot_ping,
             commands::misc::doc_parser_install,
             ipc::commands::profile_upsert,

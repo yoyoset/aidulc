@@ -9,6 +9,8 @@ const SERVICE: &str = "aidulc";
 const TOKEN_ACCOUNT: &str = "cf-worker-token";
 const TOKEN_ACCOUNT_PREFIX: &str = "cf-worker-token-user-";
 const SERVER_USER_ACCOUNT_PREFIX: &str = "cf-server-user-";
+// K3 (2026-08-11): 在线 AI 引擎 API key —— 存 Credential Manager, 不落明文、不进 config.toml
+const ONLINE_KEY_ACCOUNT: &str = "online-ai-key";
 
 // TODO(未接线): V6 起 token 按 user 分账 (save_cf_token_for); 旧单 token 入口仅测试用。
 #[allow(dead_code)]
@@ -106,6 +108,39 @@ pub fn delete_cf_token() -> Result<(), String> {
     entry
         .delete_credential()
         .map_err(|e| format!("删除 token 失败: {e}"))
+}
+
+// ---- K3 (2026-08-11): 在线 AI 引擎 API key (OpenAI 兼容, 用户自己的 key) ----
+
+pub fn save_online_key(key: &str) -> Result<(), String> {
+    if key.is_empty() {
+        return Err("API key 不能为空".into());
+    }
+    let entry =
+        Entry::new(SERVICE, ONLINE_KEY_ACCOUNT).map_err(|e| format!("创建凭据条目失败: {e}"))?;
+    entry
+        .set_password(key)
+        .map_err(|e| format!("保存 API key 失败: {e}"))
+}
+
+pub fn get_online_key() -> Result<String, String> {
+    let entry =
+        Entry::new(SERVICE, ONLINE_KEY_ACCOUNT).map_err(|e| format!("创建凭据条目失败: {e}"))?;
+    match entry.get_password() {
+        Ok(k) => Ok(k),
+        Err(KeyringError::NoEntry) => Ok(String::new()),
+        Err(e) => Err(format!("读 API key 失败: {e}")),
+    }
+}
+
+/// TODO(未接线): 设置页"清除在线引擎 key"按钮 (K3) —— 后续接 UI。
+#[allow(dead_code)]
+pub fn delete_online_key() -> Result<(), String> {
+    let entry =
+        Entry::new(SERVICE, ONLINE_KEY_ACCOUNT).map_err(|e| format!("创建凭据条目失败: {e}"))?;
+    entry
+        .delete_credential()
+        .map_err(|e| format!("删除 API key 失败: {e}"))
 }
 
 #[cfg(test)]

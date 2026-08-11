@@ -181,7 +181,7 @@ globalThis.AiduSyncService = {
   makeCode: async () => ({ ok: true, data: { code: '123456' } }),
   forceFull: async () => ({ ok: true }),
 };
-globalThis.AiduDictionaryService = { list: async () => ({ ok: true, data: [] }), vocabAll: async () => ({ ok: true, data: [] }), lookup: async () => ({ ok: true, data: {} }), addToVocab: async () => ({ ok: true, data: { added: 'x', common_word: false } }), vocabRemove: async () => ({ ok: true }), srsPreview: async () => ({ ok: true, data: { options: [1,2,3,4].map((g) => ({ grade: g, human: g + ' 天' })) } }), srsGrade: async (p, l, g) => ({ ok: true, data: {} }), srsRestore: async () => ({ ok: true, data: {} }), vocabCommonPreview: async () => ({ ok: true, data: { count: 0, top_n: 3000, lemmas: [] } }), vocabRemoveCommon: async () => ({ ok: true, data: { removed: 0, backup_path: '' } }), vocabBacklogPreview: async () => ({ ok: true, data: { backlog_count: 0, daily_cap: 40, days: 0, today_after: 0, today_before: 0 } }), vocabBacklogSpread: async () => ({ ok: true, data: { spread: 0, days: 0, backup_path: '' } }) };
+globalThis.AiduDictionaryService = { list: async () => ({ ok: true, data: [] }), vocabAll: async () => ({ ok: true, data: [] }), lookup: async () => ({ ok: true, data: {} }), lookupOnline: async () => ({ ok: true, data: ['NOUN', '', ['在线释义'], [], [], '', []] }), addToVocab: async () => ({ ok: true, data: { added: 'x', common_word: false } }), vocabRemove: async () => ({ ok: true }), srsPreview: async () => ({ ok: true, data: { options: [1,2,3,4].map((g) => ({ grade: g, human: g + ' 天' })) } }), srsGrade: async (p, l, g) => ({ ok: true, data: {} }), srsRestore: async () => ({ ok: true, data: {} }), vocabCommonPreview: async () => ({ ok: true, data: { count: 0, top_n: 3000, lemmas: [] } }), vocabRemoveCommon: async () => ({ ok: true, data: { removed: 0, backup_path: '' } }), vocabBacklogPreview: async () => ({ ok: true, data: { backlog_count: 0, daily_cap: 40, days: 0, today_after: 0, today_before: 0 } }), vocabBacklogSpread: async () => ({ ok: true, data: { spread: 0, days: 0, backup_path: '' } }) };
 globalThis.AiduReadingService = { get: async () => ({ ok: true, data: null }), save: async () => ({ ok: true }), stats: async () => ({ ok: true, data: {} }) };
 globalThis.AiduMiscService = {
   logPath: async () => ({ ok: true, data: { path: 'C:/log' } }), componentsHealth: async () => ({ ok: true, data: [] }),
@@ -192,6 +192,9 @@ globalThis.AiduMiscService = {
   dataMigrationStatus: async () => ({ ok: true, data: { portable: false, data_dir: 'C:/aidulc', db_path: 'C:/aidulc/data.db', out_dir: 'C:/aidulc/jobs_out', pending: false } }),
   dataMigrationDryRun: async () => ({ ok: true, data: { pending: false } }),
   dataMigrationRun: async () => ({ ok: true, data: { ok: true, restart_required: true, backup_path: 'C:/aidulc/backups/x.aidu-data', out_moved: 0, target_out: 'C:/aidulc/jobs_out', target_db: 'C:/aidulc/data.db' } }),
+  onlineConfigGet: async () => ({ ok: true, data: { endpoint: '', model: '', key_configured: false } }),
+  onlineConfigSet: async () => ({ ok: true, data: { saved: true, key_configured: false } }),
+  onlineConfigTest: async () => ({ ok: true, data: { ok: true, reply: 'ok' } }),
 };
 globalThis.ModelsView = class { constructor() {} render(c) { c.innerHTML = 'MODELS'; } };
 globalThis.AiduVocabStats = { dailyBuckets: () => [] };

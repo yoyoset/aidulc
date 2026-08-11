@@ -13,6 +13,10 @@
     lookup(word, profileId, context) {
       return AiduBridge.invoke('word_lookup', { word, userId: currentUser(), profileId, context });
     },
+    // K3 (2026-08-11): 用在线 AI 查一次 (本地失败后用户显式点击, 绝不自动回退)
+    lookupOnline(word, context) {
+      return AiduBridge.invoke('word_lookup_online', { word, context: context || '' });
+    },
     addToVocab(word, profileId, context, source) {
       // 阶段6 设计交付 §04: 记录来源句上下文 (词条卡显示"从哪里读到的")
       // V4: source = { editionId, chapterIndex, sentenceIndex } 来源定位

@@ -382,6 +382,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "查询下载任务状态 (done/ok/path/error)",
     },
     CommandInfo {
+        path: "commands::models::models_hf_normalize",
+        domain: "模型",
+        desc: "J4: 自定义模型 —— HF 链接规范成 resolve 直链 + 文件名 (blob 自动转)",
+    },
+    CommandInfo {
         path: "commands::models::hardware_detect",
         domain: "向导",
         desc: "硬件检测(向导第2步)",

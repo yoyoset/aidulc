@@ -38,6 +38,8 @@
     downloadStatus(token) {
       return AiduBridge.invoke('models_download_status', { token });
     },
+    // J4 (2026-08-11): 自定义模型 —— HF 链接规范成 resolve 直链 + 文件名
+    hfNormalize(raw) { return AiduBridge.invoke('models_hf_normalize', { raw }); },
     hardware(dir) { return AiduBridge.invoke('hardware_detect', { modelDir: dir }); },
 
     // 向导

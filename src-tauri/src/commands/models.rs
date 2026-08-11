@@ -5,6 +5,31 @@ use crate::application::model_service;
 use crate::store;
 use tauri::State;
 
+/// J4 (2026-08-11): 自定义模型 —— 把用户粘的 HF 链接规范成 resolve 直链 + 给出文件名。
+/// blob 页面链接自动转 resolve; 转不了明确报错让用户贴直链 (不静默失败)。
+/// 返回 { ok, url, file, family_hint } (family_hint 按扩展名猜, 前端可改)。
+#[tauri::command]
+pub fn models_hf_normalize(raw: String) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", "enter: models_hf_normalize");
+    let url = crate::infrastructure::downloader::normalize_hf_url(&raw)?;
+    let (repo, _rev, file) = crate::infrastructure::downloader::hf_url_parts(&url)?;
+    let file_lower = file.to_lowercase();
+    let family_hint = if file_lower.ends_with(".gguf") || file_lower.ends_with(".safetensors") {
+        "llm"
+    } else if file_lower.ends_with(".pth") || file_lower.ends_with(".onnx") {
+        "tts"
+    } else {
+        "llm"
+    };
+    Ok(serde_json::json!({
+        "ok": true,
+        "url": url,
+        "file": file,
+        "repo": repo,
+        "family_hint": family_hint,
+    }))
+}
+
 /// 已安装模型列表
 #[tauri::command]
 pub fn models_list(db: State<store::Db>) -> Result<serde_json::Value, String> {

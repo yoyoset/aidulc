@@ -533,6 +533,7 @@ fn main() {
             commands::models::models_book_binding,
             commands::models::models_download,
             commands::models::models_download_status,
+            commands::models::models_hf_normalize,
             commands::models::hardware_detect,
             commands::models::wizard_state,
             commands::models::wizard_submit,

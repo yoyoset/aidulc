@@ -45,6 +45,10 @@
       const scanBtn = el('button', 'btn-small', '扫描已有模型');
       scanBtn.onclick = () => this._scanAndRegister();
       header.appendChild(scanBtn);
+      // J4 (2026-08-11): 自定义模型 —— 粘 HF 链接添加
+      const customBtn = el('button', 'btn-small', '添加自定义模型');
+      customBtn.onclick = () => this._openCustomModelForm();
+      header.appendChild(customBtn);
       wrap.appendChild(header);
 
       const listEl = el('div', 'models-list');
@@ -137,7 +141,68 @@
       document.body.appendChild(ov);
     }
 
-    /** J2: 模型人话名 —— 从 model_id 拆 (Qwen3-4B-Instruct-2507-Q4_K_M → Qwen3 4B · Q4) */
+    /** J4 (2026-08-11): 添加自定义模型 —— 粘 HF 链接 → 规范成 resolve 直链 → 下载并登记。
+     *  复用 models_download (通用 URL 下载 + sha256 可选 + 断点续传), 不新写下载流。 */
+    _openCustomModelForm() {
+      const ov = document.createElement('div');
+      ov.className = 'modal-overlay';
+      const box = document.createElement('div');
+      box.className = 'modal-box';
+      box.setAttribute('role', 'dialog');
+      box.setAttribute('aria-modal', 'true');
+      const title = el('h2', 'modal-title', '添加自定义模型');
+      const body = el('div', 'book-settings-body');
+      const hint = el('div', 'import-tip',
+        '粘一个 HuggingFace 模型文件链接 (…/blob/… 页面链接或 …/resolve/… 直链)。blob 会自动转成直链。只支持 HuggingFace 域名。');
+      const input = el('input', 'prep-input');
+      input.placeholder = 'https://huggingface.co/…/blob/main/xxx.gguf';
+      const status = el('div', 'sync-status', '');
+      const famRow = el('div', 'prep-row');
+      const famSel = el('select', 'prep-select');
+      [['llm', '翻译/讲解'], ['tts', '语音合成'], ['nlp', '语音识别']].forEach(([v, l]) => {
+        const opt = el('option', null, l); opt.value = v; famSel.appendChild(opt);
+      });
+      famRow.append(el('span', null, '用途:'), famSel);
+      body.append(hint, input, famRow, status);
+      const actions = el('div', 'modal-actions');
+      const cancel = el('button', 'btn-small', '取消');
+      cancel.onclick = () => ov.remove();
+      const go = el('button', 'btn-primary', '下载并登记');
+      go.onclick = () => {
+        const raw = input.value.trim();
+        if (!raw) { status.textContent = '先粘一个 HF 链接'; input.focus(); return; }
+        go.disabled = true;
+        status.textContent = '解析链接…';
+        AiduModelService.hfNormalize(raw).then((r) => {
+          if (!r.ok) { status.textContent = '无法解析: ' + r.error + ' (请贴 …/resolve/… 直链)'; go.disabled = false; return; }
+          const d = r.data || {};
+          famSel.value = d.family_hint || famSel.value;
+          status.textContent = '已解析: ' + d.file + ' → 开始下载 (文件较大可能需要几分钟)。';
+          // 复用通用下载 (sha256 未知 → null; 后台线程不冻结 UI)
+          this._modelDir().then((dir) => {
+            if (!dir) throw new Error('找不到模型目录');
+            const dest = dir.replace(/[\\/]+$/, '') + '/' + d.file;
+            const timeout = Math.max(600, 1);
+            return AiduModelService.download(d.url, dest, null, timeout).then((dl) => {
+              if (!dl.ok) throw new Error(dl.error);
+              return this._pollDownload(dl.data.token, go, {
+                url: d.url, file: d.file, name: d.file.replace(/\.[^.]+$/, ''),
+                version: 'custom', sizeBytes: 0, sha256: '',
+              }, dest, famSel.value);
+            });
+          }).catch((e) => {
+            status.textContent = '下载失败: ' + (e && e.message || e);
+            go.disabled = false;
+          });
+        });
+      };
+      actions.append(cancel, go);
+      box.append(title, body, actions);
+      ov.appendChild(box);
+      ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
+      input.focus();
+    }
     _modelHumanName(m) {
       const base = String(m.model_id || m.id || '');
       const parts = base.split('-').filter(Boolean);
@@ -225,7 +290,7 @@
       });
     }
 
-    _pollDownload(token, btn, item, dest) {
+    _pollDownload(token, btn, item, dest, customFamily) {
       return AiduModelService.downloadStatus(token).then((res) => {
         const d = (res.ok && res.data) || {};
         if (!d.done) {
@@ -234,14 +299,14 @@
           const totalMB = (d.total || item.sizeBytes) / 1048576;
           const pct = totalMB > 0 ? Math.min(100, Math.round((readMB / totalMB) * 100)) : 0;
           btn.textContent = `下载中… ${pct}% (${readMB.toFixed(0)}/${totalMB.toFixed(0)} MB)`;
-          return new Promise((resolve) => setTimeout(() => resolve(this._pollDownload(token, btn, item, dest)), 1000));
+          return new Promise((resolve) => setTimeout(() => resolve(this._pollDownload(token, btn, item, dest, customFamily)), 1000));
         }
         if (!d.ok) throw new Error(d.error || '未知错误');
-        // 完成 → 自动登记
+        // 完成 → 自动登记 (J4: 自定义模型 family 由用户选, custom=true)
         return AiduModelService.register({
-          family: item.family, language: 'en', model_id: item.name, version: item.version,
+          family: customFamily || item.family, language: 'en', model_id: item.name, version: item.version,
           variant: item.version, path: dest, source_type: 'local',
-          source_ref: item.url, sha256: item.sha256, size_bytes: item.sizeBytes, custom: false,
+          source_ref: item.url, sha256: item.sha256, size_bytes: item.sizeBytes, custom: !!customFamily,
         }).then((reg) => {
           if (!reg.ok) throw new Error(reg.error);
           AiduToast.show('已下载并登记: ' + item.name, 'success');

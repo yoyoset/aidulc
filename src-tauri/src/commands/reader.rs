@@ -777,6 +777,24 @@ pub fn sync_backend_switch(
     }))
 }
 
+/// L11 单测辅助: 纯逻辑判定"切到 name 后 cf_worker_url 变成什么"。
+/// 返回 (新 url, 是否真的切换)。不含 config 文件 IO 与 State, 可单测。
+fn backend_switch_target(
+    backends: &[crate::services::config::SyncBackend],
+    current_url: &str,
+    name: &str,
+) -> Result<(String, bool), String> {
+    let target = backends
+        .iter()
+        .find(|b| b.name == name)
+        .ok_or_else(|| format!("后端不存在: {name}"))?;
+    if target.url == current_url {
+        Ok((target.url.clone(), false))
+    } else {
+        Ok((target.url.clone(), true))
+    }
+}
+
 /// 删除后端 (不能删当前生效的那个)。
 #[tauri::command]
 pub fn sync_backend_remove(
@@ -1424,6 +1442,50 @@ mod h5_tests {
             repo.get("me", "default", "future").unwrap().next_review,
             Some(now + 86_400_000),
             "未到期词不受影响"
+        );
+    }
+}
+
+#[cfg(test)]
+mod l11_backend_switch_tests {
+    use super::backend_switch_target;
+    use crate::services::config::SyncBackend;
+
+    #[test]
+    fn switch_changes_url_and_marks_repush() {
+        // L11 (2026-08-11): 切换后端 → cf_worker_url 变成目标 URL 且标记需全量重推
+        // (endpoint_key 不匹配 → 下次同步全量对齐, 即"切换后生词本内容随之切换"的机制)。
+        let backends = vec![
+            SyncBackend::new("家里".into(), "https://home.example.workers.dev".into()),
+            SyncBackend::new("单位".into(), "https://work.example.workers.dev".into()),
+        ];
+        let (url, switched) =
+            backend_switch_target(&backends, "https://home.example.workers.dev", "单位").unwrap();
+        assert_eq!(url, "https://work.example.workers.dev");
+        assert!(switched, "切到不同 URL 应视为切换");
+    }
+
+    #[test]
+    fn switch_to_same_url_is_noop() {
+        // 切到当前已生效的后端 → 不切换 (返回 already, 不重复全量重推)
+        let backends = vec![SyncBackend::new(
+            "家里".into(),
+            "https://home.example.workers.dev".into(),
+        )];
+        let (url, switched) =
+            backend_switch_target(&backends, "https://home.example.workers.dev", "家里").unwrap();
+        assert_eq!(url, "https://home.example.workers.dev");
+        assert!(!switched, "同 URL 不应视为切换");
+    }
+
+    #[test]
+    fn switch_to_unknown_name_errors() {
+        let backends = vec![SyncBackend::new(
+            "家里".into(),
+            "https://home.example.workers.dev".into(),
+        )];
+        assert!(
+            backend_switch_target(&backends, "https://home.example.workers.dev", "不存在").is_err()
         );
     }
 }

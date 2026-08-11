@@ -27,6 +27,8 @@ body {
 .s-offline { color: var(--ink3); }
 .s-failed { color: var(--error); border-color: var(--error); }
 .s-unconfig { color: var(--ink3); }
+.s-syncing { color: var(--primary); border-color: var(--primary); animation: sync-pulse 1s infinite alternate; }
+@keyframes sync-pulse { from { opacity: .5; } to { opacity: 1; } }
 
 /* 入口 */
 .entry-body { flex: 1; overflow-y: auto; padding: 16px; }

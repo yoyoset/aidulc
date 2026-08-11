@@ -484,17 +484,56 @@
       updateSyncChip();
     }
     setupServiceWorker();
-    // UX A3 (2026-08-11): 尝试自动补推。失败显示人话原因 —— 不再用 `.catch(() => {})`
-    // 吞掉一切错误 (拉取失败 / token 失效 / IndexedDB 写失败一律表现为"没有单词")。
-    try {
-      const autoSyncRes = await app.sync();
-      if (autoSyncRes && !autoSyncRes.ok) {
-        lastSyncError = autoSyncRes.error || '同步失败';
-      }
-    } catch (e) {
-      lastSyncError = '同步异常: ' + String((e && e.message) || e);
-    }
+    // F2 (2026-08-11): 先渲染本地已有数据, 再后台同步 —— 页面不再被同步阻塞停在 HTML
+    // 初始值 0 (原实现 await app.sync() 在 loadEntry() 前, 同步 2845 条永不返回 → 静止的 0)。
+    // 同步期间 chip 显示「同步中 N/M」; 完成/失败后自动重渲染。
     await loadEntry();
+    if (await isConfigured()) {
+      syncInBackground();
+    }
+  }
+
+  // F2: 是否已配置同步 (有 worker_url + token)
+  async function isConfigured() {
+    const url = await adapter.storage.getWorkerUrl();
+    const token = await adapter.storage.getToken();
+    return !!(url && token);
+  }
+
+  // F2: 后台同步 —— 期间 chip 显示「同步中 N/M」(M 为本轮将拉取的条数, 未知时显示「同步中…」),
+  // 完成/失败后重渲染本地词库。永不静止显示 0: 要么是算出来的 0 (且 chip 显示已同步),
+  // 要么明确显示进行中/失败。
+  async function syncInBackground() {
+    const chip = $('sync-chip');
+    const words = await app.loadWords();
+    const pending = await adapter.storage.getPending();
+    chip.textContent = pending.length > 0
+      ? `同步中 ${pending.length}/${words.length + pending.length}`
+      : '同步中…';
+    chip.className = 'sync-chip s-syncing';
+    lastSyncError = null;
+    let r;
+    try {
+      r = await app.sync();
+    } catch (e) {
+      r = { ok: false, offline: false, error: '同步异常: ' + String((e && e.message) || e) };
+    }
+    if (r.ok) {
+      chip.textContent = '已同步';
+      chip.className = 'sync-chip s-synced';
+      chip.title = '';
+      await loadEntry(); // 拉到的词上屏
+    } else if (r.offline) {
+      chip.textContent = '离线';
+      chip.className = 'sync-chip s-offline';
+      chip.title = r.error || '';
+    } else {
+      chip.textContent = '同步失败';
+      chip.className = 'sync-chip s-failed';
+      const why = r.error || '未知原因 (详见设置页·同步诊断)';
+      chip.title = why;
+      lastSyncError = why;
+    }
   }
 
   // 让 app 暴露内部 (测试 / 调试用)

@@ -187,6 +187,10 @@ globalThis.AiduMiscService = {
   runtimeConfig: async () => ({ ok: true, data: {} }), openPath: async () => ({ ok: true }),
   libraryDirGet: async () => ({ ok: true, data: 'C:/aidulc-data' }), libraryDirPickAndSet: async () => ({ ok: true, data: { cancelled: true } }),
   docParserInstall: async () => ({ ok: true, data: { ok: true } }),
+  // J0 (2026-08-11): 数据目录 / 迁移 (smoke stub: 无待迁移)
+  dataMigrationStatus: async () => ({ ok: true, data: { portable: false, data_dir: 'C:/aidulc', db_path: 'C:/aidulc/data.db', out_dir: 'C:/aidulc/jobs_out', pending: false } }),
+  dataMigrationDryRun: async () => ({ ok: true, data: { pending: false } }),
+  dataMigrationRun: async () => ({ ok: true, data: { ok: true, restart_required: true, backup_path: 'C:/aidulc/backups/x.aidu-data', out_moved: 0, target_out: 'C:/aidulc/jobs_out', target_db: 'C:/aidulc/data.db' } }),
 };
 globalThis.ModelsView = class { constructor() {} render(c) { c.innerHTML = 'MODELS'; } };
 globalThis.AiduVocabStats = { dailyBuckets: () => [] };

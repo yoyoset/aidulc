@@ -393,6 +393,21 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "更改书库位置(自动搬迁旧数据, 重启后生效)",
     },
     CommandInfo {
+        path: "commands::misc::data_migration_status",
+        domain: "数据",
+        desc: "J0: 数据目录现状(数据根/数据库/书库路径 + 是否待迁移)",
+    },
+    CommandInfo {
+        path: "commands::misc::data_migration_dry_run",
+        domain: "数据",
+        desc: "J0: 迁移 dry-run(将影响多少项, 用户确认前不改动)",
+    },
+    CommandInfo {
+        path: "commands::misc::data_migration_run",
+        domain: "数据",
+        desc: "J0: 执行迁移(备份→复制→校验→写标记, 完成后需重启)",
+    },
+    CommandInfo {
         path: "commands::misc::boot_ping",
         domain: "运行时",
         desc: "boot 探针(开发用: 验证进程活着)",

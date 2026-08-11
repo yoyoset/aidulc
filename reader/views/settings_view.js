@@ -89,23 +89,91 @@
        systemPane.appendChild(logSec);
 
       // P1.2: 书库位置(用户明确要求的产品能力, 见 docs/ROADMAP.md P1)
+      // J0 (2026-08-11): 显示完整路径 (不被按钮截断) + 「在资源管理器中打开」;
+      // 同时展示数据根目录与数据库路径, 并提示待迁移 (旧位置有数据时)。
       const libSec = el('div', 'settings-section');
       libSec.appendChild(el('h2', null, '书库位置'));
-      const libRow = el('div', 'log-row');
-      const libPath = el('span', 'log-info', '读取中…');
+      const libRow = el('div', 'settings-row');
+      const libPath = el('code', 'j0-path', '读取中…');
+      const libBtns = el('div', 'settings-row');
+      const libOpenBtn = el('button', 'btn-small', '在资源管理器中打开');
       const libChangeBtn = el('button', 'btn-small', '更改…');
-      libRow.append(libPath, libChangeBtn);
+      libRow.append(libPath);
+      libBtns.append(libOpenBtn, libChangeBtn);
       libSec.appendChild(libRow);
+      const libMeta = el('div', 'settings-meta');
+      libSec.appendChild(libMeta);
       const libMsg = el('div', 'import-tip');
       libSec.appendChild(libMsg);
        systemPane.appendChild(libSec);
 
       const refreshLibPath = () => {
         AiduMiscService.libraryDirGet().then((r) => {
-          libPath.textContent = r.ok ? ('当前: ' + r.data) : ('读取失败: ' + r.error);
+          libPath.textContent = r.ok ? r.data : ('读取失败: ' + r.error);
+          libPath.title = r.ok ? r.data : '';
+        });
+        AiduMiscService.dataMigrationStatus().then((r) => {
+          if (!r.ok || !r.data) return;
+          const d = r.data;
+          const rows = [];
+          rows.push('数据目录: ' + d.data_dir);
+          rows.push('数据库: ' + d.db_path);
+          rows.push('书库: ' + d.out_dir);
+          if (d.pending) {
+            rows.push('⚠ 旧位置仍有数据, 未迁移 (见下方说明)。');
+          }
+          libMeta.textContent = rows.join('\n');
+          if (d.pending) {
+            libMsg.textContent = '检测到旧位置 (程序目录) 下有书库与词库数据。为避免 cargo clean 等操作误删, 建议迁移到数据目录。';
+            const migrateBtn = el('button', 'btn-small btn-primary', '迁移到数据目录');
+            migrateBtn.style.marginLeft = '8px';
+            migrateBtn.onclick = () => {
+              migrateBtn.disabled = true;
+              migrateBtn.textContent = '准备中…';
+              AiduMiscService.dataMigrationDryRun().then((dry) => {
+                if (!dry.ok || !dry.data || !dry.data.pending) {
+                  migrateBtn.disabled = false;
+                  migrateBtn.textContent = '迁移到数据目录';
+                  libMsg.textContent = dry.data && dry.data.pending === false ? '已无待迁移数据。' : (dry.error || '读取失败');
+                  return;
+                }
+                const dd = dry.data.dry;
+                const items = dd.out_items + (dd.db_exists ? 1 : 0);
+                const msg = '将迁移 ' + items + ' 项 (书库 ' + (dd.out_bytes / 1048576).toFixed(1) +
+                  ' MB' + (dd.db_exists ? ' + 数据库 ' + (dd.db_bytes / 1048576).toFixed(1) + ' MB' : '') +
+                  ') 到:\n' + dd.target_out + '\n\n先自动备份到: backups/ 目录 (路径会显示), 复制并校验通过后才删除旧文件。完成后需要重启应用。';
+                AiduModal.confirm({
+                  title: '迁移书库与词库到数据目录?',
+                  message: msg,
+                  confirmText: '开始迁移',
+                  danger: true,
+                  onConfirm: () => AiduMiscService.dataMigrationRun().then((r) => {
+                    if (!r.ok) { throw new Error(r.error); }
+                    libMsg.textContent = '迁移完成。备份: ' + r.data.backup_path + '。请重启应用。';
+                    libMsg.title = r.data.backup_path;
+                    return;
+                  }),
+                });
+              });
+            };
+            libMsg.appendChild(migrateBtn);
+          } else {
+            libMsg.textContent = '';
+          }
         });
       };
       refreshLibPath();
+
+      libOpenBtn.onclick = () => {
+        const p = libPath.textContent;
+        if (!p || p.startsWith('读取')) return;
+        AiduMiscService.openPath(p).then((r) => {
+          if (!r.ok) {
+            libMsg.textContent = '无法打开, 请手动复制路径: ' + p;
+            navigator.clipboard.writeText(p).catch(() => {});
+          }
+        });
+      };
 
       libChangeBtn.onclick = () => {
         libChangeBtn.disabled = true;

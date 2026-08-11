@@ -53,6 +53,7 @@ mod jobs {
 }
 mod infrastructure {
     pub mod bookpack_cache;
+    pub mod data_migration;
     pub mod dict_daemon;
     pub mod dir_migration;
     pub mod downloader;
@@ -81,6 +82,20 @@ pub struct PrepState {
     pub child: Mutex<Option<std::process::Child>>,
     pub running_job: Mutex<Option<String>>,
     pub queue: Mutex<Vec<String>>,
+}
+
+/// J0 (2026-08-11): 数据目录方案 —— 默认落用户数据目录, exe_dir 只在便携模式下用。
+/// 迁移 pending 时本会话沿用旧路径 (exe_dir 锚定), 由前端提示迁移。
+#[derive(Clone)]
+pub struct DataPaths {
+    /// 本次会话生效的数据根 (便携=exe_dir, 否则用户数据目录)
+    pub data_dir: std::path::PathBuf,
+    /// 本次会话生效的数据库路径
+    pub db_path: std::path::PathBuf,
+    /// 便携模式?
+    pub portable: bool,
+    /// 迁移计划 (pending 时 Some, 前端据此弹提示)
+    pub migration: Option<crate::infrastructure::data_migration::MigrationPlan>,
 }
 
 /// prep 侧车路径 + 任务输出目录 + 工具路径
@@ -250,26 +265,91 @@ fn main() {
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
         .unwrap_or_default();
-    let cfg = services::config::Config::load(&exe_dir);
+    // J0 (2026-08-11): 数据根目录 = 便携模式 exe 同目录, 否则用户数据目录 (%APPDATA%/aidulc)。
+    let portable = services::config::is_portable(&exe_dir);
+    let data_dir = if portable {
+        exe_dir.clone()
+    } else {
+        services::config::user_data_dir()
+    };
+
+    // 日志 (用户反馈排查: 启动时明确侧车路径, os error 3 一眼可见原因)。
+    // J0: 日志目录也随数据根走 (exe 同目录的 logs 同样会被 cargo clean 删掉)。
+    let log_dir = std::env::var("AIDULC_LOG")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| data_dir.join("logs"));
+    let _ = infrastructure::log::init(&log_dir);
+    infrastructure::log::info("app", "应用启动");
+    infrastructure::log::info("app", &format!("exe_dir={}", exe_dir.to_string_lossy()));
+    infrastructure::log::info("app", &format!("data_dir={}", data_dir.to_string_lossy()));
+    infrastructure::log::info("app", &format!("portable={}", portable));
+
+    // J0 Phase 2: 上次迁移的旧文件在此刻已解锁 (数据库还没开), 按标记清理。
+    // 幂等, 无标记即无事可做。失败只记日志, 不阻断启动 (旧文件留着不影响正确性)。
+    if let Err(e) = infrastructure::data_migration::cleanup_pending(&data_dir) {
+        infrastructure::log::info("migration", &format!("清理旧数据失败(不阻断): {e}"));
+    }
+
+    // J0: 迁移判定 —— 旧位置 (exe_dir 锚定) 有数据、新位置空 → 本会话沿用旧路径, 前端提示迁移。
+    let migration = if portable {
+        None
+    } else {
+        services::config::detect_migration(
+            &exe_dir,
+            &data_dir,
+            std::path::Path::new("jobs_out"),
+            std::path::Path::new("data.db"),
+        )
+        .map(
+            |(legacy_out, legacy_db)| infrastructure::data_migration::MigrationPlan {
+                legacy_out,
+                legacy_db,
+                legacy_cfg: exe_dir.join("config.toml"),
+                target_out: data_dir.join("jobs_out"),
+                target_db: data_dir.join("data.db"),
+                target_cfg: data_dir.join("config.toml"),
+            },
+        )
+    };
+    if let Some(m) = &migration {
+        infrastructure::log::info(
+            "migration",
+            &format!(
+                "检测到旧数据: out={} db={} → 迁移目标: out={} db={}",
+                m.legacy_out.to_string_lossy(),
+                m.legacy_db.to_string_lossy(),
+                m.target_out.to_string_lossy(),
+                m.target_db.to_string_lossy()
+            ),
+        );
+    }
+
+    // 配置: 迁移 pending 时读旧位置 config.toml (沿用 cf_worker_url 等), 否则读数据根。
+    let config_dir = migration
+        .as_ref()
+        .map(|_| exe_dir.as_path())
+        .unwrap_or(&data_dir);
+    let cfg = services::config::Config::load(config_dir);
 
     // 2. 数据库
-    let db_path = std::env::var("AIDULC_DB")
-        .unwrap_or_else(|_| exe_dir.join("data.db").to_string_lossy().to_string());
+    let db_path = std::env::var("AIDULC_DB").unwrap_or_else(|_| {
+        migration
+            .as_ref()
+            .map(|m| m.legacy_db.to_string_lossy().to_string())
+            .unwrap_or_else(|| data_dir.join("data.db").to_string_lossy().to_string())
+    });
     let db = store::Db::open(&db_path).expect("打开 SQLite 失败");
 
     // 3. 书库/输出目录 (见 resolve_out_dir 文档注释: 2026-08-07 修复的路径 bug
     //    + 合并此前重复的 library_dir/out_dir 两个概念, 见 Config.out_dir 文档注释)
-    let out_dir = resolve_out_dir(&exe_dir, &cfg.out_dir, std::env::var("AIDULC_OUT").ok());
+    // J0: 相对路径锚点 = 迁移 pending 时旧位置 exe_dir, 否则数据根 data_dir。
+    let out_anchor = migration.as_ref().map(|_| &exe_dir).unwrap_or(&data_dir);
+    let out_dir = resolve_out_dir(out_anchor, &cfg.out_dir, std::env::var("AIDULC_OUT").ok());
 
     // 4. prep 侧车 (多级探测: 环境变量 → exe 同级 → 开发目录 → 上级 prep 构建)
     let prep_path = resolve_prep_path(&exe_dir);
-    // 日志 (用户反馈排查: 启动时明确侧车路径, os error 3 一眼可见原因)
-    let log_dir = std::env::var("AIDULC_LOG")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| exe_dir.join("logs"));
-    let _ = infrastructure::log::init(&log_dir);
-    infrastructure::log::info("app", "应用启动");
-    infrastructure::log::info("app", &format!("exe_dir={}", exe_dir.to_string_lossy()));
+    // 书库路径此前是静默的相对路径 bug 根源(见上方修复注释), 启动时明确打印解析后的
+    // 绝对路径, 用户/开发者都能一眼确认书包实际存放位置, 不用再靠猜。
     infrastructure::log::info(
         "app",
         &format!(
@@ -278,8 +358,6 @@ fn main() {
             prep_path.exists()
         ),
     );
-    // 书库路径此前是静默的相对路径 bug 根源(见上方修复注释), 启动时明确打印解析后的
-    // 绝对路径, 用户/开发者都能一眼确认书包实际存放位置, 不用再靠猜。
     infrastructure::log::info(
         "app",
         &format!(
@@ -324,6 +402,12 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(db)
+        .manage(DataPaths {
+            data_dir: data_dir.clone(),
+            db_path: std::path::PathBuf::from(&db_path),
+            portable,
+            migration: migration.clone(),
+        })
         .manage(svc)
         .manage(PrepState {
             child: Mutex::new(None),
@@ -446,6 +530,9 @@ fn main() {
             commands::misc::components_health,
             commands::misc::library_dir_get,
             commands::misc::library_dir_pick_and_set,
+            commands::misc::data_migration_status,
+            commands::misc::data_migration_dry_run,
+            commands::misc::data_migration_run,
             commands::misc::boot_ping,
             commands::misc::doc_parser_install,
             ipc::commands::profile_upsert,

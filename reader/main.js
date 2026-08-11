@@ -67,6 +67,33 @@
     shell.getViewContainer().appendChild(error);
   });
 
+  // J0 (2026-08-11): 旧位置有数据 → 启动即提示迁移 (不等用户自己发现)。
+  // 静默换目录 = 用户以为书丢了; 这里明确弹窗让用户决定。dry-run 先给数字再执行。
+  (function checkMigration() {
+    if (!window.AiduMiscService || !window.AiduModal) return;
+    setTimeout(() => {
+      AiduMiscService.dataMigrationDryRun().then((res) => {
+        if (!res.ok || !res.data || !res.data.pending) return;
+        const dd = res.data.dry;
+        const items = dd.out_items + (dd.db_exists ? 1 : 0);
+        const sizeMb = ((dd.out_bytes + (dd.db_exists ? dd.db_bytes : 0)) / 1048576).toFixed(1);
+        AiduModal.confirm({
+          title: '检测到旧位置的数据',
+          message: '书库与词库当前在程序目录下 (开发构建中相当于 target/, 可能被清理操作误删)。\n\n' +
+            '将迁移 ' + items + ' 项 (' + sizeMb + ' MB) 到:\n' + res.data.target_out +
+            '\n\n先自动备份 → 复制并校验 → 通过后才删除旧文件。完成后需要重启应用。',
+          confirmText: '迁移并重启',
+          cancelText: '稍后',
+          danger: true,
+          onConfirm: () => AiduMiscService.dataMigrationRun().then((r) => {
+            if (!r.ok) throw new Error(r.error);
+            AiduToast.show('迁移完成, 请重启应用', 'success');
+          }),
+        });
+      });
+    }, 800); // 等路由首屏渲染完再弹, 避免遮罩盖住加载
+  })();
+
   // ---- 路由 ----
   router.register('library', (container) => {
     shell.setActiveNav('library');

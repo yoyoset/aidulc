@@ -1,4 +1,25 @@
 /* settings.css —— 设置 (M6 打磨) */
+/* J0 (2026-08-11): 书库位置完整路径展示 —— 不再被按钮截断, 允许折行 */
+.j0-path {
+  font-family: var(--md-sys-font-mono, Consolas, monospace);
+  font-size: var(--md-sys-font-size-body-s);
+  color: var(--md-sys-color-on-surface);
+  background: var(--md-sys-color-surface-variant);
+  border-radius: var(--md-sys-radius-sm);
+  padding: 6px 10px;
+  word-break: break-all;
+  user-select: text;
+  flex: 1;
+  min-width: 0;
+}
+.settings-meta {
+  font-size: var(--md-sys-font-size-label-m);
+  line-height: 1.7;
+  color: var(--md-sys-color-on-surface-variant);
+  white-space: pre-line;
+  word-break: break-all;
+  margin-top: 6px;
+}
 .settings-tabs {
   display: flex;
   flex-direction: column;

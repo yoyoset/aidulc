@@ -4,19 +4,13 @@
 use crate::{PrepConfig, PrepState};
 use tauri::State;
 
-fn current_exe_dir() -> std::path::PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_default()
-}
-
 /// 运行时配置 (模型/工具路径) — 前端 ImportService 组装 job 参数用
 /// M 系列: 模型路径从 model_registry 推荐解析 (单一真相源)
 #[tauri::command]
 pub fn runtime_config(
     cfg: State<PrepConfig>,
     db: State<crate::store::Db>,
+    paths: State<crate::DataPaths>,
 ) -> Result<serde_json::Value, String> {
     use crate::application::model_service;
     let (llm, tts, _spacy) = model_service::resolve_paths(db.inner(), "en");
@@ -24,8 +18,9 @@ pub fn runtime_config(
         "llm_model": llm,
         "tts_model": tts,
         "ffmpeg": cfg.ffmpeg.to_string_lossy(),
-        // M7 R8 (2026-08-08): 首次下载模型的目标目录 —— 尚未有任何模型时用 exe 同级 models/
-        "default_model_dir": current_exe_dir().join("models").to_string_lossy(),
+        // M7 R8 (2026-08-08): 首次下载模型的目标目录 —— 尚未有任何模型时用数据根 models/
+        // J0 (2026-08-11): 数据根随用户数据目录走, 不再锚定 exe_dir (target 会被 cargo clean 删)
+        "default_model_dir": paths.inner().data_dir.join("models").to_string_lossy(),
     }))
 }
 
@@ -64,6 +59,66 @@ pub fn library_dir_get(cfg: State<PrepConfig>) -> String {
     cfg.out_dir.to_string_lossy().to_string()
 }
 
+/// J0 (2026-08-11): 数据目录现状 —— 前端据此展示完整路径 + 迁移提示。
+#[tauri::command]
+pub fn data_migration_status(
+    paths: State<crate::DataPaths>,
+    cfg: State<PrepConfig>,
+) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", "enter: data_migration_status");
+    let p = paths.inner();
+    Ok(serde_json::json!({
+        "portable": p.portable,
+        "data_dir": p.data_dir.to_string_lossy(),
+        "db_path": p.db_path.to_string_lossy(),
+        "out_dir": cfg.out_dir.to_string_lossy(),
+        "pending": p.migration.is_some(),
+    }))
+}
+
+/// J0: dry-run —— 迁移将影响多少项 (复制前先给数字, 用户确认后才执行)。
+#[tauri::command]
+pub fn data_migration_dry_run(paths: State<crate::DataPaths>) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", "enter: data_migration_dry_run");
+    let p = paths.inner();
+    let Some(plan) = p.migration.as_ref() else {
+        return Ok(serde_json::json!({ "pending": false }));
+    };
+    let d = crate::infrastructure::data_migration::dry_run(plan);
+    Ok(serde_json::json!({
+        "pending": true,
+        "legacy_out": plan.legacy_out.to_string_lossy(),
+        "target_out": plan.target_out.to_string_lossy(),
+        "legacy_db": plan.legacy_db.to_string_lossy(),
+        "target_db": plan.target_db.to_string_lossy(),
+        "dry": d,
+    }))
+}
+
+/// J0: 执行迁移 —— 备份 → 复制 → 校验 → 写标记; 返回后前端提示重启。
+/// 数据安全: 执行前自动备份 (export_aidu_data), 复制后校验, 旧文件留给下次启动清理。
+#[tauri::command]
+pub fn data_migration_run(
+    db: State<'_, crate::store::Db>,
+    paths: State<'_, crate::DataPaths>,
+) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", "enter: data_migration_run");
+    let p = paths.inner();
+    let Some(plan) = p.migration.clone() else {
+        return Err("没有待迁移的数据".into());
+    };
+    let report = crate::infrastructure::data_migration::run_migration(db.inner(), &plan)?;
+    crate::infrastructure::log::info("cmd", "exit: data_migration_run (需重启)");
+    Ok(serde_json::json!({
+        "ok": true,
+        "restart_required": true,
+        "backup_path": report.backup_path,
+        "out_moved": report.out_moved,
+        "target_out": report.target_out,
+        "target_db": report.target_db,
+    }))
+}
+
 /// 书库位置"更改..."(P1: 用户明确要求的产品能力)
 ///
 /// 流程: 原生文件夹选择对话框 → 自动搬迁旧目录下的全部内容(见
@@ -80,6 +135,7 @@ pub fn library_dir_get(cfg: State<PrepConfig>) -> String {
 pub fn library_dir_pick_and_set(
     cfg: State<PrepConfig>,
     prep_state: State<PrepState>,
+    paths: State<crate::DataPaths>,
 ) -> Result<serde_json::Value, String> {
     if prep_state.running_job.lock().unwrap().is_some() {
         return Err("有任务正在处理中, 请先等待完成或暂停后再更改书库位置".into());
@@ -101,10 +157,11 @@ pub fn library_dir_pick_and_set(
     let report =
         crate::infrastructure::dir_migration::migrate_directory_contents(&old_dir, &new_dir)?;
 
-    let exe_dir = current_exe_dir();
-    let mut file_cfg = crate::services::config::Config::load(&exe_dir);
+    // J0: 配置文件随数据根走 (便携=exe_dir, 否则用户数据目录), 不再固定 exe 同目录
+    let cfg_dir = paths.inner().data_dir.clone();
+    let mut file_cfg = crate::services::config::Config::load(&cfg_dir);
     file_cfg.out_dir = new_dir.clone();
-    file_cfg.save(&exe_dir)?;
+    file_cfg.save(&cfg_dir)?;
 
     Ok(serde_json::json!({
         "cancelled": false,

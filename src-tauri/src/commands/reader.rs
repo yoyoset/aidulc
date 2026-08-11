@@ -398,6 +398,7 @@ pub fn sync_pull_now(
 #[tauri::command]
 pub fn sync_auth_device(
     services: State<crate::AppServices>,
+    paths: State<crate::DataPaths>,
     worker_url: String,
     user_id: String,
     root_secret: Option<String>,
@@ -420,15 +421,12 @@ pub fn sync_auth_device(
     // 同步时判定"换 URL / 换 token 后是否还是同一份同步进度"。忘了记 = 下次同步按
     // 从未同步全量重推 (宁可多推, 不可少推), 不造成数据丢失。
     crate::services::credentials::save_server_user_for(&user_id, &auth.user_id)?;
-    // 持久化 worker_url 到 config.toml
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_default();
-    let mut cfg = config::Config::load(&exe_dir);
+    // 持久化 worker_url 到 config.toml (J0: 配置文件随数据根走)
+    let cfg_dir = paths.inner().data_dir.clone();
+    let mut cfg = config::Config::load(&cfg_dir);
     cfg.cf_worker_url = worker_url.clone();
     let _ = std::fs::write(
-        exe_dir.join("config.toml"),
+        cfg_dir.join("config.toml"),
         toml::to_string_pretty(&cfg).unwrap_or_default(),
     );
     let svc = services.inner();
@@ -590,19 +588,17 @@ mod pairing_tests {
 #[tauri::command]
 pub fn sync_config_set(
     services: State<crate::AppServices>,
+    paths: State<crate::DataPaths>,
     worker_url: String,
     token: String,
 ) -> Result<(), String> {
     use crate::services::config;
-    // 持久化 worker_url 到 config.toml
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_default();
-    let mut cfg = config::Config::load(&exe_dir);
+    // 持久化 worker_url 到 config.toml (J0: 配置文件随数据根走)
+    let cfg_dir = paths.inner().data_dir.clone();
+    let mut cfg = config::Config::load(&cfg_dir);
     cfg.cf_worker_url = worker_url.clone();
     let _ = std::fs::write(
-        exe_dir.join("config.toml"),
+        cfg_dir.join("config.toml"),
         toml::to_string_pretty(&cfg).unwrap_or_default(),
     );
     // token 存 Credential Manager (永不落明文); 兼容旧默认 user

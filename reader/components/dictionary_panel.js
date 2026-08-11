@@ -151,6 +151,11 @@
             addBtn.textContent = '✓ 已加入生词本';
             addBtn.disabled = true;
             this.onVocabAdded && this.onVocabAdded(d.word);
+            // H5 (2026-08-11): 入库侧词频门槛 —— 默认不拦、只提示 (把孩子真想学的词
+            // 悄悄吃掉是更糟的; 成人自读档案用 top3000, 见后端 ADULT_COMMON_TOP_N)。
+            if (r.data && r.data.common_word) {
+              AiduToast.show('「' + d.word + '」是很常见的词, 确认要背它吗?', 'info');
+            }
           } else {
             addBtn.textContent = '加入失败: ' + r.error;
           }

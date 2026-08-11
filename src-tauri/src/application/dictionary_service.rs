@@ -273,7 +273,19 @@ pub fn add_to_vocab(
     };
     let vocab = VocabRepo::new(db);
     vocab.upsert_content(entry, user_id, profile_id)?;
-    Ok(serde_json::json!({"added": key}))
+    // H5 (2026-08-11): 入库侧词频门槛 —— **默认不拦、只提示**。词在档案对应阈值内
+    // (成人 top3000 / 儿童 top2000) → common_word: true, 前端 toast 提示"这词很常见, 确定
+    // 要背吗", 但不阻断加入 (避免把用户真想学的词悄悄吃掉; 孩子更需要基础词, 阈值更严)。
+    let top_n = if profile_id == "kid" {
+        crate::infrastructure::frequency::KID_COMMON_TOP_N
+    } else {
+        crate::infrastructure::frequency::ADULT_COMMON_TOP_N
+    };
+    let common_word = crate::infrastructure::frequency::is_common(&key, top_n);
+    Ok(serde_json::json!({
+        "added": key,
+        "common_word": common_word,
+    }))
 }
 
 #[cfg(test)]

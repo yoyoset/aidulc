@@ -31,6 +31,9 @@
     vocabSearch(profileId, q) { return AiduBridge.invoke('vocab_search', { userId: currentUser(), profileId, q }); },
     vocabRemove(profileId, lemma) { return AiduBridge.invoke('vocab_remove', { userId: currentUser(), profileId, lemma }); },
     vocabStats(profileId) { return AiduBridge.invoke('vocab_stats', { userId: currentUser(), profileId }); },
+    // H5 (2026-08-11): 词频批量剔除 —— dry-run 预览 + 确认后执行 (备份+单事务)
+    vocabCommonPreview(profileId, topN) { return AiduBridge.invoke('vocab_common_preview', { userId: currentUser(), profileId, top_n: topN }); },
+    vocabRemoveCommon(profileId, topN) { return AiduBridge.invoke('vocab_remove_common', { userId: currentUser(), profileId, top_n: topN }); },
     // 背单词调度器 (V2, 2026-08-09)
     srsPreview(profileId, lemma) { return AiduBridge.srs.preview(currentUser(), profileId, lemma); },
     srsGrade(profileId, lemma, grade) { return AiduBridge.srs.grade(currentUser(), profileId, lemma, grade); },

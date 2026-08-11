@@ -53,6 +53,12 @@
       filterSel.onchange = () => { this.filter = filterSel.value; this._renderList(); };
       const statsEl = el('span', 'vocab-stats');
       toolbar.append(searchInput, filterSel, statsEl);
+      // H5 (2026-08-11): 按词频批量剔除 —— 一次性收拾存量 (either/lead 这类高频词不该背)。
+      // dry-run 先给数字, 确认后执行 (后端备份 + 单事务)。
+      const freqBtn = el('button', 'btn-small', '剔除最常见词');
+      freqBtn.title = '把最常见的高频词 (either/lead/...) 批量移出生词本 —— 5.4 小时队列里一半是这类词, 毁掉复习。先预览将影响多少条, 确认后才删。';
+      freqBtn.onclick = () => this._removeCommonWords();
+      toolbar.appendChild(freqBtn);
       wrap.appendChild(toolbar);
 
       const listEl = el('div', 'vocab-list');
@@ -175,6 +181,36 @@
         };
         row.appendChild(del);
         this.listEl.appendChild(row);
+      });
+    }
+
+    /** H5 (2026-08-11): 词频批量剔除 —— dry-run 先给数字, 用户确认后执行 */
+    _removeCommonWords() {
+      const topN = 3000;
+      AiduDictionaryService.vocabCommonPreview(this.profileId, topN).then((res) => {
+        if (!res.ok) { AiduToast.show('读取失败: ' + res.error, 'error'); return; }
+        const d = res.data || {};
+        if (!d.count) {
+          AiduToast.show('没有命中最常见 ' + d.top_n + ' 词的条目', 'info');
+          return;
+        }
+        const samples = (d.lemmas || []).slice(0, 8).join(' · ');
+        AiduModal.confirm({
+          title: `剔除最常见 ${d.top_n} 词?`,
+          message: `将移出 ${d.count} 条最常见的词 (如 ${samples}${(d.lemmas || []).length > 8 ? ' …' : ''})。\n\n执行前自动备份, 完成后告诉你备份位置。只影响当前档案 "${this.profileId}"。`,
+          confirmText: '剔除 ' + d.count + ' 条',
+          danger: true,
+          onConfirm: () => AiduDictionaryService.vocabRemoveCommon(this.profileId, topN).then((r) => {
+            if (!r.ok) { throw new Error(r.error); }
+            const rm = r.data || {};
+            AiduToast.show(`已剔除 ${rm.removed} 条最常见词`, 'success');
+            if (rm.backup_path) {
+              setTimeout(() => AiduToast.show('备份: ' + rm.backup_path, 'info'), 1200);
+            }
+            this._load();
+            return;
+          }),
+        });
       });
     }
 

@@ -57,6 +57,7 @@ mod infrastructure {
     pub mod dict_daemon;
     pub mod dir_migration;
     pub mod downloader;
+    pub mod frequency;
     pub mod log;
     pub mod model_store {
         pub mod scan;
@@ -480,6 +481,8 @@ fn main() {
             commands::reader::vocab_search,
             commands::reader::vocab_remove,
             commands::reader::vocab_stats,
+            commands::reader::vocab_common_preview,
+            commands::reader::vocab_remove_common,
             commands::reader::srs_preview,
             commands::reader::srs_grade,
             commands::reader::vocab_restore,

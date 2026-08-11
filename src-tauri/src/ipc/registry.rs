@@ -140,6 +140,16 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "生词统计",
     },
     CommandInfo {
+        path: "commands::reader::vocab_common_preview",
+        domain: "生词",
+        desc: "H5: 词频批量剔除 dry-run (最常见 top_n 词将影响多少条)",
+    },
+    CommandInfo {
+        path: "commands::reader::vocab_remove_common",
+        domain: "生词",
+        desc: "H5: 词频批量剔除 (备份+单事务删除, 确认后执行)",
+    },
+    CommandInfo {
         path: "commands::reader::srs_preview",
         domain: "复习",
         desc: "四档间隔预览 (调度器对当前词算出按钮时间, V2)",

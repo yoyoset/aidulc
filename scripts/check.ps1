@@ -161,6 +161,37 @@ Run-Check "mobile:build-version 一致性 (sw.js == build-info.js)" {
     }
 }
 
+# 7.10b (L0-b, 2026-08-11): 改手机端必须涨版本 —— 现有 7.10 只查 sw.js 与 build-info.js
+# 两个数字互相相等, 拦不住"改了 cloud/mobile/** 却没 bump"。本门禁: 若 git diff 显示
+# cloud/mobile/** 有未提交改动 (除 .last-deployed-version 外), 而工作区 BUILD_VERSION
+# 与 HEAD 相同 → 门禁失败。
+Run-Check "mobile:version-bumped(改手机端必须涨版本)" {
+    Push-Location $root
+    $diffLines = git diff --name-only HEAD -- cloud/mobile
+    $changed = $diffLines | Where-Object { $_ -and $_ -notmatch '\.last-deployed-version$' }
+    if (-not $changed) {
+        Write-Output "OK: cloud/mobile 无未提交改动"
+        $global:LASTEXITCODE = 0
+        Pop-Location
+        return
+    }
+    Write-Output "cloud/mobile 有改动: $($changed -join ', ')"
+    $swNow = Get-Content "$root\cloud\mobile\sw.js" -Raw
+    $mNow = [regex]::Match($swNow, "const BUILD_VERSION = '([^']+)'")
+    $headSw = git show HEAD:cloud/mobile/sw.js
+    $mHead = [regex]::Match($headSw, "const BUILD_VERSION = '([^']+)'")
+    Pop-Location
+    if (-not $mNow.Success) { Write-Output "FAIL: 工作区 sw.js 缺 BUILD_VERSION"; $global:LASTEXITCODE = 1; return }
+    if (-not $mHead.Success) { Write-Output "FAIL: HEAD sw.js 缺 BUILD_VERSION"; $global:LASTEXITCODE = 1; return }
+    if ($mNow.Groups[1].Value -eq $mHead.Groups[1].Value) {
+        Write-Output "FAIL: 改了 cloud/mobile/** 但 BUILD_VERSION 未变 ($($mNow.Groups[1].Value)) —— 已装用户拿不到新代码, 先 bump 再提交"
+        $global:LASTEXITCODE = 1
+    } else {
+        Write-Output "OK: 版本 $($mHead.Groups[1].Value) -> $($mNow.Groups[1].Value)"
+        $global:LASTEXITCODE = 0
+    }
+}
+
 # 7.11 (P1-D, 2026-08-10): 旧 AIDU 生词 → .aidu-data v3 转换脚本自检 (interval 天→ms /
 # lemma 小写 / _key 丢弃 / 字典透传 的规范不被改坏)
 Run-Check "node import_old_aidu --self-test" {

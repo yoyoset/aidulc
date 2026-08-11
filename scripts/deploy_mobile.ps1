@@ -40,7 +40,15 @@ if ($swVer -eq $last) {
 }
 
 # 3. 部署
-wrangler pages deploy . --project-name $ProjectName --branch $Branch
+# 坑 (2026-08-11): 脚本顶部 $ErrorActionPreference='Stop' 会把 wrangler 写向 stderr 的
+# git 警告 (uncommitted changes) 当成终止错误, 在 wrangler 正常跑完后中止脚本, 导致
+# 第 4 步"记录已部署版本"永远不执行 → 下次部署以为版本没变而拒绝。这里局部切回
+# Continue 并靠 $LASTEXITCODE 判断真实成败。
+$saved = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$out = & wrangler pages deploy . --project-name $ProjectName --branch $Branch 2>&1
+$ErrorActionPreference = $saved
+$out | ForEach-Object { Write-Output ($_ -as [string]) }
 if ($LASTEXITCODE -ne 0) {
     Write-Error "wrangler pages deploy 失败 (exit $LASTEXITCODE)"
 }

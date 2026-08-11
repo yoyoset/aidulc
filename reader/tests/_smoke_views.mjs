@@ -803,50 +803,52 @@ console.log('== 8. B: 设置浮层「播放」节 (通篇⇄逐句 + 跟读预�
   check('点「盲跟」→ onPatch preset=blind', patches.some((p) => p.preset === 'blind'), JSON.stringify(patches));
 }
 
-console.log('== 9. D: 模型中心三态 (已登记 / 磁盘已有·点此登记 / 下载, UX 2026-08-11) ==');
+console.log('== 9. J1/J2: 模型按功能分组, 判据=该功能有无可用模型 (2026-08-11) ==');
 {
   // 用真实 ModelsView 替换顶部 stub (仅本段), 段末恢复
   const fakeModelsView = globalThis.ModelsView;
   load('views/models_view.js');
   const listCalls = { fileCheck: [], register: [] };
+  // J2 关键场景: 注册的 model_id 是 Qwen3-4B-Instruct-2507-Q4_K_M (与目录 name Qwen3-4B 不同)
+  // → 旧判据 (model_id === 目录 name) 落空显示"下载"; 新判据 (family 有无可用) → "可用"。
   globalThis.AiduModelService.list = async () => ({ ok: true, data: [
-    { family: 'llm', language: 'en', model_id: 'Qwen3-4B', version: 'Q4_K_M', path: 'C:/models/Qwen3-4B-Q4_K_M.gguf', size_bytes: 2497280256, active: false, asset_status: 'registered' },
+    { family: 'llm', language: 'en', model_id: 'Qwen3-4B-Instruct-2507-Q4_K_M', version: '2507-Q4_K_M', variant: 'Q4_K_M', path: 'C:/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf', size_bytes: 2497280256, active: true, asset_status: 'recommended' },
   ] });
   globalThis.AiduModelService.fileCheck = async (path, minBytes) => {
     listCalls.fileCheck.push({ path, minBytes });
-    // kokoro 的 dest 存在且健康 → 磁盘已有; qwen 已登记不探测
     return { ok: true, data: { present: path.includes('kokoro'), healthy: path.includes('kokoro') } };
   };
   globalThis.AiduModelService.register = async (m) => { listCalls.register.push(m); return { ok: true }; };
   globalThis.AiduMiscService.runtimeConfig = async () => ({ ok: true, data: {
-    llm_model: 'C:/models/Qwen3-4B-Q4_K_M.gguf', tts_model: 'C:/models/kokoro-v1_0.pth', default_model_dir: 'C:/models',
+    llm_model: 'C:/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf', tts_model: 'C:/models/kokoro-v1_0.pth', default_model_dir: 'C:/models',
   } });
   const mv = new globalThis.ModelsView(new globalThis.AiduStore());
   const mc = makeElement('div');
   mv.render(mc);
   await new Promise((r) => setTimeout(r, 80));
-  const dl = queryAll(mc, '.model-download-list')[0];
-  const rows = queryAll(dl, '.model-row');
-  const btnText = rows.map((r) => queryAll(r, 'button')[0].textContent);
-  check('Qwen (已登记) → 按钮 已登记', btnText[0] === '已登记', JSON.stringify(btnText));
-  check('Kokoro (磁盘已有) → 按钮 磁盘已有·点此登记', btnText[1].includes('磁盘已有'), JSON.stringify(btnText));
-  check('探测只查了未登记项 (kokoro)', listCalls.fileCheck.length === 1 && listCalls.fileCheck[0].path.includes('kokoro'), JSON.stringify(listCalls.fileCheck));
-  // 点「磁盘已有 · 点此登记」→ 走 register (不进下载流)
-  const kokoroBtn = queryAll(rows[1], 'button')[0];
-  kokoroBtn.onclick();
-  await new Promise((r) => setTimeout(r, 40));
-  check('点登记 → register 用磁盘路径', listCalls.register.length === 1 && listCalls.register[0].model_id === 'Kokoro-82M' && listCalls.register[0].path.includes('kokoro'), JSON.stringify(listCalls.register));
-  // 磁盘上没有 → 下载 (兜底三态中的第三态)
-  globalThis.AiduModelService.list = async () => ({ ok: true, data: [] });
-  globalThis.AiduModelService.fileCheck = async () => ({ ok: true, data: { present: false, healthy: false } });
-  const mv2 = new globalThis.ModelsView(new globalThis.AiduStore());
-  const mc2 = makeElement('div');
-  mv2.render(mc2);
-  await new Promise((r) => setTimeout(r, 80));
-  const dl2 = queryAll(mc2, '.model-download-list')[0];
-  const rows2 = queryAll(dl2, '.model-row');
-  const btnText2 = rows2.map((r) => queryAll(r, 'button')[0].textContent);
-  check('磁盘无文件 → 两行都是 下载', btnText2[0] === '下载' && btnText2[1] === '下载', JSON.stringify(btnText2));
+  const groups = queryAll(mc, '.model-group');
+  // 段标题直接读第一个子元素 (stub 的 querySelector 对 tag 选择器有兼容问题, 直读更稳)
+  const groupTitle = (g) => { const h2 = (g._children || []).find((x) => x.tagName === 'H2'); return h2 ? h2.textContent : ''; };
+  const groupTexts = groups.map(groupTitle);
+  check('三段标题: 翻译/讲解 + 语音合成 + 语音识别', groupTexts.some((t) => t.includes('翻译')) && groupTexts.some((t) => t.includes('语音合成')) && groupTexts.some((t) => t.includes('语音识别')), JSON.stringify(groupTexts));
+  // 翻译段: 有可用模型 → 显示"可用" + 换一个, 不显示"去下载"
+  const llmSec = groups.find((g) => groupTitle(g).includes('翻译 / 讲解'));
+  const llmRow = llmSec && llmSec.querySelector('.model-row');
+  const llmName = llmRow && llmRow.querySelector('.model-name').textContent;
+  const llmBadge = llmRow && queryAll(llmRow, '.book-badge').map((b) => b.textContent);
+  check('J2: 注册名≠目录名也显示"可用" (Qwen3 4B · Q4_K_M)', llmName && llmName.includes('Qwen3') && llmBadge && llmBadge.some((t) => t.includes('可用')), 'name=' + llmName + ' badges=' + JSON.stringify(llmBadge));
+  check('J2: 有可用模型时该段不显示「去下载」', llmSec && !queryAll(llmSec, 'button').some((b) => b.textContent === '去下载'));
+  // 语音段: 无已登记 tts → 该段提供「去下载」
+  const ttsSec = groups.find((g) => groupTitle(g).includes('语音合成'));
+  check('J2: 无可用语音 → 该段显示「去下载」', ttsSec && queryAll(ttsSec, 'button').some((b) => b.textContent === '去下载'));
+  // 点「去下载」→ 下载单里对 kokoro 做磁盘探测 (文件在 → 磁盘已有·点此登记)
+  const ttsDlBtn = ttsSec && queryAll(ttsSec, 'button').find((b) => b.textContent === '去下载');
+  ttsDlBtn && ttsDlBtn.onclick();
+  await new Promise((r) => setTimeout(r, 200));
+  const modals = (document.body._children || []).filter((c) => c.className && c.className.includes('modal-overlay'));
+  const ov = modals[modals.length - 1]; // 最近打开的 (前面测试的弹窗未关, find 会拿旧的)
+  const dlBtn = ov && queryAll(ov, 'button')[0];
+  check('J2: 下载单对磁盘已有文件显示「磁盘已有·点此登记」', dlBtn && dlBtn.textContent.includes('磁盘已有'), 'text=' + (dlBtn && dlBtn.textContent) + ' fileChecks=' + JSON.stringify(listCalls.fileCheck));
   // 恢复 stub, 不干扰其它段
   globalThis.ModelsView = fakeModelsView;
 }

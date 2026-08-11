@@ -40,15 +40,12 @@
       container.innerHTML = '';
       const wrap = el('div', 'models-view');
       const header = el('div', 'page-header');
-      header.appendChild(el('h1', null, '模型中心'));
-      const scanBtn = el('button', 'btn-primary', '扫描已有模型');
+      header.appendChild(el('h1', null, '模型与依赖'));
+      // J1 (2026-08-11): 扫描保留但降为次要操作
+      const scanBtn = el('button', 'btn-small', '扫描已有模型');
       scanBtn.onclick = () => this._scanAndRegister();
       header.appendChild(scanBtn);
       wrap.appendChild(header);
-
-      // M7 R8: 一键下载区 (新用户上手: 没模型时不用手动找文件)
-      const downloadSec = el('div', 'model-downloads');
-      wrap.appendChild(downloadSec);
 
       const listEl = el('div', 'models-list');
       wrap.appendChild(listEl);
@@ -58,7 +55,6 @@
         listEl.innerHTML = '';
         if (!res.ok) { listEl.appendChild(el('div', 'global-error', '读模型列表失败: ' + res.error)); return; }
         const models = res.data || [];
-        this._renderDownloads(downloadSec, models);
         this._renderGrouped(listEl, models);
       }).catch((err) => {
         listEl.innerHTML = '';
@@ -69,36 +65,86 @@
       });
     }
 
-    /** 一键下载区: 每个目录项一行动态显示已登记 / 磁盘已有点此登记 / 下载 */
-    _renderDownloads(sec, models) {
-      sec.innerHTML = '';
-      const title = el('h2', null, '一键下载');
-      const tip = el('div', 'import-tip',
-        '下载常用引擎, 完成后自动登记。下载在后台进行, 支持断点续传; 中断后重新点即可继续。');
+    /** J2 (2026-08-11): 一个功能段的下载弹窗 —— 列出该 family 的候选目录 (磁盘探测)。
+     *  判据: 该 family 有没有已登记且文件存在的模型; 有 → 不在这里出现 (已在主列表显示已配置)。 */
+    _showDownloadSheet(family) {
+      const candidates = DOWNLOAD_CATALOG.filter((c) => c.family === family);
+      const ov = document.createElement('div');
+      ov.className = 'modal-overlay';
+      const box = document.createElement('div');
+      box.className = 'modal-box';
+      box.setAttribute('role', 'dialog');
+      box.setAttribute('aria-modal', 'true');
+      const famLabel = { llm: '翻译/讲解', tts: '语音合成', nlp: '语音识别' }[family] || family;
+      const title = el('h2', 'modal-title', `下载${famLabel}模型`);
+      const body = el('div', 'book-settings-body');
       const rows = el('div', 'model-download-list');
-      DOWNLOAD_CATALOG.forEach((item) => {
+      candidates.forEach((item) => {
         const row = el('div', 'model-row');
         const name = el('span', 'model-name', item.label + ' · ' + item.name);
-         const registeredModel = models.find((m) => m.family === item.family && m.model_id === item.name);
-         if (registeredModel) {
-           const statusLabel = { registered: '已登记', recommended: '已绑定推荐', bound: '已绑定使用' };
-           const badge = el('span', 'book-badge badge-ok', statusLabel[registeredModel.asset_status] || '已登记');
-           badge.style.marginLeft = '8px';
-           name.appendChild(badge);
-         }
         const size = el('span', 'model-meta', `${(item.sizeBytes / 1e6).toFixed(0)} MB`);
-         const btn = el('button', 'btn-primary', '已登记');
-         btn.disabled = true;
-         const actions = el('div', 'model-actions');
-         actions.appendChild(btn);
-         row.append(name, size, actions);
-         rows.appendChild(row);
-         // D (2026-08-11): 三态。判据从"只看注册表"改为"注册表 + 磁盘" —— 文件在磁盘
-         // 但没登记 (或 model_id 不同) 也要显示「磁盘已有 · 点此登记」, 不能叫用户重下。
-         if (registeredModel) return; // 已登记 → 不再探测磁盘
-         this._probeDiskState(item, btn);
+        const btn = el('button', 'btn-primary', '下载');
+        const actions = el('div', 'model-actions');
+        actions.appendChild(btn);
+        row.append(name, size, actions);
+        rows.appendChild(row);
+        this._probeDiskState(item, btn);
       });
-      sec.append(title, tip, rows);
+      body.appendChild(rows);
+      const actions = el('div', 'modal-actions');
+      const close = el('button', 'btn-small', '关闭');
+      close.onclick = () => ov.remove();
+      actions.appendChild(close);
+      box.append(title, body, actions);
+      ov.appendChild(box);
+      ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
+    }
+
+    /** J2: 同 family 多模型切换 (换一个) */
+    _showFamilyModels(family, usable) {
+      const ov = document.createElement('div');
+      ov.className = 'modal-overlay';
+      const box = document.createElement('div');
+      box.className = 'modal-box';
+      box.setAttribute('role', 'dialog');
+      box.setAttribute('aria-modal', 'true');
+      const famLabel = { llm: '翻译/讲解', tts: '语音合成', nlp: '语音识别' }[family] || family;
+      const title = el('h2', 'modal-title', `切换${famLabel}模型`);
+      const body = el('div', 'book-settings-body');
+      usable.forEach((m) => {
+        const row = el('div', 'model-row');
+        const name = el('span', 'model-name', this._modelHumanName(m) + (m.active ? ' (当前)' : ''));
+        const size = el('span', 'model-meta', `${Math.round(m.size_bytes / 1e6)} MB`);
+        const actions = el('div', 'model-actions');
+        if (!m.active) {
+          const use = el('button', 'btn-small', '设为推荐');
+          use.onclick = () => AiduModelService.setRecommended(m.id).then((r) => {
+            if (r.ok) { AiduToast.show('已切换', 'success'); ov.remove(); this._reload(); }
+          });
+          actions.appendChild(use);
+        }
+        row.append(name, size, actions);
+        body.appendChild(row);
+      });
+      const actions = el('div', 'modal-actions');
+      const close = el('button', 'btn-small', '关闭');
+      close.onclick = () => ov.remove();
+      actions.appendChild(close);
+      box.append(title, body, actions);
+      ov.appendChild(box);
+      ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
+    }
+
+    /** J2: 模型人话名 —— 从 model_id 拆 (Qwen3-4B-Instruct-2507-Q4_K_M → Qwen3 4B · Q4) */
+    _modelHumanName(m) {
+      const base = String(m.model_id || m.id || '');
+      const parts = base.split('-').filter(Boolean);
+      const brand = parts[0] || '';
+      const size = parts[1] || '';
+      const quant = String(m.variant || '').toUpperCase() || 'Q4_K_M';
+      return `${brand} ${size}`.trim() + (quant ? ' · ' + quant : '');
     }
 
     /** 探测目标路径的磁盘状态 → 把按钮切成 磁盘已有·点此登记 / 下载 (失败一律落 下载, 不阻塞) */
@@ -205,39 +251,74 @@
       });
     }
 
+    /** J1/J2 (2026-08-11): 按功能分组 —— 每段回答"当前用什么/有没有/要不要补/更新"。
+     *  翻译讲解 / 语音合成 / 语音识别(可选) 三段。一键下载不再是独立区块, 而是每段里
+     *  没有可用模型时的「去下载」。判据 (J2): 该 family 有没有已登记且文件存在的模型,
+     *  有 → 「已配置(名称)」+「换一个」; 没有 → 提供下载。 */
     _renderGrouped(listEl, models) {
-      const byLang = {};
-      (models || []).forEach(m => {
-        if (!byLang[m.language]) byLang[m.language] = [];
-        byLang[m.language].push(m);
-      });
-      Object.keys(byLang).sort().forEach(lang => {
-        const group = el('div', 'model-group');
-        group.appendChild(el('h2', null, `语言: ${lang === '*' ? '通用' : lang.toUpperCase()}`));
-        let hasLlm = false, hasTts = false;
-        ['llm', 'tts', 'nlp'].forEach(family => {
-          const famModels = byLang[lang].filter(m => m.family === family);
-          if (family === 'llm' && famModels.length) hasLlm = true;
-          if (family === 'tts' && famModels.length) hasTts = true;
-          if (!famModels.length) return;
-          const famName = { llm: '翻译/讲解引擎', tts: '语音引擎', nlp: '词法引擎' }[family];
-          group.appendChild(el('h3', null, famName));
-          famModels.forEach(m => {
+      listEl.innerHTML = '';
+      const all = (models || []).filter((m) => ['llm', 'tts', 'nlp'].includes(m.family));
+      // J2 核心判据: 该 family 是否有"已登记且文件存在"的模型
+      const usableOf = (family) => all.filter((m) => m.family === family && m.path && String(m.path).trim() !== '');
+      const famLabel = { llm: '翻译 / 讲解', tts: '语音合成', nlp: '语音识别 (可选)' };
+
+      const section = (family, tip, missingTip) => {
+        const sec = el('div', 'model-group');
+        sec.appendChild(el('h2', null, famLabel[family]));
+        if (tip) sec.appendChild(el('div', 'import-tip', tip));
+        const usable = usableOf(family);
+        if (usable.length) {
+          // 已配置 → 当前模型名 + 换一个 (J2: 判据不看特定文件名)
+          const current = usable.find((m) => m.active) || usable[0];
+          const row = el('div', 'model-row');
+          const name = el('span', 'model-name', this._modelHumanName(current) + (current.custom ? ' (自定义)' : ''));
+          const badge = el('span', 'book-badge badge-ok', '可用');
+          badge.style.marginLeft = '8px';
+          name.appendChild(badge);
+          const size = el('span', 'model-meta', `${Math.round(current.size_bytes / 1e6)} MB`);
+          const actions = el('div', 'model-actions');
+          const switchBtn = el('button', 'btn-small', '换一个');
+          switchBtn.title = usable.length > 1 ? `另有 ${usable.length - 1} 个同功能模型` : '已登记的模型都在这里';
+          switchBtn.onclick = () => this._showFamilyModels(family, usable);
+          actions.appendChild(switchBtn);
+          row.append(name, size, actions);
+          sec.appendChild(row);
+        } else {
+          // 没有可用模型 → 该段的「去下载」
+          const missing = el('div', 'settings-hint settings-warn', missingTip || '未配置 —— 处理书籍前需要它。');
+          sec.appendChild(missing);
+          const dl = el('button', 'btn-primary', '去下载');
+          dl.onclick = () => this._showDownloadSheet(family);
+          sec.appendChild(dl);
+        }
+        listEl.appendChild(sec);
+      };
+
+      section('llm', '解释词义、例句翻译、讲解。处理书籍前必须先有这个。', '未配置 —— 翻译/讲解需要它, 否则无法处理书籍。');
+      section('tts', '朗读原文/译文。没有语音不影响文字阅读。', '未配置 —— 没有语音合成不影响文字阅读, 需要跟读/听读时再下载。');
+      section('nlp', '未配置不影响阅读, 仅"跟读打分"需要。', '未配置 —— 不影响阅读, 仅"跟读打分"需要。');
+
+      // 其余已登记模型收进"全部模型"折叠区 (J1: 不再两套并列, 这里是次要的登记清单)
+      if (all.length) {
+        const sec = el('div', 'model-group');
+        const toggle = el('button', 'model-history-toggle', `全部模型 (${all.length}) ▸`);
+        toggle.onclick = () => {
+          const body = el('div', 'model-all');
+          all.forEach((m) => {
             const row = el('div', 'model-row');
             const nameWrap = el('span', 'model-name');
-            nameWrap.textContent = m.model_id + (m.custom ? ' (自定义)' : '');
+            nameWrap.textContent = this._modelHumanName(m) + (m.custom ? ' (自定义)' : '');
             if (m.active) {
-              // 苹果级: 推荐徽章 (视觉化, 替代文字)
               const badge = el('span', 'book-badge badge-ok', '推荐');
               badge.style.marginLeft = '8px';
               nameWrap.appendChild(badge);
             }
-            const size = el('span', 'model-meta', `${Math.round(m.size_bytes / 1e6)} MB · ${m.variant}`);
+            const size = el('span', 'model-meta', `${Math.round(m.size_bytes / 1e6)} MB · ${m.variant || ''}`);
             const actions = el('div', 'model-actions');
             if (!m.active) {
               const fav = el('button', 'btn-small', '设为推荐');
               fav.onclick = () => AiduModelService.setRecommended(m.id)
-                .then((r) => { if (r.ok) { AiduToast.show('已设为推荐: ' + m.model_id, 'success'); this._reload(); } });
+                .then((r) => { if (r.ok) { AiduToast.show('已设为推荐', 'success'); this._reload(); } });
               actions.appendChild(fav);
             }
             const del = el('button', 'btn-small btn-danger', '移除');
@@ -245,32 +326,23 @@
               AiduModal.confirm({
                 title: `移除模型 ${m.model_id}?`,
                 message: '移除后处理书籍时将不再可用。',
-                confirmText: '移除',
-                danger: true,
+                confirmText: '移除', danger: true,
                 onConfirm: () => AiduModelService.remove(m.id).then(() => { this._reload(); AiduToast.show('已移除', 'info'); }),
               });
             };
             actions.appendChild(del);
             row.append(nameWrap, size, actions);
-            group.appendChild(row);
+            body.appendChild(row);
           });
-        });
-        // 缺模型引导 (苹果级: 指向下一步)
-        if (!hasLlm || !hasTts) {
-          const missing = !hasLlm && !hasTts ? '翻译引擎和语音引擎' : (!hasLlm ? '翻译引擎' : '语音引擎');
-          const warn = el('div', 'settings-hint settings-warn',
-            `还缺${missing}。导入书籍前至少需要一套完整的模型组合。`);
-          group.appendChild(warn);
-        }
-        listEl.appendChild(group);
-      });
-      if (!Object.keys(byLang).length) {
-        const empty = el('div', 'book-empty', '还没有登记任何模型。导入书籍前需要配置翻译引擎和语音引擎。');
-        const scanBtn = el('button', 'btn-small btn-primary', '扫描已有模型');
-        scanBtn.onclick = () => this._scanAndRegister();
-        const emptyWrap = el('div', 'prep-empty');
-        emptyWrap.append(empty, scanBtn);
-        listEl.appendChild(emptyWrap);
+          toggle.replaceWith(body);
+        };
+        sec.appendChild(toggle);
+        listEl.appendChild(sec);
+      }
+
+      if (!all.length) {
+        const empty = el('div', 'book-empty', '还没有任何模型。上方按功能提供下载入口。');
+        listEl.appendChild(empty);
       }
     }
 

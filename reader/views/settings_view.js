@@ -44,8 +44,8 @@
       const readingPane = addTab('reading', '阅读显示');
       const learningPane = addTab('learning', '学习档案');
       const syncPane = addTab('sync', '同步与数据');
-      // 阶段6 设计交付 §10 item 8: 模型中心并入设置为一个分区 (模块本身不改, 只换挂载点)
-      const modelsPane = addTab('models', '模型中心');
+      // J9 (2026-08-11): 五个 tab 定名 —— 模型中心并入依赖成为「模型与依赖」
+      const modelsPane = addTab('models', '模型与依赖');
       if (global.ModelsView) {
         new global.ModelsView(this.store).render(modelsPane);
       }
@@ -203,14 +203,13 @@
         });
       };
 
-      // G5: 组件健康检查 (模型已独立成"模型中心"tab, 这里只留组件体检,
-      // 不再重复渲染整套 ModelsView —— UX 审计 2026-08-09: 原来两处各渲染一次,
-      // 系统与书库 tab 下会出现第二套完整重复的模型中心)
+      // J3 (2026-08-11): 依赖并入「模型与依赖」tab —— 组件健康检查 (prep/ffmpeg/PyMuPDF/
+      // CUDA) 与模型同页呈现, 不再藏在"系统与书库"里。
       const compSec = el('div', 'settings-section');
-      compSec.appendChild(el('h2', null, '组件健康检查'));
+      compSec.appendChild(el('h2', null, '依赖组件'));
       const compList = el('div', 'component-list');
       compSec.appendChild(compList);
-      systemPane.appendChild(compSec);
+      modelsPane.appendChild(compSec);
       // S0 (2026-08-10): 探测侧车可能耗时 (异步命令 + 5 秒超时), 先出"检测中…",
       // 结果到了再填充 —— 不阻塞设置页渲染; 失败也显示原因 (后台失败必须可见)。
       compList.appendChild(el('div', 'component-row', '检测中…'));
@@ -218,10 +217,20 @@
         compList.innerHTML = '';
         if (!res.ok) { compList.appendChild(el('div', 'global-error', '检查失败: ' + res.error)); return; }
         (res.data || []).forEach(c => {
+          // J3 (2026-08-11): 当前版本 · 状态 · 操作 (有版本显示, 无则省略)
+          const ver = c.version ? ' · 当前 ' + c.version : '';
           const row = el('div', 'component-row',
-            `${c.name}: ${c.healthy ? '✓ ' + c.detail : '✗ ' + c.detail}`);
+            `${c.name}: ${c.healthy ? '✓ ' : '✗ '}${c.detail}${ver}`);
           row.className += c.healthy ? ' component-ok' : ' component-bad';
-          // R3.4: 文档解析器缺失 → 一键安装按钮
+          // J3: 更新渠道 —— 有渠道的给"检查更新/安装"入口, 无渠道的老实显示文字 (不放假按钮)
+          if (c.healthy) {
+            const ch = el('span', 'component-channel', '[' + (c.update_channel || '无更新渠道') + ']');
+            ch.style.marginLeft = '8px';
+            ch.style.opacity = '.7';
+            ch.style.fontSize = '0.78rem';
+            row.appendChild(ch);
+          }
+          // R3.4/J3: 文档解析器缺失 → 一键安装按钮 (这是真实渠道)
           if (c.id === 'pymupdf' && !c.healthy) {
             const btn = el('button', 'btn-small', '一键安装');
             btn.style.marginLeft = '8px';

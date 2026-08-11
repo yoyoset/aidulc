@@ -17,6 +17,11 @@ pub struct ComponentStatus {
     pub healthy: bool, // 通过基本校验
     pub detail: String,
     pub size_bytes: i64,
+    /// J3 (2026-08-11): 当前版本 (探测得出, 探测不到给空串)
+    pub version: String,
+    /// J3: 更新渠道 —— "内置" / "重新构建侧车" / "无更新渠道"。没有渠道的项要老实说,
+    /// 不放一个点了没反应的按钮 (假反馈)。
+    pub update_channel: String,
 }
 
 /// 检查单文件组件
@@ -36,6 +41,8 @@ pub fn check_file(path: &str, id: &str, name: &str, min_bytes: u64) -> Component
                     format!("文件过小: {size} bytes (期望 >= {min_bytes})")
                 },
                 size_bytes: size as i64,
+                version: String::new(),
+                update_channel: no_channel_for(id),
             }
         }
         Ok(_) => ComponentStatus {
@@ -45,6 +52,8 @@ pub fn check_file(path: &str, id: &str, name: &str, min_bytes: u64) -> Component
             healthy: false,
             detail: "存在但不是文件".into(),
             size_bytes: 0,
+            version: String::new(),
+            update_channel: no_channel_for(id),
         },
         Err(_) => ComponentStatus {
             id: id.into(),
@@ -53,7 +62,19 @@ pub fn check_file(path: &str, id: &str, name: &str, min_bytes: u64) -> Component
             healthy: false,
             detail: format!("缺失 (预期位置: {path})"),
             size_bytes: 0,
+            version: String::new(),
+            update_channel: no_channel_for(id),
         },
+    }
+}
+
+/// J3: 每个依赖的更新渠道 —— 没有的项老实写"无更新渠道" (不给点了没反应的假按钮)。
+fn no_channel_for(id: &str) -> String {
+    match id {
+        "prep" => "重新构建侧车".to_string(),
+        "ffmpeg" => "无更新渠道".to_string(),
+        "pymupdf" => "一键安装".to_string(),
+        _ => "无更新渠道".to_string(),
     }
 }
 
@@ -71,6 +92,8 @@ pub fn check_dir(path: &str, id: &str, name: &str, required_file: &str) -> Compo
                 healthy: true,
                 detail: format!("OK ({required_file}, {:.1} MB)", size as f64 / 1e6),
                 size_bytes: size as i64,
+                version: String::new(),
+                update_channel: no_channel_for(id),
             }
         }
         _ => ComponentStatus {
@@ -80,6 +103,8 @@ pub fn check_dir(path: &str, id: &str, name: &str, required_file: &str) -> Compo
             healthy: false,
             detail: format!("缺少 {required_file}"),
             size_bytes: 0,
+            version: String::new(),
+            update_channel: no_channel_for(id),
         },
     }
 }
@@ -134,6 +159,8 @@ pub fn check_pymupdf(prep_path: &std::path::Path) -> ComponentStatus {
             healthy: false,
             detail: format!("{detail_base} — prep 侧车不存在, 无法探测"),
             size_bytes: 0,
+            version: String::new(),
+            update_channel: no_channel_for("pymupdf"),
         };
     }
     use std::os::windows::process::CommandExt;
@@ -151,6 +178,8 @@ pub fn check_pymupdf(prep_path: &std::path::Path) -> ComponentStatus {
             healthy: false,
             detail: format!("{detail_base} — 探测命令无法启动"),
             size_bytes: 0,
+            version: String::new(),
+            update_channel: no_channel_for("pymupdf"),
         };
     };
     let out = match read_stdout_with_timeout(child, PYMUPDF_PROBE_TIMEOUT) {
@@ -163,6 +192,8 @@ pub fn check_pymupdf(prep_path: &std::path::Path) -> ComponentStatus {
                 healthy: false,
                 detail: format!("{detail_base} — {e} (侧车无响应, 已终止探测)"),
                 size_bytes: 0,
+                version: String::new(),
+                update_channel: no_channel_for("pymupdf"),
             };
         }
     };
@@ -179,6 +210,8 @@ pub fn check_pymupdf(prep_path: &std::path::Path) -> ComponentStatus {
             format!("{detail_base} — 未安装, 一键安装或 pip install 'pymupdf' (prep 的 doc extra)")
         },
         size_bytes: 0,
+        version: version.to_string(),
+        update_channel: no_channel_for("pymupdf"),
     }
 }
 
@@ -279,5 +312,18 @@ mod tests {
             "应在超时后尽快返回, 实测 elapsed={elapsed:?}"
         );
         assert!(r.unwrap_err().contains("探测超时"));
+    }
+
+    /// J3 (2026-08-11): 每个依赖的更新渠道 —— 没有渠道的老实写"无更新渠道" (不放假按钮)
+    #[test]
+    fn update_channel_honest_or_actionable() {
+        assert_eq!(no_channel_for("prep"), "重新构建侧车");
+        assert_eq!(no_channel_for("pymupdf"), "一键安装");
+        assert_eq!(no_channel_for("ffmpeg"), "无更新渠道");
+        assert_eq!(no_channel_for("llm"), "无更新渠道");
+        // 组件状态带 version/update_channel 字段 (前端"当前版本 · 状态 · 检查更新")
+        let s = check_file("C:/nonexistent/x.gguf", "llm", "LLM", 1);
+        assert!(!s.healthy);
+        assert_eq!(s.update_channel, "无更新渠道");
     }
 }

@@ -753,32 +753,27 @@ pub fn sync_backend_switch(
     crate::infrastructure::log::info("cmd", &format!("enter: sync_backend_switch {name}"));
     let cfg_dir = paths.inner().data_dir.clone();
     let mut cfg = crate::services::config::Config::load(&cfg_dir);
-    let target = cfg
-        .sync_backends
-        .iter()
-        .find(|b| b.name == name)
-        .cloned()
-        .ok_or_else(|| format!("后端不存在: {name}"))?;
-    if cfg.cf_worker_url == target.url {
-        return Ok(serde_json::json!({ "switched": false, "already": true, "url": target.url }));
+    let (new_url, switched) = backend_switch_target(&cfg.sync_backends, &cfg.cf_worker_url, &name)?;
+    if !switched {
+        return Ok(serde_json::json!({ "switched": false, "already": true, "url": new_url }));
     }
-    cfg.cf_worker_url = target.url.clone();
+    cfg.cf_worker_url = new_url.clone();
     cfg.save(&cfg_dir)?;
     // 运行时生效 (AppServices.cf_worker_url 是同步命令读的)
-    *services.inner().cf_worker_url.lock().unwrap() = target.url.clone();
+    *services.inner().cf_worker_url.lock().unwrap() = new_url.clone();
     crate::infrastructure::log::info(
         "cmd",
-        &format!("sync_backend_switch -> {url}", url = target.url),
+        &format!("sync_backend_switch -> {url}", url = new_url),
     );
     Ok(serde_json::json!({
         "switched": true,
-        "url": target.url,
+        "url": new_url,
         "full_repush_on_next_sync": true,
     }))
 }
 
-/// L11 单测辅助: 纯逻辑判定"切到 name 后 cf_worker_url 变成什么"。
-/// 返回 (新 url, 是否真的切换)。不含 config 文件 IO 与 State, 可单测。
+/// L11: 纯逻辑判定"切到 name 后 cf_worker_url 变成什么"。
+/// 返回 (新 url, 是否真的切换)。不含 config 文件 IO 与 State, 命令与单测共用。
 fn backend_switch_target(
     backends: &[crate::services::config::SyncBackend],
     current_url: &str,

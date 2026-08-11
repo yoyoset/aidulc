@@ -20,6 +20,10 @@
     // P1.5: 书包导出/导入(zip, 跨设备迁移的产品成品资产)
     exportBook(id) { return AiduBridge.invoke('book_export', { id }); },
     importBook() { return AiduBridge.invoke('book_import'); },
+    // L10 (2026-08-11): 书设置弹窗改学习档案 (影响下次生成, 不动已生成译本)
+    setBookProfile(bookId, profileId) {
+      return AiduBridge.invoke('library_book_set_profile', { bookId, profileId });
+    },
   };
 
   global.AiduLibraryService = LibraryService;

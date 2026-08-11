@@ -181,6 +181,23 @@ pub fn library_register(
     store::editions_repo::EditionsRepo::new(db.inner()).upsert(&edition)
 }
 
+/// L10 (2026-08-11): 书设置弹窗改学习档案 —— 只改这本书**下次生成时**的默认参数
+/// (books.profile_id), 不影响已生成的译本 (editions 各自有自己的 profile_id 快照)。
+#[tauri::command]
+pub fn library_book_set_profile(
+    db: State<store::Db>,
+    book_id: String,
+    profile_id: String,
+) -> Result<(), String> {
+    let repo = store::books_repo::BooksRepo::new(db.inner());
+    let mut book = repo
+        .get(&book_id)
+        .ok_or_else(|| format!("书不存在: {book_id}"))?;
+    book.profile_id = profile_id;
+    book.updated_at = now_ms();
+    repo.upsert(&book)
+}
+
 /// 删除一本书
 #[tauri::command]
 pub fn library_remove(
@@ -477,6 +494,72 @@ mod meta_tests {
         attach_pack_state(&mut v);
         assert_eq!(v["pack_state"], "missing");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn l10_book_set_profile_updates_book_only_not_editions() {
+        // L10 (2026-08-11): 书设置改档案 —— 只改 books.profile_id (下次生成默认),
+        // 已生成译本 (editions.profile_id) 保持不动。
+        let path = std::env::temp_dir().join(format!("aidulc_l10_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = crate::store::Db::open(path.to_str().unwrap()).unwrap();
+        let now = crate::store::now_ms_for_store();
+        store::books_repo::BooksRepo::new(&db)
+            .upsert(&store::books_repo::Book {
+                id: "s1".into(),
+                title: "Book".into(),
+                source_path: "C:/b.epub".into(),
+                pack_dir: String::new(),
+                profile_id: "default".into(),
+                status: "done".into(),
+                kind: "original".into(),
+                source_book_id: None,
+                chapter_count: 0,
+                failed_count: 0,
+                last_opened_at: None,
+                source_language: "en".into(),
+                target_language: "zh-CN".into(),
+                llm_id: None,
+                tts_id: None,
+                nlp_id: None,
+                created_at: now,
+                updated_at: now,
+            })
+            .unwrap();
+        store::editions_repo::EditionsRepo::new(&db)
+            .upsert(&store::editions_repo::Edition {
+                id: "e1".into(),
+                source_id: "s1".into(),
+                title: "译本".into(),
+                pack_dir: "p".into(),
+                profile_id: "default".into(),
+                status: "ready".into(),
+                chapter_count: 1,
+                failed_count: 0,
+                last_opened_at: None,
+                source_language: "en".into(),
+                target_language: "zh-CN".into(),
+                llm_id: None,
+                tts_id: None,
+                nlp_id: None,
+                created_at: now,
+                updated_at: now,
+            })
+            .unwrap();
+        drop(db);
+
+        // 直接调命令层逻辑 (State 由 tauri 注入, 单测里走 repo)
+        let db = crate::store::Db::open(path.to_str().unwrap()).unwrap();
+        let books = store::books_repo::BooksRepo::new(&db);
+        let mut b = books.get("s1").unwrap();
+        b.profile_id = "kid".into();
+        b.updated_at = now;
+        books.upsert(&b).unwrap();
+        let edition = store::editions_repo::EditionsRepo::new(&db).get("e1").unwrap();
+        assert_eq!(edition.profile_id, "default", "已生成译本档案不动");
+        let book2 = books.get("s1").unwrap();
+        assert_eq!(book2.profile_id, "kid", "书的默认档案更新");
+        let _ = std::fs::remove_file(&path);
     }
 }
 

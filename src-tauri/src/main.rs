@@ -466,6 +466,7 @@ fn main() {
             commands::library::library_register,
             commands::library::library_remove,
             commands::library::library_open,
+            commands::library::library_book_set_profile,
             commands::library::edition_lookup,
             commands::library::load_bookpack,
             commands::library::load_bookpack_chapter,

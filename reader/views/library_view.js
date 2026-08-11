@@ -726,7 +726,10 @@
       });
     }
 
-    /** 书设置弹窗 (P3): 语言 + 模型覆盖 (默认跟随全局推荐) */
+    /** 书设置弹窗 (P3 + L10): 学习档案 + 语言 + 模型覆盖 (默认跟随全局推荐)。
+     *  L10 (2026-08-11): 补学习档案选择 (与创建译本弹窗同一份档案数据源 `_profiles`),
+     *  表单按「档案 → 语言 → 模型」竖排, 每节标题 + 控件上下对齐 (复用 settings-hint 间距);
+     *  明确说明这个弹窗改的是**这本书下次生成时**的默认参数, 不影响已生成的译本。 */
     _openBookSettings(book) {
       const ov = document.createElement('div');
       ov.className = 'modal-overlay';
@@ -736,6 +739,19 @@
       box.setAttribute('aria-modal', 'true');
       const title = el('h2', 'modal-title', `书设置 — ${book.title || book.id}`);
       const body = el('div', 'book-settings-body');
+      // L10: 一句话点明边界 —— 改的是下次生成的默认参数, 不动已生成译本。
+      body.appendChild(el('div', 'settings-hint settings-warn',
+        '这里改的是这本书「下次生成译本」时的默认参数。已生成的译本不受影响。'));
+
+      // 学习档案 (与创建译本弹窗同数据源 `_profiles`)
+      const profileLabel = el('div', 'settings-hint', '学习档案');
+      const profileSelect = el('select', 'prep-select');
+      (this._profiles || [{ id: 'default', name: '成人自读' }]).forEach((p) => {
+        const opt = el('option', null, p.name || p.id);
+        opt.value = p.id;
+        profileSelect.appendChild(opt);
+      });
+      profileSelect.value = book.profile_id || this._storedProfile() || 'default';
 
       const langLabel = el('div', 'settings-hint', '语言');
       const langRow = el('div', 'prep-row');
@@ -765,7 +781,7 @@
       function close() { document.removeEventListener('keydown', onKey); ov.remove(); }
       function onKey(e) { if (e.key === 'Escape') close(); }
 
-      body.append(langLabel, langRow, modelHint, llmRow);
+      body.append(profileLabel, profileSelect, langLabel, langRow, modelHint, llmRow);
       box.append(title, body, actions);
       ov.appendChild(box);
       document.body.appendChild(ov);
@@ -826,11 +842,16 @@
       saveBtn.onclick = () => {
         saveBtn.disabled = true;
         saveBtn.textContent = '保存中…';
-        AiduModelService.bindBook(
+        // L10: 档案持久化 (影响下次生成) + 模型绑定, 两步都成功才算保存
+        const profileId = profileSelect.value;
+        const profileSave = AiduLibraryService.setBookProfile(book.id, profileId);
+        const modelSave = AiduModelService.bindBook(
           book.id, srcSel.value, tgtSel.value,
           llmSel.value || null, ttsSel.value || null, null
-        ).then((r) => {
-          if (!r.ok) { saveBtn.disabled = false; saveBtn.textContent = '保存'; body.appendChild(el('div', 'global-error', '保存失败: ' + r.error)); return; }
+        );
+        Promise.all([profileSave, modelSave]).then(([pr, mr]) => {
+          if (!pr.ok) { saveBtn.disabled = false; saveBtn.textContent = '保存'; body.appendChild(el('div', 'global-error', '保存档案失败: ' + pr.error)); return; }
+          if (!mr.ok) { saveBtn.disabled = false; saveBtn.textContent = '保存'; body.appendChild(el('div', 'global-error', '保存模型配置失败: ' + mr.error)); return; }
           close();
           AiduToast.show('已保存《' + (book.title || '') + '》的设置', 'success');
           this.store.emit('change', this.store.state);

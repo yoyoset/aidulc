@@ -437,6 +437,32 @@ console.log('== 4b. 默认与预填: 记住上次档案 (2026-08-09) ==');
   check('开始备料会记住档案选择', globalThis.localStorage.getItem('aidulc.lastProfile') === 'kid');
 }
 
+console.log('== 4c. L10 (2026-08-11): 书设置弹窗有学习档案 + 影响下次生成说明 ==');
+{
+  // 书设置弹窗: 档案/语言/模型 三段, 且有一句"影响下次生成、不动已生成译本"的边界说明。
+  const lv = new globalThis.LibraryView(store, 'original');
+  lv._profiles = [{ id: 'default', name: '成人自读' }, { id: 'kid', name: '陪小孩读' }];
+  const setProfileCalls = [];
+  globalThis.AiduLibraryService.setBookProfile = async (id, pid) => { setProfileCalls.push([id, pid]); return { ok: true }; };
+  const book = { id: 's1', title: 'Alice', profile_id: 'default', source_language: 'en', target_language: 'zh-CN' };
+  lv._openBookSettings(book);
+  await new Promise((r) => setTimeout(r, 80));
+  const ovs = document.body._children.filter((c) => c.className && c.className.includes('modal-overlay'));
+  const ov = ovs[ovs.length - 1];
+  const body = ov && ov.querySelector('.book-settings-body');
+  // 边界说明是 body 第一句 settings-warn (stub 的 textContent 不聚合子节点, 逐节点找)
+  const warnHints = body ? queryAll(body, '.settings-warn') : [];
+  const boundaryText = warnHints.map((n) => n.textContent).join(' ').replace(/\s+/g, '');
+  check('L10: 弹窗有一句边界说明 (影响下次生成/不动已生成译本)', boundaryText.includes('下次生成') && boundaryText.includes('已生成的译本'), 'text=' + boundaryText.slice(0, 80));
+  const profileSel = ov && queryAll(ov, 'select').find((s) => (s._children || []).some((o) => o.tagName === 'OPTION' && o.value === 'kid'));
+  check('L10: 有学习档案下拉', !!profileSel);
+  if (profileSel) profileSel.value = 'kid';
+  const saveBtn = ov && queryAll(ov, 'button').find((b) => b.textContent === '保存');
+  saveBtn && saveBtn.onclick();
+  await new Promise((r) => setTimeout(r, 30));
+  check('L10: 保存调 setBookProfile(s1,kid)', setProfileCalls.some(([id, pid]) => id === 's1' && pid === 'kid'), JSON.stringify(setProfileCalls));
+}
+
 
 console.log('== 5. 顶栏切人 (V1 身份模型, 2026-08-09) ==');
 {

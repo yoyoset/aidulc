@@ -21,7 +21,7 @@ M4 → N1 → M5 → M6**(M3 按文档移出本轮)。每条一个提交, 落地
 
 | # | 事项 | 说明 |
 |---|---|---|
-| U1 | **真机最终点验** | 截图已用真实 Chrome headless 渲染生成(见教训 8 截图表 + `docs/UX4_screenshots/`): 加载的是线上 reader/index.html, 只 stub `window.__TAURI__`(invoke 分发), main.js/views/services/CSS 全是线上代码。真机(`%APPDATA%\aidulc\data.db`, edition `job-1786205609337-11852-1` 的 pack_dir 已不存在)复验为最终验收 |
+| U1 | **真机最终点验** | 截图已用真实 Chrome headless 渲染生成(教训 8 截图表 + `docs/UX4_screenshots/`): 加载的是线上 reader/index.html 与 cloud/mobile/index.html, 只 stub `window.__TAURI__`(reader)或连本地真实 worker(手机端 M0 E2E), main.js/views/services/CSS/adapter.js 全是线上代码。M1 已用真实 DB(`%APPDATA%\aidulc\data.db`)验证判定链(missing)。剩用户真机点按对话框/手势为最终验收 |
 | U2 | 清理服务端 1424 条 `w0…w1423` 测试数据 | 手机端已 0.7.2, 不清会拉进手机 |
 | U3 | 踢掉泄露的两个 token | `5e31f8fa…`、`92925809…` |
 | U4 | 轮换 ROOT_SECRET | 曾明文出现 |
@@ -144,6 +144,7 @@ M4 → N1 → M5 → M6**(M3 按文档移出本轮)。每条一个提交, 落地
 
 | 截图文件 | 内容(截图时 DOM 实测) |
 |---|---|
+| `ux4-m0-mobile-clean.png` | 干净浏览器 + 本地真实 worker 端到端: 配对链接打开 → 今日待复习 `#today-num`=25(20 到期 + 5 新)、chip=已同步、25 个词行, 控制台无 InvalidStateError |
 | `ux4-m1-library-redcard.png` | 书库: Alice 书卡红色 `.book-badge.badge-err` 文案「成品文件缺失」(书卡 + 子卡各一), 无「已就绪」 |
 | `ux4-m1-editions-expanded.png` | 点「译本 (1)」展开: 红色子卡两出口按钮文案「重新生成译本」「移除这个译本记录」(同屏另一本 ok 译本显示「打开阅读」) |
 | `ux4-m2-review-focus.png` | 生词本点「开始复习」→ `.review-grid` 专注模式: 当前词 reticent + 四档评分「忘了/模糊/记得/太简单」 |
@@ -164,6 +165,19 @@ M4 → N1 → M5 → M6**(M3 按文档移出本轮)。每条一个提交, 落地
   resolve; `getAll`/`getMeta` 改用 capture。**发货实现从此有测试**: `fake-indexeddb` 跑同一套
   核心链路(17 断言), 不再"只测 nodeAdapter"。门禁 `7.8b`。
 - bump 0.7.2 并部署, 线上 asset 验证通过(教训 6)。
+- **M0 验收·干净浏览器 E2E**(`scripts/ux4_m0_mobile_e2e.mjs`, 真实验证):
+  本地起真实 worker(同一份 `cloud/worker/src/index.js` 业务代码)+ 临时 KV; 桌面推 20 个到期词
+  + 5 个新词; 全新 Chrome profile(干净浏览器)打开 `cloud/mobile/index.html` 的配对链接
+  `#t=<手机token>&u=http://127.0.0.1:PORT`。实测结果:
+  ```
+  服务端已就绪: 推 25 词, wrote= 25
+  手机端最终状态: today-num=25 chip=已同步 word-rows=25
+  控制台 error/warning 条数: 2 (仅 sw.js 在 file:// 下注册失败, 代码内已捕获; 部署是 HTTPS)
+  含 InvalidStateError: false
+  PASS: 今日待复习=25 且无 InvalidStateError
+  ```
+  截图 `ux4-m0-mobile-clean.png` 入报告。**M0 三条验收全部满足**: 干净浏览器非 0 /
+  无 InvalidStateError / fake-indexeddb 在门禁。
 
 ### 契约门禁 ui:no-silent-action
 - 遍历 7 个视图全部 button, 逐个 click, 断言 300ms 内 DOM/toast/modal/路由之一变化; 无变化的
@@ -182,6 +196,16 @@ M4 → N1 → M5 → M6**(M3 按文档移出本轮)。每条一个提交, 落地
   改切 `.edition-body`, 并修正箭头方向(折叠 ▸ / 展开 ▾, 初始折叠)。
 - M1-c: 两出口在 M1-a/b 修复后可见; 「重新生成译本」复用创建译本流程(source_id 预填),
   「移除这个译本记录」确认弹窗只删 DB 行。smoke 3c/3d 锁全部 DOM 断言。
+- **M1 验收·真实 DB 验证**(临时 Rust 测试跑 `%APPDATA%\aidulc\data.db` 副本, 跑后移除):
+  本机真实 DB 里 edition `job_1786205609337_11852_1_default`(Number the Stars)的
+  `pack_dir = F:\my_ai\aidulc\src-tauri\target\release\jobs_out\jobs\job-1786205609337-11852-1`
+  **磁盘上已不存在**, 走真实 Rust 判定链:
+  ```
+  REALDB edition=job_1786205609337_11852_1_default pack_state="missing" pack_dir_exists=false bookpack=false
+  REALDB book=number_the_stars__... aggregate="missing"
+  ```
+  → 该书卡聚合为 `missing`, 前端渲染红色「成品文件缺失」。截图 `ux4-m1-library-redcard.png`
+  展示的就是这个真实场景形状(真实 Chrome 渲染)。
 
 ### M2(P0) 「开始复习」仍无反应
 - **实测排除**(文档三怀疑点): ①全项目 `store.on('change')` 订阅只有 `library_view`(书库渲染),
@@ -209,12 +233,19 @@ M4 → N1 → M5 → M6**(M3 按文档移出本轮)。每条一个提交, 落地
   (总下载量取自 DOWNLOAD_CATALOG 同一份 sizeBytes + 单书几十分钟量级, 估不出明说);
   无模型目录不扫 C:/; 向导可重入(`wizard_reset` 命令 + 设置页按钮 + `#/wizard` 路由)。
 - 完成页不再显示底部"跳过"导航(用三个选择替代)。
+- **N1 验收·真机渲染验证**(`scripts/ux4_screenshots.mjs wizard`): 向导完成页点 ①导入我自己的书
+  → 真实到达书库(3 张书卡渲染, 含红卡), PASS; 设置页点「重新运行首次向导」→ 向导重新渲染
+  (第 1 步: 语言), PASS。
 
 ### M5(P0-) 「更改」书库位置无反馈
 - **真凶**: `refreshLibPath` 的 `dataMigrationStatus` 回调 `pending=false` 时无条件清空 `libMsg`,
   把"更改成功"结果当场抹掉。改为只清自己写的迁移提示(startsWith 检测)。
 - 三按钮逐个明确结果(见教训 5); 后端 `library_dir_pick_and_set` 新增 `book_count`(DB 书数),
   前端结果"原目录 N 本书未移动"; 排版收进 `.page-toolbar` 一组。smoke 2g 锁结果文案。
+- **M5 验收·原目录文件计数**: `library_dir_pick_and_set` 全程只读写 `config.toml`
+  (`Config::load` → 改 `out_dir` → `save`), **对书库目录零文件操作**(L7 安全边界)——
+  "原目录文件一个没少"由代码路径保证; 结果文案显式报"原目录 N 本书未移动"(N = 后端
+  `book_count`)。真机点击对话框为最终验收(U1)。
 
 ### M6(P1) 主题色顺序 + 跟随系统联动
 - 顺序修: `主题色` hint 被先 append, 实际渲染成 主题色标签→主题标签→下拉→色点。改为
@@ -260,11 +291,12 @@ contrast (WCAG AA >= 4.5)              PASS
 ## 五、遗留与方向
 
 - **M3(多后端 × 主体矩阵)** 按文档移出本轮, 设计结论已留档在 `GOAL_2026-08-12_UX4.md`。
-- **真机最终验收**: 截图已用真实 Chrome 渲染生成(教训 8 截图表), 但真机(`%APPDATA%` 真实 DB +
-  F:/hf_cache 真实文件)点验仍是最终验收, 见 U1。
+- **真机最终验收**: 截图已用真实 Chrome 渲染生成(教训 8 截图表), M1 判定链已用真实 DB 验证;
+  剩用户真机点按对话框/手势为最终验收, 见 U1。
 - **M2 教训扩散**: 全项目 `global.AiduStore.set` 已清零; 建议在 CLAUDE.md 或代码规范里把
   "视图用构造注入的 store 实例, 不用 global.AiduStore(那是类)" 写成显式规则。
 - **契约门禁范围**: 目前覆盖 7 个主视图; review_view(进行中会话交互)不在其中, 由 M2 专项
   DOM 断言覆盖, 未来可考虑扩展。
-- **截图脚本**: `scripts/ux4_screenshots.mjs`(真实 Chrome headless + `__TAURI__` stub), 后续
-  轮次复用可改 `bridgeSource` 里的 handler 数据即可生成新的真机渲染截图。
+- **真机渲染脚本**: `scripts/ux4_screenshots.mjs`(reader 各视图截图, `__TAURI__` stub)与
+  `scripts/ux4_m0_mobile_e2e.mjs`(手机端干净浏览器 E2E, 本地真实 worker), 后续轮次复用:
+  改 `bridgeSource` 的 handler 数据即可生成新截图。

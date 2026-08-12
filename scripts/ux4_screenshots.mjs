@@ -290,6 +290,15 @@ async function sessionDone(cdp) {
   await sleep(400);
   await dumpDom(cdp, 'M6 order', '.settings-form .settings-hint');
   await shot(cdp, 'ux4-m6-theme-order');
+
+  // --- N1 可重入 (真机验证): 设置页「重新运行首次向导」→ #/wizard 重新渲染向导 ---
+  await click(cdp, '.settings-tab', '系统与书库', { exact: true });
+  await sleep(300);
+  await click(cdp, 'button', '重新运行首次向导');
+  await waitFor(cdp, `!!document.querySelector('.wizard-view')`, 10000);
+  await sleep(300);
+  await dumpDom(cdp, 'N1 reentry', '.wizard-view h2');
+  console.log('PASS: N1 设置页可重入 → 向导重新渲染');
 }
 
 /* ------------------------------------------------------------------ */
@@ -308,6 +317,13 @@ async function sessionWizard(cdp) {
   await sleep(400);
   await dumpDom(cdp, 'N1 done', '.wizard-choice');
   await shot(cdp, 'ux4-n1-wizard-done');
+  // N1 验收: 完成页能点到下一步且真的到达对应页面 —— 点 ①导入我自己的书 → 进书库
+  await click(cdp, '.wizard-choice', '导入我自己的书');
+  // 首次运行 router.current 默认 'library', navigate('library') 走同路由 _dispatch, 不写 hash —— 以页面为准
+  await waitFor(cdp, `document.querySelectorAll('.book-card').length >= 1 && document.querySelectorAll('.wizard-view').length === 0`, 10000);
+  await sleep(400);
+  await dumpDom(cdp, 'N1 after choice1', '.book-card .book-card-title');
+  console.log('PASS: N1 完成页 ① → 到达书库且书卡已渲染');
 }
 
 async function main() {

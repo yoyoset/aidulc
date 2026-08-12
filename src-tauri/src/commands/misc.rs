@@ -233,6 +233,7 @@ pub fn library_dir_pick_and_set(
     cfg: State<PrepConfig>,
     prep_state: State<PrepState>,
     paths: State<crate::DataPaths>,
+    db: State<crate::store::Db>,
 ) -> Result<serde_json::Value, String> {
     if prep_state.running_job.lock().unwrap().is_some() {
         return Err("有任务正在处理中, 请先等待完成或暂停后再更改书库位置".into());
@@ -258,6 +259,12 @@ pub fn library_dir_pick_and_set(
     file_cfg.out_dir = new_dir.clone();
     file_cfg.save(&cfg_dir)?;
 
+    // M5 (2026-08-12): 书库里现在有多少本书 —— 前端据此说"原目录 N 本书未移动"
+    // (切换只改配置不搬文件, 全部书都还在旧目录)。
+    let book_count = crate::store::books_repo::BooksRepo::new(db.inner())
+        .list()
+        .len();
+
     Ok(serde_json::json!({
         "cancelled": false,
         "old_dir": old_dir.to_string_lossy(),
@@ -266,6 +273,7 @@ pub fn library_dir_pick_and_set(
         "failed": Vec::<String>::new(),
         "all_ok": true,
         "restart_required": true,
+        "book_count": book_count,
     }))
 }
 

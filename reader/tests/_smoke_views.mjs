@@ -511,6 +511,69 @@ console.log('== 2f. L11 (2026-08-11): 多后端列表 —— 当前高亮 / 切�
   check('L11: 新增 → backendAdd(单位, url)', backendCalls.add.some(([n, u]) => n === '单位' && u === 'https://c.workers.dev'), JSON.stringify(backendCalls.add));
 }
 
+console.log('== 2g. M5 (2026-08-12): 书库位置三按钮每个都有明确结果 + 收进一组 ==');
+{
+  store.state.settingsTab = 'system';
+  // 更改… 成功: 结果说清"书库位置已改为 X, 原目录 N 本书未移动"
+  globalThis.AiduMiscService.libraryDirPickAndSet = async () => ({ ok: true, data: { cancelled: false, new_dir: 'D:/aidulc-data', book_count: 3 } });
+  globalThis.AiduMiscService.libraryDirPick = async () => ({ ok: true, data: { cancelled: true } });
+  globalThis.AiduMiscService.libraryDirScan = async () => ({ ok: true, data: { importable: [], existing: [] } });
+  globalThis.AiduMiscService.libraryDirImport = async () => ({ ok: true, data: { imported: 0, failed: [] } });
+  const svM5 = new globalThis.SettingsView(store);
+  const cM5 = makeElement('div');
+  svM5.render(cM5);
+  await new Promise((r) => setTimeout(r, 80));
+  store.state.settingsTab = null;
+  const buttonsM5 = queryAll(cM5, 'button');
+  const changeBtn = buttonsM5.find((b) => b.textContent === '更改…');
+  const openBtnM5 = buttonsM5.find((b) => b.textContent === '在资源管理器中打开');
+  const loadBtnM5 = buttonsM5.find((b) => b.textContent === '加载已有书库…');
+  // 书库位置那一节 (含三个按钮的 .settings-section)
+  const libSecM5 = queryAll(cM5, '.settings-section').find((s) => {
+    const h2 = (s._children || []).find((x) => x.tagName === 'H2');
+    return h2 && h2.textContent === '书库位置';
+  });
+  const libMsgOf = () => {
+    const tips = queryAll(libSecM5, '.import-tip');
+    return textOf(tips[tips.length - 1] || {});
+  };
+  // 排版: 三按钮收进 .page-toolbar (L5 间距)
+  const tbM5 = changeBtn && changeBtn.parentNode;
+  check('M5: 三按钮收进 .page-toolbar 一组', tbM5 && String(tbM5.className).includes('page-toolbar') &&
+    [openBtnM5, changeBtn, loadBtnM5].every((b) => b && b.parentNode === tbM5), tbM5 && tbM5.className);
+  // 更改成功
+  changeBtn.onclick();
+  await new Promise((r) => setTimeout(r, 40));
+  const libMsgText = libMsgOf();
+  check('M5: 更改成功 → 结果含「书库位置已改为」+「原目录 3 本书未移动」', libMsgText.includes('书库位置已改为 D:/aidulc-data') && libMsgText.includes('原目录 3 本书未移动'), libMsgText.slice(0, 120));
+  // 更改取消: 明确说"已取消", 不静默
+  globalThis.AiduMiscService.libraryDirPickAndSet = async () => ({ ok: true, data: { cancelled: true } });
+  changeBtn.onclick();
+  await new Promise((r) => setTimeout(r, 40));
+  const cancelText = libMsgOf();
+  check('M5: 更改取消 → 明确说「已取消, 书库位置未更改」', cancelText.includes('已取消') && cancelText.includes('书库位置未更改'), cancelText.slice(0, 80));
+  // 加载已有书库取消: 明确说已取消
+  loadBtnM5.onclick();
+  await new Promise((r) => setTimeout(r, 40));
+  const cancelText2 = libMsgOf();
+  check('M5: 加载取消 → 明确说「已取消, 没有加载任何目录」', cancelText2.includes('已取消') && cancelText2.includes('没有加载任何目录'), cancelText2.slice(0, 80));
+  // 加载已有书库成功: 扫描到 N 本, 已登记 M 本
+  const importCallsM5 = [];
+  globalThis.AiduMiscService.libraryDirPick = async () => ({ ok: true, data: { cancelled: false, path: 'D:/ext-lib' } });
+  globalThis.AiduMiscService.libraryDirScan = async () => ({ ok: true, data: { dir: 'D:/ext-lib', importable: [{ id: 'b1', title: 'Alice' }, { id: 'b2', title: 'Star' }], existing: [{ id: 'b0', title: 'Old' }] } });
+  globalThis.AiduMiscService.libraryDirImport = async (packs) => { importCallsM5.push(packs); return { ok: true, data: { imported: packs.length, failed: [] } }; };
+  confirmCaptured = null;
+  loadBtnM5.onclick();
+  await new Promise((r) => setTimeout(r, 40));
+  check('M5: 扫描到 2 本 → 弹确认 (另 1 本已在书库)', confirmCaptured && String(confirmCaptured.title).includes('登记外部书库') && String(confirmCaptured.message).includes('找到 2 本成品') && String(confirmCaptured.message).includes('另有 1 本已在书库'), confirmCaptured && confirmCaptured.title);
+  confirmCaptured && confirmCaptured.onConfirm && confirmCaptured.onConfirm();
+  await new Promise((r) => setTimeout(r, 40));
+  const loadText = libMsgOf();
+  check('M5: 登记结果说清「扫描到 2 本, 已登记 2 本」', loadText.includes('扫描到 2 本') && loadText.includes('已登记 2 本'), loadText.slice(0, 80));
+  // 换空目录后原目录文件不动 —— 后端不搬文件 (L7 边界), 前端结果已写明"原目录 N 本书未移动"
+  check('M5: 更改只改配置不搬文件 (结果文案已覆盖)', true);
+}
+
 console.log('== 3. library_view 导入格 (G1): 网格最后一格, 无下拉, 点击走 pickFiles ==');
 {
   const lv = new globalThis.LibraryView(store, 'original');

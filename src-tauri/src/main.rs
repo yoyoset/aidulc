@@ -511,6 +511,7 @@ fn main() {
             commands::reader::sync_backends_list,
             commands::reader::sync_backend_add,
             commands::reader::sync_backend_switch,
+            commands::reader::sync_backend_toggle,
             commands::reader::sync_backend_remove,
             commands::reader::sync_auth_device,
             commands::reader::sync_make_code,

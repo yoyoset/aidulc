@@ -612,7 +612,26 @@ pub fn srs_grade(
     serde_json::to_value(saved).map_err(|e| e.to_string())
 }
 
-// ---- 同步 (I-C: 状态机 + 配置, V6 按 user 分账) ----
+// ---- 同步 (I-C: 状态机 + 配置, V6 按 user 分账; M3 按 user×endpoint 分账) ----
+
+/// M3 (2026-08-13): 解析某 user 在当前生效后端的同步凭据。
+/// 返回 (endpoint_key, token, server_user)。兼容迁移:
+///   1. 服务端 user: 优先按 (user, url) 新 key, 回退 V6 老 key;
+///   2. token: 优先按 (user, endpoint_key) 新 key, 老 V6 key 读得到就迁 (migrate_cf_token_for),
+///      迁不动明确报错 (不静默丢 token)。
+fn endpoint_state(user_id: &str, url: &str) -> Result<(String, String, String), String> {
+    use crate::services::credentials;
+    let mut server_user =
+        credentials::get_server_user_for_endpoint(user_id, url).unwrap_or_default();
+    if server_user.is_empty() {
+        server_user = credentials::get_server_user_for(user_id).unwrap_or_default();
+    }
+    let endpoint_key = format!("{url}|{server_user}");
+    // token: 老 V6 key → 新 (user, endpoint) key 迁移 (读得到就迁)
+    credentials::migrate_cf_token_for(user_id, &endpoint_key)?;
+    let token = credentials::get_cf_token_for_endpoint(user_id, &endpoint_key).unwrap_or_default();
+    Ok((endpoint_key, token, server_user))
+}
 
 /// 当前 user 的同步状态
 /// K2 (2026-08-11): 改 async —— keyring (Credential Manager) 读可能慢/卡 (实测记录过耗时),
@@ -627,7 +646,7 @@ pub async fn sync_status(
     let t0 = crate::store::now_ms_for_store();
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
-    let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
+    let (endpoint_key, token, _server_user) = endpoint_state(&user_id, &url)?;
     crate::infrastructure::log::info(
         "cmd",
         &format!(
@@ -635,41 +654,50 @@ pub async fn sync_status(
             crate::store::now_ms_for_store() - t0
         ),
     );
-    let s = crate::application::sync_service::get_status(db.inner(), &url, &token, &user_id);
+    let s = crate::application::sync_service::get_status(
+        db.inner(),
+        &url,
+        &token,
+        &user_id,
+        &endpoint_key,
+    );
     serde_json::to_value(s).map_err(|e| e.to_string())
 }
 
-/// 立即同步 (某 user): 先推后拉
-/// K2 (2026-08-11): 改 async —— reqwest::blocking 网络调用 (15s 超时 ×3 重试) 会阻塞主线程
-/// 至多几十秒。async 命令跑在 tokio 线程池, 不在主线程, 窗口全程 Responding。
-/// (sync_service 内部穿插 DB 读写, 无法整体挪进 spawn_blocking; async 已满足"不卡主线程"。)
+/// 立即同步 (某 user): M3 —— 对当前主体已启用后端依次先推后拉。
+/// K2 (2026-08-11): 改 async (同 sync_status)。
 #[tauri::command]
 pub async fn sync_now(
     db: State<'_, store::Db>,
     services: State<'_, crate::AppServices>,
+    paths: State<'_, crate::DataPaths>,
     user_id: String,
 ) -> Result<serde_json::Value, String> {
     let t0 = crate::store::now_ms_for_store();
     crate::infrastructure::log::info("cmd", &format!("enter: sync_now user={user_id}"));
     let svc = services.inner();
-    let url = svc.cf_worker_url.lock().unwrap().clone();
-    let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
-    // UX A1: token 属于服务端哪个 user (换 token 时从 auth_device 返回值保存) ——
-    // endpoint_key 用它判定"换服务端后是否要全量重推"。
-    let server_user =
-        crate::services::credentials::get_server_user_for(&user_id).unwrap_or_default();
-    let s = crate::application::sync_service::sync_now(
+    let active_url = svc.cf_worker_url.lock().unwrap().clone();
+    // 确保当前生效后端的 V6 老 token 迁移到 (user, endpoint) 新 key
+    let (epk, _t, _su) = endpoint_state(&user_id, &active_url)?;
+    let _ = epk;
+    let cfg_dir = paths.inner().data_dir.clone();
+    let mut cfg = crate::services::config::Config::load(&cfg_dir);
+    let (backends, _) = cfg.backends_including_active();
+    let results = crate::application::sync_service::sync_now_all(
         db.inner(),
-        &url,
-        &token,
-        &server_user,
         &user_id,
+        &backends,
+        &active_url,
     )?;
     crate::infrastructure::log::info(
         "cmd",
-        &format!("exit: sync_now {}ms", crate::store::now_ms_for_store() - t0),
+        &format!(
+            "exit: sync_now {}ms ({} 个后端)",
+            crate::store::now_ms_for_store() - t0,
+            results.len()
+        ),
     );
-    serde_json::to_value(s).map_err(|e| e.to_string())
+    serde_json::to_value(results).map_err(|e| e.to_string())
 }
 
 /// F4 (2026-08-11): 强制全量重推 —— 清该 user 的 sync_state (last_push_at=0, endpoint_key 清空),
@@ -681,14 +709,16 @@ pub fn sync_force_full(db: State<store::Db>, user_id: String) -> Result<(), Stri
     crate::application::sync_service::force_full_reset(db.inner(), &user_id)
 }
 
-// ---- L11 (2026-08-11): 多后端配置 —— "谁的库选谁的" ----
+// ---- L11/M3 (2026-08-11/13): 多后端配置 —— 主体 × 后端矩阵 ----
 
-/// 后端列表: 每项 = 名称 + URL + 状态 (当前生效高亮 / 该后端是否已连接)。
+/// 后端列表: 每项 = 名称 + URL + 状态 (当前生效高亮 / 是否已连接 / 该 user 是否启用)。
+/// M3 (2026-08-13): 每项加「同步此后端」勾选状态 (当前主体自己的启用状态) + 所属主体。
 /// 首次读时把当前 cf_worker_url 补成「默认后端」, 列表不为空。
 #[tauri::command]
 pub fn sync_backends_list(
     paths: State<'_, crate::DataPaths>,
     services: State<'_, crate::AppServices>,
+    db: State<'_, store::Db>,
     user_id: String,
 ) -> Result<serde_json::Value, String> {
     crate::infrastructure::log::info("cmd", &format!("enter: sync_backends_list user={user_id}"));
@@ -699,21 +729,78 @@ pub fn sync_backends_list(
         let _ = cfg.save(&cfg_dir);
     }
     let active_url = services.inner().cf_worker_url.lock().unwrap().clone();
-    let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
+    let user_name = store::users_repo::UsersRepo::new(db.inner())
+        .get(&user_id)
+        .map(|u| u.name)
+        .unwrap_or_else(|| user_id.clone());
     let out: Vec<serde_json::Value> = list
         .into_iter()
         .map(|b| {
+            use crate::application::sync_service::endpoint_key_for;
+            use crate::services::credentials;
+            let server_user =
+                credentials::get_server_user_for_endpoint(&user_id, &b.url).unwrap_or_default();
+            let endpoint_key = endpoint_key_for(&b.url, &server_user);
+            // token: 新 (user, endpoint) key 优先, 老 V6 key 兜底
+            let mut token =
+                credentials::get_cf_token_for_endpoint(&user_id, &endpoint_key).unwrap_or_default();
+            if token.is_empty() {
+                token = credentials::get_cf_token_for(&user_id).unwrap_or_default();
+            }
             let connected = !b.url.is_empty() && !token.is_empty();
+            let (has_row, en) = store::sync_state_repo::SyncStateRepo::new(db.inner())
+                .enabled_flag(&user_id, &endpoint_key);
+            let enabled = if has_row { en } else { b.url == active_url };
             serde_json::json!({
                 "name": b.name,
                 "url": b.url,
                 "active": b.url == active_url,
                 "connected": connected,
+                "enabled": enabled,
+                "subject": user_name,
             })
         })
         .collect();
     crate::infrastructure::log::info("cmd", &format!("sync_backends_list {} 个", out.len()));
     serde_json::to_value(out).map_err(|e| e.to_string())
+}
+
+/// M3 (2026-08-13): 勾选/取消某后端的「同步此后端」—— 当前主体 × 该后端 一格。
+#[tauri::command]
+pub fn sync_backend_toggle(
+    paths: State<'_, crate::DataPaths>,
+    db: State<'_, store::Db>,
+    user_id: String,
+    name: String,
+    enabled: bool,
+) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info(
+        "cmd",
+        &format!("enter: sync_backend_toggle {name} user={user_id} enabled={enabled}"),
+    );
+    let cfg_dir = paths.inner().data_dir.clone();
+    let cfg = crate::services::config::Config::load(&cfg_dir);
+    let backend = cfg
+        .sync_backends
+        .iter()
+        .find(|b| b.name == name)
+        .ok_or_else(|| format!("后端不存在: {name}"))?;
+    use crate::application::sync_service::endpoint_key_for;
+    use crate::services::credentials;
+    let server_user =
+        credentials::get_server_user_for_endpoint(&user_id, &backend.url).unwrap_or_default();
+    let endpoint_key = endpoint_key_for(&backend.url, &server_user);
+    store::sync_state_repo::SyncStateRepo::new(db.inner()).set_enabled(
+        &user_id,
+        &endpoint_key,
+        enabled,
+    )?;
+    Ok(serde_json::json!({
+        "ok": true,
+        "name": name,
+        "enabled": enabled,
+        "endpoint_key": endpoint_key,
+    }))
 }
 
 /// 新增后端 (只加进列表, 不切换)。名称重复或 URL 重复 → 拒绝。
@@ -813,7 +900,7 @@ pub fn sync_backend_remove(
     cfg.save(&cfg_dir)
 }
 
-/// 拉取合并 (某 user)
+/// 拉取合并 (某 user, 当前生效后端)
 /// K2 (2026-08-11): 改 async (同 sync_now)。
 #[tauri::command]
 pub async fn sync_pull_now(
@@ -825,15 +912,14 @@ pub async fn sync_pull_now(
     crate::infrastructure::log::info("cmd", &format!("enter: sync_pull_now user={user_id}"));
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
-    let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
-    let server_user =
-        crate::services::credentials::get_server_user_for(&user_id).unwrap_or_default();
+    let (endpoint_key, token, server_user) = endpoint_state(&user_id, &url)?;
     let s = crate::application::sync_service::sync_pull(
         db.inner(),
         &url,
         &token,
         &server_user,
         &user_id,
+        &endpoint_key,
     )?;
     crate::infrastructure::log::info(
         "cmd",
@@ -877,6 +963,17 @@ pub async fn sync_auth_device(
     // 同步时判定"换 URL / 换 token 后是否还是同一份同步进度"。忘了记 = 下次同步按
     // 从未同步全量重推 (宁可多推, 不可少推), 不造成数据丢失。
     crate::services::credentials::save_server_user_for(&user_id, &auth.user_id)?;
+    // UX5 #3 (M3): token/服务端 user 也按 (主体, 后端) 分账 —— 同 URL 不同服务端 user 是另一格
+    crate::services::credentials::save_cf_token_for_endpoint(
+        &user_id,
+        &format!("{worker_url}|{}", auth.user_id),
+        &auth.token,
+    )?;
+    crate::services::credentials::save_server_user_for_endpoint(
+        &user_id,
+        &worker_url,
+        &auth.user_id,
+    )?;
     // 持久化 worker_url 到 config.toml (J0: 配置文件随数据根走)
     let cfg_dir = paths.inner().data_dir.clone();
     let mut cfg = config::Config::load(&cfg_dir);
@@ -930,9 +1027,17 @@ pub async fn sync_make_code(
 }
 
 /// V6: 断开该 user 的同步 —— 删该 user 的 token (URL 共享, 只清 token)。
+/// M3 (2026-08-13): 同时删 (user, endpoint) 新 key 的 token (当前生效后端那一格); 老 V6 key 一并删。
 /// K2: 本地操作 (Credential Manager + 读内存态), 无网络, 无需 async。
 #[tauri::command]
-pub fn sync_disconnect(user_id: String) -> Result<(), String> {
+pub fn sync_disconnect(
+    services: State<'_, crate::AppServices>,
+    user_id: String,
+) -> Result<(), String> {
+    let url = services.inner().cf_worker_url.lock().unwrap().clone();
+    let _ = endpoint_state(&user_id, &url).map(|(endpoint_key, _, _)| {
+        let _ = crate::services::credentials::delete_cf_token_for_endpoint(&user_id, &endpoint_key);
+    });
     let _ = crate::services::credentials::delete_cf_token_for(&user_id);
     crate::application::sync_service::reset_last_sync(&user_id);
     Ok(())

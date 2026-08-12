@@ -107,6 +107,7 @@ function queryAll(rootNode, sel) {
 
 globalThis.document = {
   createElement: (tag) => makeElement(tag),
+  createTextNode: (t) => ({ nodeType: 3, textContent: String(t) }),
   querySelector: () => null,
   querySelectorAll: () => [],
   getElementById: () => null,
@@ -197,6 +198,7 @@ globalThis.AiduSyncService = {
   // L11 (2026-08-11): 多后端 (空列表; 各测试覆盖时自行 stub)
   backendsList: async () => ({ ok: true, data: [] }),
   backendAdd: async () => ({ ok: true }), backendSwitch: async () => ({ ok: true }), backendRemove: async () => ({ ok: true }),
+  backendToggle: async () => ({ ok: true }),
 };
 globalThis.AiduDictionaryService = { list: async () => ({ ok: true, data: [] }), vocabAll: async () => ({ ok: true, data: [] }), lookup: async () => ({ ok: true, data: {} }), lookupOnline: async () => ({ ok: true, data: ['NOUN', '', ['在线释义'], [], [], '', []] }), addToVocab: async () => ({ ok: true, data: { added: 'x', common_word: false } }), vocabRemove: async () => ({ ok: true }), srsPreview: async () => ({ ok: true, data: { options: [1,2,3,4].map((g) => ({ grade: g, human: g + ' 天' })) } }), srsGrade: async (p, l, g) => ({ ok: true, data: {} }), srsRestore: async () => ({ ok: true, data: {} }), vocabCommonPreview: async () => ({ ok: true, data: { count: 0, top_n: 3000, lemmas: [] } }), vocabRemoveCommon: async () => ({ ok: true, data: { removed: 0, backup_path: '' } }), vocabBacklogPreview: async () => ({ ok: true, data: { backlog_count: 0, daily_cap: 40, days: 0, today_after: 0, today_before: 0 } }), vocabBacklogSpread: async () => ({ ok: true, data: { spread: 0, days: 0, backup_path: '' } }) };
 globalThis.AiduReadingService = { get: async () => ({ ok: true, data: null }), save: async () => ({ ok: true }), stats: async () => ({ ok: true, data: {} }) };
@@ -593,6 +595,55 @@ console.log('== 2f. L11 (2026-08-11): 多后端列表 —— 当前高亮 / 切�
   addBtn2 && addBtn2.onclick();
   await new Promise((r) => setTimeout(r, 20));
   check('L11: 新增 → backendAdd(单位, url)', backendCalls.add.some(([n, u]) => n === '单位' && u === 'https://c.workers.dev'), JSON.stringify(backendCalls.add));
+}
+
+console.log('== 2f2. M3 (2026-08-13): 后端「同步此后端」勾选 + 所属主体 + 多后端同步 ==');
+{
+  store.state.settingsTab = 'sync';
+  const toggles = [];
+  const syncCalls = [];
+  globalThis.AiduSyncService.backendsList = async () => ({ ok: true, data: [
+    { name: '默认后端', url: 'https://a.workers.dev', active: true, connected: true, enabled: true, subject: '我' },
+    { name: '家里', url: 'https://b.workers.dev', active: false, connected: true, enabled: false, subject: '我' },
+    { name: '单位', url: 'https://c.workers.dev', active: false, connected: false, enabled: false, subject: '我' },
+  ] });
+  globalThis.AiduSyncService.backendToggle = async (name, enabled) => { toggles.push([name, enabled]); return { ok: true }; };
+  globalThis.AiduSyncService.now = async () => { syncCalls.push(1); return { ok: true, data: [
+    { name: '默认后端', worker_url: 'https://a.workers.dev', ok: true, status: 'synced', pending_count: 0, last_wrote: 2, last_pulled: 0, last_error: null },
+    { name: '家里', worker_url: 'https://b.workers.dev', ok: true, status: 'synced', pending_count: 0, last_wrote: 5, last_pulled: 0, last_error: null },
+  ] }; };
+  const svM3 = new globalThis.SettingsView(store);
+  const cM3 = makeElement('div');
+  svM3.render(cM3);
+  await new Promise((r) => setTimeout(r, 80));
+  store.state.settingsTab = null;
+  const rowsM3 = queryAll(cM3, '.sync-backend-row');
+  check('M3: 后端列表渲染 3 行', rowsM3.length === 3, 'rows=' + rowsM3.length);
+  // 每个后端有「同步此后端」勾选 (有 token 才可点) + 所属主体
+  const cbOf = (row) => {
+    const lab = queryAll(row, '.sync-backend-enable')[0];
+    if (!lab) return null;
+    return (lab._children || []).find((c) => c.type === 'checkbox');
+  };
+  const subjOf = (row) => queryAll(row, '.sync-backend-subject')[0];
+  check('M3: 有「同步此后端」勾选', rowsM3.every((r) => !!cbOf(r)));
+  check('M3: 已连接后端勾选可点', cbOf(rowsM3[0]) && cbOf(rowsM3[0]).disabled === false && cbOf(rowsM3[1]) && cbOf(rowsM3[1]).disabled === false);
+  check('M3: 未连接后端勾选置灰', cbOf(rowsM3[2]) && cbOf(rowsM3[2]).disabled === true);
+  check('M3: 勾选状态回显 (a=启用, b=停用)', cbOf(rowsM3[0]).checked === true && cbOf(rowsM3[1]).checked === false);
+  check('M3: 每项显示所属主体', rowsM3.every((r) => subjOf(r) && textOf(subjOf(r)).includes('我')));
+  // 勾选「家里」→ backendToggle(name, true)
+  cbOf(rowsM3[1]).checked = true;
+  cbOf(rowsM3[1]).onchange();
+  await new Promise((r) => setTimeout(r, 30));
+  check('M3: 勾选 → backendToggle(家里, true)', toggles.some(([n, e]) => n === '家里' && e === true), JSON.stringify(toggles));
+  // 立即同步 → 聚合每个已启用后端的结果
+  const syncBtnM3 = queryAll(cM3, 'button').find((b) => b.textContent === '立即同步');
+  syncBtnM3.onclick();
+  await new Promise((r) => setTimeout(r, 60));
+  const statusM3 = queryAll(cM3, '.sync-status').map((s) => s.textContent).join('\n');
+  check('M3: 立即同步 → 调 sync_now', syncCalls.length === 1, 'calls=' + syncCalls.length);
+  check('M3: 结果聚合展示「已同步 2 / 2 个后端」', statusM3.includes('已同步 2 / 2 个后端'), statusM3.slice(0, 100));
+  check('M3: 各自推 N 条 (默认 2 / 家里 5)', statusM3.includes('推 2') && statusM3.includes('推 5'), statusM3.slice(0, 160));
 }
 
 console.log('== 2g. M5 + UX5 #4 (2026-08-12/13): 书库位置三按钮 + 整根迁移 + 绿色徽章 ==');

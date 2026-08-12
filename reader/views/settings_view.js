@@ -554,6 +554,23 @@
             const urlEl = el('code', 'j0-path', b.url);
             const stateEl = el('span', 'book-badge ' + (b.connected ? 'badge-ok' : 'badge-idle'),
               b.connected ? '已连接' : '未连接');
+            // M3 (2026-08-13): 「同步此后端」勾选 —— 当前主体 × 该后端一格; 显示所属主体
+            const subjEl = el('span', 'sync-backend-subject', '主体: ' + (b.subject || '我'));
+            const rowMeta = el('div', 'sync-backend-meta');
+            const enableLabel = el('label', 'sync-backend-enable');
+            const enableCb = el('input', '');
+            enableCb.type = 'checkbox';
+            enableCb.checked = !!b.enabled;
+            enableCb.disabled = !b.connected;
+            enableCb.title = b.connected ? '勾选后「立即同步」会同步到这个后端' : '该后端还没有 token (先切过去换 token), 无法启用同步';
+            enableCb.onchange = () => {
+              AiduSyncService.backendToggle(b.name, enableCb.checked).then((r) => {
+                if (!r.ok) { enableCb.checked = !enableCb.checked; syncStatus.textContent = '保存启用状态失败: ' + r.error; return; }
+                syncStatus.textContent = '已' + (enableCb.checked ? '启用' : '停用') + '「' + b.name + '」的同步。';
+              });
+            };
+            enableLabel.append(enableCb, document.createTextNode('同步此后端'));
+            rowMeta.append(enableLabel, subjEl);
             const actions = el('div', 'settings-row');
             if (!b.active) {
               const swBtn = el('button', 'btn-small btn-primary', '切换');
@@ -570,7 +587,7 @@
               });
               actions.appendChild(rmBtn);
             }
-            row.append(nameEl, urlEl, stateEl, actions);
+            row.append(nameEl, urlEl, stateEl, rowMeta, actions);
             backendList.appendChild(row);
           });
         });
@@ -658,11 +675,25 @@
           disconnectBtn.disabled = false;
         });
       };
+      // M3 (2026-08-13): sync_now 返回数组 (每个已启用后端一个结果)。聚合展示。
+      const summarizeSync = (arr) => {
+        if (!Array.isArray(arr) || !arr.length) {
+          return '本次没有同步任何后端 (没有勾选的后端或未配置 token)';
+        }
+        const okN = arr.filter((x) => x.ok).length;
+        const failedN = arr.length - okN;
+        const parts = arr.map((x) => {
+          const w = x.ok ? `推 ${x.last_wrote} / 拉 ${x.last_pulled}` : '失败';
+          return `${x.name || x.worker_url}: ${x.ok ? '✓ ' + w : '✗ ' + (x.last_error || x.error)}`;
+        });
+        return `已同步 ${okN} / ${arr.length} 个后端\n` + parts.join('\n') + (failedN ? `\n${failedN} 个后端同步失败` : '');
+      };
       syncBtn.onclick = () => {
         syncStatus.textContent = '同步中…';
         AiduSyncService.now().then((r) => {
-          if (r.ok && r.data) refreshStatus(r.data, true);
-          else syncStatus.textContent = '同步失败: ' + (r.error || '');
+          if (!r.ok) { syncStatus.textContent = '同步失败: ' + (r.error || ''); return; }
+          syncStatus.textContent = summarizeSync(r.data);
+          renderBackends();
         });
       };
       pullBtn.onclick = () => {

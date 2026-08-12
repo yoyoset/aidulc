@@ -671,6 +671,46 @@ impl Db {
             )
             .map_err(|e| format!("迁移 v23 失败: {e}"))?;
         }
+        // v24 (UX5 #3, 2026-08-13): sync_state 主键 user_id → 复合主键 (user_id, endpoint_key)。
+        // M3 主体×后端矩阵: 一个主体可同时启用多个后端, 每个 (user, endpoint_key) 一格独立进度。
+        // 加 enabled 列 —— 该格是否参与"立即同步"(默认 0; 无行时按"是否当前生效后端"兜底)。
+        // 老行按各自的 endpoint_key 落一行 (空 endpoint_key = 从未同步 → 丢弃, 下次同步重建);
+        // 老行 endpoint_key 非空 → 保留进度, enabled 置 1 (老行为当前生效后端)。
+        if version < 24 {
+            conn.execute_batch("BEGIN IMMEDIATE;")
+                .map_err(|e| format!("迁移 v24 开始失败: {e}"))?;
+            let result = (|| -> Result<(), String> {
+                conn.execute_batch(
+                    "CREATE TABLE sync_state_new (
+                        user_id TEXT NOT NULL,
+                        endpoint_key TEXT NOT NULL DEFAULT '',
+                        last_push_at INTEGER NOT NULL DEFAULT 0,
+                        last_pull_rev INTEGER NOT NULL DEFAULT 0,
+                        enabled INTEGER NOT NULL DEFAULT 0,
+                        updated_at INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY (user_id, endpoint_key)
+                     );
+                     INSERT INTO sync_state_new (user_id, endpoint_key, last_push_at, last_pull_rev, enabled, updated_at)
+                        SELECT user_id, endpoint_key, last_push_at, last_pull_rev, 1, updated_at
+                        FROM sync_state WHERE endpoint_key != '';
+                     DROP TABLE sync_state;
+                     ALTER TABLE sync_state_new RENAME TO sync_state;
+                     INSERT INTO schema_migrations (version, applied_at) VALUES (24, strftime('%s','now')*1000);
+                     ",
+                )
+                .map_err(|e| format!("迁移 v24 失败: {e}"))?;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => conn
+                    .execute_batch("COMMIT;")
+                    .map_err(|e| format!("迁移 v24 提交失败: {e}"))?,
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK;");
+                    return Err(format!("迁移 v24 失败: {e}"));
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -804,6 +844,26 @@ mod tests {
             )
             .unwrap();
         assert_eq!(v23, 1, "sync_state 应有 endpoint_key 列 (v23)");
+        // v24 (UX5 #3): sync_state 复合主键 (user_id, endpoint_key) + enabled 列
+        let v24enabled: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sync_state') WHERE name='enabled'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(v24enabled, 1, "sync_state 应有 enabled 列 (v24)");
+        let v24pk: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sync_state') WHERE pk>0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            v24pk, 2,
+            "sync_state 主键应为 (user_id, endpoint_key) 两列 (v24): {v24pk}"
+        );
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}-wal"));
@@ -889,6 +949,76 @@ mod tests {
     }
 
     #[test]
+    fn v24_migrates_legacy_sync_state_rows() {
+        // UX5 #3 (M3): v23 老 sync_state (user_id 主键, 含 endpoint_key) → v24 复合主键。
+        // 老行按各自的 endpoint_key 落一行 (enabled=1); 空 endpoint_key (从未同步) 丢弃。
+        let path = temp_path("v24");
+        let _ = std::fs::remove_file(&path);
+        {
+            let db = Db::open(&path).unwrap();
+            let conn = db.conn.lock().unwrap();
+            // 撤 v24: 还原 sync_state 到 v23 单主键形态
+            conn.execute_batch(
+                "DROP TABLE sync_state;
+                 CREATE TABLE sync_state (
+                    user_id TEXT PRIMARY KEY,
+                    last_push_at INTEGER NOT NULL DEFAULT 0,
+                    last_pull_rev INTEGER NOT NULL DEFAULT 0,
+                    endpoint_key TEXT NOT NULL DEFAULT '',
+                    updated_at INTEGER NOT NULL
+                 );
+                 INSERT INTO sync_state (user_id, last_push_at, last_pull_rev, endpoint_key, updated_at)
+                    VALUES ('me', 100, 5, 'https://a.workers.dev|me', 100);
+                 INSERT INTO sync_state (user_id, last_push_at, last_pull_rev, endpoint_key, updated_at)
+                    VALUES ('u-kid', 200, 7, 'https://a.workers.dev|kid', 200);
+                 INSERT INTO sync_state (user_id, last_push_at, last_pull_rev, endpoint_key, updated_at)
+                    VALUES ('legacy-empty', 999, 9, '', 999);
+                 DELETE FROM schema_migrations WHERE version=24;",
+            )
+            .unwrap();
+            drop(conn);
+        }
+        let db = Db::open(&path).unwrap();
+        let conn = db.conn.lock().unwrap();
+        // 复合主键 (两列 pk)
+        let pk: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sync_state') WHERE pk>0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(pk, 2, "v24 后主键应为复合 (user_id, endpoint_key)");
+        // 老行按 endpoint_key 保留, enabled=1; 空 endpoint_key 行丢弃
+        let (push, en): (i64, i64) = conn
+            .query_row(
+                "SELECT last_push_at, enabled FROM sync_state WHERE user_id='me' AND endpoint_key='https://a.workers.dev|me'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(push, 100);
+        assert_eq!(en, 1, "老行应 enabled=1 (当前生效后端)");
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_state WHERE user_id='legacy-empty'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 0, "空 endpoint_key 行应丢弃 (从未同步)");
+        // 同 user 两个 endpoint 各自独立
+        let n2: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sync_state", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n2, 2, "两个非空 endpoint_key 行各保留一行");
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-wal"));
+        let _ = std::fs::remove_file(format!("{path}-shm"));
+    }
+
+    #[test]
     fn reopen_is_idempotent() {
         // 迁移已完成后重新打开不应报错 (幂等)
         let path = temp_path("reopen");
@@ -956,7 +1086,7 @@ mod tests {
                  DROP TABLE highlights;
                  ALTER TABLE highlights_v17 RENAME TO highlights;
                  DROP TABLE sync_state;
-                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23);
+                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23, 24);
                  INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,source_book_id,
                     chapter_count,failed_count,source_language,target_language,llm_id,tts_id,nlp_id,
                     created_at,updated_at)
@@ -1052,6 +1182,8 @@ mod tests {
                  DELETE FROM schema_migrations WHERE version=22;
                  -- 撤 v23 (sync_state.endpoint_key), 让迁移从 v19 状态完整重跑
                  DELETE FROM schema_migrations WHERE version=23;
+                 -- 撤 v24 (sync_state 复合主键 + enabled), 让迁移从 v19 状态完整重跑
+                 DELETE FROM schema_migrations WHERE version=24;
                  -- vocab key 还原为 v19 的 {profile}:{lemma} 形式
                  UPDATE vocab SET key = substr(key, 4) WHERE key LIKE 'me:%';
                  UPDATE dictionary SET key = substr(key, 4) WHERE key LIKE 'me:%';",

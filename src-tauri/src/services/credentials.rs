@@ -74,6 +74,77 @@ pub fn delete_cf_token_for(user_id: &str) -> Result<(), String> {
         .map_err(|e| format!("删除 token 失败: {e}"))
 }
 
+// ---- UX5 #3 (M3, 2026-08-13): token 按 (主体, 后端) 分账 —— 一个主体可同时启用多个后端 ----
+// 凭据 account 名必须对 Windows Credential Manager 安全: 用 endpoint_key 的短哈希,
+// 不直接放 URL/竖线等字符。
+
+fn endpoint_account(user_id: &str, endpoint_key: &str) -> String {
+    let mut h = 0xcbf29ce484222325u64;
+    for b in endpoint_key.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{TOKEN_ACCOUNT_PREFIX}{user_id}-{:016x}", h)
+}
+
+pub fn save_cf_token_for_endpoint(
+    user_id: &str,
+    endpoint_key: &str,
+    token: &str,
+) -> Result<(), String> {
+    if token.is_empty() {
+        return Err("token 不能为空".into());
+    }
+    let entry = Entry::new(SERVICE, &endpoint_account(user_id, endpoint_key))
+        .map_err(|e| format!("创建凭据条目失败: {e}"))?;
+    entry
+        .set_password(token)
+        .map_err(|e| format!("保存 token 失败: {e}"))
+}
+
+pub fn get_cf_token_for_endpoint(user_id: &str, endpoint_key: &str) -> Result<String, String> {
+    let entry = Entry::new(SERVICE, &endpoint_account(user_id, endpoint_key))
+        .map_err(|e| format!("创建凭据条目失败: {e}"))?;
+    match entry.get_password() {
+        Ok(t) => Ok(t),
+        Err(KeyringError::NoEntry) => Ok(String::new()),
+        Err(e) => Err(format!("读 token 失败: {e}")),
+    }
+}
+
+pub fn delete_cf_token_for_endpoint(user_id: &str, endpoint_key: &str) -> Result<(), String> {
+    let entry = Entry::new(SERVICE, &endpoint_account(user_id, endpoint_key))
+        .map_err(|e| format!("创建凭据条目失败: {e}"))?;
+    entry
+        .delete_credential()
+        .map_err(|e| format!("删除 token 失败: {e}"))
+}
+
+/// M3 迁移: 老 key (`cf-worker-token-user-{user_id}`, V6 按 user 分账, 未按后端分) →
+/// 新 key (`...-{user_id}-{endpoint_hash}`)。老 key 读得到 → 迁到当前 endpoint 的新 key;
+/// 迁不动 (读失败且不是"未配置") → 明确报错 (不静默丢 token)。返回是否发生过迁移。
+pub fn migrate_cf_token_for(user_id: &str, endpoint_key: &str) -> Result<bool, String> {
+    if endpoint_key.is_empty() {
+        return Ok(false);
+    }
+    let old_account = format!("{TOKEN_ACCOUNT_PREFIX}{user_id}");
+    let old_entry =
+        Entry::new(SERVICE, &old_account).map_err(|e| format!("创建凭据条目失败: {e}"))?;
+    let old = match old_entry.get_password() {
+        Ok(t) if !t.is_empty() => Some(t),
+        Ok(_) => None,
+        Err(KeyringError::NoEntry) => None,
+        Err(e) => return Err(format!("迁移 token 失败 (老凭据不可读): {e}")),
+    };
+    if let Some(t) = old {
+        save_cf_token_for_endpoint(user_id, endpoint_key, &t)?;
+        let _ = old_entry.delete_credential();
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
 // ---- UX A1 (2026-08-11): 每个 user 记一份"token 属于服务端哪个 user" ----
 // auth_device 返回的服务端 user_id 此前被丢掉。endpoint_key 需要它来判定"换 URL /
 // 换 token 后是否还是同一份同步进度" —— 服务端 user 变了 = 是另一个人的词库, 必须
@@ -97,6 +168,42 @@ pub fn get_server_user_for(user_id: &str) -> Result<String, String> {
     match entry.get_password() {
         Ok(v) => Ok(v),
         Err(KeyringError::NoEntry) => Ok(String::new()), // 从未配过 → 空
+        Err(e) => Err(format!("读服务端 user 失败: {e}")),
+    }
+}
+
+// ---- UX5 #3 (M3): 服务端 user 也按 (主体, 后端) 分账 —— endpoint_key = url|server_user ----
+
+fn server_user_account(user_id: &str, url: &str) -> String {
+    let mut h = 0xcbf29ce484222325u64;
+    for b in url.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{SERVER_USER_ACCOUNT_PREFIX}{user_id}-{:016x}", h)
+}
+
+pub fn save_server_user_for_endpoint(
+    user_id: &str,
+    url: &str,
+    server_user_id: &str,
+) -> Result<(), String> {
+    if server_user_id.is_empty() {
+        return Ok(());
+    }
+    let entry = Entry::new(SERVICE, &server_user_account(user_id, url))
+        .map_err(|e| format!("创建凭据条目失败: {e}"))?;
+    entry
+        .set_password(server_user_id)
+        .map_err(|e| format!("保存服务端 user 失败: {e}"))
+}
+
+pub fn get_server_user_for_endpoint(user_id: &str, url: &str) -> Result<String, String> {
+    let entry = Entry::new(SERVICE, &server_user_account(user_id, url))
+        .map_err(|e| format!("创建凭据条目失败: {e}"))?;
+    match entry.get_password() {
+        Ok(v) => Ok(v),
+        Err(KeyringError::NoEntry) => Ok(String::new()),
         Err(e) => Err(format!("读服务端 user 失败: {e}")),
     }
 }

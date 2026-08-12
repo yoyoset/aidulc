@@ -53,34 +53,26 @@ fn mask_url(url: &str) -> String {
 
 /// UX A1 (2026-08-11): 同步进度归属键 = worker_url + 服务端 user_id。
 /// 换 URL / 换服务端 user → 键变 → 视为从未同步、全量重推 (宁可多推, 不可少推)。
-fn endpoint_key_for(worker_url: &str, server_user: &str) -> String {
+pub(crate) fn endpoint_key_for(worker_url: &str, server_user: &str) -> String {
     format!("{worker_url}|{server_user}")
 }
 
 /// 读取同步状态, 按 endpoint_key 是否匹配决定是否全量重推。
 /// endpoint_key 为空 (老行/从未同步) 或与当前不匹配 (换 URL/换服务端 user) → 全量重推。
-fn resolve_state(
-    db: &Db,
-    user_id: &str,
-    worker_url: &str,
-    server_user: &str,
-) -> (Option<SyncState>, bool) {
-    let state = SyncStateRepo::new(db).get(user_id);
+fn resolve_state(db: &Db, user_id: &str, endpoint_key: &str) -> (Option<SyncState>, bool) {
+    let state = SyncStateRepo::new(db).get(user_id, endpoint_key);
     let matched = state
         .as_ref()
-        .map(|s| {
-            !s.endpoint_key.is_empty()
-                && s.endpoint_key == endpoint_key_for(worker_url, server_user)
-        })
+        .map(|s| !s.endpoint_key.is_empty() && s.endpoint_key == endpoint_key)
         .unwrap_or(false);
     (state, !matched)
 }
 
-/// 计算 pending: 该 user 本地词条中 updated_at > last_push_at 的数量
-/// (V6: 需要 sync_state.last_push_at; 从没同步过 → 全部待推)。
-fn pending_count(db: &Db, user_id: &str) -> usize {
+/// 计算 pending: 该 user 本地词条中 updated_at > last_push_at 的数量 (按 endpoint 的进度)。
+/// (V6: 需要 sync_state.last_push_at; 从没同步过 → 全部待推。)
+fn pending_count(db: &Db, user_id: &str, endpoint_key: &str) -> usize {
     let last_push = SyncStateRepo::new(db)
-        .get(user_id)
+        .get(user_id, endpoint_key)
         .map(|s| s.last_push_at)
         .unwrap_or(0);
     let conn = db.conn.lock().unwrap();
@@ -156,36 +148,51 @@ fn last_sync_for(user_id: &str) -> Option<(i64, Result<(), String>)> {
 
 pub fn reset_last_sync(user_id: &str) {
     let m = LAST_SYNC.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-    m.lock().unwrap().remove(user_id);
+    let keys: Vec<String> = m
+        .lock()
+        .unwrap()
+        .keys()
+        .filter(|k| k.starts_with(&format!("{user_id}|")))
+        .cloned()
+        .collect();
+    let mut guard = m.lock().unwrap();
+    for k in keys {
+        guard.remove(&k);
+    }
 }
 
-/// F4 (2026-08-11): 强制全量重推 —— 清掉该 user 的 sync_state 行 (last_push_at 归 0,
+/// F4 (2026-08-11): 强制全量重推 —— 清掉该 user 的全部 sync_state 行 (last_push_at 归 0,
 /// endpoint_key 清空), 下次同步按"从未同步"全量重推。用于: 服务端数据被清/损坏后,
 /// endpoint 没变 (endpoint_key 匹配) 所以 A1 不会触发全量重推的场景。
 pub fn force_full_reset(db: &Db, user_id: &str) -> Result<(), String> {
-    let conn = db.conn.lock().unwrap();
-    conn.execute("DELETE FROM sync_state WHERE user_id = ?1", [user_id])
-        .map_err(|e| format!("清同步状态失败: {e}"))?;
-    drop(conn);
+    SyncStateRepo::new(db).delete_for_user(user_id)?;
     reset_last_sync(user_id);
     Ok(())
 }
 
-fn record_sync(user_id: &str, result: Result<(), String>) {
+fn record_sync(user_id: &str, endpoint_key: &str, result: Result<(), String>) {
     let now = crate::store::now_ms_for_store();
     let m = LAST_SYNC.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-    m.lock().unwrap().insert(user_id.to_string(), (now, result));
+    m.lock()
+        .unwrap()
+        .insert(format!("{user_id}|{endpoint_key}"), (now, result));
 }
 
-/// 当前同步状态 (某 user)
-pub fn get_status(db: &Db, worker_url: &str, token: &str, user_id: &str) -> SyncStatus {
+/// 当前同步状态 (某 user 的某 endpoint)
+pub fn get_status(
+    db: &Db,
+    worker_url: &str,
+    token: &str,
+    user_id: &str,
+    endpoint_key: &str,
+) -> SyncStatus {
     let configured = !worker_url.is_empty() && !token.is_empty();
     let pending = if configured {
-        pending_count(db, user_id)
+        pending_count(db, user_id, endpoint_key)
     } else {
         0
     };
-    let last = last_sync_for(user_id);
+    let last = last_sync_for(&format!("{user_id}|{endpoint_key}"));
     status_for(
         configured,
         worker_url,
@@ -223,12 +230,14 @@ fn to_minimal_payload(e: &crate::domain::vocab::VocabEntry) -> serde_json::Value
 ///
 /// UX A1 (2026-08-11): 换 URL 或换服务端 user 后 endpoint_key 不匹配 → 视为从未同步
 /// 全量重推, 杜绝"last_push_at 还是旧服务端的值 → 选出空集 → 显示已同步但服务端是空的"。
-pub fn sync_now(
+/// M3 (2026-08-13): endpoint_key 显式传入 (每个 (user, endpoint) 一格独立进度)。
+pub fn sync_endpoint(
     db: &Db,
     worker_url: &str,
     token: &str,
-    server_user: &str,
+    _server_user: &str,
     user_id: &str,
+    endpoint_key: &str,
 ) -> Result<SyncStatus, String> {
     if worker_url.is_empty() || token.is_empty() {
         return Ok(status_for(
@@ -240,8 +249,8 @@ pub fn sync_now(
             SyncOutcome::default(),
         ));
     }
-    let (state, force_full) = resolve_state(db, user_id, worker_url, server_user);
-    let current_key = endpoint_key_for(worker_url, server_user);
+    let (state, force_full) = resolve_state(db, user_id, endpoint_key);
+    let current_key = endpoint_key.to_string();
     let last_push_at = if force_full {
         0
     } else {
@@ -297,14 +306,14 @@ pub fn sync_now(
                         "本次需 {estimate} 次写 (待推 {} 词 + deck index), 免费档每天 {limit} —— 请分批或改用自建后端",
                         to_push.len()
                     );
-                    record_sync(user_id, Err(msg.clone()));
-                    let last = last_sync_for(user_id);
+                    record_sync(user_id, endpoint_key, Err(msg.clone()));
+                    let last = last_sync_for(&format!("{user_id}|{endpoint_key}"));
                     return Ok(status_for(
                         true,
                         worker_url,
                         user_id,
                         last,
-                        pending_count(db, user_id),
+                        pending_count(db, user_id, endpoint_key),
                         SyncOutcome::default(),
                     ));
                 }
@@ -327,7 +336,7 @@ pub fn sync_now(
                 .min();
             // UX A1: 全量重推时, 旧 last_push_at 属于别的服务端, 不得参与 max() —— 否则
             // 部分失败后仍会沿用旧值, 换服务端的"宁可多推"语义被打破。
-            let state_now = SyncStateRepo::new(db).get(user_id);
+            let state_now = SyncStateRepo::new(db).get(user_id, &current_key);
             let old_last_push = if force_full {
                 0
             } else {
@@ -342,6 +351,7 @@ pub fn sync_now(
                 user_id: user_id.to_string(),
                 last_push_at: new_last_push,
                 last_pull_rev: p.rev,
+                enabled: true,
                 updated_at: crate::store::now_ms_for_store(),
                 endpoint_key: current_key.clone(),
             });
@@ -349,14 +359,14 @@ pub fn sync_now(
                 .error
                 .clone()
                 .unwrap_or_else(|| format!("同步部分失败: 已写入 {} 条", p.wrote));
-            record_sync(user_id, Err(msg.clone()));
-            let last = last_sync_for(user_id);
+            record_sync(user_id, endpoint_key, Err(msg.clone()));
+            let last = last_sync_for(&format!("{user_id}|{endpoint_key}"));
             return Ok(status_for(
                 true,
                 worker_url,
                 user_id,
                 last,
-                pending_count(db, user_id),
+                pending_count(db, user_id, endpoint_key),
                 SyncOutcome {
                     last_wrote: p.wrote as usize,
                     last_pulled: 0,
@@ -374,14 +384,14 @@ pub fn sync_now(
     let push_result = match push_result {
         Ok(p) => p,
         Err(e) => {
-            record_sync(user_id, Err(e.clone()));
-            let last = last_sync_for(user_id);
+            record_sync(user_id, endpoint_key, Err(e.clone()));
+            let last = last_sync_for(&format!("{user_id}|{endpoint_key}"));
             return Ok(status_for(
                 true,
                 worker_url,
                 user_id,
                 last,
-                pending_count(db, user_id),
+                pending_count(db, user_id, endpoint_key),
                 SyncOutcome {
                     last_wrote: 0,
                     last_pulled: 0,
@@ -403,17 +413,18 @@ pub fn sync_now(
                 user_id: user_id.to_string(),
                 last_push_at: now,
                 last_pull_rev: pr.rev,
+                enabled: true,
                 updated_at: now,
                 endpoint_key: current_key,
             });
-            record_sync(user_id, Ok(()));
-            let last = last_sync_for(user_id);
+            record_sync(user_id, endpoint_key, Ok(()));
+            let last = last_sync_for(&format!("{user_id}|{endpoint_key}"));
             Ok(status_for(
                 true,
                 worker_url,
                 user_id,
                 last,
-                pending_count(db, user_id),
+                pending_count(db, user_id, endpoint_key),
                 SyncOutcome {
                     last_wrote: wrote_this_push,
                     last_pulled: pr.changed.len(),
@@ -422,14 +433,14 @@ pub fn sync_now(
             ))
         }
         Err(e) => {
-            record_sync(user_id, Err(e.clone()));
-            let last = last_sync_for(user_id);
+            record_sync(user_id, endpoint_key, Err(e.clone()));
+            let last = last_sync_for(&format!("{user_id}|{endpoint_key}"));
             Ok(status_for(
                 true,
                 worker_url,
                 user_id,
                 last,
-                pending_count(db, user_id),
+                pending_count(db, user_id, endpoint_key),
                 SyncOutcome {
                     last_wrote: wrote_this_push,
                     last_pulled: 0,
@@ -539,8 +550,9 @@ pub fn sync_pull(
     db: &Db,
     worker_url: &str,
     token: &str,
-    server_user: &str,
+    _server_user: &str,
     user_id: &str,
+    endpoint_key: &str,
 ) -> Result<SyncStatus, String> {
     if worker_url.is_empty() || token.is_empty() {
         return Ok(status_for(
@@ -552,8 +564,8 @@ pub fn sync_pull(
             SyncOutcome::default(),
         ));
     }
-    let (state, force_full) = resolve_state(db, user_id, worker_url, server_user);
-    let current_key = endpoint_key_for(worker_url, server_user);
+    let (state, force_full) = resolve_state(db, user_id, endpoint_key);
+    let current_key = endpoint_key.to_string();
     let last_pull_rev = if force_full {
         0
     } else {
@@ -573,23 +585,101 @@ pub fn sync_pull(
         user_id: user_id.to_string(),
         last_push_at,
         last_pull_rev: pr.rev,
+        enabled: true,
         updated_at: now,
         endpoint_key: current_key,
     });
-    record_sync(user_id, Ok(()));
-    let last = last_sync_for(user_id);
+    record_sync(user_id, endpoint_key, Ok(()));
+    let last = last_sync_for(&format!("{user_id}|{endpoint_key}"));
     Ok(status_for(
         true,
         worker_url,
         user_id,
         last,
-        pending_count(db, user_id),
+        pending_count(db, user_id, endpoint_key),
         SyncOutcome {
             last_wrote: 0,
             last_pulled: pr.changed.len(),
             deck_exists: pr.deck_exists,
         },
     ))
+}
+
+/// M3 (2026-08-13): 该 user 已启用后端的列表 —— "同步 = 对当前主体已启用后端依次先推后拉"。
+/// 后端启用判定: sync_state.enabled 有行→按行值; 无行→当前生效后端默认启用 (老用户兼容)。
+/// 返回每个启用后端的 (worker_url, endpoint_key, token, server_user); 无 token 的后端跳过。
+pub fn enabled_endpoints(
+    db: &Db,
+    user_id: &str,
+    backends: &[crate::services::config::SyncBackend],
+    active_url: &str,
+) -> Vec<serde_json::Value> {
+    use crate::services::credentials;
+    let mut out = Vec::new();
+    for b in backends {
+        let url = b.url.clone();
+        // 该 (user, url) 的服务端 user (endpoint_key 的第二段)
+        let server_user =
+            credentials::get_server_user_for_endpoint(user_id, &url).unwrap_or_default();
+        let endpoint_key = endpoint_key_for(&url, &server_user);
+        let (has_row, en) = SyncStateRepo::new(db).enabled_flag(user_id, &endpoint_key);
+        let is_active = url == active_url;
+        let enabled = if has_row { en } else { is_active };
+        if !enabled {
+            continue;
+        }
+        // token: 先按 (user, endpoint) 新 key 读, 读不到回退老 key (V6 迁移), 再没有则跳过
+        let token =
+            credentials::get_cf_token_for_endpoint(user_id, &endpoint_key).unwrap_or_default();
+        let token = if token.is_empty() {
+            credentials::get_cf_token_for(user_id).unwrap_or_default()
+        } else {
+            token
+        };
+        if token.is_empty() {
+            continue;
+        }
+        out.push(serde_json::json!({
+            "worker_url": url,
+            "endpoint_key": endpoint_key,
+            "server_user": server_user,
+            "token": token,
+            "name": b.name,
+        }));
+    }
+    out
+}
+
+/// M3: 一次「立即同步」跑全部已启用后端, 聚合每后端结果。
+pub fn sync_now_all(
+    db: &Db,
+    user_id: &str,
+    backends: &[crate::services::config::SyncBackend],
+    active_url: &str,
+) -> Result<Vec<serde_json::Value>, String> {
+    let eps = enabled_endpoints(db, user_id, backends, active_url);
+    let mut out = Vec::new();
+    for ep in eps {
+        let url = ep["worker_url"].as_str().unwrap_or("").to_string();
+        let key = ep["endpoint_key"].as_str().unwrap_or("").to_string();
+        let token = ep["token"].as_str().unwrap_or("").to_string();
+        let server_user = ep["server_user"].as_str().unwrap_or("").to_string();
+        let name = ep["name"].as_str().unwrap_or("").to_string();
+        let result = sync_endpoint(db, &url, &token, &server_user, user_id, &key);
+        let r = match result {
+            Ok(s) => serde_json::json!({
+                "name": name, "worker_url": url, "ok": true,
+                "status": s.status, "pending_count": s.pending_count,
+                "last_wrote": s.last_wrote, "last_pulled": s.last_pulled,
+                "last_error": s.last_error,
+            }),
+            Err(e) => serde_json::json!({
+                "name": name, "worker_url": url, "ok": false, "error": e,
+            }),
+        };
+        out.push(r);
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -730,7 +820,15 @@ mod tests {
         repo.upsert_content(entry("languid", 200), "me", "default")
             .unwrap();
 
-        let s = sync_now(&db, &url, "token-a", "me", "me").unwrap();
+        let s = sync_endpoint(
+            &db,
+            &url,
+            "token-a",
+            "me",
+            "me",
+            &endpoint_key_for(&url, "me"),
+        )
+        .unwrap();
         assert_eq!(s.status, "synced", "推拉成功应 synced (待推 0): {s:?}");
         assert_eq!(s.pending_count, 0, "同步后无待推");
         assert_eq!(s.last_wrote, 2, "本次应推 2 条 (UX A2): {s:?}");
@@ -767,7 +865,15 @@ mod tests {
             .unwrap();
 
         // 首轮: 同步到服务端 user "me" → 推 2 条
-        let s1 = sync_now(&db, &url, "token-a", "me", "me").unwrap();
+        let s1 = sync_endpoint(
+            &db,
+            &url,
+            "token-a",
+            "me",
+            "me",
+            &endpoint_key_for(&url, "me"),
+        )
+        .unwrap();
         assert_eq!(s1.status, "synced", "{s1:?}");
         assert_eq!(s1.last_wrote, 2, "首轮应推 2 条: {s1:?}");
         let pushes1 = order
@@ -779,7 +885,15 @@ mod tests {
         assert_eq!(pushes1, 1, "首轮 1 次 push");
 
         // 换服务端 (同一 URL 但服务端 user 变 —— 与换 URL 等价): 第二次必须全量重推
-        let s2 = sync_now(&db, &url, "token-b", "another-server-user", "me").unwrap();
+        let s2 = sync_endpoint(
+            &db,
+            &url,
+            "token-b",
+            "another-server-user",
+            "me",
+            &endpoint_key_for(&url, "another-server-user"),
+        )
+        .unwrap();
         assert_eq!(s2.status, "synced", "{s2:?}");
         assert_eq!(s2.last_wrote, 2, "换端点后应全量重推 2 条: {s2:?}");
         let pushes2 = order
@@ -794,7 +908,15 @@ mod tests {
         );
 
         // 同端点再同步 → 无新词 → 不再 push (增量路径, 不重复全量)
-        let s3 = sync_now(&db, &url, "token-b", "another-server-user", "me").unwrap();
+        let s3 = sync_endpoint(
+            &db,
+            &url,
+            "token-b",
+            "another-server-user",
+            "me",
+            &endpoint_key_for(&url, "another-server-user"),
+        )
+        .unwrap();
         assert_eq!(s3.status, "synced", "{s3:?}");
         assert_eq!(s3.last_wrote, 0, "同端点无新词 → 推 0 条: {s3:?}");
         let pushes3 = order
@@ -817,7 +939,15 @@ mod tests {
             .unwrap();
 
         // 首轮同步成功 (推 1 条, 同端点下次不推)
-        let s1 = sync_now(&db, &url, "token-a", "me", "me").unwrap();
+        let s1 = sync_endpoint(
+            &db,
+            &url,
+            "token-a",
+            "me",
+            "me",
+            &endpoint_key_for(&url, "me"),
+        )
+        .unwrap();
         assert_eq!(s1.last_wrote, 1, "首轮推 1 条: {s1:?}");
         let pushes1 = order
             .lock()
@@ -828,14 +958,30 @@ mod tests {
         assert_eq!(pushes1, 1, "首轮 1 次 push");
 
         // 同端点无新词 → 推 0
-        let s2 = sync_now(&db, &url, "token-a", "me", "me").unwrap();
+        let s2 = sync_endpoint(
+            &db,
+            &url,
+            "token-a",
+            "me",
+            "me",
+            &endpoint_key_for(&url, "me"),
+        )
+        .unwrap();
         assert_eq!(s2.last_wrote, 0, "同端点无新词推 0: {s2:?}");
 
         // 强制全量重推: 清 sync_state
         force_full_reset(&db, "me").unwrap();
 
         // 同端点再同步 → 必须全量重推 1 条 (A1 不会触发, 是 force_full 兜底的场景)
-        let s3 = sync_now(&db, &url, "token-a", "me", "me").unwrap();
+        let s3 = sync_endpoint(
+            &db,
+            &url,
+            "token-a",
+            "me",
+            "me",
+            &endpoint_key_for(&url, "me"),
+        )
+        .unwrap();
         assert_eq!(s3.last_wrote, 1, "强制重推后应再推 1 条: {s3:?}");
         let pushes3 = order
             .lock()
@@ -849,6 +995,60 @@ mod tests {
         );
     }
 
+    /// M3 (2026-08-13) 验收: 同主体启用两个后端 → 一次立即同步两边都收到 (各自推 N 条);
+    /// 取消其一 → 只推另一个。token 按 (user, endpoint) 存 Credential Manager, 测试后清理。
+    #[test]
+    fn m3_sync_now_all_pushes_to_enabled_backends_only() {
+        use crate::services::config::SyncBackend;
+        use crate::services::credentials;
+        let (url_a, _) = start_mock_worker();
+        let (url_b, _) = start_mock_worker();
+        let db = temp_db();
+        let repo = crate::store::vocab_repo::VocabRepo::new(&db);
+        repo.upsert_content(entry("bank", 100), "me", "default")
+            .unwrap();
+        repo.upsert_content(entry("languid", 200), "me", "default")
+            .unwrap();
+        let backends = vec![
+            SyncBackend::new("a".into(), url_a.clone()),
+            SyncBackend::new("b".into(), url_b.clone()),
+        ];
+        let ep_a = endpoint_key_for(&url_a, "me");
+        let ep_b = endpoint_key_for(&url_b, "me");
+        let srepo = crate::store::sync_state_repo::SyncStateRepo::new(&db);
+        srepo.set_enabled("me", &ep_a, true).unwrap();
+        srepo.set_enabled("me", &ep_b, true).unwrap();
+        // 服务端 user 也按 (user, url) 记 —— endpoint_key = url|server_user 才能对上
+        credentials::save_server_user_for_endpoint("me", &url_a, "me").unwrap();
+        credentials::save_server_user_for_endpoint("me", &url_b, "me").unwrap();
+        credentials::save_cf_token_for_endpoint("me", &ep_a, "token-a").unwrap();
+        credentials::save_cf_token_for_endpoint("me", &ep_b, "token-b").unwrap();
+
+        // 两个后端都启用 → 一次同步两边都收到 (各推 2 条)
+        let results = sync_now_all(&db, "me", &backends, &url_a).unwrap();
+        assert_eq!(results.len(), 2, "两个启用后端都应同步: {results:?}");
+        assert!(
+            results.iter().all(|r| r["ok"] == serde_json::json!(true)),
+            "{results:?}"
+        );
+        assert!(
+            results
+                .iter()
+                .all(|r| r["last_wrote"] == serde_json::json!(2)),
+            "每个后端各推 2 条: {results:?}"
+        );
+
+        // 取消 b → 只推 a
+        srepo.set_enabled("me", &ep_b, false).unwrap();
+        let results2 = sync_now_all(&db, "me", &backends, &url_a).unwrap();
+        assert_eq!(results2.len(), 1, "取消勾选的后端不再同步: {results2:?}");
+        assert_eq!(results2[0]["name"], "a", "{results2:?}");
+
+        // 清理 CM (测试不污染真实凭据库)
+        let _ = credentials::delete_cf_token_for_endpoint("me", &ep_a);
+        let _ = credentials::delete_cf_token_for_endpoint("me", &ep_b);
+    }
+
     #[test]
     fn two_tokens_do_not_cross() {
         // V6 验收: 两个 token 数据不串 (服务端按 token 隔离)
@@ -858,16 +1058,40 @@ mod tests {
         // 我 (token-a) 和 孩子 (token-b) 各推各的
         repo.upsert_content(entry("bank", 100), "me", "default")
             .unwrap();
-        sync_now(&db, &url, "token-a", "me", "me").unwrap();
+        sync_endpoint(
+            &db,
+            &url,
+            "token-a",
+            "me",
+            "me",
+            &endpoint_key_for(&url, "me"),
+        )
+        .unwrap();
         repo.upsert_content(entry("kids", 100), "u-kid", "default")
             .unwrap();
-        sync_now(&db, &url, "token-b", "u-kid", "u-kid").unwrap();
+        sync_endpoint(
+            &db,
+            &url,
+            "token-b",
+            "u-kid",
+            "u-kid",
+            &endpoint_key_for(&url, "u-kid"),
+        )
+        .unwrap();
 
         // 重新造一个干净本地, 用 token-a 拉 → 只该拿到 bank, 拿不到 kids
         let db2 = temp_db();
         let repo2 = crate::store::vocab_repo::VocabRepo::new(&db2);
         // 清空本地后 sync_pull (token-a): mock 的 GET 只返回 token-a 的词
-        let st = sync_pull(&db2, &url, "token-a", "me", "me").unwrap();
+        let st = sync_pull(
+            &db2,
+            &url,
+            "token-a",
+            "me",
+            "me",
+            &endpoint_key_for(&url, "me"),
+        )
+        .unwrap();
         assert_eq!(st.status, "synced", "{st:?}");
         let got = repo2.list_all_for_user("me");
         let words: Vec<&str> = got.iter().map(|e| e.word.as_str()).collect();
@@ -889,7 +1113,15 @@ mod tests {
             .unwrap();
 
         // 第一次同步成功
-        let s1 = sync_now(&db, &url, "token-a", "me", "me").unwrap();
+        let s1 = sync_endpoint(
+            &db,
+            &url,
+            "token-a",
+            "me",
+            "me",
+            &endpoint_key_for(&url, "me"),
+        )
+        .unwrap();
         assert_eq!(s1.status, "synced");
         assert_eq!(s1.pending_count, 0);
 
@@ -902,13 +1134,29 @@ mod tests {
             "default",
         )
         .unwrap();
-        let offline = sync_now(&db, "http://127.0.0.1:1", "token-a", "me", "me").unwrap();
+        let offline = sync_endpoint(
+            &db,
+            "http://127.0.0.1:1",
+            "token-a",
+            "me",
+            "me",
+            &endpoint_key_for("http://127.0.0.1:1", "me"),
+        )
+        .unwrap();
         assert_eq!(offline.status, "failed", "连不上 → failed: {offline:?}");
         // pending 应 > 0 (新词未推)
         assert!(offline.pending_count >= 1, "离线后应有待推: {offline:?}");
 
         // 重连 → 回已同步
-        let s2 = sync_now(&db, &url, "token-a", "me", "me").unwrap();
+        let s2 = sync_endpoint(
+            &db,
+            &url,
+            "token-a",
+            "me",
+            "me",
+            &endpoint_key_for(&url, "me"),
+        )
+        .unwrap();
         assert_eq!(s2.status, "synced", "重连后回 synced: {s2:?}");
         assert_eq!(s2.pending_count, 0);
         // 远端条数对上: mock 服务端现在存了 token-a 的 bank+austere
@@ -1234,7 +1482,15 @@ mod tests {
         repo.upsert_content(entry("austere", 300), "me", "default")
             .unwrap();
 
-        let s = sync_now(&db, &url, "token-p", "me", "me").unwrap();
+        let s = sync_endpoint(
+            &db,
+            &url,
+            "token-p",
+            "me",
+            "me",
+            &endpoint_key_for(&url, "me"),
+        )
+        .unwrap();
         // 关键断言: austere 没写成功 → 仍在待推 (不会因 sync 跑过就被标记已推)
         assert!(
             s.pending_count >= 1,
@@ -1316,7 +1572,15 @@ mod tests {
             repo.upsert_content(e, "me", "default").unwrap();
         }
 
-        let s = sync_now(&db, &url, "token-q", "me", "me").unwrap();
+        let s = sync_endpoint(
+            &db,
+            &url,
+            "token-q",
+            "me",
+            "me",
+            &endpoint_key_for(&url, "me"),
+        )
+        .unwrap();
         assert_eq!(s.status, "failed", "超配额应被前置拒绝: {s:?}");
         let last_err = s.last_error.clone().unwrap_or_default();
         assert!(

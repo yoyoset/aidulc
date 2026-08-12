@@ -39,6 +39,10 @@
     backendsList(userId) { return AiduBridge.invoke('sync_backends_list', { userId: userId || currentUser() }); },
     backendAdd(name, url) { return AiduBridge.invoke('sync_backend_add', { name, url }); },
     backendSwitch(name) { return AiduBridge.invoke('sync_backend_switch', { name }); },
+    // M3 (2026-08-13): 勾选/取消某后端的「同步此后端」(当前主体 × 该后端一格)
+    backendToggle(name, enabled) {
+      return AiduBridge.invoke('sync_backend_toggle', { name, enabled: !!enabled, userId: currentUser() });
+    },
     backendRemove(name) { return AiduBridge.invoke('sync_backend_remove', { name }); },
     statusLabel(s) {
       return {

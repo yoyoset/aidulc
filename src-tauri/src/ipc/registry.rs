@@ -222,7 +222,12 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         path: "commands::reader::sync_backend_switch",
         domain: "同步",
-        desc: "L11: 切换后端(改 cf_worker_url; endpoint_key 不匹配自动全量重推)",
+        desc: "切换后端(改当前生效 URL; endpoint_key 不匹配时下次同步全量重推)",
+    },
+    CommandInfo {
+        path: "commands::reader::sync_backend_toggle",
+        domain: "同步",
+        desc: "M3 (UX5 #3): 勾选/取消某后端的「同步此后端」(当前主体×该后端一格)",
     },
     CommandInfo {
         path: "commands::reader::sync_backend_remove",

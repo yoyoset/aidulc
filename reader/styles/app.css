@@ -511,6 +511,11 @@ body::before {
 }
 .sync-backend-name { font-weight: 600; }
 .sync-backend-row .j0-path { font-size: 0.8rem; flex: 1; min-width: 120px; word-break: break-all; }
+/* M3 (2026-08-13): 每后端「同步此后端」勾选 + 所属主体 */
+.sync-backend-meta { display: flex; align-items: center; gap: 12px; font-size: var(--md-sys-font-size-label-s); }
+.sync-backend-enable { display: inline-flex; align-items: center; gap: 4px; color: var(--md-sys-color-on-surface-variant); cursor: pointer; }
+.sync-backend-enable input { margin: 0; }
+.sync-backend-subject { color: var(--md-sys-color-on-surface-variant); }
 /* J6 (2026-08-11): 阅读显示只读摘要 (主入口在阅读器浮层) */
 .settings-summary { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .settings-summary-row { font-size: var(--md-sys-font-size-body-s); color: var(--md-sys-color-on-surface-variant); line-height: 1.6; }

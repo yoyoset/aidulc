@@ -475,7 +475,12 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         path: "commands::misc::library_root_status",
         domain: "设置",
-        desc: "UX5 #4: 书库位置健康状态(存在/可写/原因) —— 设置页绿色/红色徽章数据源",
+        desc: "UX5 #4: 书库位置健康状态(存在/可写/原因/书库是否在根下) —— 设置页绿色/红色徽章数据源",
+    },
+    CommandInfo {
+        path: "commands::misc::library_out_consolidate",
+        domain: "设置",
+        desc: "UX5 修正: 书库(jobs_out)不在数据根下时收拢进数据根(备份+清单校验+重写DB路径+重启清旧)",
     },
     CommandInfo {
         path: "commands::misc::data_root_recommended",

@@ -561,6 +561,7 @@ fn main() {
             commands::misc::components_health,
             commands::misc::library_dir_get,
             commands::misc::library_root_status,
+            commands::misc::library_out_consolidate,
             commands::misc::data_root_recommended,
             commands::misc::library_dir_pick,
             commands::misc::library_dir_pick_and_set,

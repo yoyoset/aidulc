@@ -206,7 +206,8 @@ globalThis.AiduMiscService = {
   logPath: async () => ({ ok: true, data: { path: 'C:/log' } }), componentsHealth: async () => ({ ok: true, data: [] }),
   runtimeConfig: async () => ({ ok: true, data: {} }), openPath: async () => ({ ok: true }),
   libraryDirGet: async () => ({ ok: true, data: 'C:/aidulc-data' }),
-  libraryRootStatus: async () => ({ ok: true, data: { root: 'C:/aidulc-data', exists: true, writable: true, ok: true, reason: '', db_exists: true, out_dir: 'C:/aidulc-data/jobs_out' } }),
+  libraryRootStatus: async () => ({ ok: true, data: { root: 'C:/aidulc-data', db_path: 'C:/aidulc-data/data.db', exists: true, writable: true, ok: true, reason: '', db_exists: true, out_dir: 'C:/aidulc-data/jobs_out', out_inside_root: true } }),
+  libraryOutConsolidate: async () => ({ ok: true, data: { old_out: 'E:/aidulc_data', new_out: 'C:/aidulc-data/jobs_out', backup_path: 'C:/aidulc-data/backups/x', restart_required: true } }),
   dataRootRecommended: async () => ({ ok: true, data: { path: 'C:/Users/x/Documents/aidulc' } }),
   libraryDirPickAndSet: async () => ({ ok: true, data: { cancelled: true } }), libraryDirPick: async () => ({ ok: true, data: { cancelled: true } }), libraryDirScan: async () => ({ ok: true, data: { importable: [], existing: [] } }), libraryDirImport: async () => ({ ok: true, data: { imported: 0, failed: [] } }),
   docParserInstall: async () => ({ ok: true, data: { ok: true } }),
@@ -650,7 +651,7 @@ console.log('== 2g. M5 + UX5 #4 (2026-08-12/13): 书库位置三按钮 + 整根�
 {
   store.state.settingsTab = 'system';
   // 徽章: 生效 → 绿色; 失效 → 红 + 原因
-  globalThis.AiduMiscService.libraryRootStatus = async () => ({ ok: true, data: { root: 'D:/aidulc', exists: true, writable: true, ok: true, reason: '', db_exists: true, out_dir: 'D:/aidulc/jobs_out' } });
+  globalThis.AiduMiscService.libraryRootStatus = async () => ({ ok: true, data: { root: 'D:/aidulc', db_path: 'D:/aidulc/data.db', exists: true, writable: true, ok: true, reason: '', db_exists: true, out_dir: 'D:/aidulc/jobs_out', out_inside_root: true } });
   // 更改… 新流程: pick → 确认 (L1 清单+备份) → libraryDirPickAndSet(newRoot) → 整根迁移结果
   const migrateCalls = [];
   globalThis.AiduMiscService.libraryDirPickAndSet = async (newDir) => { migrateCalls.push(newDir); return { ok: true, data: { cancelled: false, new_dir: newDir, backup_path: 'D:/aidulc-new/backups/x', restart_required: true, book_count: 3 } }; };
@@ -701,7 +702,7 @@ console.log('== 2g. M5 + UX5 #4 (2026-08-12/13): 书库位置三按钮 + 整根�
   const cancelText = libMsgOf();
   check('M5: 更改取消 → 明确说「已取消, 书库位置未更改」', cancelText.includes('已取消') && cancelText.includes('书库位置未更改'), cancelText.slice(0, 80));
   // 失效徽章: 目录不可写 → 红 + 原因
-  globalThis.AiduMiscService.libraryRootStatus = async () => ({ ok: true, data: { root: 'X:/gone', exists: false, writable: false, ok: false, reason: '目录不存在', db_exists: false, out_dir: '' } });
+  globalThis.AiduMiscService.libraryRootStatus = async () => ({ ok: true, data: { root: 'X:/gone', db_path: 'X:/gone/data.db', exists: false, writable: false, ok: false, reason: '目录不存在', db_exists: false, out_dir: '', out_inside_root: false } });
   const svM5b = new globalThis.SettingsView(store);
   const cM5b = makeElement('div');
   svM5b.render(cM5b);
@@ -737,6 +738,40 @@ console.log('== 2g. M5 + UX5 #4 (2026-08-12/13): 书库位置三按钮 + 整根�
   const miscSrc = readFileSync(join(root, 'services/misc_service.js'), 'utf8');
   check('UX5#4: 真实 misc_service.js 有 dataRootRecommended (stub 不掩盖真实缺失)', miscSrc.includes('dataRootRecommended()'), 'missing dataRootRecommended');
   check('UX5#4: 真实 misc_service.js 有 libraryRootStatus', miscSrc.includes('libraryRootStatus()'), 'missing libraryRootStatus');
+  check('UX5#4: 真实 misc_service.js 有 libraryOutConsolidate', miscSrc.includes('libraryOutConsolidate()'), 'missing libraryOutConsolidate');
+}
+
+console.log('== 2g2. UX5 修正 (2026-08-13): 书库不在数据根下 → 收拢警告 + 一键收拢 ==');
+{
+  // 用户场景: 数据根 C:\...\Roaming\aidulc, 书库成品在旧位置 E:\aidulc_data (数据分散两处)
+  store.state.settingsTab = 'system';
+  globalThis.AiduMiscService.libraryRootStatus = async () => ({ ok: true, data: { root: 'C:/aidulc-data', db_path: 'C:/aidulc-data/data.db', exists: true, writable: true, ok: true, reason: '', db_exists: true, out_dir: 'E:/aidulc_data', out_inside_root: false } });
+  const consolidateCalls = [];
+  globalThis.AiduMiscService.libraryOutConsolidate = async () => { consolidateCalls.push(1); return { ok: true, data: { old_out: 'E:/aidulc_data', new_out: 'C:/aidulc-data/jobs_out', backup_path: 'C:/aidulc-data/backups/x', restart_required: true, book_count: 3 } }; };
+  const sv2g2 = new globalThis.SettingsView(store);
+  const c2g2 = makeElement('div');
+  sv2g2.render(c2g2);
+  await new Promise((r) => setTimeout(r, 90));
+  store.state.settingsTab = null;
+  const libSec2g2 = queryAll(c2g2, '.settings-section').find((s) => {
+    const h2 = (s._children || []).find((x) => x.tagName === 'H2');
+    return h2 && h2.textContent === '书库位置';
+  });
+  // 教训 8 DOM 断言: 收拢警告文案 + 按钮; 摘要行不再把两个打架的路径并排 (书库行带 ⚠)
+  const metaText = textOf(libSec2g2 && libSec2g2.querySelector('.settings-meta'));
+  check('UX5修正: 摘要行数据根与数据库在根下, 书库行标注「不在数据根下」', metaText.includes('数据根: C:/aidulc-data') &&
+    metaText.includes('E:/aidulc_data') && metaText.includes('不在数据根下'), metaText.slice(0, 140));
+  const warnTip = queryAll(libSec2g2, '.import-tip').find((t) => textOf(t).includes('旧位置'));
+  const warnText = textOf(warnTip || {});
+  check('UX5修正: 显示收拢警告 (数据分散在两个地方)', warnText.includes('旧位置') && warnText.includes('数据分散'), warnText.slice(0, 120));
+  const consolidateBtn = queryAll(c2g2, 'button').find((b) => b.textContent === '收拢到数据根');
+  check('UX5修正: 有「收拢到数据根」按钮', !!consolidateBtn);
+  consolidateBtn && consolidateBtn.onclick();
+  await new Promise((r) => setTimeout(r, 60));
+  check('UX5修正: 点收拢 → 调 libraryOutConsolidate', consolidateCalls.length === 1, 'calls=' + consolidateCalls.length);
+  const resultTip = queryAll(libSec2g2, '.import-tip').find((t) => textOf(t).includes('已把书库收拢'));
+  const resultText = textOf(resultTip || {});
+  check('UX5修正: 收拢结果含「已把书库收拢到数据根」+ 备份 + 重启', resultText.includes('已把书库收拢到数据根') && resultText.includes('备份') && resultText.includes('重启'), resultText.slice(0, 140));
 }
 
 console.log('== 3. library_view 导入格 (G1): 网格最后一格, 无下拉, 点击走 pickFiles ==');
@@ -1762,6 +1797,61 @@ console.log('== 9c. M4 (2026-08-12): 分词/NLP 无空下载按钮 + 扫描候�
   const nlpRowName = nlpSecShown && nlpSecShown.querySelector('.model-name');
   check('UX5#5: nlp 段显示已登记模型名 + 可用', nlpSecShown && nlpRowName && nlpRowName.textContent.includes('en_core_web_sm') &&
     queryAll(nlpSecShown, '.book-badge').some((b) => b.textContent === '可用'), nlpSecShown && textOf(nlpSecShown).slice(0, 80));
+}
+
+console.log('== 9e. UX5 修正 (2026-08-13): 语音合成不再谎称可用 —— 未设推荐显示"已登记未推荐" ==');
+{
+  load('views/models_view.js');
+  // 用户实测场景: 扫进来的 pytorch_model 被登记成 tts, 但没有任何 tts 设为推荐 →
+  // 此前模型页显示"可用", 依赖组件却缺引擎 (kokoro), 两边打架。
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [
+    { id: 'llm|en|qwen|1', family: 'llm', language: 'en', model_id: 'Qwen3-4B', version: 'x', variant: 'CUDA12.4', path: 'C:/models/qwen.gguf', size_bytes: 1, active: true, custom: true },
+    { id: 'tts|en|pytorch|1', family: 'tts', language: 'en', model_id: 'pytorch_model', version: 'x', variant: 'CUDA12.4', path: 'F:/hf_cache/pytorch_model.bin', size_bytes: 444 * 1024 * 1024, active: false, custom: true },
+    { id: 'tts|en|kokoro|1', family: 'tts', language: 'en', model_id: 'kokoro-v1_0', version: 'v1.0', variant: 'CUDA12.4', path: 'F:/hf_cache/kokoro-v1_0.pth', size_bytes: 327 * 1024 * 1024, active: false, custom: true },
+  ] });
+  globalThis.AiduMiscService.runtimeConfig = async () => ({ ok: true, data: {
+    llm_model: 'C:/models/qwen.gguf', tts_model: 'F:/hf_cache/kokoro-v1_0.pth', default_model_dir: 'C:/models', hf_cache_dir: 'F:/hf_cache',
+  } });
+  const mv9e = new globalThis.ModelsView(new globalThis.AiduStore());
+  const mc9e = makeElement('div');
+  mv9e.render(mc9e);
+  await new Promise((r) => setTimeout(r, 80));
+  const gtitle = (g) => { const h2 = (g._children || []).find((x) => x.tagName === 'H2'); return h2 ? h2.textContent : ''; };
+  const groups9e = queryAll(mc9e, '.model-group');
+  const ttsSec9e = groups9e.find((g) => gtitle(g).includes('语音合成'));
+  const ttsText9e = textOf(ttsSec9e);
+  check('UX5修正: 未设推荐的语音段不再显示"可用"', !ttsText9e.includes('可用'), ttsText9e.slice(0, 80));
+  check('UX5修正: 语音段说明「已登记但未设为推荐 · 处理不会自动用」', ttsText9e.includes('未设为推荐') && ttsText9e.includes('处理时不会自动使用'), ttsText9e.slice(0, 140));
+  check('UX5修正: 未推荐时给「去下载」出口 (下载推荐引擎)', queryAll(ttsSec9e, 'button').some((b) => b.textContent === '去下载'));
+  check('UX5修正: 未推荐时给「换一个」(可把已登记设为推荐)', queryAll(ttsSec9e, 'button').some((b) => b.textContent === '换一个'));
+  // 设为推荐后 → 显示"可用"
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [
+    { id: 'llm|en|qwen|1', family: 'llm', language: 'en', model_id: 'Qwen3-4B', version: 'x', variant: 'CUDA12.4', path: 'C:/models/qwen.gguf', size_bytes: 1, active: true, custom: true },
+    { id: 'tts|en|pytorch|1', family: 'tts', language: 'en', model_id: 'pytorch_model', version: 'x', variant: 'CUDA12.4', path: 'F:/hf_cache/pytorch_model.bin', size_bytes: 1, active: true, custom: true },
+  ] });
+  mv9e._reload();
+  await new Promise((r) => setTimeout(r, 60));
+  const ttsSec9e2 = queryAll(mc9e, '.model-group').find((g) => gtitle(g).includes('语音合成'));
+  const ttsText9e2 = textOf(ttsSec9e2);
+  check('UX5修正: 设为推荐后语音段显示"可用"', ttsText9e2.includes('可用'), ttsText9e2.slice(0, 80));
+}
+
+console.log('== 9f. UX5 修正 (2026-08-13): 模型目录斜杠归一化去重 (F:/hf_cache 与 F:\hf_cache 同一目录) ==');
+{
+  load('views/models_view.js');
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [] });
+  // llm_model 是正斜杠路径, hf_cache_dir 是反斜杠 —— 指向同一目录必须只显示一项
+  globalThis.AiduMiscService.runtimeConfig = async () => ({ ok: true, data: {
+    llm_model: 'F:/hf_cache/Qwen3-4B.gguf', tts_model: '', default_model_dir: 'C:/models', hf_cache_dir: 'F:\\hf_cache',
+  } });
+  const mv9f = new globalThis.ModelsView(new globalThis.AiduStore());
+  const mc9f = makeElement('div');
+  mv9f.render(mc9f);
+  await new Promise((r) => setTimeout(r, 80));
+  const dirRows = queryAll(mc9f, '.model-dir-row');
+  check('UX5修正: 同一目录正/反斜杠只显示一项', dirRows.length === 1,
+    'rows=' + dirRows.length + ' texts=' + (dirRows || []).map(textOf).join('|'));
+  check('UX5修正: 目录显示为归一化路径', dirRows.length === 1 && textOf(dirRows[0]).includes('F:/hf_cache'), textOf(dirRows[0]));
 }
 
 console.log('== 9d. M4-2 (2026-08-12): 无更新渠道的本地模型给可操作的话 ==');

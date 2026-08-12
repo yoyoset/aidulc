@@ -86,7 +86,7 @@ pub fn library_dir_get(paths: State<crate::DataPaths>) -> String {
 }
 
 /// UX5 #4 (2026-08-13): 当前书库位置(数据根)健康状态 —— 设置页绿色/红色徽章的数据源。
-/// ok = 目录存在且可写; 失效给原因 (人话)。
+/// ok = 目录存在且可写; 失效给原因 (人话)。out_inside_root = 书库成品(jobs_out)是否已在数据根下。
 #[tauri::command]
 pub fn library_root_status(
     paths: State<crate::DataPaths>,
@@ -114,14 +114,60 @@ pub fn library_root_status(
     } else {
         ""
     };
+    let out_dir = cfg.out_dir.clone();
+    let out_inside_root = out_dir == root.join("jobs_out") || out_dir.starts_with(&root);
     Ok(serde_json::json!({
         "root": root.to_string_lossy(),
+        "db_path": paths.inner().db_path.to_string_lossy(),
         "exists": exists,
         "writable": writable,
         "ok": exists && writable,
         "reason": reason,
         "db_exists": paths.inner().db_path.is_file(),
-        "out_dir": cfg.out_dir.to_string_lossy(),
+        "out_dir": out_dir.to_string_lossy(),
+        "out_inside_root": out_inside_root,
+    }))
+}
+
+/// UX5 修正 (2026-08-13): 书库(jobs_out)不在数据根下 → 收拢进数据根 (数据根/jobs_out)。
+/// 用户场景: config.out_dir 是历史绝对路径 (如 E:\aidulc_data), 与数据根打架。
+/// 流程: 备份 → 复制 → 校验 → 重写 DB 路径 → 改 config → 写标记 (重启后按清单核验删旧)。
+#[tauri::command]
+pub fn library_out_consolidate(
+    cfg: State<PrepConfig>,
+    prep_state: State<PrepState>,
+    paths: State<crate::DataPaths>,
+    db: State<crate::store::Db>,
+) -> Result<serde_json::Value, String> {
+    if prep_state.running_job.lock().unwrap().is_some() {
+        return Err("有任务正在处理中, 请先等待完成或暂停后再收拢书库".into());
+    }
+    let data_dir = paths.inner().data_dir.clone();
+    let old_out = cfg.out_dir.clone();
+    let new_out = data_dir.join("jobs_out");
+    let report = crate::infrastructure::data_migration::consolidate_out_into_root(
+        db.inner(),
+        &old_out,
+        &new_out,
+        &data_dir,
+    )?;
+    let book_count = crate::store::books_repo::BooksRepo::new(db.inner())
+        .list()
+        .len();
+    crate::infrastructure::log::info(
+        "cmd",
+        &format!(
+            "library_out_consolidate: {} → {} (需重启)",
+            old_out.to_string_lossy(),
+            new_out.to_string_lossy()
+        ),
+    );
+    Ok(serde_json::json!({
+        "old_out": old_out.to_string_lossy(),
+        "new_out": new_out.to_string_lossy(),
+        "backup_path": report.backup_path,
+        "restart_required": true,
+        "book_count": book_count,
     }))
 }
 

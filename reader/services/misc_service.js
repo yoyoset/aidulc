@@ -14,6 +14,8 @@
     libraryDirGet() { return AiduBridge.invoke('library_dir_get'); },
     // UX5 #4 (2026-08-13): 书库位置 = 数据根 —— 健康状态 (存在/可写/原因, 绿/红徽章)
     libraryRootStatus() { return AiduBridge.invoke('library_root_status'); },
+    // UX5 修正: 书库(jobs_out)不在数据根下 → 收拢进数据根
+    libraryOutConsolidate() { return AiduBridge.invoke('library_out_consolidate'); },
     // UX5 #4: 首次向导推荐的数据根 (我的文档/aidulc)
     dataRootRecommended() { return AiduBridge.invoke('data_root_recommended'); },
     libraryDirPick() { return AiduBridge.invoke('library_dir_pick'); },

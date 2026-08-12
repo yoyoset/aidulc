@@ -131,6 +131,9 @@
       libSec.appendChild(libBtns);
       const libMeta = el('div', 'settings-meta');
       libSec.appendChild(libMeta);
+      // UX5 修正: 书库成品不在数据根下时的收拢警告 (数据分散两个地方 → 一键收拢)
+      const libOutWarn = el('div', 'import-tip');
+      libSec.appendChild(libOutWarn);
       const libMsg = el('div', 'import-tip');
       libSec.appendChild(libMsg);
        systemPane.appendChild(libSec);
@@ -140,7 +143,7 @@
           libPath.textContent = r.ok ? r.data : ('读取失败: ' + r.error);
           libPath.title = r.ok ? r.data : '';
         });
-        // UX5 #4: 徽章 —— 存在且可写 → 绿色; 否则红/灰 + 原因
+        // UX5 #4: 徽章 —— 存在且可写 → 绿色; 否则红/灰 + 原因。书库不在根下 → 收拢警告。
         AiduMiscService.libraryRootStatus().then((r) => {
           if (!r.ok || !r.data) { libBadge.className = 'lib-badge lib-badge-err'; libBadge.textContent = '无法检查'; return; }
           const d = r.data;
@@ -153,58 +156,85 @@
             libBadge.textContent = (d.reason || '已失效') + (d.db_exists ? '' : ' · 数据库缺失');
             libBadge.title = d.reason || '书库位置失效';
           }
+          // 摘要: 数据根 + 数据库 (都在根下, 一致); 书库只在不在根下时列出并标 ⚠
+          const meta = [`数据根: ${d.root}`, `数据库: ${d.db_path || (d.root + '\\data.db')}`];
+          if (d.out_dir && !d.out_inside_root) {
+            meta.push(`书库: ${d.out_dir} (不在数据根下, 见下方警告)`);
+          }
+          libMeta.textContent = meta.join('\n');
+          // 收拢警告: 书库成品不在数据根下 → 一键收拢 (备份+校验+重启清旧)
+          libOutWarn.innerHTML = '';
+          if (d.out_dir && !d.out_inside_root) {
+            libOutWarn.style.display = '';
+            libOutWarn.appendChild(el('span', null,
+              `书库成品当前在旧位置「${d.out_dir}」, 不在数据根下 —— 数据分散在两个地方。收拢后所有数据都在数据根里, 整个目录拷走即用。`));
+            const consolidateBtn = el('button', 'btn-small btn-primary', '收拢到数据根');
+            consolidateBtn.style.marginLeft = '8px';
+            consolidateBtn.title = '把书库成品收拢到数据根下的 jobs_out/: 先自动备份到 backups/, 复制并逐文件校验 (大小+sha256), 通过后重启时才清理旧位置。';
+            consolidateBtn.onclick = () => {
+              consolidateBtn.disabled = true;
+              consolidateBtn.textContent = '收拢中…';
+              AiduMiscService.libraryOutConsolidate().then((r2) => {
+                consolidateBtn.disabled = false;
+                if (!r2.ok) {
+                  libOutWarn.appendChild(el('div', null, '收拢失败: ' + r2.error));
+                  return;
+                }
+                const d2 = r2.data || {};
+                libOutWarn.innerHTML = '';
+                libOutWarn.appendChild(el('div', null,
+                  `已把书库收拢到数据根: ${d2.new_out} (备份: ${d2.backup_path || ''})。重启应用后从数据根读取。`));
+              });
+            };
+            libOutWarn.appendChild(consolidateBtn);
+          } else {
+            libOutWarn.style.display = 'none';
+          }
         });
+        // 旧程序目录 (program dir) 迁移提示: 检测到旧位置有数据 → 引导迁到数据根。
         AiduMiscService.dataMigrationStatus().then((r) => {
           if (!r.ok || !r.data) return;
           const d = r.data;
-          const rows = [];
-          rows.push('数据根: ' + d.data_dir);
-          rows.push('数据库: ' + d.db_path);
-          rows.push('书库: ' + d.out_dir);
-          if (d.pending) {
-            rows.push('⚠ 旧位置 (程序目录) 仍有数据, 未迁移 (见下方说明)。');
-          }
-          libMeta.textContent = rows.join('\n');
-          if (d.pending) {
-            libMsg.textContent = '检测到旧位置 (程序目录) 下有书库与词库数据。为避免 cargo clean 等操作误删, 建议迁移到当前数据根。';
-            const migrateBtn = el('button', 'btn-small btn-primary', '迁移到数据根');
-            migrateBtn.style.marginLeft = '8px';
-            migrateBtn.onclick = () => {
-              migrateBtn.disabled = true;
-              migrateBtn.textContent = '准备中…';
-              AiduMiscService.dataMigrationDryRun().then((dry) => {
-                if (!dry.ok || !dry.data || !dry.data.pending) {
-                  migrateBtn.disabled = false;
-                  migrateBtn.textContent = '迁移到数据根';
-                  libMsg.textContent = dry.data && dry.data.pending === false ? '已无待迁移数据。' : (dry.error || '读取失败');
-                  return;
-                }
-                const dd = dry.data.dry;
-                const items = dd.out_items + (dd.db_exists ? 1 : 0);
-                const msg = '将迁移 ' + items + ' 项 (书库 ' + (dd.out_bytes / 1048576).toFixed(1) +
-                  ' MB' + (dd.db_exists ? ' + 数据库 ' + (dd.db_bytes / 1048576).toFixed(1) + ' MB' : '') +
-                  ') 到:\n' + dd.target_out + '\n\n先自动备份到: backups/ 目录 (路径会显示), 复制并校验通过后才删除旧文件。完成后需要重启应用。';
-                AiduModal.confirm({
-                  title: '迁移书库与词库到数据根?',
-                  message: msg,
-                  confirmText: '开始迁移',
-                  danger: true,
-                  onConfirm: () => AiduMiscService.dataMigrationRun().then((r) => {
-                    if (!r.ok) { throw new Error(r.error); }
-                    libMsg.textContent = '迁移完成。备份: ' + r.data.backup_path + '。请重启应用。';
-                    libMsg.title = r.data.backup_path;
-                    return;
-                  }),
-                });
-              });
-            };
-            libMsg.appendChild(migrateBtn);
-          } else if (libMsg.textContent.startsWith('检测到旧位置')) {
+          if (!d.pending) {
             // M5 (2026-08-12) 真凶: 这里无条件清空 libMsg —— refreshLibPath 在每次 render
-            // 和「更改…」成功后都会跑, pending=false 就把刚写的"书库位置已改为 X"结果当场
-            // 抹掉。只清自己写的迁移提示, 不动别的消息。
-            libMsg.textContent = '';
+            // 和「更改…」成功后都会跑, pending=false 就把刚写的动作结果当场抹掉。
+            // 只清自己写的迁移提示, 不动别的消息。
+            if (libMsg.textContent.startsWith('检测到旧位置')) libMsg.textContent = '';
+            return;
           }
+          libMsg.textContent = '检测到旧位置 (程序目录) 下有书库与词库数据。为避免 cargo clean 等操作误删, 建议迁移到当前数据根。';
+          const migrateBtn = el('button', 'btn-small btn-primary', '迁移到数据根');
+          migrateBtn.style.marginLeft = '8px';
+          migrateBtn.onclick = () => {
+            migrateBtn.disabled = true;
+            migrateBtn.textContent = '准备中…';
+            AiduMiscService.dataMigrationDryRun().then((dry) => {
+              if (!dry.ok || !dry.data || !dry.data.pending) {
+                migrateBtn.disabled = false;
+                migrateBtn.textContent = '迁移到数据根';
+                libMsg.textContent = dry.data && dry.data.pending === false ? '已无待迁移数据。' : (dry.error || '读取失败');
+                return;
+              }
+              const dd = dry.data.dry;
+              const items = dd.out_items + (dd.db_exists ? 1 : 0);
+              const msg = '将迁移 ' + items + ' 项 (书库 ' + (dd.out_bytes / 1048576).toFixed(1) +
+                ' MB' + (dd.db_exists ? ' + 数据库 ' + (dd.db_bytes / 1048576).toFixed(1) + ' MB' : '') +
+                ') 到:\n' + dd.target_out + '\n\n先自动备份到: backups/ 目录 (路径会显示), 复制并校验通过后才删除旧文件。完成后需要重启应用。';
+              AiduModal.confirm({
+                title: '迁移书库与词库到数据根?',
+                message: msg,
+                confirmText: '开始迁移',
+                danger: true,
+                onConfirm: () => AiduMiscService.dataMigrationRun().then((r3) => {
+                  if (!r3.ok) { throw new Error(r3.error); }
+                  libMsg.textContent = '迁移完成。备份: ' + r3.data.backup_path + '。请重启应用。';
+                  libMsg.title = r3.data.backup_path;
+                  return;
+                }),
+              });
+            });
+          };
+          libMsg.appendChild(migrateBtn);
         });
       };
       refreshLibPath();

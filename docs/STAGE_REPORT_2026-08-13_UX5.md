@@ -235,3 +235,17 @@ contrast (WCAG AA >= 4.5)              PASS
 - **截图脚本**: `scripts/ux5_screenshots.mjs` 可复用 (改 bridgeSource 的 handler 数据即生成新截图);
   踩坑记录: 向导"会前进"的按钮列表需排除「完成设置」(它直接 finish 不进完成页), 且导航按钮在异步
   重渲染中会短暂消失, 用重查+点击而非先收集后点。
+
+## 六、用户实测反馈修正 (2026-08-13 收尾)
+
+用户跑任务时在真机上反馈两处"这里好混乱", 逐条实测定位真因并修复 (本收尾提交):
+
+| 反馈 | 实测根因 | 修复 |
+|---|---|---|
+| **书库位置混乱**: 数据根 `C:\...\Roaming\aidulc` 但"书库"显示 `E:\aidulc_data` | config.out_dir 是历史绝对路径 (E:\aidulc_data), 与数据根完全解耦; 设置页把两个打架的路径并排显示 | ①设置页不再并排展示: 摘要只列 数据根/数据库, 书库不在根下时单独列一行标 `⚠ 不在数据根下` + 警告块 + 一键「收拢到数据根」(备份→复制→清单校验→重写 DB 路径→改 config→写标记, 重启后按清单核验才删旧, `library_out_consolidate` 命令); ②`library_root_status` 返回 `out_dir`/`out_inside_root`/`db_path`; ③连带修复整根迁移遗留缺陷: 迁移只搬文件不改 DB, Phase-2 删旧后 books/editions.pack_dir + jobs.output_dir 全指已删路径 → 书变红卡。新增 `rewrite_db_paths` (迁移时重写前缀), Rust 单测 `ux5_consolidate_out_into_root_moves_books_into_root` + `ux5_migrate_data_root...` 断言 DB 路径重写。截图 `ux5-4-out-consolidate-warn.png` (旧 `ux5-4-library-root-badge.png` 更新为无警告的干净态) |
+| **模型目录重复**: `F:/hf_cache` 和 `F:\hf_cache` 两项 | `_loadModelDirs` 去重是字符串 `includes`, 正/反斜杠没归一化 (llm_model 路径是正斜杠, hf_cache_dir 是反斜杠) | 新增 `_normDir()` (正斜杠+去尾部斜杠), 模型目录与扫描弹窗路径增删/去重全走归一化。smoke 9f 锁: 同一目录只显示一项 |
+| **语音合成"可用" vs 依赖组件"缺 kokoro"自相矛盾** | 两边"可用"口径不同: 模型页 `usableOf` = 任意已登记 tts+有路径 (拿了第一个 pytorch_model 当可用); 处理时 prep 用**推荐(active)**模型, `resolve_paths` 只认推荐, 用户没设 tts 推荐 → 健康检查按空路径找 kokoro → 缺 | "可用"徽章只给推荐模型; 已登记但未设推荐时, 段内诚实显示「已登记 N 个但未设为推荐, 处理时不会自动使用」+ 「换一个」(设推荐) + 「去下载」(下推荐引擎), 与依赖组件口径一致。smoke 9e 锁两态 |
+
+**验证**: 收尾 `check.ps1` **24 项全绿** (cargo test 263 passed / vitest 124 / smoke 全绿 / no_silent 100 点击 /
+fmt / clippy 7 未升); 截图更新 `ux5-4-*` 两张 + `ux5-5-model-dirs.png` 演示修复后状态 (模型目录一项、语音段未设推荐诚实提示)。
+

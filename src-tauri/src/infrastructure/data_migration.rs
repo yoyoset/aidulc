@@ -209,7 +209,9 @@ pub fn cleanup_pending(data_dir: &Path) -> Result<(), String> {
         }
     }
     for p in [&m.legacy_out, &m.legacy_db, &m.legacy_cfg] {
-        remove_any(p);
+        if !p.as_os_str().is_empty() {
+            remove_any(p);
+        }
     }
     // WAL/SHM 跟着 data.db 走
     remove_any(&with_suffix(&m.legacy_db, "-wal"));
@@ -379,6 +381,10 @@ pub fn run_migration(
             manifest.len()
         ),
     );
+    // UX5 修正 (2026-08-13): 迁移后重写 DB 里的成品路径 (books/editions.pack_dir,
+    // jobs.output_dir) —— 旧路径前缀 → 新路径前缀。此前只搬文件不改 DB, 迁移完成
+    // Phase 2 删旧后书卡会全变「成品文件缺失」(pack_dir 指向已删目录)。
+    rewrite_db_paths(db, &plan.legacy_out, &plan.target_out)?;
 
     // UX5 #4 (2026-08-13): 整根迁移时 models/ 也随根走 (模型下载目录)。
     // legacy_out.parent() = 旧数据根, target_out.parent() = 新数据根 (jobs_out 直接挂在根下)。
@@ -487,6 +493,130 @@ pub struct MigrationReport {
     pub out_moved: u64,
     pub target_out: String,
     pub target_db: String,
+}
+
+/// UX5 修正 (2026-08-13): 迁移后重写 DB 里的成品路径前缀 (books/editions.pack_dir,
+/// jobs.output_dir)。用 `instr(pack_dir, ?)=1` 判前缀 (LIKE 的 `_`/`%` 会被路径里的
+/// 下划线误当通配符, 不用 LIKE)。DB 里存的是 Windows 反斜杠路径, 直接用原样字符串。
+pub fn rewrite_db_paths(db: &crate::store::Db, old: &Path, new: &Path) -> Result<(), String> {
+    let old_s = old.to_string_lossy().to_string();
+    let new_s = new.to_string_lossy().to_string();
+    if old_s.is_empty() || new_s.is_empty() {
+        return Ok(());
+    }
+    let conn = db.conn.lock().unwrap();
+    for table in ["books", "editions"] {
+        conn.execute(
+            &format!(
+                "UPDATE {table} SET pack_dir = replace(pack_dir, ?1, ?2) WHERE instr(pack_dir, ?1) = 1"
+            ),
+            rusqlite::params![old_s, new_s],
+        )
+        .map_err(|e| format!("迁移后重写 {table}.pack_dir 失败: {e}"))?;
+    }
+    conn.execute(
+        "UPDATE jobs SET output_dir = replace(output_dir, ?1, ?2) WHERE instr(output_dir, ?1) = 1",
+        rusqlite::params![old_s, new_s],
+    )
+    .map_err(|e| format!("迁移后重写 jobs.output_dir 失败: {e}"))?;
+    drop(conn);
+    Ok(())
+}
+
+/// UX5 修正 (2026-08-13): 书库(jobs_out)不在数据根下时, 收拢进数据根 —— 解决用户看到的
+/// "数据根 C:\...\Roaming\aidulc, 书库 E:\aidulc_data" 两处打架。典型成因: config.out_dir
+/// 是历史绝对路径, 与数据根解耦。
+///
+/// 流程 (安全纪律与整根迁移一致): 备份 → 清单 → 复制 old_out → new_out (数据根/jobs_out)
+/// → 校验 → 重写 DB 路径 → 改 config.out_dir → 写迁移标记。旧 out 由下次启动
+/// cleanup_pending 按清单核验通过后才删。数据根本身不动 (config/db/backups/logs 已在其下)。
+pub fn consolidate_out_into_root(
+    db: &crate::store::Db,
+    old_out: &Path,
+    new_out: &Path,
+    data_dir: &Path,
+) -> Result<MigrationReport, String> {
+    use std::io::Write;
+    if !old_out.is_dir() {
+        return Err(format!("书库位置不存在: {}", old_out.to_string_lossy()));
+    }
+    if new_out == old_out {
+        return Err("书库已在数据根下 (jobs_out/), 无需收拢".into());
+    }
+
+    // 1. 备份 (数据安全第 1 条: 执行前自动备份, 路径告诉用户)
+    let backup_dir = data_dir.join("backups");
+    fs::create_dir_all(&backup_dir).map_err(|e| format!("建备份目录失败: {e}"))?;
+    let backup_path = backup_dir.join(format!(
+        "aidulc-backup-{}.aidu-data",
+        crate::store::now_ms_for_store()
+    ));
+    {
+        let data = crate::application::transfer_service::export_aidu_data(db)
+            .map_err(|e| format!("备份失败: {e}"))?;
+        let mut f =
+            std::fs::File::create(&backup_path).map_err(|e| format!("写备份文件失败: {e}"))?;
+        f.write_all(
+            serde_json::to_string_pretty(&data)
+                .unwrap_or_default()
+                .as_bytes(),
+        )
+        .map_err(|e| format!("写备份文件失败: {e}"))?;
+    }
+
+    // 2. 清单 + 复制 + 校验 (L1: 源一个没少才允许 Phase 2 删旧)
+    let manifest = build_manifest(old_out)?;
+    copy_tree_with_verify(old_out, new_out)?;
+    verify_manifest(new_out, &manifest)?;
+    crate::infrastructure::log::info(
+        "migration",
+        &format!(
+            "书库收拢: 复制 {} → {} 核验通过 ({} 个文件)",
+            old_out.to_string_lossy(),
+            new_out.to_string_lossy(),
+            manifest.len()
+        ),
+    );
+
+    // 3. 重写 DB 路径 (旧前缀 → 新前缀)
+    rewrite_db_paths(db, old_out, new_out)?;
+
+    // 4. 改 config.out_dir (数据根下的 config.toml)
+    {
+        let mut cfg = crate::services::config::Config::load(data_dir);
+        cfg.out_dir = new_out.to_path_buf();
+        cfg.save(data_dir)?;
+    }
+
+    // 5. 写迁移标记 (Phase 2 清理旧 out; legacy_db/cfg 置空 = 不删, 数据根本身不动)
+    let marker = MigrationMarker {
+        legacy_out: old_out.to_path_buf(),
+        legacy_db: PathBuf::new(),
+        legacy_cfg: PathBuf::new(),
+        target_out: new_out.to_path_buf(),
+        manifest,
+        legacy_models: PathBuf::new(),
+        target_models: PathBuf::new(),
+        manifest_models: vec![],
+    };
+    let marker_text = serde_json::to_string(&marker).map_err(|e| e.to_string())?;
+    fs::write(marker_path(data_dir), marker_text).map_err(|e| format!("写迁移标记失败: {e}"))?;
+
+    let out_moved = top_level_count(old_out);
+    crate::infrastructure::log::info(
+        "migration",
+        &format!(
+            "书库收拢完成: {} 项 → {}, 标记已写, 待重启清理旧位置",
+            out_moved,
+            new_out.to_string_lossy()
+        ),
+    );
+    Ok(MigrationReport {
+        backup_path: backup_path.to_string_lossy().to_string(),
+        out_moved,
+        target_out: new_out.to_string_lossy().to_string(),
+        target_db: data_dir.join("data.db").to_string_lossy().to_string(),
+    })
 }
 
 /// dry-run: 将影响多少项 (前端确认文案用, 不实际改动)。
@@ -731,6 +861,37 @@ mod tests {
         fs::write(old_root.join("config.toml"), b"out_dir='jobs_out'\n").unwrap();
         let db_path = old_root.join("data.db");
         let db = crate::store::Db::open(db_path.to_str().unwrap()).unwrap();
+        // 登记一本书 (pack_dir 指向旧根 jobs_out) —— 迁移后 DB 路径必须重写
+        {
+            use crate::store::books_repo::Book;
+            let books = crate::store::books_repo::BooksRepo::new(&db);
+            books
+                .upsert(&Book {
+                    id: "b1".into(),
+                    title: "Book".into(),
+                    source_path: String::new(),
+                    pack_dir: old_root
+                        .join("jobs_out")
+                        .join("bookpack.json")
+                        .to_string_lossy()
+                        .to_string(),
+                    profile_id: "default".into(),
+                    status: "ready".into(),
+                    kind: "product".into(),
+                    source_book_id: None,
+                    chapter_count: 0,
+                    failed_count: 0,
+                    last_opened_at: None,
+                    source_language: "en".into(),
+                    target_language: "zh-CN".into(),
+                    llm_id: None,
+                    tts_id: None,
+                    nlp_id: None,
+                    created_at: 1,
+                    updated_at: 1,
+                })
+                .unwrap();
+        }
 
         // L1 前置检查
         assert!(
@@ -758,6 +919,18 @@ mod tests {
         assert!(new_root.join("data.db").exists());
         assert!(new_root.join("jobs_out").join("bookpack.json").exists());
         assert!(new_root.join("models").join("Qwen.gguf").exists());
+        // UX5 修正: 新库 (VACUUM 复制) 里的 pack_dir 必须重写到新根 (否则删旧后书变红卡)
+        {
+            let check = rusqlite::Connection::open(new_root.join("data.db")).unwrap();
+            let pd: String = check
+                .query_row("SELECT pack_dir FROM books WHERE id='b1'", [], |r| r.get(0))
+                .unwrap();
+            assert!(
+                pd.starts_with(&new_root.join("jobs_out").to_string_lossy().to_string()),
+                "迁移后 DB pack_dir 应指向新根: {pd}"
+            );
+            assert!(!pd.contains("old-root"), "pack_dir 不应残留旧根: {pd}");
+        }
         assert!(new_root.join("backups").is_dir(), "应有备份目录");
         // 数据根指针 → 下次启动从新根读
         assert_eq!(
@@ -778,6 +951,120 @@ mod tests {
         assert!(!old_root.join("jobs_out").exists(), "旧 jobs_out 应被清理");
         assert!(!old_root.join("models").exists(), "旧 models 应被清理");
         assert!(new_root.join("jobs_out").join("bookpack.json").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// UX5 修正 (2026-08-13): 书库不在数据根下 → 收拢进数据根。
+    /// 用户场景: config.out_dir = 历史绝对路径 (E:\aidulc_data), 与数据根解耦。
+    /// 收拢后: 成品进数据根/jobs_out, DB pack_dir/output_dir 前缀重写, config.out_dir 更新,
+    /// 备份存在, 标记已写 (Phase 2 清理旧位置)。
+    #[test]
+    fn ux5_consolidate_out_into_root_moves_books_into_root() {
+        use crate::services::config;
+        use crate::store::books_repo::Book;
+        let root = tmp("consolidate");
+        let data_dir = root.join("data-root");
+        let old_out = root.join("old-out");
+        fs::create_dir_all(&data_dir).unwrap();
+        fs::create_dir_all(old_out.join("jobs").join("job-1")).unwrap();
+        fs::write(
+            old_out.join("jobs").join("job-1").join("bookpack.json"),
+            b"{}",
+        )
+        .unwrap();
+        fs::write(
+            data_dir.join("config.toml"),
+            format!("out_dir='{}'\n", old_out.to_string_lossy()).as_bytes(),
+        )
+        .unwrap();
+        let db_path = data_dir.join("data.db");
+        let db = crate::store::Db::open(db_path.to_str().unwrap()).unwrap();
+        let old_pack = old_out
+            .join("jobs")
+            .join("job-1")
+            .to_string_lossy()
+            .to_string();
+        let books = crate::store::books_repo::BooksRepo::new(&db);
+        books
+            .upsert(&Book {
+                id: "b1".into(),
+                title: "Book".into(),
+                source_path: String::new(),
+                pack_dir: old_pack.clone(),
+                profile_id: "default".into(),
+                status: "ready".into(),
+                kind: "product".into(),
+                source_book_id: None,
+                chapter_count: 0,
+                failed_count: 0,
+                last_opened_at: None,
+                source_language: "en".into(),
+                target_language: "zh-CN".into(),
+                llm_id: None,
+                tts_id: None,
+                nlp_id: None,
+                created_at: 1,
+                updated_at: 1,
+            })
+            .unwrap();
+        // 任务 output_dir 也指向旧位置
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO jobs (id, book_path, profile_id, output_dir, status, created_at, updated_at)
+                 VALUES ('j1', 'x', 'default', ?1, 'done', 1, 1)",
+                [old_pack.as_str()],
+            )
+            .unwrap();
+            drop(conn);
+        }
+
+        let new_out = data_dir.join("jobs_out");
+        let report = consolidate_out_into_root(&db, &old_out, &new_out, &data_dir).unwrap();
+        assert!(
+            report.target_out.contains("jobs_out"),
+            "成品应落在数据根/jobs_out: {}",
+            report.target_out
+        );
+        // 成品已复制 (一个没少)
+        assert!(new_out
+            .join("jobs")
+            .join("job-1")
+            .join("bookpack.json")
+            .is_file());
+        let (sc, _) = count_and_size(&old_out).unwrap();
+        let (tc, _) = count_and_size(&new_out).unwrap();
+        assert_eq!(sc, tc, "旧/新位置文件数一致 (一个没少): {sc}/{tc}");
+        // DB pack_dir 前缀重写 (旧前缀 → 新前缀)
+        let b = books.get("b1").unwrap();
+        assert!(
+            b.pack_dir
+                .starts_with(&new_out.to_string_lossy().to_string()),
+            "pack_dir 应重写到新位置: {}",
+            b.pack_dir
+        );
+        assert!(!b.pack_dir.contains("old-out"), "pack_dir 不应残留旧前缀");
+        // jobs.output_dir 重写
+        let out: String = db
+            .conn
+            .lock()
+            .unwrap()
+            .query_row("SELECT output_dir FROM jobs WHERE id='j1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert!(
+            out.starts_with(&new_out.to_string_lossy().to_string()),
+            "output_dir 应重写: {out}"
+        );
+        // config.out_dir 更新 + 备份存在 + 标记已写
+        let cfg = config::Config::load(&data_dir);
+        assert_eq!(cfg.out_dir, new_out, "config.out_dir 应指向数据根/jobs_out");
+        assert!(data_dir.join("backups").is_dir(), "应有备份目录");
+        assert!(
+            marker_path(&data_dir).exists(),
+            "应写迁移标记 (Phase 2 清理旧位置)"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 

@@ -50,9 +50,14 @@ function bridgeSource(mode) {
         { id: 'kid', name: '陪小孩读', explain_strategy: 'deep', voice: 'af_bella', speed: 0.9, highlight_granularity: 'word' },
       ],
       settings_get: () => ({ font_size: 19, line_height: 1.85, content_width: 660, theme: 'light', palette: 'clay', child_mode: false }),
-      // UX5 #4: 书库位置 = 数据根 (绿色徽章)
+      // UX5 #4: 书库位置 = 数据根 (绿色徽章); window.__ux5OutInside=false 时演示书库不在根下的收拢警告
       library_dir_get: () => 'D:/aidulc-data',
-      library_root_status: () => ({ root: 'D:/aidulc-data', exists: true, writable: true, ok: true, reason: '', db_exists: true, out_dir: 'D:/aidulc-data/jobs_out' }),
+      library_root_status: () => ({
+        root: 'D:/aidulc-data', db_path: 'D:/aidulc-data/data.db',
+        exists: true, writable: true, ok: true, reason: '', db_exists: true,
+        out_dir: window.__ux5OutInside === false ? 'E:/aidulc_data' : 'D:/aidulc-data/jobs_out',
+        out_inside_root: window.__ux5OutInside !== false,
+      }),
       data_root_recommended: () => ({ path: 'C:/Users/me/Documents/aidulc' }),
       data_migration_status: () => ({ portable: false, data_dir: 'D:/aidulc-data', db_path: 'D:/aidulc-data/data.db', out_dir: 'D:/aidulc-data/jobs_out', pending: false }),
       components_health: () => [
@@ -136,8 +141,9 @@ function bridgeSource(mode) {
       edition_lookup: () => ({ id: 'job-1786205609337-11852-1', title: 'Alice 译本', chapter_count: 12, source_id: 's1' }),
       // ---- 模型 (UX5 #5) ----
       models_list: () => [
-        { id: 'llm|en|qwen3-4b|2507-q4_k_m', family: 'llm', language: 'en', model_id: 'Qwen3-4B-Instruct-2507-Q4_K_M', version: '2507-Q4_K_M', variant: 'Q4_K_M', path: 'D:/aidulc-data/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf', size_bytes: 2497280256, active: true, custom: false },
-        { id: 'tts|en|kokoro|v1', family: 'tts', language: 'en', model_id: 'kokoro-v1_0', version: 'v1.0', variant: 'v1.0', path: 'D:/aidulc-data/models/kokoro-v1_0.pth', size_bytes: 327212226, active: true, custom: false },
+        { id: 'llm|en|qwen3-4b|2507-q4_k_m', family: 'llm', language: 'en', model_id: 'Qwen3-4B-Instruct-2507-Q4_K_M', version: '2507-Q4_K_M', variant: 'CUDA12.4', path: 'D:/aidulc-data/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf', size_bytes: 2497280256, active: true, custom: true },
+        { id: 'tts|en|pytorch|1', family: 'tts', language: 'en', model_id: 'pytorch_model', version: 'x', variant: 'CUDA12.4', path: 'F:/hf_cache/pytorch_model.bin', size_bytes: 444 * 1024 * 1024, active: false, custom: true },
+        { id: 'tts|en|kokoro|1', family: 'tts', language: 'en', model_id: 'kokoro-v1_0', version: 'v1.0', variant: 'CUDA12.4', path: 'F:/hf_cache/kokoro-v1_0.pth', size_bytes: 327 * 1024 * 1024, active: false, custom: true },
       ],
       models_scan: (args) => {
         const dir = (args && (args.modelDir || args.model_dir)) || '';
@@ -320,6 +326,20 @@ async function sessionDone(cdp) {
   await sleep(500);
   await dumpDom(cdp, 'UX5#4 badge', '.lib-badge, .settings-section .import-tip');
   await shot(cdp, 'ux5-4-library-root-badge');
+
+  // --- UX5 修正: 书库不在数据根下 → 收拢警告 + 一键收拢 (设置页重渲染演示) ---
+  await evalJs(cdp, `window.__ux5OutInside = false; true`);
+  await evalJs(cdp, `location.hash = '#/library'`);
+  await waitFor(cdp, `!!document.querySelector('.book-card')`);
+  await evalJs(cdp, `location.hash = '#/settings'`);
+  await waitFor(cdp, `!!document.querySelector('.lib-badge')`);
+  await sleep(400);
+  await click(cdp, '.settings-tab', '系统与书库', { exact: true });
+  await waitFor(cdp, `!!document.querySelector('.lib-badge')`);
+  await sleep(500);
+  await dumpDom(cdp, 'UX5修正 out-warn', '.import-tip, .settings-meta');
+  await shot(cdp, 'ux5-4-out-consolidate-warn');
+  await evalJs(cdp, `window.__ux5OutInside = true; true`);
 
   // --- #5: 模型与依赖 → 模型目录 + 扫描候选版本徽章 ---
   await click(cdp, '.settings-tab', '模型与依赖', { exact: true });

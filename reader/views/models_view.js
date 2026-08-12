@@ -91,6 +91,12 @@
       });
     }
 
+    /** UX5 修正 (2026-08-13): 目录路径归一化 (正斜杠 + 去尾部斜杠) —— 同一目录
+     *  F:/hf_cache 与 F:\hf_cache 必须判重为同一项, 不能两个都显示。 */
+    _normDir(p) {
+      return String(p || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    }
+
     /** UX5 #5 (2026-08-13): 模型目录 —— 已登记模型所在目录 + HF 缓存, 可增删。
      *  扫描弹窗 (M4-3①) 与这里共用 this._modelDirs, 一处维护两处生效。 */
     _loadModelDirs(dirsEl) {
@@ -98,8 +104,10 @@
         const d = (cfg && cfg.ok && cfg.data) || {};
         const modelDir = String(d.llm_model || d.tts_model || '').replace(/[\\/][^\\/]+$/, '');
         const dirs = [];
-        if (modelDir) dirs.push(modelDir);
-        if (d.hf_cache_dir && !dirs.includes(d.hf_cache_dir)) dirs.push(d.hf_cache_dir);
+        const modelDirN = this._normDir(modelDir);
+        const hfN = this._normDir(d.hf_cache_dir);
+        if (modelDirN) dirs.push(modelDirN);
+        if (hfN && !dirs.includes(hfN)) dirs.push(hfN);
         this._modelDirs = dirs;
         this._renderModelDirs(dirsEl);
       }).catch(() => {
@@ -129,8 +137,9 @@
       addBtn.onclick = () => {
         AiduMiscService.libraryDirPick().then((r) => {
           if (r.ok && r.data && !r.data.cancelled && r.data.path) {
-            if (!this._modelDirs.includes(r.data.path)) {
-              this._modelDirs.push(r.data.path);
+            const p = this._normDir(r.data.path);
+            if (!this._modelDirs.includes(p)) {
+              this._modelDirs.push(p);
               this._renderModelDirs(dirsEl);
             }
           }
@@ -472,21 +481,41 @@
         if (tip) sec.appendChild(el('div', 'import-tip', tip));
         const usable = usableOf(family);
         if (usable.length) {
-          // 已配置 → 当前模型名 + 换一个 (J2: 判据不看特定文件名)
-          const current = usable.find((m) => m.active) || usable[0];
-          const row = el('div', 'model-row');
-          const name = el('span', 'model-name', this._modelHumanName(current) + (current.custom ? ' (自定义)' : ''));
-          const badge = el('span', 'book-badge badge-ok', '可用');
-          badge.style.marginLeft = '8px';
-          name.appendChild(badge);
-          const size = el('span', 'model-meta', `${Math.round(current.size_bytes / 1e6)} MB`);
-          const actions = el('div', 'model-actions');
-          const switchBtn = el('button', 'btn-small', '换一个');
-          switchBtn.title = usable.length > 1 ? `另有 ${usable.length - 1} 个同功能模型` : '已登记的模型都在这里';
-          switchBtn.onclick = () => this._showFamilyModels(family, usable);
-          actions.appendChild(switchBtn);
-          row.append(name, size, actions);
-          sec.appendChild(row);
+          // UX5 修正 (2026-08-13): "可用"只给推荐(active)模型 —— 处理时 prep 用的是推荐模型,
+          // 不是"任意已登记"。未设推荐时, 已登记模型只是躺在注册表里, 不能自称可用
+          // (否则会出现"语音合成=可用, 依赖组件却缺引擎"的自相矛盾, 用户实测撞见)。
+          const active = usable.find((m) => m.active);
+          if (active) {
+            // 已设推荐 → 当前模型名 + 换一个 (J2: 判据不看特定文件名)
+            const row = el('div', 'model-row');
+            const name = el('span', 'model-name', this._modelHumanName(active) + (active.custom ? ' (自定义)' : ''));
+            const badge = el('span', 'book-badge badge-ok', '可用');
+            badge.style.marginLeft = '8px';
+            name.appendChild(badge);
+            const size = el('span', 'model-meta', `${Math.round(active.size_bytes / 1e6)} MB`);
+            const actions = el('div', 'model-actions');
+            const switchBtn = el('button', 'btn-small', '换一个');
+            switchBtn.title = usable.length > 1 ? `另有 ${usable.length - 1} 个同功能模型` : '已登记的模型都在这里';
+            switchBtn.onclick = () => this._showFamilyModels(family, usable);
+            actions.appendChild(switchBtn);
+            row.append(name, size, actions);
+            sec.appendChild(row);
+          } else {
+            // 有登记但没设推荐 → 处理时不会用 (与依赖组件"缺引擎"一致, 不再谎称可用)
+            sec.appendChild(el('div', 'settings-hint settings-warn',
+              `已登记 ${usable.length} 个, 但都未设为推荐 —— 处理时不会自动使用, 引擎会缺 (见下方依赖组件)。点「换一个」把想用的设为推荐, 或直接下载推荐引擎。`));
+            const actions = el('div', 'model-actions');
+            const switchBtn = el('button', 'btn-small', '换一个');
+            switchBtn.onclick = () => this._showFamilyModels(family, usable);
+            actions.appendChild(switchBtn);
+            const hasCatalog = DOWNLOAD_CATALOG.some((c) => c.family === family);
+            if (hasCatalog) {
+              const dl = el('button', 'btn-small btn-primary', '去下载');
+              dl.onclick = () => this._showDownloadSheet(family);
+              actions.appendChild(dl);
+            }
+            sec.appendChild(actions);
+          }
         } else {
           // 没有可用模型 → 该段的「去下载」
           const missing = el('div', 'settings-hint settings-warn', missingTip || '未配置 —— 处理书籍前需要它。');
@@ -597,8 +626,9 @@
       addPathBtn.onclick = () => {
         AiduMiscService.libraryDirPick().then((r) => {
           if (r.ok && r.data && !r.data.cancelled && r.data.path) {
-            if (!this._scanPaths.includes(r.data.path)) {
-              this._scanPaths.push(r.data.path);
+            const p = this._normDir(r.data.path);
+            if (!this._scanPaths.includes(p)) {
+              this._scanPaths.push(p);
               this._renderScanPaths(pathList, resultEl);
             }
           }
@@ -629,9 +659,11 @@
         AiduMiscService.runtimeConfig().then((cfg) => {
           const d = (cfg && cfg.ok && cfg.data) || {};
           const modelDir = String(d.llm_model || d.tts_model || '').replace(/[\\/][^\\/]+$/, '');
-          if (modelDir) this._scanPaths.push(modelDir);
-          if (d.hf_cache_dir && !this._scanPaths.includes(d.hf_cache_dir)) {
-            this._scanPaths.push(d.hf_cache_dir);
+          const modelDirN = this._normDir(modelDir);
+          const hfN = this._normDir(d.hf_cache_dir);
+          if (modelDirN) this._scanPaths.push(modelDirN);
+          if (hfN && !this._scanPaths.includes(hfN)) {
+            this._scanPaths.push(hfN);
           }
           if (!this._scanPaths.length) {
             // M4-3②: 没有已知目录 → 让用户选一个, 绝不 fallback 'C:/' 扫系统盘

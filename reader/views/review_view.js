@@ -224,11 +224,12 @@
         return;
       }
       // 兜底: 直接走 store + 路由 (main.js 会绑定 onOpenInReader 更完整)
-      if (global.AiduStore && global.AiduRouter) {
-        AiduStore.set({ currentBook: { id: entry.edition_id, title: entry.edition_id } });
-        AiduStore.set({ readerBackRoute: 'review' });
+      // M2 (2026-08-12): 用 store 实例 (this.store) 而非 global.AiduStore (那是类, 没有 set)
+      if (this.store) {
+        this.store.set({ currentBook: { id: entry.edition_id, title: entry.edition_id } });
+        this.store.set({ readerBackRoute: 'review' });
         // 让阅读器打开后跳到 chapter/sentence
-        AiduStore.set({ vocabJump: {
+        this.store.set({ vocabJump: {
           chapter: entry.chapter_index,
           sentence: entry.sentence_index,
         } });

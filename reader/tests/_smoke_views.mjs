@@ -924,7 +924,7 @@ console.log('== 6c. E: 今日队列上限 + 折叠 (UX 2026-08-11) ==');
   rv3.cleanup();
 }
 
-console.log('== 6d. L3 (2026-08-11): 点「开始复习」必须触发重渲染 (不再赋同值 hash) ==');
+console.log('== 6d. L3/M2 (2026-08-11/12): 点「开始复习」触发重渲染 ==');
 {
   load('views/vocab_view.js');
   globalThis.AiduDictionaryService.vocabAll = async () => ({ ok: true, data: [
@@ -932,12 +932,10 @@ console.log('== 6d. L3 (2026-08-11): 点「开始复习」必须触发重渲染 
   ] });
   const navCalls = [];
   const fakeRouter = { navigate: (r) => navCalls.push(r) };
-  const vv = new globalThis.VocabView(new globalThis.AiduStore());
-  // 真实 app 里 main.js 用单例 store 并挂到 global; 测试里让视图与点击路径读同一个实例
   const storeV = new globalThis.AiduStore();
-  const AiduStoreClass = globalThis.AiduStore;
-  globalThis.AiduStore = storeV;
-  vv.store = storeV;
+  const vv = new globalThis.VocabView(storeV);
+  // M2 (2026-08-12): 不再用 globalThis.AiduStore = storeV 掩盖 bug —— 视图走 this.store,
+  // global.AiduStore 是类 (没有静态 set), 以前正是这里一点就抛 TypeError。
   vv.setRouter(fakeRouter);
   const vc = makeElement('div');
   vv.render(vc);
@@ -946,9 +944,53 @@ console.log('== 6d. L3 (2026-08-11): 点「开始复习」必须触发重渲染 
   const startBtn = queryAll(vc, 'button').find((b) => b.textContent === '开始复习');
   check('今日队列卡有「开始复习」按钮', !!startBtn);
   startBtn.onclick();
-  check('点击设置 reviewFocus=true', storeV.state.reviewFocus === true);
+  check('点击设置 reviewFocus=true (不再抛 TypeError)', storeV.state.reviewFocus === true);
   check('点击调用 router.navigate(vocab) (不再赋同值 hash)', navCalls.join(',') === 'vocab', 'nav=' + navCalls.join(','));
-  globalThis.AiduStore = AiduStoreClass;
+}
+
+console.log('== 6e. M2 (2026-08-12): 全链路 —— 点「开始复习」→ 真渲染 .review-grid, Esc 退出 ==');
+{
+  // 教训 8: 断言落在用户可见的最终 DOM。复刻 main.js 的 vocab 路由处理器 (真实 Router),
+  // 全程不 mask global.AiduStore —— 就是线上出 bug 的路径。
+  load('app/router.js');
+  const storeE = new globalThis.AiduStore();
+  const containerE = makeElement('div');
+  const navEl = makeElement('div');
+  const router = new globalThis.AiduRouter(makeElement('div'));
+  const vvE = new globalThis.VocabView(storeE);
+  const rvE = new globalThis.ReviewView(storeE);
+  let lastRoute = null;
+  const dispatch = (route) => { lastRoute = route; router._handlers[route](containerE); };
+  vvE.setRouter({ navigate: (r) => dispatch(r) });
+  router.register('vocab', (container) => {
+    rvE.cleanup();
+    if (storeE.state.reviewFocus) {
+      storeE.set({ reviewFocus: false });
+      navEl.classList.add('focus-hidden');
+      rvE.render(container);
+      rvE.onExit = () => { navEl.classList.remove('focus-hidden'); dispatch('vocab'); };
+    } else {
+      vvE.render(container);
+    }
+  });
+  dispatch('vocab');
+  await new Promise((r) => setTimeout(r, 100));
+  check('M2: 初始是词表 (.vocab-today-card 存在)', !!containerE.querySelector('.vocab-today-card'));
+  const startBtnE = queryAll(containerE, 'button').find((b) => b.textContent === '开始复习');
+  startBtnE && startBtnE.onclick();
+  await new Promise((r) => setTimeout(r, 100));
+  // 教训 8 DOM 断言: 点击后 .review-grid 存在、.vocab-today-card 不存在
+  check('M2: 点击后 .review-grid 存在 (专注模式真渲染)', !!containerE.querySelector('.review-grid'), 'has-grid=' + !!containerE.querySelector('.review-grid'));
+  check('M2: 点击后 .vocab-today-card 不存在', !containerE.querySelector('.vocab-today-card'));
+  check('M2: 顶栏 nav 加 focus-hidden (专注模式视觉)', navEl.className.includes('focus-hidden'), navEl.className);
+  const exitBtnE = queryAll(containerE, 'button').find((b) => b.textContent === '退出复习');
+  check('M2: 专注模式有「退出复习」按钮', !!exitBtnE);
+  // Esc / 退出 → 回词表
+  if (exitBtnE) exitBtnE.onclick();
+  await new Promise((r) => setTimeout(r, 80));
+  check('M2: 退出后 .vocab-today-card 回来', !!containerE.querySelector('.vocab-today-card'));
+  check('M2: 退出后 .review-grid 消失', !containerE.querySelector('.review-grid'));
+  check('M2: 退出后 nav 移除 focus-hidden', !navEl.className.includes('focus-hidden'));
 }
 
 console.log('== 7. S5 只播这一句 (player.playOne 单句停) ==');

@@ -118,8 +118,12 @@
       const startBtn = el('button', 'btn-primary', '开始复习');
       startBtn.title = '进入专注模式: 隐藏顶栏与词表, 只留三栏; Esc 退出, 进度保留';
       startBtn.onclick = () => {
-        if (global.AiduStore) {
-          global.AiduStore.set({ reviewFocus: true });
+        if (this.store) {
+          // M2 (2026-08-12) 真凶: 这里曾写 global.AiduStore.set(...) —— global.AiduStore
+          // 是**类** (app/store.js: global.AiduStore = Store), 类上没有实例方法 set,
+          // 一点「开始复习」就抛 TypeError, 路由根本没走到 → 点了没反应。
+          // 视图持有 store 实例 (构造注入), 直接 this.store.set。
+          this.store.set({ reviewFocus: true });
           // L3 (2026-08-11): 不能再靠 location.hash 赋同值触发路由 —— 当前 hash 已经就是
           // #/vocab, 赋同值不触发 hashchange, 点「开始复习」就什么都不发生。
           // 直接走 router.navigate('vocab') (同路由时强制 dispatch 重渲染进专注模式)。
@@ -364,10 +368,11 @@
         }],
         ['在阅读器中打开', () => {
           if (!e.edition_id) { AiduToast.show('这个词没有来源定位, 无法打开', 'info'); return; }
-          if (global.AiduStore && global.AiduRouter) {
-            global.AiduStore.set({ currentBook: { id: e.edition_id, title: e.edition_id } });
-            global.AiduStore.set({ readerBackRoute: 'vocab' });
-            global.AiduStore.set({ vocabJump: { chapter: e.chapter_index, sentence: e.sentence_index } });
+          // M2 (2026-08-12): 用 store 实例 (this.store) 而非 global.AiduStore (那是类, 没有 set)
+          if (this.store) {
+            this.store.set({ currentBook: { id: e.edition_id, title: e.edition_id } });
+            this.store.set({ readerBackRoute: 'vocab' });
+            this.store.set({ vocabJump: { chapter: e.chapter_index, sentence: e.sentence_index } });
             window.location.hash = '#/reader';
           }
         }],

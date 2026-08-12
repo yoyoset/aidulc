@@ -49,9 +49,17 @@ class KokoroEngine:
         if not os.path.exists(model_path):
             raise EngineError(f"TTS 模型文件不存在: {model_path}")
         if not os.path.exists(config_path):
-            raise EngineError(f"TTS config.json 不存在: {config_path}")
+            raise EngineError(
+                f"TTS 模型不完整: {model_path} 同目录缺 config.json。"
+                "Kokoro 需要 模型文件+config.json+voices/ 在同一目录 —— 请把推荐 TTS 指向 "
+                "HF 缓存里完整的 models--hexgrad--Kokoro-82M/snapshots/<sha>/ 目录内的 kokoro-v1_0.pth"
+            )
         if not os.path.exists(os.path.join(os.path.dirname(model_path), "voices")):
-            raise EngineError(f"TTS voices 目录不存在: {os.path.join(os.path.dirname(model_path), 'voices')}")
+            raise EngineError(
+                f"TTS 模型不完整: {model_path} 同目录缺 voices/ 目录。"
+                "Kokoro 需要 模型文件+config.json+voices/ 在同一目录 —— 请把推荐 TTS 指向 "
+                "HF 缓存里完整的 models--hexgrad--Kokoro-82M/snapshots/<sha>/ 目录内的 kokoro-v1_0.pth"
+            )
 
         self.model = KModel(config=config_path, model=model_path)
         self.model.to(device).eval()

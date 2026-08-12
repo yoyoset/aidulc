@@ -26,6 +26,62 @@ pub fn user_data_dir() -> PathBuf {
     PathBuf::from("aidulc-data")
 }
 
+/// UX5 #4 (2026-08-13): 书库位置 = 数据根 —— 用户可整根迁移到新位置。
+/// 数据根变更通过固定位置的指针文件记录 (`default_data_dir/data_root.txt` 存绝对路径),
+/// 启动时先读指针再定 data_dir, 否则 config.toml 跟着根走会陷入"先有鸡还是先有蛋"。
+pub fn data_root_pointer_path(default_data_dir: &Path) -> PathBuf {
+    default_data_dir.join("data_root.txt")
+}
+
+/// 读数据根指针: 存在且非空 → 返回指向的根 (调用方负责校验目录存在)。
+pub fn read_data_root(default_data_dir: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(data_root_pointer_path(default_data_dir)).ok()?;
+    let t = text.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(t))
+    }
+}
+
+/// 写数据根指针 (书库位置"更改…"整根迁移完成后调用, 下次启动从新根读)。
+pub fn write_data_root(default_data_dir: &Path, root: &Path) -> Result<(), String> {
+    let _ = std::fs::create_dir_all(default_data_dir);
+    std::fs::write(
+        data_root_pointer_path(default_data_dir),
+        root.to_string_lossy().as_bytes(),
+    )
+    .map_err(|e| format!("写数据根指针失败: {e}"))
+}
+
+/// UX5 #4: Windows 首次默认书库位置 = 我的文档/aidulc (可见、可预期)。
+/// 仅当该位置是用户可写的 Documents 目录时返回 Some; 探测失败 → None (前端用 APPDATA 兜底)。
+pub fn recommended_data_root() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(up) = std::env::var("USERPROFILE") {
+            let docs = PathBuf::from(&up).join("Documents");
+            // 含 OneDrive Documents: %USERPROFILE%\OneDrive\Documents 存在时优先
+            let onedrive_docs = PathBuf::from(&up).join("OneDrive").join("Documents");
+            let base = if onedrive_docs.is_dir() {
+                onedrive_docs
+            } else {
+                docs
+            };
+            if base.is_dir() {
+                return Some(base.join("aidulc"));
+            }
+        }
+        // USERPROFILE 拿不到 Documents → 退回 APPDATA 默认 (至少可写)
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            if !appdata.is_empty() {
+                return Some(PathBuf::from(appdata).join("aidulc"));
+            }
+        }
+    }
+    Some(user_data_dir())
+}
+
 /// 便携模式判定: `AIDULC_PORTABLE=1` 环境变量或 exe 同目录存在 `portable.txt` 标记。
 /// 便携模式 = 数据明确要跟着 exe 走 (U 盘/绿色版), 与"开发构建把数据落在 target"区分开。
 pub fn is_portable(exe_dir: &Path) -> bool {

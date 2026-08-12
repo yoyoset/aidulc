@@ -12,8 +12,10 @@
     openPath(path) { return AiduBridge.openPath(path); },
     // P1.2: 书库位置("...存放在哪"的产品化入口, 见 docs/ROADMAP.md P1)
     libraryDirGet() { return AiduBridge.invoke('library_dir_get'); },
+    // UX5 #4 (2026-08-13): 书库位置 = 数据根 —— 健康状态 (存在/可写/原因, 绿/红徽章)
+    libraryRootStatus() { return AiduBridge.invoke('library_root_status'); },
     libraryDirPick() { return AiduBridge.invoke('library_dir_pick'); },
-    libraryDirPickAndSet() { return AiduBridge.invoke('library_dir_pick_and_set'); },
+    libraryDirPickAndSet(newDir) { return AiduBridge.invoke('library_dir_pick_and_set', { newDir: newDir || null }); },
     // L7 (2026-08-11): 扫描/登记外部书库目录 (不复制不移动文件)
     libraryDirScan(dir) { return AiduBridge.invoke('library_dir_scan', { dir }); },
     libraryDirImport(packs) { return AiduBridge.invoke('library_dir_import', { packs }); },

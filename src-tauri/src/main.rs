@@ -267,11 +267,21 @@ fn main() {
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
         .unwrap_or_default();
     // J0 (2026-08-11): 数据根目录 = 便携模式 exe 同目录, 否则用户数据目录 (%APPDATA%/aidulc)。
+    // UX5 #4 (2026-08-13): 书库位置 = 数据根 —— 用户更改过书库位置时, 固定位置存了
+    // 数据根指针 (default_data_dir/data_root.txt), 启动先读指针再定 data_dir,
+    // 否则 config.toml 跟着根走会陷入"先有鸡还是先有蛋"。
     let portable = services::config::is_portable(&exe_dir);
-    let data_dir = if portable {
+    let default_data_dir = if portable {
         exe_dir.clone()
     } else {
         services::config::user_data_dir()
+    };
+    let data_dir = if portable {
+        default_data_dir.clone()
+    } else {
+        services::config::read_data_root(&default_data_dir)
+            .filter(|p| p.is_dir())
+            .unwrap_or_else(|| default_data_dir.clone())
     };
 
     // 日志 (用户反馈排查: 启动时明确侧车路径, os error 3 一眼可见原因)。
@@ -548,6 +558,8 @@ fn main() {
             commands::misc::runtime_config,
             commands::misc::components_health,
             commands::misc::library_dir_get,
+            commands::misc::library_root_status,
+            commands::misc::data_root_recommended,
             commands::misc::library_dir_pick,
             commands::misc::library_dir_pick_and_set,
             commands::misc::library_dir_scan,

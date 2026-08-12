@@ -203,7 +203,10 @@ globalThis.AiduReadingService = { get: async () => ({ ok: true, data: null }), s
 globalThis.AiduMiscService = {
   logPath: async () => ({ ok: true, data: { path: 'C:/log' } }), componentsHealth: async () => ({ ok: true, data: [] }),
   runtimeConfig: async () => ({ ok: true, data: {} }), openPath: async () => ({ ok: true }),
-  libraryDirGet: async () => ({ ok: true, data: 'C:/aidulc-data' }), libraryDirPickAndSet: async () => ({ ok: true, data: { cancelled: true } }), libraryDirPick: async () => ({ ok: true, data: { cancelled: true } }), libraryDirScan: async () => ({ ok: true, data: { importable: [], existing: [] } }), libraryDirImport: async () => ({ ok: true, data: { imported: 0, failed: [] } }),
+  libraryDirGet: async () => ({ ok: true, data: 'C:/aidulc-data' }),
+  libraryRootStatus: async () => ({ ok: true, data: { root: 'C:/aidulc-data', exists: true, writable: true, ok: true, reason: '', db_exists: true, out_dir: 'C:/aidulc-data/jobs_out' } }),
+  dataRootRecommended: async () => ({ ok: true, data: { path: 'C:/Users/x/Documents/aidulc' } }),
+  libraryDirPickAndSet: async () => ({ ok: true, data: { cancelled: true } }), libraryDirPick: async () => ({ ok: true, data: { cancelled: true } }), libraryDirScan: async () => ({ ok: true, data: { importable: [], existing: [] } }), libraryDirImport: async () => ({ ok: true, data: { imported: 0, failed: [] } }),
   docParserInstall: async () => ({ ok: true, data: { ok: true } }),
   // J0 (2026-08-11): 数据目录 / 迁移 (smoke stub: 无待迁移)
   dataMigrationStatus: async () => ({ ok: true, data: { portable: false, data_dir: 'C:/aidulc', db_path: 'C:/aidulc/data.db', out_dir: 'C:/aidulc/jobs_out', pending: false } }),
@@ -592,12 +595,16 @@ console.log('== 2f. L11 (2026-08-11): 多后端列表 —— 当前高亮 / 切�
   check('L11: 新增 → backendAdd(单位, url)', backendCalls.add.some(([n, u]) => n === '单位' && u === 'https://c.workers.dev'), JSON.stringify(backendCalls.add));
 }
 
-console.log('== 2g. M5 (2026-08-12): 书库位置三按钮每个都有明确结果 + 收进一组 ==');
+console.log('== 2g. M5 + UX5 #4 (2026-08-12/13): 书库位置三按钮 + 整根迁移 + 绿色徽章 ==');
 {
   store.state.settingsTab = 'system';
-  // 更改… 成功: 结果说清"书库位置已改为 X, 原目录 N 本书未移动"
-  globalThis.AiduMiscService.libraryDirPickAndSet = async () => ({ ok: true, data: { cancelled: false, new_dir: 'D:/aidulc-data', book_count: 3 } });
-  globalThis.AiduMiscService.libraryDirPick = async () => ({ ok: true, data: { cancelled: true } });
+  // 徽章: 生效 → 绿色; 失效 → 红 + 原因
+  globalThis.AiduMiscService.libraryRootStatus = async () => ({ ok: true, data: { root: 'D:/aidulc', exists: true, writable: true, ok: true, reason: '', db_exists: true, out_dir: 'D:/aidulc/jobs_out' } });
+  // 更改… 新流程: pick → 确认 (L1 清单+备份) → libraryDirPickAndSet(newRoot) → 整根迁移结果
+  const migrateCalls = [];
+  globalThis.AiduMiscService.libraryDirPickAndSet = async (newDir) => { migrateCalls.push(newDir); return { ok: true, data: { cancelled: false, new_dir: newDir, backup_path: 'D:/aidulc-new/backups/x', restart_required: true, book_count: 3 } }; };
+  globalThis.AiduMiscService.libraryDirPick = async () => ({ ok: true, data: { cancelled: false, path: 'D:/aidulc-new' } });
+  globalThis.AiduMiscService.libraryDirGet = async () => ({ ok: true, data: 'D:/aidulc' });
   globalThis.AiduMiscService.libraryDirScan = async () => ({ ok: true, data: { importable: [], existing: [] } });
   globalThis.AiduMiscService.libraryDirImport = async () => ({ ok: true, data: { imported: 0, failed: [] } });
   const svM5 = new globalThis.SettingsView(store);
@@ -622,17 +629,39 @@ console.log('== 2g. M5 (2026-08-12): 书库位置三按钮每个都有明确结�
   const tbM5 = changeBtn && changeBtn.parentNode;
   check('M5: 三按钮收进 .page-toolbar 一组', tbM5 && String(tbM5.className).includes('page-toolbar') &&
     [openBtnM5, changeBtn, loadBtnM5].every((b) => b && b.parentNode === tbM5), tbM5 && tbM5.className);
-  // 更改成功
+  // UX5 #4: 绿色生效徽章 (存在且可写)
+  const badgeOk = libSecM5 && libSecM5.querySelector('.lib-badge');
+  check('UX5#4: 生效位置绿色徽章 (.lib-badge-ok · 文案 生效中)', badgeOk && badgeOk.className.includes('lib-badge-ok') && badgeOk.textContent.includes('生效中'), badgeOk && (badgeOk.className + ' ' + badgeOk.textContent));
+  // 更改成功: pick → 确认弹窗 (L1 清单+备份说明) → 确认 → 迁移 → 结果"已整根迁移到"
+  confirmCaptured = null;
   changeBtn.onclick();
   await new Promise((r) => setTimeout(r, 40));
+  check('UX5#4: 更改前弹确认 (整根迁移 + 备份 + 校验说明)', confirmCaptured && String(confirmCaptured.title).includes('整根迁移') &&
+    String(confirmCaptured.message).includes('备份') && String(confirmCaptured.message).includes('校验'), confirmCaptured && confirmCaptured.title);
+  confirmCaptured && confirmCaptured.onConfirm && confirmCaptured.onConfirm();
+  await new Promise((r) => setTimeout(r, 40));
+  check('UX5#4: 确认后调 libraryDirPickAndSet(新根)', migrateCalls.includes('D:/aidulc-new'), JSON.stringify(migrateCalls));
   const libMsgText = libMsgOf();
-  check('M5: 更改成功 → 结果含「书库位置已改为」+「原目录 3 本书未移动」', libMsgText.includes('书库位置已改为 D:/aidulc-data') && libMsgText.includes('原目录 3 本书未移动'), libMsgText.slice(0, 120));
+  check('UX5#4: 迁移结果含「已整根迁移到」+ 备份路径 + 重启提示', libMsgText.includes('已整根迁移到 D:/aidulc-new') && libMsgText.includes('备份') && libMsgText.includes('重启'), libMsgText.slice(0, 140));
   // 更改取消: 明确说"已取消", 不静默
-  globalThis.AiduMiscService.libraryDirPickAndSet = async () => ({ ok: true, data: { cancelled: true } });
+  globalThis.AiduMiscService.libraryDirPick = async () => ({ ok: true, data: { cancelled: true } });
   changeBtn.onclick();
   await new Promise((r) => setTimeout(r, 40));
   const cancelText = libMsgOf();
   check('M5: 更改取消 → 明确说「已取消, 书库位置未更改」', cancelText.includes('已取消') && cancelText.includes('书库位置未更改'), cancelText.slice(0, 80));
+  // 失效徽章: 目录不可写 → 红 + 原因
+  globalThis.AiduMiscService.libraryRootStatus = async () => ({ ok: true, data: { root: 'X:/gone', exists: false, writable: false, ok: false, reason: '目录不存在', db_exists: false, out_dir: '' } });
+  const svM5b = new globalThis.SettingsView(store);
+  const cM5b = makeElement('div');
+  svM5b.render(cM5b);
+  await new Promise((r) => setTimeout(r, 80));
+  store.state.settingsTab = null;
+  const libSecM5b = queryAll(cM5b, '.settings-section').find((s) => {
+    const h2 = (s._children || []).find((x) => x.tagName === 'H2');
+    return h2 && h2.textContent === '书库位置';
+  });
+  const badgeErr = libSecM5b && libSecM5b.querySelector('.lib-badge');
+  check('UX5#4: 失效位置红徽章 + 原因', badgeErr && badgeErr.className.includes('lib-badge-err') && badgeErr.textContent.includes('目录不存在'), badgeErr && (badgeErr.className + ' ' + badgeErr.textContent));
   // 加载已有书库取消: 明确说已取消
   loadBtnM5.onclick();
   await new Promise((r) => setTimeout(r, 40));
@@ -651,8 +680,8 @@ console.log('== 2g. M5 (2026-08-12): 书库位置三按钮每个都有明确结�
   await new Promise((r) => setTimeout(r, 40));
   const loadText = libMsgOf();
   check('M5: 登记结果说清「扫描到 2 本, 已登记 2 本」', loadText.includes('扫描到 2 本') && loadText.includes('已登记 2 本'), loadText.slice(0, 80));
-  // 换空目录后原目录文件不动 —— 后端不搬文件 (L7 边界), 前端结果已写明"原目录 N 本书未移动"
-  check('M5: 更改只改配置不搬文件 (结果文案已覆盖)', true);
+  // UX5 #4: 整根迁移由后端 L1 清单+备份+校验保证文件一个不少 (Rust 单测锁)
+  check('UX5#4: 整根迁移文件安全由后端 L1 清单/备份/校验保证 (见 Rust 单测 ux5_migrate_data_root)', true);
 }
 
 console.log('== 3. library_view 导入格 (G1): 网格最后一格, 无下拉, 点击走 pickFiles ==');
@@ -1782,6 +1811,25 @@ console.log('== 10. N1 (2026-08-12): 向导完成页三选一 + 代价告知 + �
   check('N1: 模型发现步告知总下载量 (GB)', /约需下载 [\d.]+ GB/.test(modelText), modelText.slice(0, 120));
   check('N1: 模型发现步告知单书耗时量级 (几十分钟)', modelText.includes('几十分钟'), modelText.slice(0, 120));
   check('N1: 没有模型目录时绝不扫 C:/', !scanDirCalls.includes('C:/') && !scanDirCalls.some((d) => String(d).toLowerCase().startsWith('c:') && (String(d).toLowerCase() === 'c:/' || String(d).toLowerCase() === 'c:\\')), JSON.stringify(scanDirCalls));
+
+  // UX5 #4: 向导第 2 步 (数据目录) —— 推荐位置可见 + 完整结构引导 + 可设置
+  globalThis.AiduMiscService.dataRootRecommended = async () => ({ ok: true, data: { path: 'C:/Users/x/Documents/aidulc' } });
+  globalThis.AiduMiscService.libraryDirGet = async () => ({ ok: true, data: 'C:/Users/x/AppData/Roaming/aidulc' });
+  const migrateCallsW = [];
+  globalThis.AiduMiscService.libraryDirPickAndSet = async (d) => { migrateCallsW.push(d); return { ok: true, data: { cancelled: false, new_dir: d, backup_path: 'C:/Users/x/Documents/aidulc/backups/x', restart_required: true } }; };
+  const wvData = new globalThis.WizardView(storeW);
+  wvData.step = 1;
+  const wcData = makeElement('div');
+  wvData.render(wcData);
+  await new Promise((r) => setTimeout(r, 80));
+  const dataText = textOf(wcData);
+  check('UX5#4: 向导第 2 步显示推荐位置 (我的文档/aidulc)', dataText.includes('C:/Users/x/Documents/aidulc'), dataText.slice(0, 100));
+  check('UX5#4: 向导第 2 步结构引导 (data.db/jobs_out/models/logs)', ['data.db', 'jobs_out/', 'models/', 'logs/'].every((k) => dataText.includes(k)), dataText.slice(0, 140));
+  const useRecBtn = queryAll(wcData, 'button').find((b) => b.textContent === '使用推荐位置');
+  check('UX5#4: 有「使用推荐位置」按钮', !!useRecBtn);
+  useRecBtn && useRecBtn.onclick();
+  await new Promise((r) => setTimeout(r, 60));
+  check('UX5#4: 使用推荐位置 → 调整根迁移 (libraryDirPickAndSet)', migrateCallsW.includes('C:/Users/x/Documents/aidulc'), JSON.stringify(migrateCallsW));
 
   // 设置页可重入: 「重新运行首次向导」→ wizardReset + 跳 #/wizard
   store.state.settingsTab = 'system';

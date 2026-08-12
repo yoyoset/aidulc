@@ -103,9 +103,73 @@
     }
 
     _stepDataDir(content) {
-      // 易用性审查: 不要求用户指定目录, 纯信息提示 (默认位置自动管理)
-      content.appendChild(el('p', null, '书库、模型和音频都保存在应用自己的数据目录里, 不需要你操心。'));
-      content.appendChild(el('div', 'wizard-info', '你随时可以在"设置"里查看存放位置。'));
+      // UX5 #4 (2026-08-13): 书库位置 = 数据根 —— 首次默认推荐 我的文档/aidulc
+      // (可见、可预期), 显示完整结构引导; 用户可改 (走整根迁移)。
+      content.appendChild(el('p', null, '书库、模型和音频都保存在一个数据根目录里。推荐放在「我的文档」下, 随时可见。'));
+      const recBox = el('div', 'wizard-info');
+      const recPath = el('code', 'j0-path', '读取中…');
+      recPath.id = 'wizard-recommended-root';
+      const hint = el('div', 'wizard-hint', '');
+      recBox.append(recPath, hint);
+      content.appendChild(recBox);
+      // 完整结构引导 (每行一项说明)
+      const struct = el('div', 'wizard-struct');
+      const rows = [
+        ['data.db', '数据库 (词库/进度/书签)'],
+        ['jobs_out/', '书库 (生成的成品)'],
+        ['models/', '模型下载目录'],
+        ['backups/', '迁移与操作备份'],
+        ['logs/', '日志'],
+      ];
+      rows.forEach(([name, desc]) => {
+        const row = el('div', 'wizard-struct-row');
+        row.appendChild(el('code', null, name));
+        row.appendChild(el('span', null, ' — ' + desc));
+        struct.appendChild(row);
+      });
+      content.appendChild(struct);
+
+      // 用推荐位置 / 保持当前默认
+      const useRec = el('button', 'btn-primary', '使用推荐位置');
+      const keep = el('button', 'btn-small', '保持当前默认');
+      const status = el('div', 'sync-status', '');
+      const actions = el('div', 'prep-empty');
+      actions.append(useRec, keep, status);
+      content.appendChild(actions);
+
+      const loadRec = () => AiduMiscService.dataRootRecommended().then((r) => {
+        const path = (r.ok && r.data && r.data.path) || '';
+        recPath.textContent = path || '我的文档/aidulc (探测失败, 将用系统默认)';
+        recPath.title = path;
+        return path;
+      });
+      loadRec();
+
+      useRec.onclick = () => {
+        useRec.disabled = true;
+        status.textContent = '正在设置书库位置…';
+        AiduMiscService.dataRootRecommended().then((r) => {
+          const path = (r.ok && r.data && r.data.path) || '';
+          if (!path) { status.textContent = '探测推荐位置失败, 保持默认。'; useRec.disabled = false; return; }
+          // 与当前根一致 → 无需迁移
+          return AiduMiscService.libraryDirGet().then((cur) => {
+            if (cur.ok && cur.data === path) {
+              status.textContent = '书库位置已是「' + path + '」';
+              useRec.textContent = '✓ 已使用推荐位置';
+              return;
+            }
+            return AiduMiscService.libraryDirPickAndSet(path).then((m) => {
+              if (!m.ok) { status.textContent = '设置失败: ' + m.error; useRec.disabled = false; return; }
+              const d = m.data || {};
+              if (d.cancelled) { status.textContent = '已取消, 保持当前位置。'; useRec.disabled = false; return; }
+              status.textContent = '已设置书库位置为「' + d.new_dir + '」。重启后生效, 现在可以继续。';
+              useRec.textContent = '✓ 已设置推荐位置';
+            });
+          });
+        });
+      };
+      keep.onclick = () => { status.textContent = '保持当前默认位置, 随时可在设置里更改。'; this._advance(); };
+
       const next = el('button', 'btn-primary', '下一步');
       next.onclick = () => this._advance();
       content.appendChild(next);

@@ -33,6 +33,14 @@ pub struct MigrationMarker {
     /// L1-b (2026-08-11): 迁移前对 jobs_out 落盘的校验和清单 (每个文件的相对路径 +
     /// 大小 + sha256)。Phase 2 删源前逐条比对; 清单不匹配 → 不删源、报错。
     pub manifest: Vec<ManifestEntry>,
+    /// UX5 #4 (2026-08-13): 整根迁移 (书库位置 = 数据根) 时, models/ 也随根走。
+    /// 空路径 = 本次迁移没动 models (旧位置没有)。
+    #[serde(default)]
+    pub legacy_models: PathBuf,
+    #[serde(default)]
+    pub target_models: PathBuf,
+    #[serde(default)]
+    pub manifest_models: Vec<ManifestEntry>,
 }
 
 /// J0: 一次迁移的完整计划 (前端提示 + migration_run 执行用)。
@@ -184,12 +192,31 @@ pub fn cleanup_pending(data_dir: &Path) -> Result<(), String> {
             }
         }
     }
+    // UX5 #4: models 也随根走 —— 删源前同样核验目标 models
+    if !m.manifest_models.is_empty() {
+        match verify_manifest(&m.target_models, &m.manifest_models) {
+            Ok(()) => {}
+            Err(e) => {
+                crate::infrastructure::log::warn(
+                    "migration",
+                    &format!(
+                        "删源前 models 核验失败, 保留旧目录: {e} (源: {}; 请人工确认后再手动清理)",
+                        m.legacy_models.to_string_lossy()
+                    ),
+                );
+                return Err(format!("删源前 models 清单核验失败, 保留旧目录: {e}"));
+            }
+        }
+    }
     for p in [&m.legacy_out, &m.legacy_db, &m.legacy_cfg] {
         remove_any(p);
     }
     // WAL/SHM 跟着 data.db 走
     remove_any(&with_suffix(&m.legacy_db, "-wal"));
     remove_any(&with_suffix(&m.legacy_db, "-shm"));
+    if !m.legacy_models.as_os_str().is_empty() {
+        remove_any(&m.legacy_models);
+    }
     let _ = fs::remove_file(&marker);
     crate::infrastructure::log::info(
         "migration",
@@ -353,6 +380,35 @@ pub fn run_migration(
         ),
     );
 
+    // UX5 #4 (2026-08-13): 整根迁移时 models/ 也随根走 (模型下载目录)。
+    // legacy_out.parent() = 旧数据根, target_out.parent() = 新数据根 (jobs_out 直接挂在根下)。
+    let legacy_models = plan
+        .legacy_out
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("models");
+    let target_models = plan
+        .target_out
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("models");
+    let manifest_models = if legacy_models.is_dir() {
+        let mm = build_manifest(&legacy_models)?;
+        copy_tree_with_verify(&legacy_models, &target_models)?;
+        verify_manifest(&target_models, &mm)?;
+        crate::infrastructure::log::info(
+            "migration",
+            &format!(
+                "models 校验和清单核验通过: 目标 {} 与清单 {} 个文件一致",
+                target_models.to_string_lossy(),
+                mm.len()
+            ),
+        );
+        mm
+    } else {
+        Vec::new()
+    };
+
     // 3. 复制 data.db: SQLite 在线备份 VACUUM INTO → 一致性快照
     {
         let conn = db.conn.lock().unwrap();
@@ -392,6 +448,9 @@ pub fn run_migration(
         legacy_cfg: plan.legacy_cfg.clone(),
         target_out: plan.target_out.clone(),
         manifest,
+        legacy_models,
+        target_models,
+        manifest_models,
     };
     let marker_text = serde_json::to_string(&marker).map_err(|e| e.to_string())?;
     fs::write(
@@ -438,6 +497,79 @@ pub fn dry_run(plan: &MigrationPlan) -> serde_json::Value {
         "db_exists": plan.legacy_db.exists(),
         "db_bytes": std::fs::metadata(&plan.legacy_db).map(|m| m.len()).unwrap_or(0),
     })
+}
+
+/// UX5 #4 (2026-08-13): 书库位置 = 数据根 —— 整根迁移 (config + db + jobs_out + models 一起)。
+/// 构建整根迁移计划 → 复用 run_migration (备份/复制/校验/写标记) → 写数据根指针。
+/// 返回 report; 旧文件由下次启动 cleanup_pending 按清单核验后清理。
+pub fn migrate_data_root(
+    db: &crate::store::Db,
+    old_root: &Path,
+    new_root: &Path,
+    default_data_dir: &Path,
+) -> Result<MigrationReport, String> {
+    if !old_root.is_dir() {
+        return Err(format!(
+            "当前书库位置不存在: {}",
+            old_root.to_string_lossy()
+        ));
+    }
+    let plan = MigrationPlan {
+        legacy_out: old_root.join("jobs_out"),
+        legacy_db: old_root.join("data.db"),
+        legacy_cfg: old_root.join("config.toml"),
+        target_out: new_root.join("jobs_out"),
+        target_db: new_root.join("data.db"),
+        target_cfg: new_root.join("config.toml"),
+    };
+    let report = run_migration(db, &plan)?;
+    // 写数据根指针 → 下次启动从新根读 (config/db/logs/models/backups 都随根走)
+    crate::services::config::write_data_root(default_data_dir, new_root)?;
+    Ok(report)
+}
+
+/// UX5 #4: 新书库位置可用性检查 (L1 清单前置): 目标必须为空/不存在且可写, 且不能
+/// 在当前根内部 (避免把根迁进自己的子目录造成递归)。返回 Ok(()) 或 Err(人话原因)。
+pub fn check_new_root(old_root: &Path, new_root: &Path) -> Result<(), String> {
+    let canonical_old = old_root
+        .canonicalize()
+        .unwrap_or_else(|_| old_root.to_path_buf());
+    let new_str = new_root.to_string_lossy().to_lowercase();
+    let old_str = canonical_old.to_string_lossy().to_lowercase();
+    if old_str == new_str {
+        return Err("选择的位置和当前书库位置一致, 无需迁移".into());
+    }
+    // 新位置不能在当前根内部 (或反过来, 当前根在新位置内部 —— 也会循环迁移)
+    if old_str.starts_with(&new_str) || new_str.starts_with(&old_str) {
+        return Err("新位置不能是当前书库位置的子目录或父目录 (会循环迁移)".into());
+    }
+    if new_root.exists() {
+        let (count, _) = count_and_size(new_root).map_err(|e| format!("检查新位置失败: {e}"))?;
+        if count > 0 {
+            return Err(format!(
+                "新位置不是空目录 (里面有 {} 个文件/目录)。整根迁移需要目标为空, 请另选一个空目录或先清空",
+                count
+            ));
+        }
+    } else if let Some(parent) = new_root.parent() {
+        if !parent.is_dir() {
+            return Err(format!(
+                "新位置的父目录不存在: {}",
+                parent.to_string_lossy()
+            ));
+        }
+        // 父目录可写测试
+        let probe = parent.join(format!(".aidulc-write-test-{}", std::process::id()));
+        match std::fs::write(&probe, b"x") {
+            Ok(()) => {
+                let _ = std::fs::remove_file(&probe);
+            }
+            Err(e) => {
+                return Err(format!("新位置的父目录不可写: {e}"));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -495,6 +627,9 @@ mod tests {
             legacy_cfg: old.join("config.toml"),
             target_out: old.join("moved"),
             manifest: vec![],
+            legacy_models: PathBuf::new(),
+            target_models: PathBuf::new(),
+            manifest_models: vec![],
         };
         fs::write(marker_path(&data), serde_json::to_string(&m).unwrap()).unwrap();
         cleanup_pending(&data).unwrap();
@@ -552,6 +687,9 @@ mod tests {
             legacy_cfg: old.join("config.toml"),
             target_out: moved.clone(),
             manifest,
+            legacy_models: PathBuf::new(),
+            target_models: PathBuf::new(),
+            manifest_models: vec![],
         };
         fs::write(marker_path(&data), serde_json::to_string(&m).unwrap()).unwrap();
         assert!(cleanup_pending(&data).is_err(), "目标缺文件时必须拒绝删源");
@@ -575,6 +713,72 @@ mod tests {
         fs::write(d.join("x").join("f"), b"12345").unwrap();
         assert_eq!(count_and_size(&d).unwrap(), (1, 5));
         let _ = fs::remove_dir_all(&d);
+    }
+
+    /// UX5 #4 (2026-08-13): 书库位置 = 数据根 —— 整根迁移 (config+db+jobs_out+models),
+    /// 指针写入后 read_data_root 指向新根; 源计数==目标计数 (一个没少); Phase 2 删旧。
+    #[test]
+    fn ux5_migrate_data_root_moves_config_db_out_models() {
+        use crate::services::config;
+        let root = tmp("ux5");
+        let old_root = root.join("old-root");
+        let new_root = root.join("new-root");
+        let default_dir = root.join("default");
+        fs::create_dir_all(old_root.join("jobs_out")).unwrap();
+        fs::create_dir_all(old_root.join("models")).unwrap();
+        fs::write(old_root.join("jobs_out").join("bookpack.json"), b"{}").unwrap();
+        fs::write(old_root.join("models").join("Qwen.gguf"), b"model").unwrap();
+        fs::write(old_root.join("config.toml"), b"out_dir='jobs_out'\n").unwrap();
+        let db_path = old_root.join("data.db");
+        let db = crate::store::Db::open(db_path.to_str().unwrap()).unwrap();
+
+        // L1 前置检查
+        assert!(
+            check_new_root(&old_root, &new_root).is_ok(),
+            "空目标应通过 L1 前置"
+        );
+        assert!(
+            check_new_root(&old_root, &old_root.join("jobs_out")).is_err(),
+            "子目录应拒绝 (循环迁移)"
+        );
+        assert!(
+            check_new_root(&old_root, &old_root).is_err(),
+            "同位置应拒绝"
+        );
+
+        // 整根迁移
+        let report = migrate_data_root(&db, &old_root, &new_root, &default_dir).unwrap();
+        assert!(
+            report.target_out.contains("new-root"),
+            "jobs_out 应落在新根: {}",
+            report.target_out
+        );
+        // 新根子项齐全: config/db/jobs_out/models/backups
+        assert!(new_root.join("config.toml").exists());
+        assert!(new_root.join("data.db").exists());
+        assert!(new_root.join("jobs_out").join("bookpack.json").exists());
+        assert!(new_root.join("models").join("Qwen.gguf").exists());
+        assert!(new_root.join("backups").is_dir(), "应有备份目录");
+        // 数据根指针 → 下次启动从新根读
+        assert_eq!(
+            config::read_data_root(&default_dir).unwrap(),
+            new_root,
+            "指针应指向新根"
+        );
+        // 原位置文件一个没少: 源计数 == 目标计数 (迁移期)
+        let (sc, _) = count_and_size(&old_root.join("jobs_out")).unwrap();
+        let (tc, _) = count_and_size(&new_root.join("jobs_out")).unwrap();
+        assert_eq!(sc, tc, "jobs_out 源/目标文件数一致: {sc}/{tc}");
+        let (sm, _) = count_and_size(&old_root.join("models")).unwrap();
+        let (tm, _) = count_and_size(&new_root.join("models")).unwrap();
+        assert_eq!(sm, tm, "models 源/目标文件数一致: {sm}/{tm}");
+
+        // Phase 2: 新根读标记 → 清单核验通过 → 删旧 (db 被本测试持有锁, remove_any 静默忽略)
+        cleanup_pending(&new_root).unwrap();
+        assert!(!old_root.join("jobs_out").exists(), "旧 jobs_out 应被清理");
+        assert!(!old_root.join("models").exists(), "旧 models 应被清理");
+        assert!(new_root.join("jobs_out").join("bookpack.json").exists());
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

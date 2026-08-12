@@ -269,6 +269,8 @@ globalThis.AiduMiscService = {
   logPath: async () => ({ ok: true, data: { path: 'C:/log' } }), componentsHealth: async () => ({ ok: true, data: [] }),
   runtimeConfig: async () => ({ ok: true, data: {} }), openPath: async () => ({ ok: true }),
   libraryDirGet: async () => ({ ok: true, data: 'C:/aidulc-data' }),
+  libraryRootStatus: async () => ({ ok: true, data: { root: 'C:/aidulc-data', exists: true, writable: true, ok: true, reason: '', db_exists: true, out_dir: 'C:/aidulc-data/jobs_out' } }),
+  dataRootRecommended: async () => ({ ok: true, data: { path: 'C:/Users/x/Documents/aidulc' } }),
   libraryDirPickAndSet: async () => ({ ok: true, data: { cancelled: false, new_dir: 'D:/aidulc-data' } }),
   libraryDirPick: async () => ({ ok: true, data: { cancelled: false, path: 'D:/ext-lib' } }),
   libraryDirScan: async () => ({ ok: true, data: { importable: [], existing: [] } }),

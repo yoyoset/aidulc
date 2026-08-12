@@ -68,11 +68,61 @@ pub async fn components_health(
     serde_json::to_value(checks).map_err(|e| e.to_string())
 }
 
-/// 书库位置(当前生效的绝对路径, 供设置页展示)
+/// UX5 #4: 首次向导推荐的数据根位置 —— 我的文档/aidulc (Windows USERPROFILE/Documents,
+/// 含 OneDrive Documents), 可见可预期; 探测失败退回 APPDATA 兜底。
 #[tauri::command]
-pub fn library_dir_get(cfg: State<PrepConfig>) -> String {
+pub fn data_root_recommended() -> Result<serde_json::Value, String> {
+    let p = crate::services::config::recommended_data_root()
+        .unwrap_or_else(crate::services::config::user_data_dir);
+    Ok(serde_json::json!({ "path": p.to_string_lossy() }))
+}
+
+/// 书库位置(当前生效的数据根绝对路径, 供设置页展示 + 绿色徽章判定)。
+/// UX5 #4 (2026-08-13): 书库位置 = 数据根 —— 返回 DataPaths.data_dir (随指针迁移)。
+#[tauri::command]
+pub fn library_dir_get(paths: State<crate::DataPaths>) -> String {
     crate::infrastructure::log::info("cmd", "enter: library_dir_get");
-    cfg.out_dir.to_string_lossy().to_string()
+    paths.inner().data_dir.to_string_lossy().to_string()
+}
+
+/// UX5 #4 (2026-08-13): 当前书库位置(数据根)健康状态 —— 设置页绿色/红色徽章的数据源。
+/// ok = 目录存在且可写; 失效给原因 (人话)。
+#[tauri::command]
+pub fn library_root_status(
+    paths: State<crate::DataPaths>,
+    cfg: State<PrepConfig>,
+) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", "enter: library_root_status");
+    let root = paths.inner().data_dir.clone();
+    let exists = root.is_dir();
+    let writable = if exists {
+        let probe = root.join(format!(".aidulc-write-probe-{}", std::process::id()));
+        match std::fs::write(&probe, b"x") {
+            Ok(()) => {
+                let _ = std::fs::remove_file(&probe);
+                true
+            }
+            Err(_) => false,
+        }
+    } else {
+        false
+    };
+    let reason = if !exists {
+        "目录不存在"
+    } else if !writable {
+        "目录不可写"
+    } else {
+        ""
+    };
+    Ok(serde_json::json!({
+        "root": root.to_string_lossy(),
+        "exists": exists,
+        "writable": writable,
+        "ok": exists && writable,
+        "reason": reason,
+        "db_exists": paths.inner().db_path.is_file(),
+        "out_dir": cfg.out_dir.to_string_lossy(),
+    }))
 }
 
 /// J0 (2026-08-11): 数据目录现状 —— 前端据此展示完整路径 + 迁移提示。
@@ -227,64 +277,75 @@ pub fn online_config_clear_key() -> Result<serde_json::Value, String> {
     }))
 }
 
-/// 书库位置"更改..."(L7, 2026-08-11 重定义)
+/// 书库位置"更改..."(UX5 #4, 2026-08-13 重定义: 书库位置 = 数据根)
 ///
-/// **切换书库位置不移动、不删除任何文件** —— 只改配置 + 重启后按新位置读取。
-/// 旧的"选新目录后自动搬迁文件"行为已按 L7 安全边界移除: 用户要的绿色版场景是
-/// "整个库目录拷到另一台机器, 选中即用", 自动搬迁反而危险 (中途断掉会两边各缺一半)。
-/// 真要搬文件, 走 L1 那套带校验和清单的迁移流程 (data_migration), 不是这里。
+/// **整根迁移到新位置** (config.toml + data.db + jobs_out + models 一起搬), 走 L1 清单
+/// 校验 + 先备份 + 复制校验通过才允许删旧 (Phase 2 下次启动 cleanup_pending 按清单核验
+/// 后清理旧文件)。完成后写数据根指针 (default_data_dir/data_root.txt), 重启从新位置读。
+/// 这是 L7"只改配置不搬文件"的逆转: 用户这次要的是"整个库目录拷到另一台机器, 选中即用",
+/// 所以书库位置必须连数据一起走 (GOAL_2026-08-13_UX5 #4 用户决定)。
 ///
-/// **重启后生效, 不是热切换**: PrepConfig 是 Tauri 启动时一次性 `.manage()` 的不可变
-/// 状态, 让 out_dir 运行时可变需要把它包进 Mutex 并改遍所有读取点(job_orchestrator/
-/// library/misc 等几十处直接字段访问), 风险和收益不成比例——"改完需要重启"是常见软件
-/// 的标准做法, 不是偷懒抄近路, 这里显式在返回值里带 restart_required 让前端明确提示用户。
-///
-/// 任务处理中不允许改(参照 subgen"处理任务进行中不能改模型目录"的既有纪律,
-/// 避免正在写入的文件路径突然变化)。
+/// 任务处理中不允许改(避免正在写入的文件路径突然变化)。
+/// `new_dir` 可选: 传入则跳过系统目录选择 (前端已用 library_dir_pick 选好并确认),
+/// 否则打开系统目录选择框。前端流程: pick → 确认 (L1 清单+备份说明) → 本命令执行迁移。
 #[tauri::command]
 pub fn library_dir_pick_and_set(
     cfg: State<PrepConfig>,
     prep_state: State<PrepState>,
     paths: State<crate::DataPaths>,
     db: State<crate::store::Db>,
+    new_dir: Option<String>,
 ) -> Result<serde_json::Value, String> {
     if prep_state.running_job.lock().unwrap().is_some() {
         return Err("有任务正在处理中, 请先等待完成或暂停后再更改书库位置".into());
     }
 
-    let picked = rfd::FileDialog::new()
-        .set_title("选择书库位置")
-        .pick_folder();
+    let picked = match new_dir {
+        Some(d) if !d.trim().is_empty() => Some(std::path::PathBuf::from(d.trim())),
+        _ => rfd::FileDialog::new()
+            .set_title("选择书库位置 (整根迁移)")
+            .pick_folder(),
+    };
     let new_dir = match picked {
         Some(p) => p,
         None => return Ok(serde_json::json!({ "cancelled": true })),
     };
 
-    let old_dir = cfg.out_dir.clone();
-    if new_dir == old_dir {
-        return Ok(serde_json::json!({ "cancelled": true, "same": true }));
-    }
+    let old_root = paths.inner().data_dir.clone();
+    // L1 前置检查: 目标空/可写、不循环、不重复
+    crate::infrastructure::data_migration::check_new_root(&old_root, &new_dir)?;
 
-    // L7: 只改配置, 不移动任何文件 (安全边界: 切换书库位置不移动、不删除)。
-    // J0: 配置文件随数据根走 (便携=exe_dir, 否则用户数据目录), 不再固定 exe 同目录
-    let cfg_dir = paths.inner().data_dir.clone();
-    let mut file_cfg = crate::services::config::Config::load(&cfg_dir);
-    file_cfg.out_dir = new_dir.clone();
-    file_cfg.save(&cfg_dir)?;
+    let default_data_dir = if paths.inner().portable {
+        old_root.clone()
+    } else {
+        crate::services::config::user_data_dir()
+    };
+    // 整根迁移 (备份 → 复制 config/db/jobs_out/models → 校验 → 写标记 → 写指针)
+    let report = crate::infrastructure::data_migration::migrate_data_root(
+        db.inner(),
+        &old_root,
+        &new_dir,
+        &default_data_dir,
+    )?;
 
-    // M5 (2026-08-12): 书库里现在有多少本书 —— 前端据此说"原目录 N 本书未移动"
-    // (切换只改配置不搬文件, 全部书都还在旧目录)。
     let book_count = crate::store::books_repo::BooksRepo::new(db.inner())
         .list()
         .len();
 
+    crate::infrastructure::log::info(
+        "cmd",
+        &format!(
+            "library_dir_pick_and_set: {} → {} (需重启)",
+            old_root.to_string_lossy(),
+            new_dir.to_string_lossy()
+        ),
+    );
+    let _ = cfg.inner();
     Ok(serde_json::json!({
         "cancelled": false,
-        "old_dir": old_dir.to_string_lossy(),
+        "old_dir": old_root.to_string_lossy(),
         "new_dir": new_dir.to_string_lossy(),
-        "moved": Vec::<String>::new(),
-        "failed": Vec::<String>::new(),
-        "all_ok": true,
+        "backup_path": report.backup_path,
         "restart_required": true,
         "book_count": book_count,
     }))

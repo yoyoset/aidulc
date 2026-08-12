@@ -460,12 +460,22 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         path: "commands::misc::library_dir_get",
         domain: "设置",
-        desc: "书库位置(当前生效的绝对路径)",
+        desc: "书库位置(数据根)当前生效的绝对路径",
+    },
+    CommandInfo {
+        path: "commands::misc::library_root_status",
+        domain: "设置",
+        desc: "UX5 #4: 书库位置健康状态(存在/可写/原因) —— 设置页绿色/红色徽章数据源",
+    },
+    CommandInfo {
+        path: "commands::misc::data_root_recommended",
+        domain: "设置",
+        desc: "UX5 #4: 首次向导推荐的数据根 (我的文档/aidulc, 含 OneDrive Documents)",
     },
     CommandInfo {
         path: "commands::misc::library_dir_pick_and_set",
         domain: "设置",
-        desc: "L7: 更改书库位置(只改配置不移动文件, 重启后生效)",
+        desc: "UX5 #4: 更改书库位置 = 整根迁移 (config+db+jobs_out+models, 备份+L1清单校验, 重启生效)",
     },
     CommandInfo {
         path: "commands::misc::library_dir_pick",

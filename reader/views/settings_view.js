@@ -105,26 +105,30 @@
       systemPane.appendChild(wizardSec);
 
       // P1.2: 书库位置(用户明确要求的产品能力, 见 docs/ROADMAP.md P1)
-      // J0 (2026-08-11): 显示完整路径 (不被按钮截断) + 「在资源管理器中打开」;
-      // 同时展示数据根目录与数据库路径, 并提示待迁移 (旧位置有数据时)。
+      // UX5 #4 (2026-08-13): 书库位置 = 数据根 —— config/db/jobs_out/models/backups/logs
+      // 全部在根下; 当前生效位置存在且可写 → 绿色徽章, 失效 → 红/灰 + 原因。
       const libSec = el('div', 'settings-section');
       libSec.appendChild(el('h2', null, '书库位置'));
-      // M5 (2026-08-12): 三个按钮收进一组 (.page-toolbar 间距), 不再散落
+      libSec.appendChild(el('div', 'import-tip',
+        '这里是所有数据的根: 数据库 (data.db)、配置 (config.toml)、书库 (jobs_out/)、模型 (models/)、备份 (backups/)、日志 (logs/) 都在它下面。整个目录拷到另一台机器, 选中即用。'));
+      const libPathRow = el('div', 'settings-row');
       const libPath = el('code', 'j0-path', '读取中…');
+      // UX5 #4: 绿色生效徽章 (失效标红 + 原因)
+      const libBadge = el('span', 'lib-badge lib-badge-loading', '检查中…');
+      libPathRow.append(libPath, libBadge);
+      libSec.appendChild(libPathRow);
       const libBtns = el('div', 'page-toolbar');
       libBtns.style.flexWrap = 'wrap';
       const libOpenBtn = el('button', 'btn-small', '在资源管理器中打开');
-      libOpenBtn.title = '打开当前书库目录所在位置 (不改动任何东西)';
+      libOpenBtn.title = '打开当前书库位置 (不改动任何东西)';
       const libChangeBtn = el('button', 'btn-small', '更改…');
-      // M5 (2026-08-12): 语义说清 —— 更改 = 换一个空目录做新书库, 只改配置不搬文件
-      libChangeBtn.title = '换一个空目录做新书库。只改配置, 不移动任何书文件。';
+      // UX5 #4: 更改 = 整根迁移 (先备份, 复制校验通过才删旧, 重启生效)
+      libChangeBtn.title = '换一个空目录做新的数据根。会整根迁移 (配置/数据库/书库/模型), 先备份、复制并逐文件校验, 通过后重启时才删除旧位置。';
       // L7 (2026-08-11): 加载已有书库目录 —— 选一个大文件夹, 里面的成品书包可登记
       const libLoadBtn = el('button', 'btn-small', '加载已有书库…');
-      libLoadBtn.title = '选一个装有成品书包的目录 (比如从另一台电脑整个拷过来的库), 扫描 → 确认后登记, 不复制不移动文件。';
+      libLoadBtn.title = '选一个装有成品书包的目录 (比如从另一台电脑整个拷过来的库), 扫描 → 确认后登记到当前数据根, 不复制不移动文件。';
       libBtns.append(libOpenBtn, libChangeBtn, libLoadBtn);
-      const libRow = el('div', 'settings-row');
-      libRow.append(libPath, libBtns);
-      libSec.appendChild(libRow);
+      libSec.appendChild(libBtns);
       const libMeta = el('div', 'settings-meta');
       libSec.appendChild(libMeta);
       const libMsg = el('div', 'import-tip');
@@ -136,20 +140,34 @@
           libPath.textContent = r.ok ? r.data : ('读取失败: ' + r.error);
           libPath.title = r.ok ? r.data : '';
         });
+        // UX5 #4: 徽章 —— 存在且可写 → 绿色; 否则红/灰 + 原因
+        AiduMiscService.libraryRootStatus().then((r) => {
+          if (!r.ok || !r.data) { libBadge.className = 'lib-badge lib-badge-err'; libBadge.textContent = '无法检查'; return; }
+          const d = r.data;
+          if (d.ok) {
+            libBadge.className = 'lib-badge lib-badge-ok';
+            libBadge.textContent = '生效中';
+            libBadge.title = '当前书库位置可用 (可写)';
+          } else {
+            libBadge.className = 'lib-badge lib-badge-err';
+            libBadge.textContent = (d.reason || '已失效') + (d.db_exists ? '' : ' · 数据库缺失');
+            libBadge.title = d.reason || '书库位置失效';
+          }
+        });
         AiduMiscService.dataMigrationStatus().then((r) => {
           if (!r.ok || !r.data) return;
           const d = r.data;
           const rows = [];
-          rows.push('数据目录: ' + d.data_dir);
+          rows.push('数据根: ' + d.data_dir);
           rows.push('数据库: ' + d.db_path);
           rows.push('书库: ' + d.out_dir);
           if (d.pending) {
-            rows.push('⚠ 旧位置仍有数据, 未迁移 (见下方说明)。');
+            rows.push('⚠ 旧位置 (程序目录) 仍有数据, 未迁移 (见下方说明)。');
           }
           libMeta.textContent = rows.join('\n');
           if (d.pending) {
-            libMsg.textContent = '检测到旧位置 (程序目录) 下有书库与词库数据。为避免 cargo clean 等操作误删, 建议迁移到数据目录。';
-            const migrateBtn = el('button', 'btn-small btn-primary', '迁移到数据目录');
+            libMsg.textContent = '检测到旧位置 (程序目录) 下有书库与词库数据。为避免 cargo clean 等操作误删, 建议迁移到当前数据根。';
+            const migrateBtn = el('button', 'btn-small btn-primary', '迁移到数据根');
             migrateBtn.style.marginLeft = '8px';
             migrateBtn.onclick = () => {
               migrateBtn.disabled = true;
@@ -157,7 +175,7 @@
               AiduMiscService.dataMigrationDryRun().then((dry) => {
                 if (!dry.ok || !dry.data || !dry.data.pending) {
                   migrateBtn.disabled = false;
-                  migrateBtn.textContent = '迁移到数据目录';
+                  migrateBtn.textContent = '迁移到数据根';
                   libMsg.textContent = dry.data && dry.data.pending === false ? '已无待迁移数据。' : (dry.error || '读取失败');
                   return;
                 }
@@ -167,7 +185,7 @@
                   ' MB' + (dd.db_exists ? ' + 数据库 ' + (dd.db_bytes / 1048576).toFixed(1) + ' MB' : '') +
                   ') 到:\n' + dd.target_out + '\n\n先自动备份到: backups/ 目录 (路径会显示), 复制并校验通过后才删除旧文件。完成后需要重启应用。';
                 AiduModal.confirm({
-                  title: '迁移书库与词库到数据目录?',
+                  title: '迁移书库与词库到数据根?',
                   message: msg,
                   confirmText: '开始迁移',
                   danger: true,
@@ -184,7 +202,7 @@
           } else if (libMsg.textContent.startsWith('检测到旧位置')) {
             // M5 (2026-08-12) 真凶: 这里无条件清空 libMsg —— refreshLibPath 在每次 render
             // 和「更改…」成功后都会跑, pending=false 就把刚写的"书库位置已改为 X"结果当场
-            // 抹掉, 用户看到的就是"选了目录没有任何结果"。只清自己写的迁移提示, 不动别的消息。
+            // 抹掉。只清自己写的迁移提示, 不动别的消息。
             libMsg.textContent = '';
           }
         });
@@ -202,27 +220,47 @@
         });
       };
 
+      // UX5 #4: 更改… = 整根迁移。流程: 选目录 → 确认 (L1 清单+备份说明) → 迁移 → 重启生效。
       libChangeBtn.onclick = () => {
         libChangeBtn.disabled = true;
         libMsg.textContent = '选择新位置…';
-        AiduMiscService.libraryDirPickAndSet().then((r) => {
-          libChangeBtn.disabled = false;
-          if (!r.ok) {
-            // 后端明确拒绝的场景(如任务处理中), 错误信息本身就是人话
-            libMsg.textContent = r.error;
+        AiduMiscService.libraryDirPick().then((pick) => {
+          if (!pick.ok || !pick.data || pick.data.cancelled) {
+            libChangeBtn.disabled = false;
+            if (pick && pick.ok && pick.data && pick.data.cancelled) {
+              libMsg.textContent = '已取消, 书库位置未更改。';
+            }
             return;
           }
-          const d = r.data || {};
-          if (d.cancelled) {
-            // M5: 取消也要有明确结果, 不静默清空
-            libMsg.textContent = d.same ? '选择的位置和当前一致, 书库位置未更改。' : '已取消, 书库位置未更改。';
+          const newRoot = pick.data.path;
+          if (newRoot === libPath.textContent) {
+            libChangeBtn.disabled = false;
+            libMsg.textContent = '选择的位置和当前一致, 书库位置未更改。';
             return;
           }
-          // L7 (2026-08-11): 只改配置不搬文件 —— 不移动任何书, 重启后从新位置读。
-          // M5 (2026-08-12): 结果说清"原目录 N 本书未移动"。
-          libMsg.textContent = '书库位置已改为 ' + d.new_dir + ', 原目录 ' + (d.book_count ?? 0) +
-            ' 本书未移动 (切换只改配置, 不搬文件)。重启应用后生效。';
-          refreshLibPath();
+          libMsg.textContent = '确认迁移到: ' + newRoot + ' …';
+          AiduModal.confirm({
+            title: '整根迁移书库位置?',
+            message: '将把整个数据根从「' + libPath.textContent + '」整根迁移到:\n\n' + newRoot +
+              '\n\n包含: config.toml / data.db / jobs_out/ / models/\n\n' +
+              '流程: 先自动备份到 backups/ → 复制并逐文件校验 (大小+sha256) → 校验通过后, 重启时才会删除旧位置文件。原位置文件一个都不会少。\n\n完成后需要重启应用。',
+            confirmText: '开始整根迁移',
+            danger: true,
+            onConfirm: () => AiduMiscService.libraryDirPickAndSet(newRoot).then((r) => {
+              if (!r.ok) { throw new Error(r.error); }
+              const d = r.data || {};
+              if (d.cancelled) {
+                libChangeBtn.disabled = false;
+                libMsg.textContent = '已取消, 书库位置未更改。';
+                return;
+              }
+              libMsg.textContent = '已整根迁移到 ' + d.new_dir + ' (备份: ' + (d.backup_path || '') +
+                ')。重启应用后从新位置读取。';
+              libMsg.title = d.backup_path || '';
+              refreshLibPath();
+              return;
+            }),
+          });
         });
       };
 

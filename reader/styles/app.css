@@ -373,6 +373,19 @@ body::before {
 .scan-ver-cell { margin-left: 8px; }
 .scan-ver-cell .book-badge { font-weight: 500; white-space: nowrap; }
 
+/* UX5 #4 (2026-08-13): 书库位置绿色生效徽章 (失效标红 + 原因) */
+.lib-badge {
+  display: inline-flex; align-items: center;
+  padding: var(--md-sys-space-1) var(--md-sys-space-3);
+  border-radius: var(--md-sys-radius-pill);
+  font-size: var(--md-sys-font-size-label-s);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.lib-badge-ok { background: color-mix(in srgb, var(--md-sys-color-success) 16%, transparent); color: var(--md-sys-color-on-success); }
+.lib-badge-err { background: color-mix(in srgb, var(--md-sys-color-error) 16%, transparent); color: var(--md-sys-color-on-error); }
+.lib-badge-loading { background: var(--md-sys-color-surface-variant); color: var(--md-sys-color-on-surface-variant); }
+
 /* ---- 璇嶅吀闈㈡澘 (I-A) ---- */
 .dict-panel {
   position: fixed; top: 0; right: 0; bottom: 0; width: 340px;

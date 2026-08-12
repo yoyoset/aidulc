@@ -93,6 +93,19 @@ pub fn library_list(
         if let Some(o) = v.as_object_mut() {
             o.insert("editions".into(), serde_json::Value::Array(ev));
         }
+        // M1-a (2026-08-12): book 级 pack_state 由 editions 聚合得出 —— 此前只对嵌套
+        // edition 调 attach_pack_state, book 对象从头到尾没有 pack_state 字段, 前端
+        // 判 book.pack_state 恒 undefined, 红卡永远不渲染 (L2 修了但没作用到书卡)。
+        let eds: &[serde_json::Value] = v
+            .get("editions")
+            .and_then(|x| x.as_array())
+            .map(|a| a.as_slice())
+            .unwrap_or(&[]);
+        if let Some(state) = aggregate_book_pack_state(eds) {
+            if let Some(o) = v.as_object_mut() {
+                o.insert("pack_state".into(), serde_json::json!(state));
+            }
+        }
         out.push(v);
     }
     serde_json::to_value(out).map_err(|e| e.to_string())
@@ -231,6 +244,28 @@ pub fn library_open(db: State<store::Db>, id: String) -> Result<serde_json::Valu
     let edition = repo.get(&id).ok_or("成品不存在")?;
     repo.touch_opened(&id, now_ms())?;
     serde_json::to_value(edition).map_err(|e| e.to_string())
+}
+
+/// M1-a (2026-08-12): book 级 pack_state 由 editions 聚合。
+/// 规则: 无 edition → None (未处理书, 与本功能无关); 有 edition 且全部 ok → Some("ok");
+/// 任一 missing/incomplete → 取最坏值 (missing > incomplete)。
+/// 不能对 book 直接 attach_pack_state —— 原书 pack_dir 本来就是空的, 那样会把未处理的
+/// 书也判成缺失。取最坏值的动机: 只要有一个译本成品丢了, 书卡就该标红提示, 而不是
+/// 靠"另一个译本还好的"糊过去。
+fn aggregate_book_pack_state(editions: &[serde_json::Value]) -> Option<String> {
+    if editions.is_empty() {
+        return None;
+    }
+    let rank = |s: &str| match s {
+        "ok" => 0,
+        "incomplete" => 1,
+        _ => 2,
+    };
+    editions
+        .iter()
+        .filter_map(|e| e.get("pack_state").and_then(|p| p.as_str()))
+        .max_by_key(|p| rank(p))
+        .map(|p| p.to_string())
 }
 
 /// book_id → 书包所在目录(登记过的书查 DB; 否则按路径/兜底目录猜)。
@@ -495,6 +530,39 @@ mod meta_tests {
         attach_pack_state(&mut v);
         assert_eq!(v["pack_state"], "missing");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn m1a_book_pack_state_aggregates_from_editions() {
+        // M1-a (2026-08-12): book 级 pack_state 由 editions 聚合。
+        // 无 edition → 不设; 全部 ok → ok; 任一坏 → 取最坏值 (missing > incomplete)。
+        let e = |ps: &str| serde_json::json!({ "id": "e", "pack_state": ps });
+        assert_eq!(aggregate_book_pack_state(&[]), None, "无 edition 不设");
+        assert_eq!(
+            aggregate_book_pack_state(&[e("ok"), e("ok")]).as_deref(),
+            Some("ok"),
+            "全部 ok → ok"
+        );
+        assert_eq!(
+            aggregate_book_pack_state(&[e("ok"), e("missing")]).as_deref(),
+            Some("missing"),
+            "任一 missing → missing"
+        );
+        assert_eq!(
+            aggregate_book_pack_state(&[e("ok"), e("incomplete")]).as_deref(),
+            Some("incomplete"),
+            "任一 incomplete → incomplete"
+        );
+        assert_eq!(
+            aggregate_book_pack_state(&[e("incomplete"), e("missing")]).as_deref(),
+            Some("missing"),
+            "missing > incomplete (最坏值)"
+        );
+        // 缺少 pack_state 字段的 edition 不参与 (理论上 attach_pack_state 都会填)
+        assert_eq!(
+            aggregate_book_pack_state(&[serde_json::json!({ "id": "e" }), e("ok")]).as_deref(),
+            Some("ok")
+        );
     }
 
     #[test]

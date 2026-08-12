@@ -560,8 +560,12 @@ console.log('== 3c. L2 (2026-08-11): 成品文件缺失 → 红色徽章 + 重�
   lv._profiles = [{ id: 'default', name: '成人自读' }];
   lv._renderBooks(listEl, [missingBook], makeElement('input'), null);
   const cards = queryAll(listEl, '.book-card');
-  const badge = cards[0] && cards[0].querySelector('.badge-err');
+  const badge = cards[0] && cards[0].querySelector('.book-badge.badge-err');
   check('成品文件缺失显示红色徽章', badge && badge.textContent.includes('缺失'), 'badge=' + (badge && badge.textContent));
+  // M1-a (2026-08-12, 教训 8): 断言用户可见的最终 DOM —— 徽章文案是「成品文件缺失」,
+  // 且不再同时出现「已就绪」(状态徽章被 pack_state 覆盖)。
+  check('M1-a: 徽章文案是「成品文件缺失」且无「已就绪」', badge && badge.textContent === '成品文件缺失' &&
+    !(cards[0].textContent || '').includes('已就绪'), 'badge=' + (badge && badge.textContent));
   const regen = cards[0] && queryAll(cards[0], '.btn-primary').find((b) => b.textContent === '重新生成译本');
   const rm = cards[0] && queryAll(cards[0], 'button').find((b) => b.textContent === '移除这个译本记录');
   check('有「重新生成译本」出口', !!regen);
@@ -570,6 +574,70 @@ console.log('== 3c. L2 (2026-08-11): 成品文件缺失 → 红色徽章 + 重�
   // 移除出口要确认弹窗 (不静默)
   rm.onclick();
   check('移除前弹确认 (不静默删)', confirmCaptured && confirmCaptured.confirmText === '移除', 'confirm=' + (confirmCaptured && confirmCaptured.title));
+  // M1-c (2026-08-12): 点「重新生成译本」→ 走创建译本流程 (模态出现, 标题带书名)。
+  const ovsBefore = (document.body._children || []).filter((c) => c.className && c.className.includes('modal-overlay')).length;
+  regen.onclick();
+  await new Promise((r) => setTimeout(r, 60));
+  const ovsAfter = (document.body._children || []).filter((c) => c.className && c.className.includes('modal-overlay'));
+  check('M1-c: 点「重新生成译本」→ 创建译本模态出现', ovsAfter.length > ovsBefore,
+    'before=' + ovsBefore + ' after=' + ovsAfter.length);
+  const regenTitle = ovsAfter[ovsAfter.length - 1] && ovsAfter[ovsAfter.length - 1].querySelector('.modal-title');
+  check('M1-c: 模态标题带书名 (重新生成 = 复用创建流程)', regenTitle && String(regenTitle.textContent).includes('创建译本') &&
+    String(regenTitle.textContent).includes('Number the Stars'), regenTitle && regenTitle.textContent);
+  // 清理这个模态, 不干扰后续断言
+  const lastOv = ovsAfter[ovsAfter.length - 1];
+  if (lastOv && lastOv.remove) lastOv.remove();
+}
+
+console.log('== 3d. M1 (2026-08-12): 原版书卡 pack_state 聚合标红 + 译本折叠切对元素 ==');
+{
+  const lv = new globalThis.LibraryView(store, 'original');
+  const listEl = makeElement('div');
+  // 后端 M1-a: book.pack_state 由 editions 聚合 (任一 missing → 标红)
+  const origBook = {
+    id: 's1', title: 'Alice (Lewis Carroll).epub', kind: 'original', status: 'done',
+    source_language: 'en', pack_state: 'missing',
+    editions: [
+      { id: 'e1', title: 'Alice 译本', status: 'ready', pack_state: 'missing', profile_id: 'default', chapter_count: 12, llm_id: 'llm|en|qwen3-4b|2507', tts_id: 'tts|en|kokoro|v1' },
+    ],
+  };
+  const okBook = {
+    id: 's2', title: 'Number the Stars.epub', kind: 'original', status: 'done',
+    source_language: 'en', pack_state: 'ok',
+    editions: [
+      { id: 'e2', title: 'Number the Stars 译本', status: 'ready', pack_state: 'ok', profile_id: 'default', chapter_count: 12, llm_id: 'llm|en|qwen3-4b|2507', tts_id: 'tts|en|kokoro|v1' },
+    ],
+  };
+  lv._profiles = [{ id: 'default', name: '成人自读' }];
+  lv._renderBooks(listEl, [okBook, origBook], makeElement('input'), null);
+  const cards = queryAll(listEl, '.book-card');
+  const origCard = cards.find((c) => c.querySelector && c.querySelector('.book-card-title') && c.querySelector('.book-card-title').textContent === 'Alice');
+  const okCard = cards.find((c) => c.querySelector && c.querySelector('.book-card-title') && c.querySelector('.book-card-title').textContent === 'Number the Stars');
+  // M1-a (教训 8, 断言的 DOM 选择器 + 文案):
+  const origBadge = origCard && origCard.querySelector('.book-badge.badge-err');
+  check('M1-a: 有缺失译本的原版书卡徽章 = 红色「成品文件缺失」', origBadge && origBadge.textContent === '成品文件缺失' && origBadge.className.includes('badge-err'),
+    'badge=' + (origBadge && origBadge.textContent) + ' class=' + (origBadge && origBadge.className));
+  check('M1-a: 该卡不再显示「已就绪」', origCard && !(origCard.textContent || '').includes('已就绪'), 'text=' + (origCard && origCard.textContent));
+  check('M1-a: 全部 ok 的原版书卡不标红', okCard && !(okCard.textContent || '').includes('成品文件缺失'), 'text=' + (okCard && okCard.textContent));
+  check('M1-a: 该卡有错误提示行 (.book-card-err-hint)', origCard && !!origCard.querySelector('.book-card-err-hint'));
+  // M1-b (教训 8, 断言的 DOM 选择器 + 类名): 点 .edition-toggle → .edition-body 无 collapsed
+  const toggle = origCard && origCard.querySelector('.edition-toggle');
+  const body = origCard && origCard.querySelector('.edition-body');
+  check('M1-b: 译本列表默认折叠 (.edition-body 含 collapsed)', body && body.className.includes('collapsed'));
+  toggle.onclick();
+  check('M1-b: 点折叠开关 → .edition-body 不含 collapsed (内容展开)', body && !body.className.includes('collapsed'), 'class=' + (body && body.className));
+  check('M1-b: 展开后箭头变 ▾ (展开=下箭头)', toggle && toggle.textContent.includes('▾'), toggle && toggle.textContent);
+  toggle.onclick();
+  check('M1-b: 再点 → .edition-body 恢复 collapsed', body && body.className.includes('collapsed'), 'class=' + (body && body.className));
+  check('M1-b: 折叠后箭头变 ▸', toggle && toggle.textContent.includes('▸'), toggle && toggle.textContent);
+  // M1-c: 展开后红色子卡的两个出口 (重新生成/移除)
+  const childCard = origCard && origCard.querySelector('.edition-card');
+  const childRegen = childCard && queryAll(childCard, 'button').find((b) => b.textContent === '重新生成译本');
+  const childRm = childCard && queryAll(childCard, 'button').find((b) => b.textContent === '移除这个译本记录');
+  check('M1-c: 展开的红色子卡有两个出口', !!childRegen && !!childRm);
+  confirmCaptured = null;
+  childRm && childRm.onclick();
+  check('M1-c: 子卡移除有确认弹窗', confirmCaptured && confirmCaptured.confirmText === '移除');
 }
 
 console.log('== 4. library_view 创建译本弹窗挂载顺序 (A1 回归) ==');

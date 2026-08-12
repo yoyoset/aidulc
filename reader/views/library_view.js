@@ -233,7 +233,13 @@
         const profileLabel = this._profileName(book.profile_id);
         const langLabel = { en: '英文', ja: '日文' }[book.source_language] || book.source_language || '英文';
         const st = this._bookStatus(book);
-        const badge = el('span', 'book-badge ' + st.cls, st.label);
+        // M1-a (2026-08-12): 成品文件缺失时状态徽章被 pack_state 覆盖 —— 数据没了不许
+        // 再显示「已就绪」假装可读。徽章文案直接来自事实 (missing/incomplete)。
+        const badPack = book.pack_state && book.pack_state !== 'ok';
+        const effSt = badPack
+          ? { label: book.pack_state === 'missing' ? '成品文件缺失' : '成品文件不完整', cls: 'badge-err' }
+          : st;
+        const badge = el('span', 'book-badge ' + effSt.cls, effSt.label);
         // G4 (2026-08-11): 章数从 edition 取 (原书登记时不填 chapter_count); 句数/时长/进度补齐。
         // 书卡信息按设计: 书名 / 作者 / 状态徽章 / 「N 章 · M 句 · XhYm」/ 阅读进度。
         const editionsArr = Array.isArray(book.editions) ? book.editions : [];
@@ -282,12 +288,10 @@
         const actions = el('div', 'book-card-actions');
         const canOpen = book.status === 'ready' || book.status === 'partial';
         if (this.kind === 'product') {
-          // L2 (2026-08-11): 成品文件缺失 —— pack_state = missing/incomplete 时书卡红色报错,
-          // 不再显示"已就绪"假装可读。给出两个出口: 重新生成译本 / 移除这个译本记录。
-          if (book.pack_state && book.pack_state !== 'ok') {
-            const missingBadge = el('span', 'book-badge badge-err',
-              book.pack_state === 'missing' ? '成品文件缺失' : '成品文件不完整');
-            card.prepend(missingBadge);
+          // L2/M1-a (2026-08-11/12): 成品文件缺失 —— pack_state = missing/incomplete 时
+          // 书卡红色报错 (徽章已被 badPack 覆盖), 不再显示"已就绪"假装可读。
+          // 给出两个出口: 重新生成译本 / 移除这个译本记录。
+          if (badPack) {
             const reason = el('div', 'book-card-err-hint',
               book.pack_state === 'missing'
                 ? '这本书的成品文件找不到了 (目录已被移动或删除)。可以从原书重新生成, 或移除这个译本记录。'
@@ -324,16 +328,27 @@
           actions.appendChild(menuBtn);
         }
          card.append(name, meta, actions);
-         // G3 (2026-08-11): 译本/成品列表默认折叠 —— 显示「译本 (N) ▾」, 点开才铺。
+         // M1-a (2026-08-12): 原版书卡有译本成品丢失时同样标红提示 (徽章已被 badPack
+         // 覆盖), 出口在展开的译本子卡上 (每个坏译本有自己的重新生成/移除)。
+         if (badPack && this.kind === 'original') {
+           card.appendChild(el('div', 'book-card-err-hint',
+             book.pack_state === 'missing'
+               ? '这本书有译本成品文件找不到了。展开下方译本列表, 可重新生成或移除记录。'
+               : '这本书有译本成品目录不完整。展开下方译本列表, 可重新生成或移除记录。'));
+         }
+         // G3 (2026-08-11): 译本/成品列表默认折叠 —— 显示「译本 (N) ▸」, 点开才铺。
+         // M1-b (2026-08-12): 折叠开关切的是真正藏内容的 .edition-body —— 此前切外层
+         // editions 容器, 箭头会变但内容永远展不开 (用户看到的就是"点了没反应")。
+         // 箭头方向按状态: 折叠 ▸ / 展开 ▾ (初始折叠所以是 ▸)。
          if (this.kind === 'original' && Array.isArray(book.editions) && book.editions.length) {
            const editions = el('div', 'edition-list');
-           const toggle = el('button', 'edition-toggle', `译本 (${book.editions.length}) ▾`);
-           toggle.onclick = () => {
-             const collapsed = editions.classList.toggle('collapsed');
-             toggle.textContent = `译本 (${book.editions.length}) ${collapsed ? '▸' : '▾'}`;
-           };
+           const toggle = el('button', 'edition-toggle', `译本 (${book.editions.length}) ▸`);
            editions.appendChild(toggle);
            const body = el('div', 'edition-body collapsed');
+           toggle.onclick = () => {
+             const collapsed = body.classList.toggle('collapsed');
+             toggle.textContent = `译本 (${book.editions.length}) ${collapsed ? '▸' : '▾'}`;
+           };
            book.editions.forEach((edition) => {
              const child = el('div', 'edition-card');
              const childTitle = el('div', 'book-card-title', edition.title || edition.id);

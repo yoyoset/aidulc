@@ -49,6 +49,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "L10: 改书的学习档案(下次生成默认, 不影响已生成译本)",
     },
     CommandInfo {
+        path: "commands::library::sample_book_import",
+        domain: "书库",
+        desc: "R1 (UX5 #7): 导入内置样书 (幂等, 登记为译本, 向导完成页②入口)",
+    },
+    CommandInfo {
         path: "commands::library::edition_lookup",
         domain: "书库",
         desc: "按 edition_id 查译本元信息 (背单词右栏书名/章节 + 跳转, V4)",

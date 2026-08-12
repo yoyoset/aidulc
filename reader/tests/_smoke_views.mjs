@@ -1839,11 +1839,23 @@ console.log('== 10. N1 (2026-08-12): 向导完成页三选一 + 代价告知 + �
   const choiceLabels = choices.map((c) => textOf(c));
   check('N1: 完成页有三个选择', choiceLabels.some((t) => t.includes('导入我自己的书')) && choiceLabels.some((t) => t.includes('内置样书')) && choiceLabels.some((t) => t.includes('先去配模型')), choiceLabels.join('|'));
   const sample = choices.find((c) => textOf(c).includes('内置样书'));
-  check('N1: 内置样书置灰并说明「即将支持」', sample && sample.disabled === true && textOf(sample).includes('即将支持'), sample && textOf(sample));
+  // UX5 #7: R1 内置样书从置灰变为可用 —— 点击导入样书
+  check('UX5#7: 内置样书可点 (不再置灰/不再显示即将支持)', sample && sample.disabled !== true && !textOf(sample).includes('即将支持'), sample && textOf(sample));
+  const sampleImportCalls = [];
+  const invokeOrig = globalThis.AiduBridge.invoke;
+  globalThis.AiduBridge.invoke = async (cmd) => {
+    if (cmd === 'sample_book_import') { sampleImportCalls.push(1); return { ok: true, data: { edition_id: 'sample-book-default-1' } }; }
+    return { ok: true, data: {} };
+  };
+  sample && sample.onclick();
+  await new Promise((r) => setTimeout(r, 60));
+  check('UX5#7: 点② → 调 sample_book_import', sampleImportCalls.length === 1, 'calls=' + sampleImportCalls.length);
+  check('UX5#7: 导入后进书库 (onDone 触发)', doneCalls === 1, 'done=' + doneCalls);
+  globalThis.AiduBridge.invoke = invokeOrig;
   const importBtn = choices.find((c) => textOf(c).includes('导入我自己的书'));
   importBtn.onclick();
   await new Promise((r) => setTimeout(r, 40));
-  check('N1: 点「导入我自己的书」→ 调 wizardFinish + onDone 进书库', doneCalls === 1, 'done=' + doneCalls);
+  check('N1: 点「导入我自己的书」→ 调 wizardFinish + onDone 进书库', doneCalls === 2, 'done=' + doneCalls);
   const modelsBtn = choices.find((c) => textOf(c).includes('先去配模型'));
   modelsBtn.onclick();
   await new Promise((r) => setTimeout(r, 40));

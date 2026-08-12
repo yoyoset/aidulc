@@ -534,7 +534,9 @@
       this.player.basePath = this.basePath;
       this.player.speed = this.shadow.speed;
       this.player.anchorIndex = -1; // F11: 切章锚点归零, 防全局播放键串到旧章下标
-      this.player.loadChapter(ch);
+      // R1/UX5 #7: 无音频的章节 (如内置样书) 不进入加载流程, 避免对空 audioFile 报"音频加载失败"
+      if (ch.audioFile) this.player.loadChapter(ch);
+      else this.player.audio = null;
       this.rd.restoreVerified((this._verifiedMap && this._verifiedMap[this.chapterIndex]) || []);
     }
 

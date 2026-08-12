@@ -308,9 +308,17 @@
         choices.appendChild(row);
       };
       mk('① 导入我自己的书', '把 EPUB / TXT 拖进书库, 生成可阅读的译本。', () => this.onDone && this.onDone());
-      mk('② 先看一本内置样书', '用官方示例书体验阅读与跟读。', null, {
-        disabled: true,
-        disabledReason: '即将支持 (ROADMAP R1)',
+      // UX5 #7 (2026-08-13): R1 内置样书 —— 从「即将支持」变为可用, 点击导入样书进书库
+      mk('② 先看一本内置样书', '导入官方示例书 (无音频文本样书), 立即体验阅读与查词。', () => {
+        AiduBridge.invoke('sample_book_import').then((r) => {
+          if (!r.ok) {
+            if (typeof AiduToast !== 'undefined') AiduToast.show('样书导入失败: ' + r.error, 'error');
+            return;
+          }
+          if (typeof AiduToast !== 'undefined') AiduToast.show('已导入样书, 在书库里可以打开阅读', 'success');
+          // 进书库, 样书已在其中 (可点开阅读)
+          if (this.onDone) this.onDone();
+        });
       });
       mk('③ 先去配模型', '检查/下载翻译与语音模型, 提前备好。', () => {
         // M2 同款教训: 用 store 实例 (this.store), 不是 global.AiduStore (那是类, 没有 set)

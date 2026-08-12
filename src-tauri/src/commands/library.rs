@@ -4,6 +4,129 @@
 use crate::store;
 use tauri::State;
 
+// ---- R1 (UX5 #7, 2026-08-13): 内置样书 —— 向导完成页 ② 导入, 进书库即可阅读 ----
+
+/// 内置样书 bookpack (schema v1, 无音频的轻量文本样书)。
+/// 原创英文短句 (非受版权保护的原文), 中文译文 + 讲解, 供新用户立即体验阅读。
+const SAMPLE_BOOKPACK: &str = r#"{
+  "schemaVersion": 1,
+  "title": "Sample: A Morning Walk (样书)",
+  "profile": { "id": "default", "name": "成人自读", "explainStrategy": "brief", "voice": "af_heart", "speed": 1.0 },
+  "generatedAt": 1,
+  "prepVersion": "sample",
+  "quality": { "stages": {}, "summary": "内置样书: 无音频的文本译本, 用于立即体验阅读。" },
+  "chapters": [
+    {
+      "index": 0,
+      "title": "The Walk Begins",
+      "audioFile": "",
+      "sentences": [
+        {
+          "original_text": "The morning was fresh and quiet.",
+          "translation": "清晨新鲜而安静。",
+          "explanation": "句子主干是 The morning was fresh and quiet, 系表结构。fresh 意为「新鲜的」, quiet 意为「安静的」。",
+          "segments": [["The","DET","the"],["morning","NOUN","morning"],["was","AUX","be"],["fresh","ADJ","fresh"],["and","CCONJ","and"],["quiet","ADJ","quiet"],["." ,"PUNCT","."]],
+          "status": "ok"
+        },
+        {
+          "original_text": "A small bird sang on the fence.",
+          "translation": "一只小鸟在篱笆上唱歌。",
+          "explanation": "sang 是 sing 的过去式; on the fence 是地点状语, 意为「在篱笆上」。",
+          "segments": [["A","DET","a"],["small","ADJ","small"],["bird","NOUN","bird"],["sang","VERB","sing"],["on","ADP","on"],["the","DET","the"],["fence","NOUN","fence"],["." ,"PUNCT","."]],
+          "status": "ok"
+        },
+        {
+          "original_text": "I walked slowly down the quiet street.",
+          "translation": "我沿着安静的街道慢慢走。",
+          "explanation": "walk down the street 意为「沿街走」; slowly 是副词修饰 walked。",
+          "segments": [["I","PRON","I"],["walked","VERB","walk"],["slowly","ADV","slowly"],["down","ADP","down"],["the","DET","the"],["quiet","ADJ","quiet"],["street","NOUN","street"],["." ,"PUNCT","."]],
+          "status": "ok"
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "title": "The Market",
+      "audioFile": "",
+      "sentences": [
+        {
+          "original_text": "The market smelled of bread and flowers.",
+          "translation": "市场里飘着面包和花的香气。",
+          "explanation": "smell of 意为「散发出…气味」; bread and flowers 是并列宾语。",
+          "segments": [["The","DET","the"],["market","NOUN","market"],["smelled","VERB","smell"],["of","ADP","of"],["bread","NOUN","bread"],["and","CCONJ","and"],["flowers","NOUN","flower"],["." ,"PUNCT","."]],
+          "status": "ok"
+        },
+        {
+          "original_text": "A kind woman offered me a cup of warm tea.",
+          "translation": "一位好心的女士递给我一杯热茶。",
+          "explanation": "offer sb sth 意为「给某人某物」; a cup of warm tea 是数量短语。",
+          "segments": [["A","DET","a"],["kind","ADJ","kind"],["woman","NOUN","woman"],["offered","VERB","offer"],["me","PRON","I"],["a","DET","a"],["cup","NOUN","cup"],["of","ADP","of"],["warm","ADJ","warm"],["tea","NOUN","tea"],["." ,"PUNCT","."]],
+          "status": "ok"
+        }
+      ]
+    }
+  ]
+}"#;
+
+/// 导入内置样书 (幂等): 把样书包写入书库输出目录并登记为译本 (original: sample-book)。
+/// 向导完成页 ② 从「即将支持」变为可用: 点击 → 导入 → 进书库, 样书出现在书库并可直接打开阅读。
+#[tauri::command]
+pub fn sample_book_import(
+    cfg: State<crate::PrepConfig>,
+    db: State<store::Db>,
+) -> Result<serde_json::Value, String> {
+    sample_book_import_core(&cfg, db.inner())
+}
+
+/// 样书导入核心 (纯逻辑, 命令与单测共用)。
+fn sample_book_import_core(
+    cfg: &crate::PrepConfig,
+    db: &store::Db,
+) -> Result<serde_json::Value, String> {
+    use crate::application::library_service::register_book;
+    crate::infrastructure::log::info("cmd", "enter: sample_book_import");
+    let id = "sample-book-default-1";
+    let pack_dir = cfg.out_dir.join("sample-book");
+    if let Some(e) = store::editions_repo::EditionsRepo::new(db).get(id) {
+        // 已登记: pack 还在就直接返回; 丢了则重建
+        if std::path::Path::new(&e.pack_dir)
+            .join("bookpack.json")
+            .is_file()
+        {
+            return Ok(serde_json::json!({
+                "edition_id": id,
+                "pack_dir": e.pack_dir,
+                "already": true,
+            }));
+        }
+    }
+    std::fs::create_dir_all(&pack_dir).map_err(|e| format!("建样书目录失败: {e}"))?;
+    std::fs::write(pack_dir.join("bookpack.json"), SAMPLE_BOOKPACK)
+        .map_err(|e| format!("写样书包失败: {e}"))?;
+    let registered = register_book(
+        db,
+        id.to_string(),
+        &pack_dir.to_string_lossy(),
+        String::new(),
+        "sample-book".into(),
+        "default".into(),
+        "en".into(),
+        "zh-CN".into(),
+        None,
+        None,
+        None,
+    );
+    if registered.is_none() {
+        return Err("样书登记失败 (bookpack 不完整?)".into());
+    }
+    crate::infrastructure::log::info("cmd", "exit: sample_book_import");
+    Ok(serde_json::json!({
+        "edition_id": id,
+        "pack_dir": pack_dir.to_string_lossy(),
+        "already": false,
+    }))
+}
+
 // M 系列: now_ms 统一走 store::now_ms_for_store (删除重复实现)
 pub fn now_ms() -> i64 {
     store::now_ms_for_store()
@@ -486,6 +609,39 @@ mod meta_tests {
             bp["chapters"][0]["title"], "Ch1",
             "非 sentences 字段不受影响"
         );
+    }
+
+    #[test]
+    fn r1_sample_book_import_is_idempotent_and_registers() {
+        // R1 (UX5 #7): 内置样书导入 —— 写入 bookpack + 登记译本, 幂等 (二次导入不重复建)。
+        let root = std::env::temp_dir().join(format!("aidulc_sample_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let out_dir = root.join("jobs_out");
+        std::fs::create_dir_all(&out_dir).unwrap();
+        let db_path = root.join("t.db");
+        let db = crate::store::Db::open(db_path.to_str().unwrap()).unwrap();
+        let cfg = crate::PrepConfig {
+            prep_path: root.join("prep.exe"),
+            out_dir: out_dir.clone(),
+            ffmpeg: std::path::PathBuf::new(),
+        };
+        // 首次导入
+        let r = sample_book_import_core(&cfg, &db).unwrap();
+        assert_eq!(r["already"], false);
+        let pack = std::path::PathBuf::from(r["pack_dir"].as_str().unwrap());
+        assert!(pack.join("bookpack.json").is_file(), "样书包应写入磁盘");
+        // 已登记译本 + original 书
+        let ed = crate::store::editions_repo::EditionsRepo::new(&db)
+            .get("sample-book-default-1")
+            .expect("译本应登记");
+        assert_eq!(ed.source_id, "sample-book");
+        assert!(crate::store::books_repo::BooksRepo::new(&db)
+            .get("sample-book")
+            .is_some());
+        // 幂等: 二次导入直接返回 already
+        let r2 = sample_book_import_core(&cfg, &db).unwrap();
+        assert_eq!(r2["already"], true);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

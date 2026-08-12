@@ -733,6 +733,10 @@ console.log('== 2g. M5 + UX5 #4 (2026-08-12/13): 书库位置三按钮 + 整根�
   check('M5: 登记结果说清「扫描到 2 本, 已登记 2 本」', loadText.includes('扫描到 2 本') && loadText.includes('已登记 2 本'), loadText.slice(0, 80));
   // UX5 #4: 整根迁移由后端 L1 清单+备份+校验保证文件一个不少 (Rust 单测锁)
   check('UX5#4: 整根迁移文件安全由后端 L1 清单/备份/校验保证 (见 Rust 单测 ux5_migrate_data_root)', true);
+  // M2 教训守卫: 视图调用的 service 方法必须存在于真实 service 文件 (测试 stub 可能掩盖缺失)
+  const miscSrc = readFileSync(join(root, 'services/misc_service.js'), 'utf8');
+  check('UX5#4: 真实 misc_service.js 有 dataRootRecommended (stub 不掩盖真实缺失)', miscSrc.includes('dataRootRecommended()'), 'missing dataRootRecommended');
+  check('UX5#4: 真实 misc_service.js 有 libraryRootStatus', miscSrc.includes('libraryRootStatus()'), 'missing libraryRootStatus');
 }
 
 console.log('== 3. library_view 导入格 (G1): 网格最后一格, 无下拉, 点击走 pickFiles ==');

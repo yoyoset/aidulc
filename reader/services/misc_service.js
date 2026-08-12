@@ -14,6 +14,8 @@
     libraryDirGet() { return AiduBridge.invoke('library_dir_get'); },
     // UX5 #4 (2026-08-13): 书库位置 = 数据根 —— 健康状态 (存在/可写/原因, 绿/红徽章)
     libraryRootStatus() { return AiduBridge.invoke('library_root_status'); },
+    // UX5 #4: 首次向导推荐的数据根 (我的文档/aidulc)
+    dataRootRecommended() { return AiduBridge.invoke('data_root_recommended'); },
     libraryDirPick() { return AiduBridge.invoke('library_dir_pick'); },
     libraryDirPickAndSet(newDir) { return AiduBridge.invoke('library_dir_pick_and_set', { newDir: newDir || null }); },
     // L7 (2026-08-11): 扫描/登记外部书库目录 (不复制不移动文件)

@@ -34,21 +34,39 @@ function browserAdapter() {
     });
     return dbPromise;
   }
+  /**
+   * 事务封装 (M0, 2026-08-12): 读必须等 IDBRequest 完成才能取 result。
+   * fn(os, capture) 的读路径调 capture(req) 登记请求, tx 在 req.onsuccess 里取
+   * result、在 t.oncomplete resolve —— 当场同步读 req.result 会抛 InvalidStateError
+   * (手机端从上线起所有读取失败的真凶)。写路径不 capture, 等 t.oncomplete 保证提交。
+   */
   async function tx(store, mode, fn) {
     const db = await openDb();
     return new Promise((resolve, reject) => {
       const t = db.transaction(store, mode);
       const os = t.objectStore(store);
-      const out = fn(os);
-      t.oncomplete = () => resolve(out);
+      let result;
+      let requests = 0;
+      const maybeResolve = () => { if (requests === 0) resolve(result); };
+      const capture = (req) => {
+        requests++;
+        req.onsuccess = (e) => { result = e.target.result; requests--; maybeResolve(); };
+        req.onerror = () => { requests--; reject(req.error || t.error); };
+      };
+      try {
+        const out = fn(os, capture);
+        if (out && typeof out.addEventListener === 'function') capture(out);
+      } catch (e) {
+        reject(e);
+        return;
+      }
+      t.oncomplete = () => maybeResolve();
       t.onerror = () => reject(t.error);
+      t.onabort = () => reject(t.error);
     });
   }
   function getAll(store) {
-    return tx(store, 'readonly', (os) => {
-      const r = os.getAll();
-      return r.result;
-    });
+    return tx(store, 'readonly', (os, capture) => { capture(os.getAll()); });
   }
   function putOne(store, value) {
     return tx(store, 'readwrite', (os) => { os.put(value); });
@@ -57,7 +75,7 @@ function browserAdapter() {
     return tx(store, 'readwrite', (os) => { os.clear(); });
   }
   async function getMeta(key) {
-    const rows = await tx('meta', 'readonly', (os) => { const r = os.get(key); return r.result; });
+    const rows = await tx('meta', 'readonly', (os, capture) => { capture(os.get(key)); });
     return rows || null;
   }
 

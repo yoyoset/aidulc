@@ -38,6 +38,8 @@ Thumbs.db
 # cloud/worker 部署配置(含本机 KV namespace id; 模板 wrangler.toml.template 入库)
 cloud/worker/wrangler.toml
 cloud/worker/node_modules/
+# cloud/mobile 测试依赖 (fake-indexeddb) —— 本地安装, 不入库
+cloud/mobile/node_modules/
 # cloud/mobile 部署状态(上次部署版本标记, deploy_mobile.ps1 维护; 不入库)
 cloud/mobile/.last-deployed-version
 

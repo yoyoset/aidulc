@@ -1,0 +1,10 @@
+{
+  "name": "aidulc-mobile",
+  "private": true,
+  "scripts": {
+    "test": "node test/app_test.mjs && node test/browser_adapter_test.mjs"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.0.0"
+  }
+}

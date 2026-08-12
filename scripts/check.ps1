@@ -134,6 +134,16 @@ Run-Check "node smoke (手机端 core + 同步链路)" {
     Pop-Location
 }
 
+# 7.8b (M0, 2026-08-12): 手机端 browserAdapter 真 IndexedDB 测试 —— 发货实现此前
+# 零覆盖: tx/getAll/getMeta 在 IDBRequest 未完成时同步读 result → InvalidStateError,
+# 手机端所有读取一律失败、显示 0。用 fake-indexeddb 跑与 app_test.mjs 相同的核心链路
+# (存词→读回→getToken→sync 全链路), 锁死"读取必须等请求完成"这一修复。17 项断言。
+Run-Check "node smoke (手机端 browserAdapter + IndexedDB)" {
+    Push-Location "$root\cloud\mobile"
+    node test\browser_adapter_test.mjs
+    Pop-Location
+}
+
 # 7.9 (V7 补充, 2026-08-10): 手机端 UI 控制器冒烟 —— 最小 DOM stub 驱动真实 app.js,
 # 覆盖 设计稿 01b 全部交互(整卡翻面单向/250ms 评分解锁/按钮评分/左右滑评分/
 # 3秒撤销/长按操作层/下滑退出保留进度) + 冲突 6(手机"跳到原文"不可用→提示在电脑上

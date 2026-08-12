@@ -133,8 +133,7 @@ pub fn get_online_key() -> Result<String, String> {
     }
 }
 
-/// TODO(未接线): 设置页"清除在线引擎 key"按钮 (K3) —— 后续接 UI。
-#[allow(dead_code)]
+/// UX5 #6 (2026-08-13): 已接 UI —— 设置页在线引擎区的「清除在线引擎 key」按钮。
 pub fn delete_online_key() -> Result<(), String> {
     let entry =
         Entry::new(SERVICE, ONLINE_KEY_ACCOUNT).map_err(|e| format!("创建凭据条目失败: {e}"))?;

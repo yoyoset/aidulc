@@ -412,8 +412,89 @@ console.log('== 2d. L8 (2026-08-11): 在线引擎两档开关, 默认全关, 无
   check('L8: 无 key 时开关置灰', lk2 && lk2.disabled === true, 'disabled=' + (lk2 && lk2.disabled));
 }
 
-console.log('== 2d2. L8 (2026-08-11): 查词失败面板 —— 开关①开才有在线入口, 关则无 ==');
+console.log('== 2d3. UX5 #6 (2026-08-13): 在线引擎 deepseek-v4-flash 预填 + 清除 key 按钮 ==');
 {
+  store.state.settingsTab = 'system';
+  const clearCalls = [];
+  globalThis.AiduMiscService.onlineConfigGet = async () => ({ ok: true, data: { endpoint: '', model: '', key_configured: true, lookup_enabled: false, whole_book_enabled: false } });
+  globalThis.AiduMiscService.onlineConfigClearKey = async () => { clearCalls.push(1); return { ok: true, data: { cleared: true, key_configured: false } }; };
+  const sv6 = new globalThis.SettingsView(store);
+  const c6 = makeElement('div');
+  sv6.render(c6);
+  await new Promise((r) => setTimeout(r, 100));
+  store.state.settingsTab = null;
+  // 模型预填 deepseek-v4-flash
+  const modelInput = queryAll(c6, 'input').find((i) => i.placeholder && i.placeholder.includes('模型名'));
+  check('UX5#6: 模型输入预填 deepseek-v4-flash', modelInput && modelInput.value === 'deepseek-v4-flash', 'value=' + (modelInput && modelInput.value));
+  check('UX5#6: 模型占位符提示预设', modelInput && modelInput.placeholder.includes('deepseek-v4-flash'), modelInput && modelInput.placeholder);
+  // 清除 key 按钮: 有 key 时可点; 点 → 确认 → 调 onlineConfigClearKey → 开关置灰 + 状态未配置
+  const clearBtn = queryAll(c6, 'button').find((b) => b.textContent === '清除在线引擎 key');
+  check('UX5#6: 有「清除在线引擎 key」按钮且可点', clearBtn && clearBtn.disabled === false, 'disabled=' + (clearBtn && clearBtn.disabled));
+  confirmCaptured = null;
+  clearBtn && clearBtn.onclick();
+  check('UX5#6: 清除前有确认弹窗', confirmCaptured && confirmCaptured.confirmText === '清除', confirmCaptured && confirmCaptured.title);
+  confirmCaptured && confirmCaptured.onConfirm && confirmCaptured.onConfirm();
+  await new Promise((r) => setTimeout(r, 40));
+  check('UX5#6: 确认后调 onlineConfigClearKey', clearCalls.length === 1, 'calls=' + clearCalls.length);
+  const status6 = queryAll(c6, '.sync-status').find((s) => s.textContent && s.textContent.includes('已清除在线引擎 key'));
+  check('UX5#6: 清除后状态显示未配置', !!status6, 'status=' + queryAll(c6, '.sync-status').map((s) => s.textContent).join('|'));
+  const chk6 = (labelPart) => queryAll(c6, 'input').find((x) => {
+    if (x.type !== 'checkbox') return false;
+    const p = x.parentNode;
+    if (!p) return false;
+    return (p._children || []).map((y) => String(y.textContent || '')).join('').includes(labelPart);
+  });
+  const lookup6 = chk6('查词失败时可用在线 AI');
+  const whole6 = chk6('整本翻译/讲解');
+  check('UX5#6: 清除 key 后两档开关置灰', lookup6 && lookup6.disabled === true && whole6 && whole6.disabled === true,
+    'lookup=' + (lookup6 && lookup6.disabled) + ' whole=' + (whole6 && whole6.disabled));
+  check('UX5#6: 清除 key 后开关取消勾选', lookup6 && !lookup6.checked && whole6 && !whole6.checked);
+}
+
+console.log('== 2d4. UX5 #6 (2026-08-13): L8② 整本外发入口 —— 书卡菜单 + 发前确认外发量 ==');
+{
+  load('core/title_cleanup.js');
+  // 场景: ①未开启② → 点菜单 → toast 提示去设置; ②开启+key → 弹确认框含外发量 → 确认调 book_online_translate
+  const toasts = [];
+  const toastsOrig = globalThis.AiduToast;
+  globalThis.AiduToast = { show: (t, k) => toasts.push([t, k]) };
+  globalThis.AiduMiscService.onlineConfigGet = async () => ({ ok: true, data: { endpoint: 'https://x/v1', model: 'deepseek-v4-flash', key_configured: true, lookup_enabled: false, whole_book_enabled: false } });
+  const lv6 = new globalThis.LibraryView(store, 'original');
+  lv6._profiles = [{ id: 'default', name: '成人自读' }];
+  const book6 = { id: 's1', title: 'Alice.epub', kind: 'original', editions: [{ id: 'e1', title: 'Alice 译本', status: 'ready' }] };
+  lv6._openBookMenu(book6, { online: true });
+  await new Promise((r) => setTimeout(r, 30));
+  const ov6 = document.body._children.filter((c) => c.className && String(c.className).includes('modal-overlay')).slice(-1)[0];
+  const menuItem6 = ov6 && queryAll(ov6, 'button').find((b) => b.textContent === '整本翻译/讲解(在线)');
+  check('UX5#6: 书卡 ⋯ 菜单有「整本翻译/讲解(在线)」', !!menuItem6);
+  menuItem6 && menuItem6.onclick();
+  await new Promise((r) => setTimeout(r, 40));
+  check('UX5#6: ②未开启 → 提示去设置开启', toasts.some(([t]) => t.includes('整本翻译/讲解') && t.includes('开启')), JSON.stringify(toasts));
+  // 开启② + 有 key → 弹确认框 (发前外发量可见)
+  confirmCaptured = null;
+  globalThis.AiduMiscService.onlineConfigGet = async () => ({ ok: true, data: { endpoint: 'https://x/v1', model: 'deepseek-v4-flash', key_configured: true, lookup_enabled: false, whole_book_enabled: true } });
+  globalThis.AiduLibraryService.loadBookpack = async () => ({ ok: true, data: { basePath: 'D:/packs/e1', bookpack: { title: 'Alice', chapters: [{ sentences: [{ original_text: 'Hello world.' }, { original_text: 'Second sentence longer.' }] }] } } });
+  const onlineCalls6 = [];
+  globalThis.AiduBridge.invoke = async (cmd, args) => {
+    if (cmd === 'book_online_translate') { onlineCalls6.push(args); return { ok: true, data: { edition_id: 'online-e1', sentences_done: 2, sentences_failed: 0, model: 'deepseek-v4-flash', source_id: 's1' } }; }
+    return { ok: true, data: {} };
+  };
+  lv6._onlineWholeBook(book6);
+  await new Promise((r) => setTimeout(r, 60));
+  check('UX5#6: 开启② → 发前弹确认框 (含全书外发量)', confirmCaptured && confirmCaptured.title.includes('整本翻译/讲解') &&
+    String(confirmCaptured.message).includes('2 句') && String(confirmCaptured.message).includes('外发量可能很大'), confirmCaptured && confirmCaptured.title);
+  confirmCaptured && confirmCaptured.onConfirm && confirmCaptured.onConfirm();
+  await new Promise((r) => setTimeout(r, 60));
+  check('UX5#6: 确认后调 book_online_translate(bookId=e1)', onlineCalls6.some((a) => a && a.bookId === 'e1'), JSON.stringify(onlineCalls6));
+  check('UX5#6: 完成后 toast 报成功句数', toasts.some(([t]) => t.includes('在线整本翻译完成') && t.includes('2 句成功')), JSON.stringify(toasts));
+  // 还原
+  globalThis.AiduToast = toastsOrig;
+  globalThis.AiduBridge.invoke = async () => ({ ok: true, data: null });
+  const lastOv6 = document.body._children.filter((c) => c.className && String(c.className).includes('modal-overlay')).slice(-1)[0];
+  if (lastOv6 && lastOv6.remove) lastOv6.remove();
+}
+
+console.log('== 2d2. L8 (2026-08-11): 查词失败面板 —— 开关①开才有在线入口, 关则无 ==');{
   load('components/dictionary_panel.js');
   globalThis.AiduDictionaryService.lookup = async () => ({ ok: true, data: { word: 'reticent', pos: '', phonetic: '', meanings: ['词义查询失败: 词典守护超时'], examples: [], example_zh: '', usage: '', phrases: [] } });
   globalThis.AiduDictionaryService.lookupOnline = async (w) => ({ ok: true, data: ['NOUN', '', ['在线释义'], [], [], '', []] });

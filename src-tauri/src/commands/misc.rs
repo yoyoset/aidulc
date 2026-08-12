@@ -214,6 +214,19 @@ pub fn online_config_test(
     crate::infrastructure::online_client::test_connection(&ep, &key, &md)
 }
 
+/// UX5 #6 (2026-08-13): 「清除在线引擎 key」—— 删 Credential Manager 里的 key。
+/// 接上 credentials::delete_online_key (此前写了没接 UI)。清除后 key 未配置态可见,
+/// 前端据此置灰两档授权开关。
+#[tauri::command]
+pub fn online_config_clear_key() -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", "enter: online_config_clear_key");
+    crate::services::credentials::delete_online_key()?;
+    Ok(serde_json::json!({
+        "cleared": true,
+        "key_configured": false,
+    }))
+}
+
 /// 书库位置"更改..."(L7, 2026-08-11 重定义)
 ///
 /// **切换书库位置不移动、不删除任何文件** —— 只改配置 + 重启后按新位置读取。

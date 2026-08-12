@@ -97,6 +97,86 @@ pub fn explain_sentence(
     chat_completion(endpoint, api_key, model, &prompt)
 }
 
+/// 单句翻译+讲解 (L8② 整本外发用): 返回 JSON {translation, explanation}。
+/// 只在用户对整本书显式确认后才批量调用。
+pub fn translate_sentence(
+    endpoint: &str,
+    api_key: &str,
+    model: &str,
+    sentence: &str,
+) -> Result<serde_json::Value, String> {
+    if endpoint.is_empty() || api_key.is_empty() || model.is_empty() {
+        return Err("在线引擎未配置".into());
+    }
+    let prompt = format!(
+        "你是英语精读老师。翻译并讲解下面这句英语, 返回 JSON: \
+         字段 translation(整句中文翻译), explanation(讲解: 逐词难点与语法要点, 中文, 2-4 句)。只返回 JSON。\n句子: {}",
+        sentence.trim()
+    );
+    let content = chat_completion(endpoint, api_key, model, &prompt)?;
+    let cleaned = strip_json_fence(&content);
+    let v: serde_json::Value = serde_json::from_str(&cleaned)
+        .map_err(|e| format!("在线引擎响应不是有效 JSON: {e} (原文: {cleaned:.200})"))?;
+    Ok(v)
+}
+
+/// 整本在线翻译/讲解 (L8②): 逐句调用在线引擎, 覆盖每句的 translation/explanation,
+/// 并清掉音频字段 (在线版是无音频的文本译本)。返回 (成功句数, 失败句数)。
+/// 同步阻塞 (每句一次 HTTP), 调用方负责 spawn_blocking; 只有整本确认后才会走到这里。
+pub fn translate_book(
+    endpoint: &str,
+    api_key: &str,
+    model: &str,
+    bookpack: &mut serde_json::Value,
+) -> Result<(usize, usize), String> {
+    if endpoint.is_empty() || api_key.is_empty() || model.is_empty() {
+        return Err("在线引擎未配置".into());
+    }
+    let mut done = 0usize;
+    let mut failed = 0usize;
+    let Some(chapters) = bookpack.get_mut("chapters").and_then(|c| c.as_array_mut()) else {
+        return Err("书包无 chapters".into());
+    };
+    for ch in chapters {
+        if let Some(obj) = ch.as_object_mut() {
+            obj.remove("audioFile");
+        }
+        let Some(sents) = ch.get_mut("sentences").and_then(|s| s.as_array_mut()) else {
+            continue;
+        };
+        for s in sents {
+            if let Some(obj) = s.as_object_mut() {
+                obj.remove("audio");
+                obj.remove("words");
+            }
+            let text = s
+                .get("original_text")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if text.is_empty() {
+                continue;
+            }
+            match translate_sentence(endpoint, api_key, model, &text) {
+                Ok(v) => {
+                    if let Some(obj) = s.as_object_mut() {
+                        if let Some(t) = v.get("translation").and_then(|x| x.as_str()) {
+                            obj.insert("translation".into(), serde_json::json!(t));
+                        }
+                        if let Some(e) = v.get("explanation").and_then(|x| x.as_str()) {
+                            obj.insert("explanation".into(), serde_json::json!(e));
+                        }
+                    }
+                    done += 1;
+                }
+                Err(_) => failed += 1,
+            }
+        }
+    }
+    Ok((done, failed))
+}
+
 /// 连通性测试: 最小请求, 确认 endpoint+key+model 可用。
 pub fn test_connection(
     endpoint: &str,
@@ -261,6 +341,84 @@ mod tests {
     #[test]
     fn missing_config_is_clear_error() {
         assert!(lookup_word("", "", "", "door", "").is_err());
+    }
+
+    /// L8② (2026-08-13): 整本在线翻译 —— 本地 mock HTTP 返回翻译 JSON, 断言:
+    /// translation/explanation 被覆盖、音频字段被清掉、成功/失败计数正确。
+    #[test]
+    fn translate_book_overwrites_translations_and_strips_audio() {
+        use std::io::{BufRead, BufReader, Read, Write};
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut req_line = String::new();
+                if reader.read_line(&mut req_line).is_err() {
+                    continue;
+                }
+                let mut content_length = 0usize;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).is_err() || line.trim().is_empty() {
+                        break;
+                    }
+                    let lower = line.to_lowercase();
+                    if let Some(v) = lower.strip_prefix("content-length:") {
+                        content_length = v.trim().parse().unwrap_or(0);
+                    }
+                }
+                let mut body = vec![0u8; content_length];
+                if content_length > 0 {
+                    let _ = reader.read_exact(&mut body);
+                }
+                let resp = serde_json::json!({
+                    "choices": [{
+                        "message": { "content": "{\"translation\":\"在线翻译\",\"explanation\":\"难点讲解\"}" }
+                    }]
+                });
+                let payload = serde_json::to_vec(&resp).unwrap();
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    payload.len()
+                );
+                let _ = stream.write_all(header.as_bytes());
+                let _ = stream.write_all(&payload);
+            }
+        });
+        let url = format!("http://{addr}");
+
+        let mut bp = serde_json::json!({
+            "chapters": [{
+                "audioFile": "audio/ch_000.opus",
+                "sentences": [
+                    { "original_text": "Hello world.", "translation": "旧翻译", "audio": {"start_ms": 0, "end_ms": 100}, "words": [] },
+                    { "original_text": "Second sentence.", "translation": "旧翻译2", "audio": {"start_ms": 100, "end_ms": 200} }
+                ]
+            }]
+        });
+        let (done, failed) = translate_book(&url, "key", "deepseek-v4-flash", &mut bp).unwrap();
+        assert_eq!(done, 2, "两句都应翻译成功");
+        assert_eq!(failed, 0);
+        // translation/explanation 覆盖
+        assert_eq!(bp["chapters"][0]["sentences"][0]["translation"], "在线翻译");
+        assert_eq!(bp["chapters"][0]["sentences"][1]["explanation"], "难点讲解");
+        // 音频字段被清 (在线版无音频)
+        assert!(bp["chapters"][0].get("audioFile").is_none());
+        assert!(bp["chapters"][0]["sentences"][0].get("audio").is_none());
+        assert!(bp["chapters"][0]["sentences"][0].get("words").is_none());
+        // segments 保留
+        assert!(bp["chapters"][0]["sentences"][0]
+            .get("original_text")
+            .is_some());
+    }
+
+    #[test]
+    fn translate_book_errors_when_unconfigured() {
+        let mut bp = serde_json::json!({ "chapters": [] });
+        assert!(translate_book("", "", "", &mut bp).is_err());
     }
 
     #[test]

@@ -110,6 +110,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "K3: 用在线 AI 查一次(本地失败后用户显式点击, 绝不自动回退)",
     },
     CommandInfo {
+        path: "commands::reader::book_online_translate",
+        domain: "在线引擎",
+        desc: "L8② (UX5): 整本在线翻译/讲解 —— 书卡入口确认外发量后逐句调用在线引擎, 生成无音频在线版译本",
+    },
+    CommandInfo {
         path: "commands::reader::add_vocab",
         domain: "阅读",
         desc: "显式加入生词本",
@@ -506,6 +511,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         path: "commands::misc::online_config_test",
         domain: "在线引擎",
         desc: "K3: 在线引擎连通性测试",
+    },
+    CommandInfo {
+        path: "commands::misc::online_config_clear_key",
+        domain: "在线引擎",
+        desc: "UX5 #6: 清除在线引擎 API key (删 Credential Manager 里的 key, 清除后两档开关置灰)",
     },
     CommandInfo {
         path: "commands::misc::boot_ping",

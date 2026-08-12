@@ -271,7 +271,7 @@ fn aggregate_book_pack_state(editions: &[serde_json::Value]) -> Option<String> {
 /// book_id → 书包所在目录(登记过的书查 DB; 否则按路径/兜底目录猜)。
 /// 从 load_bookpack 提取, load_bookpack_chapter 复用同一套解析规则(两个命令必须
 /// 找到同一个目录, 不能一个走 DB、一个走猜测导致"元信息"和"章节内容"不是同一本书)。
-fn resolve_book_pack_dir(
+pub(crate) fn resolve_book_pack_dir(
     db: &store::Db,
     cfg: &crate::PrepConfig,
     book_id: &str,

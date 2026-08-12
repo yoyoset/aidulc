@@ -31,6 +31,8 @@
       });
     },
     onlineConfigTest(endpoint, model, apiKey) { return AiduBridge.invoke('online_config_test', { endpoint, model, apiKey: apiKey || null }); },
+    // UX5 #6 (2026-08-13): 清除在线引擎 key (删 Credential Manager 里的 key)
+    onlineConfigClearKey() { return AiduBridge.invoke('online_config_clear_key'); },
     // R3.4: 一键安装文档解析器 PyMuPDF
     docParserInstall() { return AiduBridge.invoke('doc_parser_install'); },
   };

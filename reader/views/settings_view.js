@@ -339,16 +339,20 @@
       const onlineEndpoint = el('input', 'prep-input');
       onlineEndpoint.placeholder = 'OpenAI 兼容 endpoint (如 https://api.openai.com/v1 或自建 vLLM)';
       const onlineModel = el('input', 'prep-input');
-      onlineModel.placeholder = '模型名 (如 gpt-4o-mini / deepseek-chat / qwen2.5:14b)';
+      // UX5 #6 (2026-08-13): 预设模型 deepseek-v4-flash (OPENCODE GO 的 OpenAI 兼容端点)
+      onlineModel.placeholder = '模型名 (预设: deepseek-v4-flash)';
       const onlineKey = el('input', 'prep-input');
       onlineKey.type = 'password';
       onlineKey.placeholder = 'API key (存本机, 不落 config.toml; 留空 = 不修改)';
       const onlineStatus = el('div', 'sync-status', '读取中…');
       const onlineSave = el('button', 'btn-small btn-primary', '保存配置');
       const onlineTest = el('button', 'btn-small', '连通性测试');
+      // UX5 #6 (2026-08-13): 「清除在线引擎 key」按钮 —— 接 credentials::delete_online_key
+      const onlineClearKey = el('button', 'btn-small btn-danger', '清除在线引擎 key');
+      onlineClearKey.title = '删除本机凭据管理器里保存的在线引擎 API key。清除后两档开关置灰, 显示未配置。';
       const onlineRow = el('div', 'settings-row');
       onlineRow.style.flexWrap = 'wrap';
-      onlineRow.append(onlineSave, onlineTest);
+      onlineRow.append(onlineSave, onlineTest, onlineClearKey);
       // L8 (2026-08-11): 三档授权落成两个独立开关, 默认全关。
       // ① 查词失败时可用在线 AI (发 1 词 + 1 句, ~200 字符)
       // ② 整本翻译/讲解可用在线引擎 (发全书正文, **默认关**, 开启时明确告知外发量)
@@ -401,15 +405,18 @@
         if (!res.ok) { onlineStatus.textContent = '读取失败: ' + res.error; return; }
         const d = res.data || {};
         onlineEndpoint.value = d.endpoint || '';
-        onlineModel.value = d.model || '';
+        // UX5 #6 (2026-08-13): 模型预填 deepseek-v4-flash (没配过就预填, 存盘后就是它)
+        onlineModel.value = d.model || 'deepseek-v4-flash';
         onlineStatus.textContent = 'key: ' + (d.key_configured ? '已配置' : '未配置') +
-          (d.endpoint ? ' · ' + d.endpoint : '') + (d.model ? ' · ' + d.model : '');
+          (d.endpoint ? ' · ' + d.endpoint : '') + ' · ' + onlineModel.value;
         // L8: 回显两档开关; 只有端点+key 都齐了才允许开 (否则置灰指向配置区)
         const canEnable = !!(d.endpoint && d.key_configured);
         lookupSwitch.cb.checked = !!d.lookup_enabled;
         wholeBookSwitch.cb.checked = !!d.whole_book_enabled;
         lookupSwitch.cb.disabled = !canEnable;
         wholeBookSwitch.cb.disabled = !canEnable;
+        // UX5 #6: 没有 key 时「清除 key」按钮置灰
+        onlineClearKey.disabled = !d.key_configured;
         if (!canEnable) {
           onlineStatus.textContent = '先填 endpoint + API key 并保存, 再启用上面的开关。' +
             (d.key_configured ? '' : ' (key 未配置)');
@@ -437,6 +444,26 @@
             if (!r.ok) { onlineStatus.textContent = '测试失败: ' + r.error; return; }
             onlineStatus.textContent = '连通 ✓ 模型回复: ' + (r.data && r.data.reply ? r.data.reply : 'ok');
           });
+      };
+      // UX5 #6 (2026-08-13): 清除在线引擎 key —— 确认后删, 开关置灰、状态显示未配置
+      onlineClearKey.onclick = () => {
+        AiduModal.confirm({
+          title: '清除在线引擎的 API key?',
+          message: '将删除本机凭据管理器里保存的在线引擎 API key。清除后两档授权开关会置灰, 需重新填入 key 才能再次外发。',
+          confirmText: '清除',
+          danger: true,
+          onConfirm: () => AiduMiscService.onlineConfigClearKey().then((r) => {
+            if (!r.ok) throw new Error(r.error);
+            onlineKey.value = '';
+            onlineClearKey.disabled = true;
+            lookupSwitch.cb.checked = false;
+            wholeBookSwitch.cb.checked = false;
+            lookupSwitch.cb.disabled = true;
+            wholeBookSwitch.cb.disabled = true;
+            onlineStatus.textContent = '已清除在线引擎 key · 状态: 未配置';
+            return;
+          }),
+        });
       };
 
       // M6: 学习档案 (每个人不同的英文库: 讲解深度/音色/语速/高亮粒度)

@@ -316,9 +316,9 @@
             if (!canOpen) { openBtn.title = '这本书还在准备中, 完成后再来读'; openBtn.classList.add('btn-disabled'); }
             openBtn.onclick = () => this.onOpenBook && this.onOpenBook(book);
             actions.append(openBtn);
-            const menuBtn = el('button', 'btn-small', '⋯');
-            menuBtn.onclick = () => this._openBookMenu(book, { export: true, delete: true });
-            actions.appendChild(menuBtn);
+          const menuBtn = el('button', 'btn-small', '⋯');
+          menuBtn.onclick = () => this._openBookMenu(book, { export: true, delete: true, online: true });
+          actions.appendChild(menuBtn);
           }
         } else {
           // 原版书库: 主按钮 = 创建/新增译本 (G6: 措辞统一不再因有无译本换词);
@@ -331,7 +331,7 @@
           }
           actions.append(createBtn);
           const menuBtn = el('button', 'btn-small', '⋯');
-          menuBtn.onclick = () => this._openBookMenu(book, { preview: true, settings: true, delete: true });
+          menuBtn.onclick = () => this._openBookMenu(book, { preview: true, settings: true, delete: true, online: true });
           actions.appendChild(menuBtn);
         }
          card.append(name, meta, actions);
@@ -480,6 +480,8 @@
       if (opts && opts.preview) items.push(['预览原文', () => this._openPreview(book)]);
       if (opts && opts.settings) items.push(['设置', () => this._openBookSettings(book)]);
       if (opts && opts.export) items.push(['导出 (zip)', () => this._exportBookZip(book)]);
+      // UX5 #6 (2026-08-13): L8② 整本外发入口 —— 开启时每本确认外发量后再发
+      if (opts && opts.online) items.push(['整本翻译/讲解(在线)', () => this._onlineWholeBook(book)]);
       if (opts && opts.delete) {
         items.push(['删除' + (opts.editionChild ? '译本' : ''), () => {
           const isChild = !!opts.editionChild;
@@ -926,6 +928,56 @@
         const d = r.data || {};
         if (d.cancelled) return;
         AiduToast.show('已导出到 ' + d.path, 'success');
+      });
+    }
+
+    /** UX5 #6 (2026-08-13): L8② 整本外发入口 —— 书卡 ⋯ 菜单「整本翻译/讲解(在线)」。
+     *  先查在线引擎配置 (②开关 + key), 再用源译本估算全书外发量, 每本确认后才发。
+     *  确认后调 book_online_translate, 生成无音频的"在线版"译本。 */
+    _onlineWholeBook(book) {
+      AiduMiscService.onlineConfigGet().then((r) => {
+        const d = (r.ok && r.data) || {};
+        if (!d.endpoint || !d.key_configured) {
+          AiduToast.show('先配置在线引擎 (设置 → 在线引擎 → endpoint + API key) 再整本外发', 'error');
+          return;
+        }
+        if (!d.whole_book_enabled) {
+          AiduToast.show('「整本翻译/讲解」未开启: 在 设置 → 在线引擎 勾选 ② 后再试', 'error');
+          return;
+        }
+        // 用第一本译本的 pack 估算外发量 (整本翻译需要一个源译本作为结构来源)
+        const editionId = (Array.isArray(book.editions) && book.editions[0] && book.editions[0].id) || book.id;
+        AiduLibraryService.loadBookpack(editionId).then((bp) => {
+          const b = (bp.ok && bp.data && bp.data.bookpack) || {};
+          const chapters = b.chapters || [];
+          let sentences = 0, chars = 0;
+          chapters.forEach((ch) => (ch.sentences || []).forEach((s) => {
+            sentences++;
+            chars += String(s.original_text || '').length;
+          }));
+          const vol = chars > 10000
+            ? `全书 ${chapters.length} 章、${sentences} 句、约 ${(chars / 10000).toFixed(1)} 万字`
+            : `全书 ${chapters.length} 章、${sentences} 句、约 ${chars} 字符`;
+          AiduModal.confirm({
+            title: `整本翻译/讲解(在线)?`,
+            message: `将发送《${book.title || book.id}》全书正文到在线引擎 (${d.endpoint}):\n\n${vol}\n\n` +
+              '外发量可能很大, 发送后不可撤销。完成后生成一本无音频的「在线版」译本。',
+            confirmText: '开始在线整本翻译',
+            danger: true,
+            onConfirm: () => AiduBridge.invoke('book_online_translate', { bookId: editionId }).then((res) => {
+              if (!res.ok) throw new Error(res.error);
+              const r2 = res.data || {};
+              AiduToast.show(
+                `在线整本翻译完成: ${r2.sentences_done} 句成功` +
+                (r2.sentences_failed ? `, ${r2.sentences_failed} 句失败` : ''),
+                r2.sentences_failed ? 'warn' : 'success');
+              this.store.emit('change', this.store.state);
+              AiduLibraryService.list('original').then((lr) => {
+                if (lr.ok) this.store.set({ books: lr.data });
+              });
+            }),
+          });
+        });
       });
     }
 

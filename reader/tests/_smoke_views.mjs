@@ -1084,18 +1084,19 @@ console.log('== 6. 背单词三栏 (V3, 2026-08-09) ==');
   rv.cleanup();
 }
 
-console.log('== 6b. 来源定位右栏 (V4, 2026-08-09) ==');
+console.log('== 6b. 来源定位入卡背 (V4 + UX5 #2, 2026-08-13) ==');
 {
-  // 词条带 edition_id → 右栏应显示《书名》·第 N 章 + "在阅读器中打开"
+  // 词条带 edition_id → 卡片背面应显示《书名》·第 N 章 + "在阅读器中打开"
   const rv2 = new globalThis.ReviewView(new globalThis.AiduStore());
   const rc2 = makeElement('div');
   rv2.render(rc2);
   await new Promise((r) => setTimeout(r, 60));
-  const locEl = rv2.sourceCol && queryAll(rv2.sourceCol, '.review-source-loc')[0];
-  check('右栏出现来源定位块', !!locEl);
+  const cardBack = rv2._cardEl && rv2._cardEl.querySelector('.back');
+  const locEl = cardBack && queryAll(cardBack, '.review-source-loc')[0];
+  check('卡片背面出现来源定位块', !!locEl);
   const metaLine = locEl && queryAll(locEl, '.review-source-meta')[0];
   const metaText = metaLine ? metaLine.textContent : '';
-  check('右栏显示章节与句位置', metaText.includes('第 3 章') && metaText.includes('第 6 处出现'), 'meta=' + JSON.stringify(metaText));
+  check('来源显示章节与句位置', metaText.includes('第 3 章') && metaText.includes('第 6 处出现'), 'meta=' + JSON.stringify(metaText));
   const openBtn = locEl && queryAll(locEl, 'button').find((b) => b.textContent.includes('在阅读器中打开'));
   check('有"在阅读器中打开"按钮', !!openBtn);
   // 跳转: onOpenInReader 回调拿到 edition_id/chapter/sentence
@@ -1105,14 +1106,14 @@ console.log('== 6b. 来源定位右栏 (V4, 2026-08-09) ==');
   check('点击触发 onOpenInReader 带定位', jumped && jumped.edition_id === 'e-1' && jumped.chapter_index === 2 && jumped.sentence_index === 5, JSON.stringify(jumped));
   await new Promise((r) => setTimeout(r, 30));
   // 书名异步解析
-  const book = rv2.sourceCol.querySelector('.review-source-book');
+  const book = rv2._cardEl && rv2._cardEl.querySelector('.review-source-book');
   check('书名异步解析为《雪国》', book && book.textContent === '《雪国》', book && book.textContent);
   rv2.cleanup();
 }
 
-console.log('== 6c. E: 今日队列上限 + 折叠 (UX 2026-08-11) ==');
+console.log('== 6c. E→UX5 #2: 今日队列信息收进单卡摘要行 (2026-08-11/13) ==');
 {
-  // 1424 词全到期 → 队列 1424 行; 布局修复后左栏内部滚动, 队列不该一次铺开 1424 行
+  // 1424 词全到期 → 单卡模式不再铺 1424 行队列, 摘要行显示计数 + 超上限顺延提示
   const now = Date.now();
   const many = [];
   for (let i = 0; i < 1424; i++) {
@@ -1124,14 +1125,10 @@ console.log('== 6c. E: 今日队列上限 + 折叠 (UX 2026-08-11) ==');
   rv3.render(rc3);
   await new Promise((r) => setTimeout(r, 80));
   check('队列全量 1424', rv3.queue.length === 1424, 'len=' + rv3.queue.length);
-  const rows = queryAll(rv3._queueList, '.review-qrow');
-  check('默认折叠: 只渲染 50 行', rows.length === 50, 'rows=' + rows.length);
-  const moreBtn = queryAll(rv3._queueList, '.review-qmore')[0];
-  check('出现「还有 N 词已折叠」按钮', !!moreBtn && moreBtn.textContent.includes('1374'), moreBtn && moreBtn.textContent);
-  moreBtn.onclick();
-  const rows2 = queryAll(rv3._queueList, '.review-qrow');
-  check('点展开 → 渲染全量 1424 行', rows2.length === 1424, 'rows=' + rows2.length);
-  check('展开后折叠按钮消失', queryAll(rv3._queueList, '.review-qmore').length === 0);
+  check('单卡模式不再渲染队列列表 (.review-qrow 不存在)', queryAll(rc3, '.review-qrow').length === 0);
+  const sumText = textOf(rv3._summaryEl || {});
+  check('摘要行显示计数 (1424)', sumText.includes('1424'), sumText.slice(0, 80));
+  check('摘要行提示超每日上限顺延', sumText.includes('顺延') && sumText.includes('每日上限'), sumText.slice(0, 120));
   rv3.cleanup();
 }
 
@@ -1159,7 +1156,7 @@ console.log('== 6d. L3/M2 (2026-08-11/12): 点「开始复习」触发重渲染 
   check('点击调用 router.navigate(vocab) (不再赋同值 hash)', navCalls.join(',') === 'vocab', 'nav=' + navCalls.join(','));
 }
 
-console.log('== 6e. M2 (2026-08-12): 全链路 —— 点「开始复习」→ 真渲染 .review-grid, Esc 退出 ==');
+console.log('== 6e. M2 + UX5 #2 (2026-08-12/13): 全链路 —— 点「开始复习」→ 真渲染单卡, Esc 退出 ==');
 {
   // 教训 8: 断言落在用户可见的最终 DOM。复刻 main.js 的 vocab 路由处理器 (真实 Router),
   // 全程不 mask global.AiduStore —— 就是线上出 bug 的路径。
@@ -1190,8 +1187,13 @@ console.log('== 6e. M2 (2026-08-12): 全链路 —— 点「开始复习」→ �
   const startBtnE = queryAll(containerE, 'button').find((b) => b.textContent === '开始复习');
   startBtnE && startBtnE.onclick();
   await new Promise((r) => setTimeout(r, 100));
-  // 教训 8 DOM 断言: 点击后 .review-grid 存在、.vocab-today-card 不存在
-  check('M2: 点击后 .review-grid 存在 (专注模式真渲染)', !!containerE.querySelector('.review-grid'), 'has-grid=' + !!containerE.querySelector('.review-grid'));
+  // 教训 8 DOM 断言 (UX5 #2): 点击后 .review-grid 消失 (三栏没了), 单卡出现
+  check('UX5#2: 点击后 .review-grid 不存在 (去三栏 grid)', !containerE.querySelector('.review-grid'));
+  check('UX5#2: 单卡出现 (.review-card)', !!containerE.querySelector('.review-card'));
+  check('UX5#2: 背景遮罩/模糊层存在 (.review-backdrop)', !!containerE.querySelector('.review-backdrop'));
+  const cardE = containerE.querySelector('.review-card');
+  const ctxE = cardE && cardE.querySelector('.review-context');
+  check('UX5#2: 卡内含原文语境块 (.review-context)', !!ctxE, 'ctx=' + (ctxE && ctxE.textContent));
   check('M2: 点击后 .vocab-today-card 不存在', !containerE.querySelector('.vocab-today-card'));
   check('M2: 顶栏 nav 加 focus-hidden (专注模式视觉)', navEl.className.includes('focus-hidden'), navEl.className);
   const exitBtnE = queryAll(containerE, 'button').find((b) => b.textContent === '退出复习');
@@ -1200,8 +1202,90 @@ console.log('== 6e. M2 (2026-08-12): 全链路 —— 点「开始复习」→ �
   if (exitBtnE) exitBtnE.onclick();
   await new Promise((r) => setTimeout(r, 80));
   check('M2: 退出后 .vocab-today-card 回来', !!containerE.querySelector('.vocab-today-card'));
-  check('M2: 退出后 .review-grid 消失', !containerE.querySelector('.review-grid'));
+  check('UX5#2: 退出后 .review-card 消失', !containerE.querySelector('.review-card'));
   check('M2: 退出后 nav 移除 focus-hidden', !navEl.className.includes('focus-hidden'));
+}
+
+console.log('== 6f. UX5 #2 (2026-08-13): 单卡双语音按钮 —— 正常速度/慢速 + 播放中状态类 ==');
+{
+  // 词条带来源 → 走阅读器音频管线 (桌面); 音频加载失败 → 降级 speechSynthesis。
+  // 教训 8: 断言可见文案「正常速度」/「慢速」+ 点击后 .playing 状态类。
+  globalThis.AiduDictionaryService.vocabAll = async () => ({ ok: true, data: [
+    { word: 'reticent', lemma: 'reticent', stage: 'review', interval_ms: 3 * 86400000, next_review: Date.now() - 1000, meaning: '沉默寡言的', context: 'He was reticent.', edition_id: 'e-1', chapter_index: 2, sentence_index: 5 },
+  ] });
+  // 音频管线 stub: loadBookpack → basePath; loadChapter → 该句 audio 区间; readAudioRange → 一个字节
+  globalThis.AiduLibraryService.loadBookpack = async () => ({ ok: true, data: { basePath: 'D:/packs/e1', bookpack: { chapters: [] } } });
+  globalThis.AiduLibraryService.loadBookpackChapter = async () => ({ ok: true, data: { audioFile: 'audio/ch_002.opus', sentences: [{}, {}, {}, {}, {}, { audio: { start_ms: 1000, end_ms: 3000 } }] } });
+  globalThis.AiduLibraryService.readAudioRange = async () => ({ ok: true, data: { data_b64: 'AAAA', read: 4, end: true } });
+  globalThis.AiduLibraryService.editionLookup = async () => ({ ok: true, data: { id: 'e-1', title: '雪国' } });
+  // Audio mock: 同步触发 loadedmetadata, 记录 play 时的 rate/currentTime
+  let playCalls = [];
+  let createdAudio = null;
+  globalThis.Audio = class {
+    constructor() { this.currentTime = 0; this.playbackRate = 1; this.src = ''; this.paused = true; createdAudio = this; }
+    load() {}
+    addEventListener(ev, fn) { if (ev === 'loadedmetadata') { fn(); return true; } return false; }
+    play() { this.paused = false; playCalls.push({ rate: this.playbackRate, currentTime: this.currentTime }); return Promise.resolve(); }
+    pause() { this.paused = true; }
+  };
+  globalThis.atob = (s) => s;
+  globalThis.URL = { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} };
+  globalThis.Blob = class { constructor() {} };
+  const rvF = new globalThis.ReviewView(new globalThis.AiduStore());
+  const rcF = makeElement('div');
+  rvF.render(rcF);
+  await new Promise((r) => setTimeout(r, 80));
+  const voiceBtns = queryAll(rcF, '.review-voice-btn');
+  const texts = voiceBtns.map((b) => b.textContent);
+  check('UX5#2: 两个语音按钮 (正常速度/慢速)', texts.includes('正常速度') && texts.includes('慢速'), texts.join(','));
+  const normalBtn = voiceBtns.find((b) => b.textContent === '正常速度');
+  const slowBtn = voiceBtns.find((b) => b.textContent === '慢速');
+  // 点正常速度 → 走阅读器音频, playbackRate=1, 定位到句起点, .playing 高亮
+  playCalls = [];
+  normalBtn.onclick();
+  await new Promise((r) => setTimeout(r, 60));
+  check('UX5#2: 正常速度走音频管线 (playbackRate=1)', playCalls.some((p) => p.rate === 1), JSON.stringify(playCalls));
+  check('UX5#2: 定位到句起点 (1000ms)', playCalls.some((p) => p.currentTime === 1), JSON.stringify(playCalls));
+  check('UX5#2: 播放中按钮加 .playing 状态类', normalBtn.className.includes('playing'), normalBtn.className);
+  // 点慢速 → 切换到 0.75 (桌面 playbackRate)
+  rvF._stopVoice();
+  playCalls = [];
+  slowBtn.onclick();
+  await new Promise((r) => setTimeout(r, 60));
+  check('UX5#2: 慢速 playbackRate=0.75', playCalls.some((p) => p.rate === 0.75), JSON.stringify(playCalls));
+  check('UX5#2: 慢速按钮加 .playing', slowBtn.className.includes('playing'), slowBtn.className);
+  rvF._stopVoice();
+  // 无来源词条 → 降级 speechSynthesis (系统级)
+  globalThis.AiduDictionaryService.vocabAll = async () => ({ ok: true, data: [
+    { word: 'bank', lemma: 'bank', stage: 'new', next_review: null, meaning: '银行', context: 'He went to the bank.' },
+  ] });
+  const spoken = [];
+  globalThis.speechSynthesis = {
+    cancel() {}, speak(u) { spoken.push({ text: u.text, rate: u.rate }); },
+  };
+  globalThis.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+  const rvG = new globalThis.ReviewView(new globalThis.AiduStore());
+  const rcG = makeElement('div');
+  rvG.render(rcG);
+  await new Promise((r) => setTimeout(r, 80));
+  const gVoiceBtns = queryAll(rcG, '.review-voice-btn');
+  const gNormal = gVoiceBtns.find((b) => b.textContent === '正常速度');
+  const gSlow = gVoiceBtns.find((b) => b.textContent === '慢速');
+  gNormal.onclick();
+  check('UX5#2: 无来源词条 → speechSynthesis 读单词 (rate 1.0)', spoken.some((u) => u.text === 'bank' && u.rate === 1), JSON.stringify(spoken));
+  rvG._stopVoice();
+  spoken.length = 0;
+  gSlow.onclick();
+  check('UX5#2: 慢速降级 rate 0.6 (系统级)', spoken.some((u) => u.text === 'bank' && u.rate === 0.6), JSON.stringify(spoken));
+  rvG.cleanup();
+  // 还原
+  delete globalThis.Audio;
+  delete globalThis.speechSynthesis;
+  delete globalThis.SpeechSynthesisUtterance;
+  globalThis.atob = undefined;
+  globalThis.Blob = undefined;
+  globalThis.URL = undefined;
+  const audioLoadCalls = [];
 }
 
 console.log('== 7. S5 只播这一句 (player.playOne 单句停) ==');

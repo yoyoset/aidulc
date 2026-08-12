@@ -1,7 +1,10 @@
 /**
- * views/review_view.js —— 桌面三栏背单词 (V3, 2026-08-09)
- * 队列 / 卡片 / 原文。SPACE 翻面、1-4 评分、S 跳过、E 编辑。
- * 翻面单向不可逆; 评分区翻面后 250ms 才可点 (FlipLock); 3 秒可撤销 (UndoStack)。
+ * views/review_view.js —— 专注模式: 单卡复习 (UX5 #2, 2026-08-13)
+ * 去三栏 grid, 改一张独立卡片: 正面 = 词 + 音标 + 原文语境入卡; 背面 = 释义 + 来源定位。
+ * 背景遮罩 + 卡片悬浮 (backdrop-filter 模糊); 两个语音按钮: 正常速度 / 慢速
+ * (桌面: 词条带来源 → 走阅读器音频管线读原句, 慢速 playbackRate 0.75;
+ *  无音频/加载失败 → 降级 speechSynthesis (系统级, 慢速 rate 0.6))。
+ * SPACE 翻面、1-4 评分、S 跳过、E 编辑; 翻面单向; 评分 3 秒可撤销。
  * 纯逻辑在 core/review.js (零 DOM), 本视图只做 DOM 绑定与 IPC 调用。
  */
 (function (global) {
@@ -15,6 +18,9 @@
   }
 
   const STAGE_LABEL = { new: '新', learning: '学习中', review: '复习', mastered: '已掌握' };
+  // 慢速档位: 桌面音频 playbackRate 0.75; speechSynthesis (系统级) 0.6
+  const DESKTOP_SLOW_RATE = 0.75;
+  const MOBILE_SLOW_RATE = 0.6;
 
   class ReviewView {
     constructor(store) {
@@ -28,30 +34,33 @@
       this.gradeBtns = [];
       this._onKey = null;
       this._undoTimer = null;
-      // E (2026-08-11): 今日队列渲染上限 + 超出折叠 —— 队列是"今天要背的", 到期复习
-      // 不封顶时可能上千行, 不该一次全铺开。默认折叠到 50 行, 点「还有 N 词」展开全部。
-      this._queueExpanded = false;
+      // UX5 #2: 语音
+      this._voiceBtns = [];
+      this._audioEl = null;
+      this._audioUrl = null;
+      this._audioGen = 0;
+      this._playingBtn = null;
     }
 
     render(container) {
       container.innerHTML = '';
       this._container = container;
       const wrap = el('div', 'review-view');
+      // UX5 #2: 背景遮罩 + 模糊层 (卡片悬浮感)
+      const backdrop = el('div', 'review-backdrop');
+      wrap.appendChild(backdrop);
       const header = el('div', 'page-header');
       header.appendChild(el('h1', null, '今日复习'));
-      // H1 (2026-08-11): 专注模式退出 —— 顶栏与词表都隐藏, 只剩三栏; Esc 退出且进度保留。
+      // H1 (2026-08-11): 专注模式退出 —— Esc 退出且进度保留。
       const exitBtn = el('button', 'btn-small', '退出复习');
       exitBtn.title = 'Esc 退出 (进度保留, 今天背过的不会重排)';
       exitBtn.onclick = () => this._exit();
       header.appendChild(exitBtn);
       wrap.appendChild(header);
-      // 三栏 grid (设计稿 §02: 264px 队列 | 弹性卡片 | 336px 原文)
-      const grid = el('div', 'review-grid');
-      this.queueCol = el('div', 'review-col review-queue');
-      this.cardCol = el('div', 'review-col review-card-wrap');
-      this.sourceCol = el('div', 'review-col review-source');
-      grid.append(this.queueCol, this.cardCol, this.sourceCol);
-      wrap.appendChild(grid);
+      // UX5 #2: 单卡舞台 (取代三栏 grid)
+      const stage = el('div', 'review-stage');
+      this.stage = stage;
+      wrap.appendChild(stage);
       container.appendChild(wrap);
 
       this._load();
@@ -72,41 +81,27 @@
       this._lastCounts = q.counts;
       this.flipLock = new global.AiduReviewCore.FlipLock();
       this.undoStack = new global.AiduReviewCore.UndoStack();
-      this._renderQueueSummary(q);
+      this._renderSummary(q);
       this._renderCurrent();
       this._bindKeys();
     }
 
-    _renderQueueSummary(q) {
-      const c = q.counts || {};
-      const head = el('div', 'review-queue-head');
-      head.appendChild(el('div', 'review-queue-title', '今日队列'));
-      const meta = el('div', 'review-queue-meta', '');
-      meta.textContent = `${this.done} / ${this.queue.length}`;
-      head.appendChild(meta);
-      const progress = el('div', 'review-progress');
-      const bar = el('div', 'review-progress-bar');
-      progress.appendChild(bar);
-      const chips = el('div', 'review-chips');
-      chips.append(
-        el('span', 'review-chip', `复习 ${c.review || 0}`),
-        el('span', 'review-chip', `学习中 ${c.learning || 0}`),
-        el('span', 'review-chip', `新词 ${c.new}/${c.newTotal || 0}`),
-      );
-      const est = global.AiduReviewCore.estimateSeconds(this.queue.length);
-      const estEl = el('div', 'review-queue-foot', `预计约 ${Math.ceil(est / 60)} 分钟 · 已复习 ${this.done} 词`);
-      // H4 (2026-08-11): 今日队列可见的每日上限 + 「剩余 N 词顺延到明天」。
-      // 存量打散后 dueCount ≤ 每日上限; 若仍超限 (还没打散 / 新到期积累), 明确说
-      // 有多少词会顺延, 而不是让用户面对 1291 词 323 分钟一头雾水。
-      this.queueCol.innerHTML = '';
-      this.queueCol.append(head, progress, chips, estEl);
-      if (q.dueCount > this.dailyCap()) {
-        const deferred = q.dueCount - this.dailyCap();
-        const warn = el('div', 'review-cap-warn', `到期 ${q.dueCount} 词, 超过每日上限 ${this.dailyCap()} —— ${deferred} 词将顺延到后续日期。可在生词本「打散存量到期」摊开。`);
-        this.queueCol.appendChild(warn);
+    /** UX5 #2: 紧凑进度行 (去三栏后的队列信息收进一行) */
+    _renderSummary(q) {
+      if (!this.stage) return;
+      const c = (q && q.counts) || this._lastCounts || {};
+      if (q && q.dueCount != null) this._dueCount = q.dueCount;
+      const sum = el('div', 'review-summary');
+      const meta = el('span', 'review-summary-meta',
+        `${this.done} / ${this.queue.length} · 复习 ${c.review || 0} · 学习中 ${c.learning || 0} · 新词 ${c.new || 0}`);
+      sum.appendChild(meta);
+      this._summaryEl = sum;
+      // 每日上限顺延提示 (H4 语义保留)
+      if ((this._dueCount || 0) > this.dailyCap()) {
+        const deferred = this._dueCount - this.dailyCap();
+        sum.appendChild(el('span', 'review-cap-warn',
+          `到期 ${this._dueCount} 词, 超每日上限 ${this.dailyCap()} —— ${deferred} 词顺延到后续日期`));
       }
-      this._queueList = el('div', 'review-queue-list');
-      this.queueCol.appendChild(this._queueList);
     }
 
     /** H4: 每日可承受量 (与生词本打散按钮的 daily_cap 一致, 单一数字来源) */
@@ -118,25 +113,50 @@
         return;
       }
       const entry = this.queue[this.index];
+      if (this.stage) this.stage.innerHTML = '';
       const card = el('div', 'review-card' + (this.flipLock.isFlipped() ? ' flipped' : ''));
-      // 正面: 单词 + 音标
+      // 正面: 词 + 音标 + 原文语境入卡
       const front = el('div', 'review-card-face front');
       front.appendChild(el('div', 'review-word', entry.word));
       if (entry.phonetic) front.appendChild(el('div', 'review-phonetic', entry.phonetic));
+      const ctxBlock = el('div', 'review-context-block');
       if (entry.context) {
-        const ctx = el('div', 'review-context', String(entry.context));
-        front.appendChild(ctx);
+        ctxBlock.appendChild(el('div', 'review-context-title', '原文语境'));
+        ctxBlock.appendChild(el('div', 'review-context', String(entry.context)));
+      } else {
+        ctxBlock.appendChild(el('div', 'review-context-empty', '这个词加入时没有记录原文句。'));
       }
+      front.appendChild(ctxBlock);
       front.appendChild(el('div', 'review-flip-hint', 'SPACE 翻面'));
       card.appendChild(front);
-      // 背面: 释义 + 来源
+      // 背面: 释义 + 来源定位
       const back = el('div', 'review-card-face back');
       back.appendChild(el('div', 'review-word', entry.word));
       if (entry.phonetic) back.appendChild(el('div', 'review-phonetic', entry.phonetic));
       const meaning = el('div', 'review-meaning', entry.meaning || '—');
       back.appendChild(meaning);
       if (entry.pos) back.appendChild(el('div', 'review-pos', entry.pos));
+      const locEl = this._buildSourceLoc(entry);
+      if (locEl) back.appendChild(locEl);
       card.appendChild(back);
+
+      // 撤销条占位常驻 (H2: 不位移, 只切 opacity)
+      const undoSlot = el('div', 'review-undo-slot');
+      const undoBar = el('div', 'review-undo-bar', '撤销评分 (Ctrl+Z / Backspace)');
+      undoBar.onclick = () => this._undo();
+      undoSlot.appendChild(undoBar);
+      this._undoBar = undoBar;
+
+      // UX5 #2: 两个语音按钮 (正常速度 / 慢速)
+      const voiceRow = el('div', 'review-voice-row');
+      this._voiceBtns = [];
+      [['正常速度', false], ['慢速', true]].forEach(([label, slow]) => {
+        const vb = el('button', 'review-voice-btn', label);
+        vb.title = slow ? '慢速朗读 (0.75×)' : '正常速度朗读';
+        vb.onclick = () => this._playVoice(slow, vb);
+        this._voiceBtns.push(vb);
+        voiceRow.appendChild(vb);
+      });
 
       // 评分区 (底部): 翻面后可见, 250ms 锁由 core.FlipLock 控制
       const gradeRow = el('div', 'review-grade-row');
@@ -151,15 +171,10 @@
         gradeRow.appendChild(btn);
       }
 
-      this.cardCol.innerHTML = '';
-      // H2 (2026-08-11): 撤销条占位常驻在卡片正上方 —— 不出现/不消失/不位移,
-      // 3 秒内可点、之后转灰失效; 只动透明度, 不动位置 (周边视野的运动才是分心源)。
-      const undoSlot = el('div', 'review-undo-slot');
-      const undoBar = el('div', 'review-undo-bar', '撤销评分 (Ctrl+Z / Backspace)');
-      undoBar.onclick = () => this._undo();
-      undoSlot.appendChild(undoBar);
-      this._undoBar = undoBar;
-      this.cardCol.append(undoSlot, card, gradeRow);
+      if (this.stage) {
+        this._renderSummary();
+        this.stage.append(card, undoSlot, voiceRow, gradeRow);
+      }
       this._cardEl = card;
 
       // 翻面后拉预览时间
@@ -172,49 +187,139 @@
           }
         });
       });
-
-      // 原文语境 (右栏): V4 有来源定位后显示书名/章节; 现在降级为上下文单句
-      this._renderSource(entry);
-
-      // 更新队列列表高亮
-      this._renderQueueList();
     }
 
-    _renderSource(entry) {
-      this.sourceCol.innerHTML = '';
-      const head = el('div', 'review-source-head');
-      head.appendChild(el('div', 'review-source-title', '原文语境'));
-      const meta = el('div', 'review-source-meta', entry.context ? '来源句' : '未记录来源');
-      head.appendChild(meta);
-      this.sourceCol.appendChild(head);
-
-      // V4 (2026-08-09): 来源定位 —— edition_id 命中译本 → 《书名》·第 N 章 · M 处出现 + 跳转
+    /** UX5 #2: 来源定位块 (并入卡片背面) —— 《书名》·第 N 章 · 第 M 处 + 跳转。 */
+    _buildSourceLoc(entry) {
       const hasLoc = entry.edition_id && entry.chapter_index != null && entry.sentence_index != null;
-      if (hasLoc) {
-        const locEl = el('div', 'review-source-loc', '');
-        const titleEl = el('span', 'review-source-book', '《…》');
-        locEl.appendChild(titleEl);
-        const line2 = el('div', 'review-source-meta', '');
-        line2.textContent = `第 ${entry.chapter_index + 1} 章 · 第 ${entry.sentence_index + 1} 处出现`;
-        locEl.appendChild(line2);
-        const openBtn = el('button', 'btn-small', '在阅读器中打开');
-        openBtn.onclick = () => this._openInReader(entry);
-        locEl.appendChild(openBtn);
-        this.sourceCol.appendChild(locEl);
-        // 异步补书名 (查不到 → 降级显示 id)
-        if (global.AiduLibraryService) {
-          AiduLibraryService.editionLookup(entry.edition_id).then((r) => {
-            if (r.ok && r.data && r.data.title) titleEl.textContent = `《${r.data.title}》`;
-            else titleEl.textContent = `《${entry.edition_id}》`;
-          });
-        }
+      if (!hasLoc) return null;
+      const locEl = el('div', 'review-source-loc');
+      const titleEl = el('span', 'review-source-book', '《…》');
+      locEl.appendChild(titleEl);
+      locEl.appendChild(el('div', 'review-source-meta',
+        `第 ${entry.chapter_index + 1} 章 · 第 ${entry.sentence_index + 1} 处出现`));
+      const openBtn = el('button', 'btn-small', '在阅读器中打开');
+      openBtn.onclick = () => this._openInReader(entry);
+      locEl.appendChild(openBtn);
+      if (global.AiduLibraryService) {
+        AiduLibraryService.editionLookup(entry.edition_id).then((r) => {
+          if (r.ok && r.data && r.data.title) titleEl.textContent = `《${r.data.title}》`;
+          else titleEl.textContent = `《${entry.edition_id}》`;
+        });
       }
-      if (entry.context) {
-        const s = el('div', 'review-source-sentence', String(entry.context));
-        this.sourceCol.appendChild(s);
-      } else {
-        this.sourceCol.appendChild(el('div', 'review-source-empty', '这个词加入时没有记录原文句。'));
+      return locEl;
+    }
+
+    /** UX5 #2: 语音播放 —— 桌面词条带来源 → 走阅读器音频管线读原句; 否则降级 speechSynthesis。 */
+    async _playVoice(slow, btn) {
+      const entry = this.queue[this.index];
+      if (!entry) return;
+      this._stopVoice();
+      this._voiceBtns.forEach((b) => b.classList.remove('playing'));
+      const hasLoc = entry.edition_id && entry.chapter_index != null && entry.sentence_index != null;
+      if (hasLoc && global.AiduLibraryService) {
+        try {
+          const loaded = await this._loadSentenceAudio(entry);
+          if (loaded) {
+            btn.classList.add('playing');
+            this._playingBtn = btn;
+            const audio = loaded.audio;
+            audio.playbackRate = slow ? DESKTOP_SLOW_RATE : 1.0;
+            const done = () => {
+              btn.classList.remove('playing');
+              if (this._playingBtn === btn) this._playingBtn = null;
+            };
+            audio.onended = done;
+            audio.onerror = done;
+            audio.play().catch(done);
+            return;
+          }
+        } catch (e) { /* 音频管线失败 → 降级 speechSynthesis */ }
       }
+      this._speakWord(entry.word, slow ? MOBILE_SLOW_RATE : 1.0, btn);
+    }
+
+    /** 走阅读器音频管线: loadBookpack(basePath) + loadBookpackChapter + readAudioRange 分块读。 */
+    async _loadSentenceAudio(entry) {
+      this._audioGen++;
+      const gen = this._audioGen;
+      if (this._audioEl) { this._audioEl.pause(); this._audioEl.src = ''; this._audioEl = null; }
+      if (this._audioUrl) { URL.revokeObjectURL(this._audioUrl); this._audioUrl = null; }
+      const bp = await AiduLibraryService.loadBookpack(entry.edition_id);
+      if (gen !== this._audioGen) return null;
+      if (!bp.ok || !bp.data) return null;
+      const basePath = bp.data.basePath;
+      const ch = await AiduLibraryService.loadBookpackChapter(entry.edition_id, entry.chapter_index);
+      if (gen !== this._audioGen) return null;
+      if (!ch.ok || !ch.data) return null;
+      const chapter = ch.data;
+      const s = (chapter.sentences || [])[entry.sentence_index];
+      if (!s || !s.audio || !chapter.audioFile) return null;
+      const parts = [];
+      let offset = 0;
+      const CHUNK = 2 * 1024 * 1024;
+      for (;;) {
+        if (gen !== this._audioGen) return null;
+        const r = await AiduLibraryService.readAudioRange(basePath, chapter.audioFile, offset, CHUNK);
+        if (!r.ok) return null;
+        const b64 = r.data && r.data.data_b64;
+        if (!b64) return null;
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        parts.push(bytes);
+        offset += r.data.read;
+        if (r.data.end || r.data.read === 0) break;
+      }
+      const blob = new Blob(parts, { type: 'audio/ogg; codecs=opus' });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio();
+      audio.src = url;
+      audio.load();
+      await new Promise((res) => {
+        audio.addEventListener('loadedmetadata', res, { once: true });
+        audio.addEventListener('error', res, { once: true });
+      });
+      if (gen !== this._audioGen) { URL.revokeObjectURL(url); return null; }
+      audio.currentTime = s.audio.start_ms / 1000;
+      this._audioEl = audio;
+      this._audioUrl = url;
+      return { audio, url };
+    }
+
+    /** 手机/降级: speechSynthesis 读单词 (系统级)。 */
+    _speakWord(word, rate, btn) {
+      if (!('speechSynthesis' in window) || !window.speechSynthesis) return;
+      try {
+        const u = new SpeechSynthesisUtterance(word);
+        u.lang = 'en-US';
+        u.rate = rate;
+        btn.classList.add('playing');
+        this._playingBtn = btn;
+        const done = () => {
+          btn.classList.remove('playing');
+          if (this._playingBtn === btn) this._playingBtn = null;
+        };
+        u.onend = done;
+        u.onerror = done;
+        window.speechSynthesis.speak(u);
+      } catch (e) { /* 无语音引擎静默 */ }
+    }
+
+    _stopVoice() {
+      if (this._audioEl) {
+        this._audioEl.onended = null;
+        this._audioEl.onerror = null;
+        this._audioEl.pause();
+        this._audioEl.src = '';
+        this._audioEl = null;
+      }
+      if (this._audioUrl) { URL.revokeObjectURL(this._audioUrl); this._audioUrl = null; }
+      if ('speechSynthesis' in window && window.speechSynthesis) {
+        try { window.speechSynthesis.cancel(); } catch (e) { /* 忽略 */ }
+      }
+      if (this._voiceBtns) this._voiceBtns.forEach((b) => b.classList.remove('playing'));
+      this._playingBtn = null;
     }
 
     /** V4: 在阅读器中打开 —— 回书库路由读这本书, 跳到记录的位置 */
@@ -238,36 +343,14 @@
       }
     }
 
-    _renderQueueList() {
-      if (!this._queueList) return;
-      this._queueList.innerHTML = '';
-      const total = this.queue.length;
-      const CAP = 50;
-      const show = this._queueExpanded ? total : Math.min(CAP, total);
-      for (let i = 0; i < show; i++) {
-        const e = this.queue[i];
-        const row = el('div', 'review-qrow' + (i === this.index ? ' current' : '') + (i < this.index ? ' done' : ''));
-        row.appendChild(el('span', 'review-qword', e.word));
-        row.appendChild(el('span', 'review-qstage', STAGE_LABEL[e.stage] || e.stage));
-        if (i < this.index) row.appendChild(el('span', 'review-qdone', '✓'));
-        this._queueList.appendChild(row);
-      }
-      // E: 超出上限 → 折叠, 点开才铺全量 (today 队列不该把 1424 行一次铺开)
-      if (!this._queueExpanded && total > CAP) {
-        const more = el('button', 'review-qmore', `还有 ${total - CAP} 词已折叠 · 点此展开`);
-        more.onclick = () => {
-          this._queueExpanded = true;
-          this._renderQueueList();
-        };
-        this._queueList.appendChild(more);
-      }
-    }
-
     _renderDone() {
-      this.cardCol.innerHTML = '';
-      this.cardCol.appendChild(el('div', 'review-done',
-        `今日队列完成 · 复习 ${this.done} 词`));
+      if (this.stage) this.stage.innerHTML = '';
+      if (this.stage) {
+        this.stage.appendChild(el('div', 'review-done',
+          `今日队列完成 · 复习 ${this.done} 词`));
+      }
       this.gradeBtns = [];
+      this._stopVoice();
       if (this._onKey) {
         document.removeEventListener('keydown', this._onKey);
         this._onKey = null;
@@ -332,9 +415,9 @@
         this.done++;
         this.index++;
         this.flipLock.next();
-        this._renderCurrent(); // 先渲染下一张 (会清空 cardCol)
+        this._renderCurrent(); // 先渲染下一张 (会清空 stage)
         this._armUndo();       // 再挂撤销条 (3 秒窗口), 否则被 renderCurrent 清掉
-        this._renderQueueSummary({ counts: this._lastCounts });
+        this._renderSummary({ counts: this._lastCounts });
       });
     }
 
@@ -418,6 +501,7 @@
     }
 
     cleanup() {
+      this._stopVoice();
       if (this._onKey) {
         document.removeEventListener('keydown', this._onKey);
         this._onKey = null;

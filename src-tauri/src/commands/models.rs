@@ -358,3 +358,9 @@ pub fn wizard_finish(db: State<store::Db>) -> Result<(), String> {
         "done",
     )
 }
+
+/// N1 (2026-08-12): 重新运行首次向导 —— 重置向导状态到第一步 (设置页入口)。
+#[tauri::command]
+pub fn wizard_reset(db: State<store::Db>) -> Result<(), String> {
+    crate::application::wizard_service::reset(db.inner())
+}

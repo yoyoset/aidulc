@@ -1416,5 +1416,68 @@ console.log('== 9b. L5 (2026-08-11): 页头动作按钮成组 (.page-toolbar + g
   check('L5: 同步动作按钮也用 .page-toolbar (立即同步/拉取合并/更多)', !!syncToolbar, 'toolbars=' + syncToolbars.length);
 }
 
+console.log('== 10. N1 (2026-08-12): 向导完成页三选一 + 代价告知 + 可重入 ==');
+{
+  load('views/wizard_view.js');
+  globalThis.AiduModelService.scan = async (dir) => { scanDirCalls.push(dir); return { ok: true, data: [] }; };
+  globalThis.AiduModelService.wizardFinish = async () => ({ ok: true });
+  globalThis.AiduModelService.wizardReset = async () => { resetCalls.push(1); return { ok: true }; };
+  const scanDirCalls = [];
+  const resetCalls = [];
+  let doneCalls = 0;
+
+  // 完成页三选一
+  const storeW = new globalThis.AiduStore();
+  const wv = new globalThis.WizardView(storeW);
+  wv.onDone = () => { doneCalls++; };
+  wv.step = 5;
+  const wc = makeElement('div');
+  wv.render(wc);
+  const choices = queryAll(wc, '.wizard-choice');
+  const choiceLabels = choices.map((c) => textOf(c));
+  check('N1: 完成页有三个选择', choiceLabels.some((t) => t.includes('导入我自己的书')) && choiceLabels.some((t) => t.includes('内置样书')) && choiceLabels.some((t) => t.includes('先去配模型')), choiceLabels.join('|'));
+  const sample = choices.find((c) => textOf(c).includes('内置样书'));
+  check('N1: 内置样书置灰并说明「即将支持」', sample && sample.disabled === true && textOf(sample).includes('即将支持'), sample && textOf(sample));
+  const importBtn = choices.find((c) => textOf(c).includes('导入我自己的书'));
+  importBtn.onclick();
+  await new Promise((r) => setTimeout(r, 40));
+  check('N1: 点「导入我自己的书」→ 调 wizardFinish + onDone 进书库', doneCalls === 1, 'done=' + doneCalls);
+  const modelsBtn = choices.find((c) => textOf(c).includes('先去配模型'));
+  modelsBtn.onclick();
+  await new Promise((r) => setTimeout(r, 40));
+  check('N1: 点「先去配模型」→ 设置页切到模型 tab 意图', storeW.state.settingsTab === 'models', 'tab=' + storeW.state.settingsTab);
+  check('N1: 点「先去配模型」→ hash 跳 settings', location.hash === '#/settings', 'hash=' + location.hash);
+  location.hash = '#/library';
+
+  // 模型发现步: 代价告知 (GB + 几十分钟量级), 无模型目录时不扫 C:/
+  globalThis.AiduMiscService.runtimeConfig = async () => ({ ok: true, data: {} });
+  const wv2 = new globalThis.WizardView(storeW);
+  wv2.step = 3;
+  const wc2 = makeElement('div');
+  wv2.render(wc2);
+  await new Promise((r) => setTimeout(r, 80));
+  const modelText = textOf(wc2);
+  check('N1: 模型发现步告知总下载量 (GB)', /约需下载 [\d.]+ GB/.test(modelText), modelText.slice(0, 120));
+  check('N1: 模型发现步告知单书耗时量级 (几十分钟)', modelText.includes('几十分钟'), modelText.slice(0, 120));
+  check('N1: 没有模型目录时绝不扫 C:/', !scanDirCalls.includes('C:/') && !scanDirCalls.some((d) => String(d).toLowerCase().startsWith('c:') && (String(d).toLowerCase() === 'c:/' || String(d).toLowerCase() === 'c:\\')), JSON.stringify(scanDirCalls));
+
+  // 设置页可重入: 「重新运行首次向导」→ wizardReset + 跳 #/wizard
+  store.state.settingsTab = 'system';
+  const sv10 = new globalThis.SettingsView(store);
+  const c10 = makeElement('div');
+  sv10.render(c10);
+  await new Promise((r) => setTimeout(r, 80));
+  store.state.settingsTab = null;
+  const rerunBtn = queryAll(c10, 'button').find((b) => b.textContent === '重新运行首次向导');
+  check('N1: 设置页有「重新运行首次向导」', !!rerunBtn);
+  if (rerunBtn) {
+    rerunBtn.onclick();
+    await new Promise((r) => setTimeout(r, 40));
+    check('N1: 点击 → 调 wizardReset', resetCalls.length === 1, 'reset=' + resetCalls.length);
+    check('N1: 点击 → 跳 #/wizard 路由', location.hash === '#/wizard', 'hash=' + location.hash);
+  }
+  location.hash = '#/library';
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

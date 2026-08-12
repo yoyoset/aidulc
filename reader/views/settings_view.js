@@ -88,6 +88,22 @@
       logSec.appendChild(logRow);
        systemPane.appendChild(logSec);
 
+      // N1 (2026-08-12): 向导可重入 —— 走完的向导换机器/换数据目录时能再进一次
+      const wizardSec = el('div', 'settings-section');
+      wizardSec.appendChild(el('h2', null, '首次设置向导'));
+      const wizardRow = el('div', 'settings-row');
+      wizardRow.appendChild(el('span', 'log-info', '重新走一遍设置向导 (语言/数据目录/硬件/模型/依赖), 换机器或换数据目录后有用。'));
+      const rerunWizard = el('button', 'btn-small', '重新运行首次向导');
+      rerunWizard.onclick = () => {
+        AiduModelService.wizardReset().then((r) => {
+          if (!r.ok) { AiduToast.show('重置向导失败: ' + r.error, 'error'); return; }
+          window.location.hash = '#/wizard';
+        });
+      };
+      wizardRow.appendChild(rerunWizard);
+      wizardSec.appendChild(wizardRow);
+      systemPane.appendChild(wizardSec);
+
       // P1.2: 书库位置(用户明确要求的产品能力, 见 docs/ROADMAP.md P1)
       // J0 (2026-08-11): 显示完整路径 (不被按钮截断) + 「在资源管理器中打开」;
       // 同时展示数据根目录与数据库路径, 并提示待迁移 (旧位置有数据时)。

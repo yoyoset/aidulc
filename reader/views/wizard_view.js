@@ -52,6 +52,8 @@
       this.body.appendChild(content);
       fn(content);
 
+      // N1: 完成页用三个"下一步"选择替代底部导航, 不再显示跳过
+      if (this.step >= steps.length - 1) return;
       // 底部导航
       const nav = el('div', 'wizard-nav');
       if (this.step > 0) {
@@ -131,18 +133,36 @@
 
     _stepModels(content) {
       content.appendChild(el('p', null, '扫描已有模型文件...'));
+      // N1 (2026-08-12): 用户在投入前有权知道完整代价 —— 总下载量与单书耗时量级。
+      // 用模型中心的下载目录 (同一份 sizeBytes), 不硬编码数字。
+      const cat = (global.ModelsView && global.ModelsView.DOWNLOAD_CATALOG) || [];
+      if (cat.length) {
+        const totalGB = (cat.reduce((s, c) => s + (c.sizeBytes || 0), 0) / 1e9).toFixed(1);
+        content.appendChild(el('div', 'wizard-cost',
+          `先知道代价再投入: 若从零开始, 完整模型约需下载 ${totalGB} GB (翻译/讲解 + 语音引擎)。` +
+          '处理一本书通常要几十分钟 (视篇幅与显卡), 进度在处理时可见。'));
+      } else {
+        content.appendChild(el('div', 'wizard-cost', '模型下载量暂估不出 (没有已知的下载目录项)。'));
+      }
       // 易用性审查: 从运行时配置读模型目录, 不硬编码开发机路径
       AiduMiscService.runtimeConfig().then((cfg) => {
         const dir = cfg && cfg.ok && cfg.data && cfg.data.llm_model
           ? cfg.data.llm_model.replace(/[\\/][^\\/]+$/, '')  // 模型文件所在目录
           : '';
-        return AiduModelService.scan(dir || 'C:/');
+        // M4-3② (2026-08-12): 没有已知模型目录不扫 'C:/', 直接显示"可跳过, 之后在模型中心扫描"
+        return dir ? AiduModelService.scan(dir) : Promise.resolve({ ok: true, data: [] });
       }).then((res) => {
         content.innerHTML = '';
         if (!res.ok) { content.appendChild(el('p', 'global-error', '扫描失败: ' + res.error)); return; }
         const found = res.data || [];
+        // 重新挂代价告知 (扫描清空了 content)
+        if (cat.length) {
+          const totalGB = (cat.reduce((s, c) => s + (c.sizeBytes || 0), 0) / 1e9).toFixed(1);
+          content.appendChild(el('div', 'wizard-cost',
+            `若从零开始, 完整模型约需下载 ${totalGB} GB。处理一本书通常要几十分钟 (视篇幅与显卡)。`));
+        }
         if (found.length === 0) {
-          content.appendChild(el('p', null, '没有找到可复用的模型文件, 下一步会显示引擎状态。'));
+          content.appendChild(el('p', null, '没有找到可复用的模型文件, 下一步会显示引擎状态。模型可在之后「模型中心」扫描或下载。'));
         } else {
           // F16 (2026-08-08): 扫描命中即自动登记, 不再只是展示 —— 否则下一步的"已就绪"
           // 是假承诺, 导入时照样 preflight 报缺引擎。
@@ -206,13 +226,34 @@
     }
 
     _stepDone(content) {
-      content.appendChild(el('p', null, '设置完成! 现在可以导入第一本书开始阅读。'));
-      const btn = el('button', 'btn-primary', '进入书库');
-      // Bug fix (审查确认): 完成页也必须标记向导 done, 否则下次启动重新拦截
-      btn.onclick = () => {
-        AiduModelService.wizardFinish().then(() => this.onDone && this.onDone());
+      content.appendChild(el('p', null, '设置完成! 接下来想做什么?'));
+      // N1 (2026-08-12): 完成页给"下一步做什么"的三选一, 不再把人扔进空书库。
+      const choices = el('div', 'wizard-choices');
+      const mk = (label, desc, onClick, opts) => {
+        const row = el('button', 'wizard-choice' + (opts && opts.disabled ? ' disabled' : ''));
+        row.type = 'button';
+        row.appendChild(el('span', 'wizard-choice-label', label));
+        if (desc) row.appendChild(el('span', 'wizard-choice-desc', desc));
+        if (opts && opts.disabled) {
+          row.disabled = true;
+          row.title = opts.disabledReason || '';
+          row.appendChild(el('span', 'wizard-choice-soon', opts.disabledReason || ''));
+        } else if (onClick) {
+          row.onclick = () => { AiduModelService.wizardFinish().then(() => onClick()); };
+        }
+        choices.appendChild(row);
       };
-      content.appendChild(btn);
+      mk('① 导入我自己的书', '把 EPUB / TXT 拖进书库, 生成可阅读的译本。', () => this.onDone && this.onDone());
+      mk('② 先看一本内置样书', '用官方示例书体验阅读与跟读。', null, {
+        disabled: true,
+        disabledReason: '即将支持 (ROADMAP R1)',
+      });
+      mk('③ 先去配模型', '检查/下载翻译与语音模型, 提前备好。', () => {
+        // M2 同款教训: 用 store 实例 (this.store), 不是 global.AiduStore (那是类, 没有 set)
+        if (this.store) this.store.set({ settingsTab: 'models' });
+        window.location.hash = '#/settings';
+      });
+      content.appendChild(choices);
     }
   }
 

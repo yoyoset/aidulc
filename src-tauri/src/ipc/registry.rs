@@ -436,6 +436,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         domain: "向导",
         desc: "向导完成",
     },
+    CommandInfo {
+        path: "commands::models::wizard_reset",
+        domain: "向导",
+        desc: "N1: 重新运行首次向导 (重置向导状态到第一步)",
+    },
     // ---- 运行时/健康检查 (commands/misc.rs) ----
     CommandInfo {
         path: "commands::misc::runtime_config",

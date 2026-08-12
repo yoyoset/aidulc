@@ -30,6 +30,12 @@ pub fn set_step(db: &Db, step: i64, status: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// N1 (2026-08-12): 重置向导状态 → 回到第一步, 供"重新运行首次向导"入口用。
+/// 走完的向导用户换机器/换数据目录时需要能再进一次。
+pub fn reset(db: &Db) -> Result<(), String> {
+    set_step(db, 0, "pending")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

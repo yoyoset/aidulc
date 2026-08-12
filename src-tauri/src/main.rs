@@ -543,6 +543,7 @@ fn main() {
             commands::models::wizard_state,
             commands::models::wizard_submit,
             commands::models::wizard_finish,
+            commands::models::wizard_reset,
             commands::misc::runtime_config,
             commands::misc::components_health,
             commands::misc::library_dir_get,

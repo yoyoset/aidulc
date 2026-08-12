@@ -47,6 +47,7 @@
     wizardState() { return AiduBridge.invoke('wizard_state'); },
     wizardSubmit(step, status) { return AiduBridge.invoke('wizard_submit', { step, status }); },
     wizardFinish() { return AiduBridge.invoke('wizard_finish'); },
+    wizardReset() { return AiduBridge.invoke('wizard_reset'); },
   };
 
   global.AiduModelService = ModelService;

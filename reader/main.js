@@ -171,6 +171,17 @@
     router.navigate('vocab');
   });
 
+  // N1 (2026-08-12): 向导可重入 —— 设置页「重新运行首次向导」跳到 #/wizard
+  router.register('wizard', (container) => {
+    shell.setActiveNav('');
+    readerView.cleanup();
+    prepView.cleanup();
+    libraryView.cleanup();
+    reviewView.cleanup();
+    wizardView.onDone = () => router.navigate('library');
+    wizardView.render(container);
+  });
+
   // V4 (2026-08-09): 背单词右栏"在阅读器中打开" → 打开该书并跳到记录位置
   // H1 (2026-08-11): review 已重定向到 vocab, 返回路由也指向 vocab
   reviewView.onOpenInReader = (entry) => {

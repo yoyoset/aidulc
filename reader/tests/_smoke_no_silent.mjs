@@ -230,6 +230,7 @@ globalThis.AiduModelService = {
   hfNormalize: async () => ({ ok: true, data: { file: 'x.gguf', family_hint: 'llm', url: 'https://huggingface.co/x' } }),
   wizardState: async () => ({ ok: true, data: { status: 'done' } }),
   wizardSubmit: async () => ({ ok: true }), wizardFinish: async () => ({ ok: true }),
+  wizardReset: async () => ({ ok: true }),
 };
 globalThis.AiduSettingsService = {
   get: async () => ({ ok: true, data: { font_size: 19, line_height: 1.85, content_width: 660, theme: 'light', palette: 'clay' } }),

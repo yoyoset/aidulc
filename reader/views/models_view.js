@@ -39,11 +39,12 @@
   };
 
   class ModelsView {
+    // N1 (2026-08-12): 向导"模型发现"步的代价告知需要同一份下载目录 (大小单一真相源)
+    static get DOWNLOAD_CATALOG() { return DOWNLOAD_CATALOG; }
+
     constructor(store) {
       this.store = store;
-    }
-
-    render(container) {
+    }    render(container) {
       this.host = container;
       container.innerHTML = '';
       const wrap = el('div', 'models-view');

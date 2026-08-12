@@ -723,7 +723,9 @@
         form.appendChild(el('div', 'settings-hint settings-warn',
           '与「学习档案」不同: 档案 (成人自读/陪小孩读) 是处理参数, 决定讲解深度/音色/语速, 影响下次生成的内容; 这里只改显示, 不碰生成。'));
 
-        // 主题 (浅色/深色/跟随系统)
+        // 主题 (浅色/深色/跟随系统) —— M6 (2026-08-12): 主题在上, 主题色紧随其下,
+        // 标签紧贴各自控件 (此前"主题色"标签被先 append, 实际顺序变成 主题色→主题→色点,
+        // 用户指出"标签与控件错位")。
         const themeLabel = el('div', 'settings-hint', '主题');
         const themeRow = el('div', 'prep-row');
         const themeSel = el('select', 'prep-select');
@@ -735,11 +737,14 @@
         themeSel.value = ['light', 'dark', 'system'].includes(s.theme) ? s.theme : 'light';
         themeSel.onchange = () => this._saveReadingSettings(Object.assign({}, s, { theme: themeSel.value, updated_at: Date.now() }), themeSel);
         themeRow.appendChild(themeSel);
-        form.appendChild(el('div', 'settings-hint', '主题色'));
-        // 主题色 (色块 chips, 与阅读器浮层同一套 PALETTES)
+        form.appendChild(themeLabel);
+        form.appendChild(themeRow);
+        // 主题色 (色块 chips, 与阅读器浮层同一套 PALETTES) —— 标签紧随主题之下
+        const paletteLabel = el('div', 'settings-hint', '主题色');
         const palettes = SettingsView.PALETTES;
         const activePalette = s.palette || 'clay';
         const chipsRow = el('div', 'rd-theme-chips');
+        form.appendChild(paletteLabel);
         palettes.forEach(([key, label, color]) => {
           const c = el('button', 'rd-theme-chip' + (activePalette === key ? ' active' : ''));
           c.style.setProperty('--chip', color);
@@ -752,6 +757,7 @@
           };
           chipsRow.appendChild(c);
         });
+        form.appendChild(chipsRow);
         // 儿童模式: 勾选框 + 必须说明它到底改了什么 (L9 要求写明)
         const kidRow = el('label', 'settings-row');
         const kidCheck = el('input', '');
@@ -763,7 +769,7 @@
         const kidExplain = el('div', 'settings-hint',
           '儿童模式改的是显示: 字号更大、对比度更高、默认词级高亮 (更适合跟读)。只影响显示, 不影响生成的内容。');
 
-        form.append(themeLabel, themeRow, chipsRow, kidRow, kidExplain);
+        form.append(kidRow, kidExplain);
          readingPane.appendChild(form);
         this._applyCss(s);
       });

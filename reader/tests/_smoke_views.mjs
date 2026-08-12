@@ -1542,5 +1542,38 @@ console.log('== 10. N1 (2026-08-12): 向导完成页三选一 + 代价告知 + �
   location.hash = '#/library';
 }
 
+console.log('== 11. M6 (2026-08-12): 主题顺序 + 跟随系统断言 + 色系一致 ==');
+{
+  store.state.settingsTab = 'reading';
+  const sv11 = new globalThis.SettingsView(store);
+  const c11 = makeElement('div');
+  sv11.render(c11);
+  await new Promise((r) => setTimeout(r, 80));
+  store.state.settingsTab = null;
+  // 主题 → 主题色 顺序: 在 form 里 主题 hint → select → 主题色 hint → chips
+  const readingPane = queryAll(c11, '.settings-pane').find((p) => p.dataset.tab === 'reading');
+  const form11 = readingPane && readingPane.querySelector('.settings-form');
+  const seq11 = [];
+  for (const ch of (form11 && form11._children) || []) {
+    if (ch.tagName === 'SELECT') seq11.push('select');
+    else if (ch.className && String(ch.className).includes('rd-theme-chips')) seq11.push('chips');
+    else if (ch.tagName === 'DIV' && queryAll(ch, 'select').length) seq11.push('select');
+    else if (ch.tagName === 'DIV') seq11.push('hint:' + (ch.textContent || '').slice(0, 3));
+    else if (ch.tagName === 'LABEL') seq11.push('kid');
+  }
+  const seqStr = seq11.join('|');
+  check('M6: 顺序 = 主题 → 下拉 → 主题色 → 色点', /hint:主题.*select.*hint:主题色.*chips/.test(seqStr), seqStr);
+  // M6: 色系一致 —— SettingsView.PALETTES 与 tokens.css 的 --swatch-* 同键同量 (UX2 定 5 色系)
+  const tokensCss = readFileSync(join(root, 'styles/tokens.css'), 'utf8');
+  const swatchKeys = [...tokensCss.matchAll(/--swatch-([a-z]+):/g)].map((m) => m[1]);
+  const paletteKeys = SettingsView.PALETTES.map(([k]) => k);
+  check('M6: PALETTES 5 色系', paletteKeys.length === 5, paletteKeys.join(','));
+  check('M6: PALETTES 与 tokens.css --swatch-* 一一对应', swatchKeys.length === 5 && swatchKeys.every((k) => paletteKeys.includes(k)) && paletteKeys.every((k) => swatchKeys.includes(k)), 'swatch=' + swatchKeys.join(',') + ' palette=' + paletteKeys.join(','));
+  // M6: 跟随系统在系统深色下取深色令牌 (resolveTheme 断言; 门禁已有, 这里再锁一条)
+  load('core/theme.js');
+  check('M6: resolveTheme(system) 在系统深色下返回 dark', globalThis.AiduTheme.resolveTheme('system', true) === 'dark');
+  check('M6: resolveTheme(system) 在系统浅色下返回 light', globalThis.AiduTheme.resolveTheme('system', false) === 'light');
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

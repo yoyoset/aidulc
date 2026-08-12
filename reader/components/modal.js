@@ -60,9 +60,13 @@
       if (r && typeof r.then === 'function') {
         confirmBtn.disabled = true;
         confirmBtn.textContent = opts.processingText || '处理中…';
-        r.then(() => close()).catch(() => {
+        r.then(() => close()).catch((err) => {
+          // UX5 修正 (2026-08-13): 确认框里的动作失败必须可见 —— 此前 catch 只重置按钮
+          // 不显示错误, 用户看到"点了一下没反应" (迁移/同步等后端拒绝都被静默吞掉, 违反契约第一条)。
           confirmBtn.disabled = false;
           confirmBtn.textContent = opts.confirmText || '确定';
+          if (global.AiduToast && opts.onError) opts.onError(err);
+          else if (global.AiduToast) AiduToast.show((err && err.message) || String(err), 'error');
         });
       } else {
         close();

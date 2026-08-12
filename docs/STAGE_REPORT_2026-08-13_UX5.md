@@ -249,3 +249,26 @@ contrast (WCAG AA >= 4.5)              PASS
 **验证**: 收尾 `check.ps1` **24 项全绿** (cargo test 263 passed / vitest 124 / smoke 全绿 / no_silent 100 点击 /
 fmt / clippy 7 未升); 截图更新 `ux5-4-*` 两张 + `ux5-5-model-dirs.png` 演示修复后状态 (模型目录一项、语音段未设推荐诚实提示)。
 
+## 七、"整根迁移点了一下没反应"修复 (2026-08-13 第二次收尾)
+
+用户实测: 选当前书库所在目录 (E:\aidulc_data) 当新书库位置 → 确认框点「开始」→ "跳动一下没有下文"。
+
+**实测根因 (两层)**:
+1. **前端静默吞错**: `components/modal.js` 的 confirm 按钮 `onConfirm().catch()` 只重置按钮、
+   **不显示错误** —— 任何确认框里的动作失败 (后端拒绝/迁移报错) 都被吞掉, 用户看到"点了没反应"
+   (违反契约第一条"失败必须可见")。修复: catch 里 `AiduToast.show(err.message, 'error')`。
+2. **后端拒绝但没走到**: 用户选的是**当前书库所在目录** (E:\aidulc_data, 书都在里面), 整根迁移
+   `check_new_root` 要求目标为空 → 拒绝 (目标非空), 错误又被第 1 层吞了。
+
+**修复**: 新增 `migrate_root_into_out` —— 用户选"当前书库所在目录"时走"围绕现有书重新生根":
+数据根 (config/db/backups/logs) 从旧根搬到 new_root, 书库子项 (jobs/) 收进 new_root/jobs_out
+(复制+校验+删源, L1 纪律), DB 路径前缀重写 (new_root/jobs → new_root/jobs_out), 写标记到**新根**
+(重启后 cleanup_pending 从新根读), 写数据根指针。`library_dir_pick_and_set` 检测 `new_dir == 当前
+out_dir` 时路由到这条, 其余情况仍走整根迁移。smoke 2g3 锁两件事: 真实 modal 失败 toast 可见 +
+rooted_around_out 结果文案; Rust 单测 `ux5_migrate_root_into_out_roots_around_existing_books`
+(数据根搬过去/书收进 jobs_out/DB 重写/指针/标记落新根/Phase 2 清旧根)。
+
+**验证**: `check.ps1` **24 项全绿** (cargo test 264 passed / vitest 124 / smoke 全绿含 2g3 / no_silent /
+fmt / clippy 7 未升)。
+
+

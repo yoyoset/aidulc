@@ -284,8 +284,10 @@
                 libMsg.textContent = '已取消, 书库位置未更改。';
                 return;
               }
-              libMsg.textContent = '已整根迁移到 ' + d.new_dir + ' (备份: ' + (d.backup_path || '') +
-                ')。重启应用后从新位置读取。';
+              // UX5 修正: 用户选了当前书库所在目录 → 数据根迁过去, 书原地不动 (rooted_around_out)
+              libMsg.textContent = (d.rooted_around_out
+                ? '已把数据根迁到书库所在目录「' + d.new_dir + '」, 书库子项收进 ' + d.new_dir + '\\jobs_out, 你的书原地不动。'
+                : '已整根迁移到 ' + d.new_dir) + ' (备份: ' + (d.backup_path || '') + ')。重启应用后从新位置读取。';
               libMsg.title = d.backup_path || '';
               refreshLibPath();
               return;

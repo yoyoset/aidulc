@@ -358,14 +358,53 @@ pub fn library_dir_pick_and_set(
     };
 
     let old_root = paths.inner().data_dir.clone();
-    // L1 前置检查: 目标空/可写、不循环、不重复
-    crate::infrastructure::data_migration::check_new_root(&old_root, &new_dir)?;
-
     let default_data_dir = if paths.inner().portable {
         old_root.clone()
     } else {
         crate::services::config::user_data_dir()
     };
+
+    // UX5 修正 (2026-08-13): 用户选了"当前书库所在目录" (E:\aidulc_data, 书都在里面) 当新位置。
+    // 整根迁移要求目标为空, 这里书已在目标 —— 走"围绕现有书重新生根": 数据根搬过去,
+    // 书库子项收进 new_root/jobs_out, 书原地不动。这是用户实测撞见的场景。
+    let effective_out = cfg.out_dir.clone();
+    let norm = |p: &std::path::Path| {
+        p.to_string_lossy()
+            .replace('\\', "/")
+            .trim_end_matches('/')
+            .to_lowercase()
+    };
+    if norm(&new_dir) == norm(&effective_out) && new_dir != old_root {
+        let report = crate::infrastructure::data_migration::migrate_root_into_out(
+            db.inner(),
+            &new_dir,
+            &old_root,
+            &default_data_dir,
+        )?;
+        let book_count = crate::store::books_repo::BooksRepo::new(db.inner())
+            .list()
+            .len();
+        crate::infrastructure::log::info(
+            "cmd",
+            &format!(
+                "library_dir_pick_and_set (围绕现有书重新生根): 数据根 → {} (需重启)",
+                new_dir.to_string_lossy()
+            ),
+        );
+        return Ok(serde_json::json!({
+            "cancelled": false,
+            "old_dir": old_root.to_string_lossy(),
+            "new_dir": new_dir.to_string_lossy(),
+            "backup_path": report.backup_path,
+            "restart_required": true,
+            "book_count": book_count,
+            "rooted_around_out": true,
+        }));
+    }
+
+    // L1 前置检查: 目标空/可写、不循环、不重复
+    crate::infrastructure::data_migration::check_new_root(&old_root, &new_dir)?;
+
     // 整根迁移 (备份 → 复制 config/db/jobs_out/models → 校验 → 写标记 → 写指针)
     let report = crate::infrastructure::data_migration::migrate_data_root(
         db.inner(),

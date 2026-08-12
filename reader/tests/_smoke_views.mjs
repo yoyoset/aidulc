@@ -774,8 +774,54 @@ console.log('== 2g2. UX5 修正 (2026-08-13): 书库不在数据根下 → 收�
   check('UX5修正: 收拢结果含「已把书库收拢到数据根」+ 备份 + 重启', resultText.includes('已把书库收拢到数据根') && resultText.includes('备份') && resultText.includes('重启'), resultText.slice(0, 140));
 }
 
-console.log('== 3. library_view 导入格 (G1): 网格最后一格, 无下拉, 点击走 pickFiles ==');
+console.log('== 2g3. UX5 修正 (2026-08-13): 确认框动作失败必须可见 + 选当前书库目录=重新生根 ==');
 {
+  // A. 真实 modal: onConfirm 拒绝 → toast 显示错误 (此前静默吞掉 → "点一下没反应")
+  const realModal = globalThis.AiduModal;
+  const toasts = [];
+  const toastOrig = globalThis.AiduToast;
+  globalThis.AiduToast = { show: (t, k) => toasts.push([t, k]) };
+  load('components/modal.js'); // 真实 modal 覆盖 stub
+  globalThis.AiduModal.confirm({
+    title: 't', message: 'm', confirmText: '确定',
+    onConfirm: () => Promise.reject(new Error('后端拒绝: 目标不是空目录')),
+  });
+  const ov3 = document.body._children.filter((c) => c.className && String(c.className).includes('modal-overlay')).slice(-1)[0];
+  const confirmBtn3 = ov3 && queryAll(ov3, 'button').find((b) => b.textContent === '确定');
+  confirmBtn3 && confirmBtn3.onclick();
+  await new Promise((r) => setTimeout(r, 30));
+  check('UX5修正: onConfirm 失败 → toast 显示错误 (不再静默)', toasts.some(([t]) => t.includes('后端拒绝')), JSON.stringify(toasts));
+  check('UX5修正: 失败后确认按钮恢复可用', confirmBtn3 && confirmBtn3.disabled === false);
+  globalThis.AiduToast = toastOrig;
+  globalThis.AiduModal = realModal;
+  if (ov3 && ov3.remove) ov3.remove();
+  // B. 选当前书库所在目录 → rooted_around_out 结果文案 (书原地不动, 数据根迁过去)
+  store.state.settingsTab = 'system';
+  globalThis.AiduMiscService.libraryDirGet = async () => ({ ok: true, data: 'C:/aidulc-data' });
+  globalThis.AiduMiscService.libraryDirPick = async () => ({ ok: true, data: { cancelled: false, path: 'E:/aidulc_data' } });
+  globalThis.AiduMiscService.libraryDirPickAndSet = async () => ({ ok: true, data: { cancelled: false, new_dir: 'E:/aidulc_data', backup_path: 'E:/aidulc_data/backups/x', restart_required: true, rooted_around_out: true } });
+  const sv2g3 = new globalThis.SettingsView(store);
+  const c2g3 = makeElement('div');
+  sv2g3.render(c2g3);
+  await new Promise((r) => setTimeout(r, 90));
+  store.state.settingsTab = null;
+  const changeBtn3 = queryAll(c2g3, 'button').find((b) => b.textContent === '更改…');
+  confirmCaptured = null;
+  changeBtn3 && changeBtn3.onclick();
+  await new Promise((r) => setTimeout(r, 40));
+  confirmCaptured && confirmCaptured.onConfirm && confirmCaptured.onConfirm();
+  await new Promise((r) => setTimeout(r, 40));
+  const libSec3 = queryAll(c2g3, '.settings-section').find((s) => {
+    const h2 = (s._children || []).find((x) => x.tagName === 'H2');
+    return h2 && h2.textContent === '书库位置';
+  });
+  const tips3 = queryAll(libSec3, '.import-tip');
+  const msg3 = textOf(tips3[tips3.length - 1] || {});
+  check('UX5修正: 选当前书库目录 → 结果说明「数据根迁过去, 书库子项收进 jobs_out, 书原地不动」',
+    msg3.includes('数据根迁到书库所在目录') && msg3.includes('书库子项收进') && msg3.includes('原地不动'), msg3.slice(0, 180));
+}
+
+console.log('== 3. library_view 导入格 (G1): 网格最后一格, 无下拉, 点击走 pickFiles ==');{
   const lv = new globalThis.LibraryView(store, 'original');
   const cell = lv._buildImportGridCell();
   const inputs = queryAll(cell, 'input');

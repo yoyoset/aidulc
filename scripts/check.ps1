@@ -110,6 +110,14 @@ Run-Check "node smoke (视图层: prep/settings/library)" {
     Pop-Location
 }
 
+# 7.6b (M0 契约门禁, 2026-08-12): ui:no-silent-action —— 遍历主要视图全部 button,
+# 逐个 click, 断言 300ms 内出现 DOM 变化/toast/modal/路由变化之一。没有任何变化的
+# 按钮直接门禁失败 (契约四条 #1: "没有反应本身就是 bug")。例外清单显式写明理由。
+Run-Check "node smoke (契约: ui:no-silent-action 全按钮点按有反馈)" {
+    Push-Location "$root\reader"
+    node tests\_smoke_no_silent.mjs
+    Pop-Location
+}
 # 7.7 (V5, 2026-08-09): 服务端协议本地实测 —— 文件 KV 驱动同一份 worker 代码,
 # 覆盖 鉴权失败/越权/正常推拉/新者胜/一次性码/限速。30 项断言。
 Run-Check "node smoke (worker 协议 v1 本地实测)" {

@@ -21,7 +21,7 @@ M4 → N1 → M5 → M6**(M3 按文档移出本轮)。每条一个提交, 落地
 
 | # | 事项 | 说明 |
 |---|---|---|
-| U1 | **真机点验 + 截图**(本轮教训 8 要求) | 本环境无法开真机/浏览器截图, 以下场景需用户真机复验并贴图: M1 红卡与折叠展开 (`%APPDATA%\aidulc\data.db`, edition `job-1786205609337-11852-1` 的 pack_dir 已不存在 → 书卡红色「成品文件缺失」+ 点「译本 (1)」展开出两出口); M2 点「开始复习」进专注模式三栏; M4 扫描 F:/hf_cache 出候选; M5 更改/加载三按钮的结果文案。自动化侧已用**最终 DOM 断言**锁定(见各卡), 真机截图是最终验收 |
+| U1 | **真机最终点验** | 截图已用真实 Chrome headless 渲染生成(见教训 8 截图表 + `docs/UX4_screenshots/`): 加载的是线上 reader/index.html, 只 stub `window.__TAURI__`(invoke 分发), main.js/views/services/CSS 全是线上代码。真机(`%APPDATA%\aidulc\data.db`, edition `job-1786205609337-11852-1` 的 pack_dir 已不存在)复验为最终验收 |
 | U2 | 清理服务端 1424 条 `w0…w1423` 测试数据 | 手机端已 0.7.2, 不清会拉进手机 |
 | U3 | 踢掉泄露的两个 token | `5e31f8fa…`、`92925809…` |
 | U4 | 轮换 ROOT_SECRET | 曾明文出现 |
@@ -138,7 +138,20 @@ M4 → N1 → M5 → M6**(M3 按文档移出本轮)。每条一个提交, 落地
 | M5 | 三按钮父容器 | 含 `page-toolbar`(收进一组) |
 | M6 | `.settings-form` 子元素顺序 | `主题` hint → select → `主题色` hint → `.rd-theme-chips`; `PALETTES` 5 键与 `tokens.css --swatch-*` 5 个一一对应 |
 
-**真机截图**: 见 U1(本环境无真机, 自动化以最终 DOM 断言锁定, 真机点验为最终验收)。
+**真机截图**(真实 Chrome headless 渲染, `scripts/ux4_screenshots.mjs` 生成, 存 `docs/UX4_screenshots/`):
+加载线上 `reader/index.html`, 只 stub `window.__TAURI__`(invoke 分发), main.js/views/services/CSS
+全是线上代码 —— 截图是真实渲染结果。截图时同步 dump 关键 DOM, 两者互为证据:
+
+| 截图文件 | 内容(截图时 DOM 实测) |
+|---|---|
+| `ux4-m1-library-redcard.png` | 书库: Alice 书卡红色 `.book-badge.badge-err` 文案「成品文件缺失」(书卡 + 子卡各一), 无「已就绪」 |
+| `ux4-m1-editions-expanded.png` | 点「译本 (1)」展开: 红色子卡两出口按钮文案「重新生成译本」「移除这个译本记录」(同屏另一本 ok 译本显示「打开阅读」) |
+| `ux4-m2-review-focus.png` | 生词本点「开始复习」→ `.review-grid` 专注模式: 当前词 reticent + 四档评分「忘了/模糊/记得/太简单」 |
+| `ux4-m4-models-page.png` | 模型与依赖页: 翻译/语音 已配置(换一个), 分词/NLP 段当前方案(spaCy en_core_web_sm) |
+| `ux4-m4-scan-candidates.png` | 扫描弹窗候选: Qwen(已登记/翻译·讲解)、kokoro(语音合成)、model.bin(分词/NLP)、ggml-large-v3(未识别)、ggml-silero(未识别) |
+| `ux4-m5-change-result.png` | 设置·系统与书库: 「书库位置已改为 D:/aidulc-data-new, 原目录 3 本书未移动(切换只改配置, 不搬文件)。重启应用后生效。」 |
+| `ux4-m6-theme-order.png` | 设置·阅读显示: 主题 label → 下拉 → 主题色 label → 色点(顺序正确) |
+| `ux4-n1-wizard-done.png` | 向导完成页三选一: ①导入我自己的书 ②先看一本内置样书(「即将支持 (ROADMAP R1)」置灰) ③先去配模型 |
 
 ---
 
@@ -247,8 +260,11 @@ contrast (WCAG AA >= 4.5)              PASS
 ## 五、遗留与方向
 
 - **M3(多后端 × 主体矩阵)** 按文档移出本轮, 设计结论已留档在 `GOAL_2026-08-12_UX4.md`。
-- **真机截图** 待 U1(自动化已用最终 DOM 断言锁定, 真机为最终验收)。
+- **真机最终验收**: 截图已用真实 Chrome 渲染生成(教训 8 截图表), 但真机(`%APPDATA%` 真实 DB +
+  F:/hf_cache 真实文件)点验仍是最终验收, 见 U1。
 - **M2 教训扩散**: 全项目 `global.AiduStore.set` 已清零; 建议在 CLAUDE.md 或代码规范里把
   "视图用构造注入的 store 实例, 不用 global.AiduStore(那是类)" 写成显式规则。
 - **契约门禁范围**: 目前覆盖 7 个主视图; review_view(进行中会话交互)不在其中, 由 M2 专项
   DOM 断言覆盖, 未来可考虑扩展。
+- **截图脚本**: `scripts/ux4_screenshots.mjs`(真实 Chrome headless + `__TAURI__` stub), 后续
+  轮次复用可改 `bridgeSource` 里的 handler 数据即可生成新的真机渲染截图。

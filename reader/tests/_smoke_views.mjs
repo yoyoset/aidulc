@@ -717,6 +717,59 @@ console.log('== 3d. M1 (2026-08-12): 原版书卡 pack_state 聚合标红 + 译�
   check('M1-c: 子卡移除有确认弹窗', confirmCaptured && confirmCaptured.confirmText === '移除');
 }
 
+console.log('== 3e. UX5 #1 (2026-08-13): 译本展开状态持久化 + 轮巡增量更新 ==');
+{
+  // 教训 8: 断言落在最终 DOM。两张带译本的原版书卡: 展开书1 → 轮巡/整列重建后仍展开,
+  // 书2 不受影响; 轮巡只刷进度条不重建卡片。
+  const lvE = new globalThis.LibraryView(store, 'original');
+  lvE._profiles = [{ id: 'default', name: '成人自读' }];
+  const listElE = makeElement('div');
+  const booksE = [
+    { id: 's1', title: 'Alice.epub', kind: 'original', status: 'done', source_language: 'en',
+      editions: [{ id: 'e1', title: 'Alice 译本', status: 'ready', profile_id: 'default', chapter_count: 12, llm_id: 'llm|en|qwen3-4b|2507', tts_id: 'tts|en|kokoro|v1' }] },
+    { id: 's2', title: 'Number the Stars.epub', kind: 'original', status: 'done', source_language: 'en',
+      editions: [{ id: 'e2', title: 'Star 译本', status: 'ready', profile_id: 'default', chapter_count: 12, llm_id: 'llm|en|qwen3-4b|2507', tts_id: 'tts|en|kokoro|v1' }] },
+  ];
+  store.state.books = booksE;
+  lvE._renderBooks(listElE, booksE, makeElement('input'), null);
+  const cardsE = queryAll(listElE, '.book-card');
+  const card1 = cardsE.find((c) => c.querySelector('.book-card-title').textContent === 'Alice');
+  const card2 = cardsE.find((c) => c.querySelector('.book-card-title').textContent === 'Number the Stars');
+  const toggle1 = card1 && card1.querySelector('.edition-toggle');
+  const body1 = card1 && card1.querySelector('.edition-body');
+  const body2 = card2 && card2.querySelector('.edition-body');
+  check('UX5#1: 初始两张卡都折叠 (.edition-body 含 collapsed)', body1 && body2 && body1.className.includes('collapsed') && body2.className.includes('collapsed'));
+  toggle1 && toggle1.onclick();
+  check('UX5#1: 展开书1 → .edition-body 无 collapsed、箭头 ▾', body1 && !body1.className.includes('collapsed') && toggle1.textContent.includes('▾'));
+  // 情形A: 轮巡增量 (job poll → _updateJobProgress, 不整列重建)
+  lvE._jobs = [];
+  lvE._updateJobProgress(listElE);
+  check('UX5#1: 轮巡后书1仍展开、箭头仍 ▾ (增量更新不整列重建)', body1 && !body1.className.includes('collapsed') && toggle1.textContent.includes('▾'));
+  check('UX5#1: 其它未展开书卡不受影响 (书2仍 collapsed)', body2 && body2.className.includes('collapsed'));
+  // 情形B: store change 触发的整列重建 (_renderBooks) —— expanded set 保持
+  lvE._renderBooks(listElE, booksE, makeElement('input'), null);
+  const cardsE2 = queryAll(listElE, '.book-card');
+  const card1b = cardsE2.find((c) => c.querySelector('.book-card-title').textContent === 'Alice');
+  const body1b = card1b && card1b.querySelector('.edition-body');
+  const toggle1b = card1b && card1b.querySelector('.edition-toggle');
+  const card2b = cardsE2.find((c) => c.querySelector('.book-card-title').textContent === 'Number the Stars');
+  const body2b = card2b && card2b.querySelector('.edition-body');
+  check('UX5#1: 整列重建后书1仍展开 (expanded set 保持)', body1b && !body1b.className.includes('collapsed') && toggle1b.textContent.includes('▾'));
+  check('UX5#1: 整列重建后书2仍折叠', body2b && body2b.className.includes('collapsed'));
+  // 增量进度条: 处理中的书, 轮巡只更新 fill 宽度 + 文案 (不改卡片其它部分)
+  const procBook = { id: 's3', title: 'Old Man.epub', kind: 'original', status: 'processing', source_language: 'en', source_path: 'C:/Books/OldMan.epub' };
+  store.state.books = [procBook];
+  const listElP = makeElement('div');
+  lvE._renderBooks(listElP, [procBook], makeElement('input'), null);
+  lvE._jobs = [{ book_path: 'C:/Books/OldMan.epub', stage: 'translate', current: 50, total: 200, status: 'running' }];
+  lvE._updateJobProgress(listElP);
+  const pfill = listElP.querySelector('.prep-bar-fill');
+  const ptext = listElP.querySelector('.book-progress-text');
+  check('UX5#1: 轮巡更新 .prep-bar-fill 宽度 25%', pfill && pfill.style.width === '25%', 'width=' + (pfill && pfill.style.width));
+  check('UX5#1: 轮巡更新 .book-progress-text (翻译 50/200 句)', ptext && ptext.textContent.includes('翻译') && ptext.textContent.includes('50/200'), ptext && ptext.textContent);
+  store.state.books = [];
+}
+
 console.log('== 4. library_view 创建译本弹窗挂载顺序 (A1 回归) ==');
 {
   const lv = new globalThis.LibraryView(store, 'original');

@@ -28,6 +28,9 @@
       // 阶段2 (F45): 拖拽监听用单一槽位管理, 重渲染不累积; 导入用短窗口去重, 单次动作只导一次
       this._dragSlot = new AiduListenerSlot();
       this._importDedup = new AiduImportDedup(2000);
+      // UX5 #1 (2026-08-13): 译本展开状态持久化 —— 整列重建/轮巡不冲掉用户展开的书。
+      // 重建卡片时按 set 决定 .edition-body 是否保留 collapsed; toggle 时加入/移出。
+      this._expanded = new Set();
     }
 
     /** 书状态 → { label, badgeClass } (苹果级: 状态可视) */
@@ -160,7 +163,9 @@
       if (this.kind === 'original') {
         const loadJobs = () => AiduJobService.list().then((res) => {
           this._jobs = (res.ok && res.data) || [];
-          this._renderBooks(listEl, this.store.state.books || [], searchInput, segBar);
+          // UX5 #1 (2026-08-13): 轮巡只增量刷进度条, 不再整列 _renderBooks ——
+          // 整列重建会把用户展开的译本全部折回 collapsed (UX4 修好 toggle 后仍被冲掉)。
+          this._updateJobProgress(listEl);
         });
         if (this._jobTimer) clearInterval(this._jobTimer);
         this._jobTimer = setInterval(loadJobs, 5000);
@@ -222,6 +227,8 @@
       }
       filtered.forEach(book => {
         const card = el('div', 'book-card');
+        // UX5 #1 (2026-08-13): 卡片带 data-book-id —— 轮巡按 id 找卡只刷进度条, 不整列重建
+        card.dataset.bookId = String(book.id);
         // G5 (2026-08-11): 书名/作者清洗 —— 文件名原样上屏不是设计 (z-library 后缀/作者括括号)。
         // 拆成 书名 + 作者 两行; 解析不出就保留原串。
         const parsed = global.AiduTitleCleanup ? global.AiduTitleCleanup.parseBookTitle(book.title || book.id) : { title: book.title || book.id, author: null };
@@ -340,13 +347,18 @@
          // M1-b (2026-08-12): 折叠开关切的是真正藏内容的 .edition-body —— 此前切外层
          // editions 容器, 箭头会变但内容永远展不开 (用户看到的就是"点了没反应")。
          // 箭头方向按状态: 折叠 ▸ / 展开 ▾ (初始折叠所以是 ▸)。
+         // UX5 #1 (2026-08-13): 初始状态由 this._expanded 决定 —— 用户展开过的书重建后保持展开。
          if (this.kind === 'original' && Array.isArray(book.editions) && book.editions.length) {
            const editions = el('div', 'edition-list');
-           const toggle = el('button', 'edition-toggle', `译本 (${book.editions.length}) ▸`);
+           const expanded = this._expanded.has(book.id);
+           const toggle = el('button', 'edition-toggle',
+             `译本 (${book.editions.length}) ${expanded ? '▾' : '▸'}`);
            editions.appendChild(toggle);
-           const body = el('div', 'edition-body collapsed');
+           const body = el('div', 'edition-body' + (expanded ? '' : ' collapsed'));
            toggle.onclick = () => {
              const collapsed = body.classList.toggle('collapsed');
+             if (collapsed) this._expanded.delete(book.id);
+             else this._expanded.add(book.id);
              toggle.textContent = `译本 (${book.editions.length}) ${collapsed ? '▸' : '▾'}`;
            };
            book.editions.forEach((edition) => {
@@ -389,6 +401,38 @@
            card.appendChild(editions);
          }
          listEl.appendChild(card);
+      });
+    }
+
+    /** UX5 #1 (2026-08-13): 轮巡增量更新 —— 只刷对应卡片进度条, 不整列重建。
+     *  卡片按 data-book-id 匹配; 任务进行中时补/更 .prep-bar-fill 宽度 + 文案。
+     *  任务完成/书状态变化由 library-changed 事件触发整列刷新 (原有机制, 这里不动)。 */
+    _updateJobProgress(listEl) {
+      if (!listEl) return;
+      const jobs = this._jobs || [];
+      const books = this.store.state.books || [];
+      listEl.querySelectorAll('.book-card').forEach((card) => {
+        const bookId = card.dataset && card.dataset.bookId;
+        if (!bookId) return;
+        const book = books.find((b) => String(b.id) === String(bookId));
+        if (!book || book.status !== 'processing') return;
+        const job = jobs.find((j) => j.book_path && book.source_path &&
+          j.book_path.replace(/\\/g, '/') === book.source_path.replace(/\\/g, '/'));
+        if (!job || !(job.total > 0)) return;
+        const pct = Math.round((job.current / job.total) * 100);
+        const stLabel = STAGE_LABEL[job.stage] || job.stage;
+        let pbar = card.querySelector('.prep-bar');
+        if (!pbar) {
+          // 书卡渲染时还是 pending、任务随即开始 —— 增量补上进度条 (只动这张卡)
+          pbar = el('div', 'prep-bar');
+          pbar.appendChild(el('div', 'prep-bar-fill'));
+          card.appendChild(pbar);
+        }
+        const pfill = pbar.querySelector('.prep-bar-fill');
+        if (pfill) pfill.style.width = pct + '%';
+        let ptext = card.querySelector('.book-progress-text');
+        if (!ptext) { ptext = el('div', 'book-progress-text'); card.appendChild(ptext); }
+        ptext.textContent = `${stLabel} ${pct}% · ${job.current}/${job.total} 句`;
       });
     }
 

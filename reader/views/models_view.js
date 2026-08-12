@@ -47,9 +47,10 @@
       this.host = container;
       container.innerHTML = '';
       const wrap = el('div', 'models-view');
-      // J1 (2026-08-11): 扫描保留但降为次要操作
+      // J1 (2026-08-11): 扫描保留但降为次要操作。M4-3 (2026-08-12): 扫描不再一键全登记,
+      // 弹窗里路径可见可增删 + 候选列表勾选后再登记。
       const scanBtn = el('button', 'btn-small', '扫描已有模型');
-      scanBtn.onclick = () => this._scanAndRegister();
+      scanBtn.onclick = () => this._openScanModal();
       // J4 (2026-08-11): 自定义模型 —— 粘 HF 链接添加
       const customBtn = el('button', 'btn-small', '添加自定义模型');
       customBtn.onclick = () => this._openCustomModelForm();
@@ -225,6 +226,46 @@
       return `${brand} ${size}`.trim() + (quant ? ' · ' + quant : '');
     }
 
+    /** M4-3③: 存量误登记改家族 (id 含家族, 改家族重建 id; active 保持) */
+    _setFamilyModal(m) {
+      const ov = document.createElement('div');
+      ov.className = 'modal-overlay';
+      const box = document.createElement('div');
+      box.className = 'modal-box';
+      box.setAttribute('role', 'dialog');
+      box.setAttribute('aria-modal', 'true');
+      const title = el('h2', 'modal-title', '改家族: ' + (m.model_id || m.id));
+      const body = el('div', 'book-settings-body');
+      const hint = el('div', 'settings-hint',
+        '当前家族: ' + (FAM_LABEL[m.family] || m.family || '未知') + '。改家族会重建模型 id (原 id 移除)。');
+      const famSel = el('select', 'prep-select');
+      [['llm', '翻译/讲解'], ['tts', '语音合成'], ['nlp', '分词/NLP']].forEach(([v, l]) => {
+        const o = el('option', null, l); o.value = v; famSel.appendChild(o);
+      });
+      famSel.value = ['llm', 'tts', 'nlp'].includes(m.family) ? m.family : 'llm';
+      const actions = el('div', 'modal-actions');
+      const cancel = el('button', 'btn-small', '取消');
+      cancel.onclick = () => ov.remove();
+      const save = el('button', 'btn-primary', '保存');
+      save.onclick = () => {
+        if (famSel.value === m.family) { ov.remove(); return; }
+        save.disabled = true;
+        save.textContent = '保存中…';
+        AiduModelService.setFamily(m.id, famSel.value).then((r) => {
+          if (!r.ok) { save.disabled = false; save.textContent = '保存'; AiduToast.show('改家族失败: ' + r.error, 'error'); return; }
+          ov.remove();
+          AiduToast.show('已改家族为 ' + (FAM_LABEL[famSel.value] || famSel.value), 'success');
+          this._reload();
+        });
+      };
+      actions.append(cancel, save);
+      body.append(hint, famSel);
+      box.append(title, body, actions);
+      ov.appendChild(box);
+      ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
+    }
+
     /** 探测目标路径的磁盘状态 → 把按钮切成 磁盘已有·点此登记 / 下载 (失败一律落 下载, 不阻塞) */
     _probeDiskState(item, btn) {
       this._modelDir().then((dir) => {
@@ -341,7 +382,7 @@
       const usableOf = (family) => all.filter((m) => m.family === family && m.path && String(m.path).trim() !== '');
       const famLabel = FAM_LABEL;
 
-      const section = (family, tip, missingTip) => {
+      const section = (family, tip, missingTip, missingExtra) => {
         const sec = el('div', 'model-group');
         sec.appendChild(el('h2', null, famLabel[family]));
         if (tip) sec.appendChild(el('div', 'import-tip', tip));
@@ -366,16 +407,25 @@
           // 没有可用模型 → 该段的「去下载」
           const missing = el('div', 'settings-hint settings-warn', missingTip || '未配置 —— 处理书籍前需要它。');
           sec.appendChild(missing);
-          const dl = el('button', 'btn-primary', '去下载');
-          dl.onclick = () => this._showDownloadSheet(family);
-          sec.appendChild(dl);
+          // M4-1 (2026-08-12): 某功能没有可下载的目录项 → 不渲染「去下载」按钮。
+          // 空按钮比没按钮更糟 (nlp 无目录项, 点开是空对话框, 就是用户碰到的那个)。
+          const hasCatalog = DOWNLOAD_CATALOG.some((c) => c.family === family);
+          if (hasCatalog) {
+            const dl = el('button', 'btn-primary', '去下载');
+            dl.onclick = () => this._showDownloadSheet(family);
+            sec.appendChild(dl);
+          }
+          // 回答"我现在用的什么" (M4-1: 用户不知道自己在用什么)
+          if (missingExtra) sec.appendChild(el('div', 'import-tip', missingExtra));
         }
         listEl.appendChild(sec);
       };
 
       section('llm', '解释词义、例句翻译、讲解。处理书籍前必须先有这个。', '未配置 —— 翻译/讲解需要它, 否则无法处理书籍。');
       section('tts', '朗读原文/译文。没有语音不影响文字阅读。', '未配置 —— 没有语音合成不影响文字阅读, 需要跟读/听读时再下载。');
-      section('nlp', '分词 / NLP: 分句、词形还原 (lemma)、短语识别, 备料时自动用。未配置时用内置兜底, 不影响阅读。', '未配置 —— 用内置兜底分词, 不影响阅读; 需要精确分词时再下载。');
+      section('nlp', '分词 / NLP: 分句、词形还原 (lemma)、短语识别, 备料时自动用。未配置时用内置兜底, 不影响阅读。',
+        '未配置 —— 用内置兜底分词, 不影响阅读; 需要精确分词时再添加。',
+        '当前方案: 内置 spaCy en_core_web_sm (en)。未添加自定义 NLP 模型时就是这个兜底, 无需下载。');
 
       // 其余已登记模型收进"全部模型"折叠区 (J1: 不再两套并列, 这里是次要的登记清单)
       if (all.length) {
@@ -410,6 +460,11 @@
               });
             };
             actions.appendChild(del);
+            // M4-3③: 存量误登记改家族 (whisper/silero 曾被二元判定塞进"语音合成")
+            const famBtn = el('button', 'btn-small', '改家族');
+            famBtn.title = '误登记到错误的家族时改过来 (如 whisper/silero 曾被当成语音合成)';
+            famBtn.onclick = () => this._setFamilyModal(m);
+            actions.appendChild(famBtn);
             row.append(nameWrap, size, actions);
             body.appendChild(row);
           });
@@ -425,28 +480,214 @@
       }
     }
 
-    _scanAndRegister() {
-      // 从运行时配置取模型目录 (不硬编码开发机路径)
+    /**
+     * M4-3 (2026-08-12): 扫描已有模型 —— 弹窗里扫描路径可见可增删 + 候选列表勾选后登记。
+     * 修掉的五个问题:
+     *   ① 扫描路径不可见、只扫一个目录 → 默认模型目录 + HF 缓存, 可增删
+     *   ② 没配 LLM 时 fallback 'C:/' → 没有已知目录就让用户选一个, 绝不扫系统盘
+     *   ③ 家族二元瞎猜 → 后端按特征识别 (kokoro/ggml/silero/spacy/gguf), 未识别标黄让用户选
+     *   ④ 扫到全自动登记 → 先列候选 (路径/大小/推测家族/是否已登记), 勾选后再登记
+     *   ⑤ 0 结果只有一句 toast → 明确列出扫过的路径 + 可点的下一步
+     */
+    _openScanModal() {
+      const ov = document.createElement('div');
+      ov.className = 'modal-overlay';
+      const box = document.createElement('div');
+      box.className = 'modal-box modal-wide';
+      box.setAttribute('role', 'dialog');
+      box.setAttribute('aria-modal', 'true');
+      const title = el('h2', 'modal-title', '扫描已有模型');
+      const body = el('div', 'book-settings-body');
+
+      const pathList = el('div', 'scan-path-list');
+      const statusEl = el('div', 'sync-status', '');
+      const resultEl = el('div', 'scan-result');
+
+      const pathsHint = el('div', 'settings-hint',
+        '在这些路径下递归找模型文件 (HF 缓存 hub/models--…/snapshots/<sha> 深层布局也覆盖)。');
+      const addPathBtn = el('button', 'btn-small', '+ 添加路径');
+      addPathBtn.onclick = () => {
+        AiduMiscService.libraryDirPick().then((r) => {
+          if (r.ok && r.data && !r.data.cancelled && r.data.path) {
+            if (!this._scanPaths.includes(r.data.path)) {
+              this._scanPaths.push(r.data.path);
+              this._renderScanPaths(pathList, resultEl);
+            }
+          }
+        });
+      };
+
+      const scanBtn = el('button', 'btn-primary', '扫描');
+      scanBtn.onclick = () => this._doScan(pathList, statusEl, resultEl, scanBtn);
+
+      const actions = el('div', 'modal-actions');
+      const close = el('button', 'btn-small', '关闭');
+      close.onclick = () => ov.remove();
+      actions.append(scanBtn, close);
+
+      body.append(pathsHint, pathList, addPathBtn, statusEl, resultEl);
+      box.append(title, body, actions);
+      ov.appendChild(box);
+      ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
+
+      // 初始化扫描路径: 模型目录 + HF 缓存 (M4-3①)
+      this._scanPaths = [];
+      this._scanOv = ov;
       AiduMiscService.runtimeConfig().then((cfg) => {
-        const llmPath = cfg && cfg.ok && cfg.data && cfg.data.llm_model ? cfg.data.llm_model : '';
-        const dir = llmPath ? llmPath.replace(/[\\/][^\\/]+$/, '') : '';
-        return AiduModelService.scan(dir || 'C:/');
-      }).then((res) => {
-        if (!res.ok) { AiduToast.show('扫描失败: ' + res.error, 'error'); return; }
-        const found = res.data || [];
-        if (!found.length) { AiduToast.show('没有找到新的模型文件', 'info'); return; }
-        const jobs = found.map(m => AiduModelService.register({
-          family: m.file_name.endsWith('.gguf') ? 'llm' : 'tts',
-          language: 'en',
-          model_id: m.file_name.replace(/\.[^.]+$/, ''),
-          version: 'scanned',
-          path: m.path,
-          source_type: 'local',
-          size_bytes: m.size_bytes,
-          custom: true,
-        }));
-        Promise.all(jobs).then(() => { this._reload(); AiduToast.show(`已登记 ${found.length} 个模型`, 'success'); });
+        const d = (cfg && cfg.ok && cfg.data) || {};
+        const modelDir = String(d.llm_model || d.tts_model || '').replace(/[\\/][^\\/]+$/, '');
+        if (modelDir) this._scanPaths.push(modelDir);
+        if (d.hf_cache_dir && !this._scanPaths.includes(d.hf_cache_dir)) {
+          this._scanPaths.push(d.hf_cache_dir);
+        }
+        if (!this._scanPaths.length) {
+          // M4-3②: 没有已知目录 → 让用户选一个, 绝不 fallback 'C:/' 扫系统盘
+          statusEl.textContent = '还没有已知的模型目录, 先「+ 添加路径」选一个。';
+        }
+        this._renderScanPaths(pathList, resultEl);
       });
+    }
+
+    _renderScanPaths(pathList, resultEl) {
+      pathList.innerHTML = '';
+      (this._scanPaths || []).forEach((p, i) => {
+        const row = el('div', 'scan-path-row');
+        const code = el('code', 'j0-path', p);
+        const rm = el('button', 'btn-small scan-path-rm', '×');
+        rm.title = '移除这个扫描路径';
+        rm.onclick = () => { this._scanPaths.splice(i, 1); this._renderScanPaths(pathList, resultEl); };
+        row.append(code, rm);
+        pathList.appendChild(row);
+      });
+      if (!(this._scanPaths || []).length) {
+        pathList.appendChild(el('div', 'import-tip', '还没有扫描路径。'));
+      }
+    }
+
+    async _doScan(pathList, statusEl, resultEl, scanBtn) {
+      if (!(this._scanPaths || []).length) {
+        statusEl.textContent = '请先添加至少一个扫描路径。';
+        return;
+      }
+      scanBtn.disabled = true;
+      // 契约第四条: 正在做什么要说出来 (范围 + 进度)
+      statusEl.textContent = '正在扫描 ' + this._scanPaths.length + ' 个目录: ' + this._scanPaths.join(' · ') + ' …';
+      resultEl.innerHTML = '';
+      const found = [];
+      const failed = [];
+      for (const p of this._scanPaths) {
+        const r = await AiduModelService.scan(p);
+        if (r.ok && Array.isArray(r.data)) found.push(...r.data);
+        else failed.push(p);
+      }
+      scanBtn.disabled = false;
+      statusEl.textContent = failed.length
+        ? '扫描失败: ' + failed.join(' · ') + ' (已跳过)'
+        : '扫描完成: ' + found.length + ' 个候选。';
+      if (!found.length) {
+        // M4-3⑤: 0 结果给可点的下一步, 不只一句 toast
+        resultEl.innerHTML = '';
+        const msg = el('div', 'book-empty');
+        msg.textContent = '在这些路径下没找到模型:\n' + (this._scanPaths || []).map((p) => '· ' + p).join('\n') + '\n你的模型在别处?';
+        msg.style.whiteSpace = 'pre-line';
+        resultEl.appendChild(msg);
+        const btns = el('div', 'prep-empty');
+        const pickBtn = el('button', 'btn-small btn-primary', '选择目录扫描…');
+        pickBtn.onclick = () => {
+          AiduMiscService.libraryDirPick().then((r) => {
+            if (r.ok && r.data && !r.data.cancelled && r.data.path) {
+              if (!this._scanPaths.includes(r.data.path)) this._scanPaths.push(r.data.path);
+              this._renderScanPaths(pathList, resultEl);
+              this._doScan(pathList, statusEl, resultEl, scanBtn);
+            }
+          });
+        };
+        const customBtn = el('button', 'btn-small', '添加自定义模型');
+        customBtn.onclick = () => { if (this._scanOv) this._scanOv.remove(); this._openCustomModelForm(); };
+        btns.append(pickBtn, customBtn);
+        resultEl.appendChild(btns);
+        return;
+      }
+      this._renderScanCandidates(resultEl, found, statusEl);
+    }
+
+    /** M4-3④: 候选列表 —— 路径/大小/推测家族/是否已登记, 勾选后登记。 */
+    _renderScanCandidates(resultEl, found, statusEl) {
+      resultEl.innerHTML = '';
+      const famLabel = { llm: '翻译/讲解', tts: '语音合成', nlp: '分词/NLP' };
+      const head = el('div', 'settings-hint',
+        '候选 ' + found.length + ' 个。勾选后点「登记选中」。未识别的先选用途再登记。');
+      resultEl.appendChild(head);
+      const listEl = el('div', 'scan-candidate-list');
+      const checked = new Map(); // path → { c, family }
+      let regBtn = null;
+      const updateCount = () => {
+        if (regBtn) regBtn.textContent = '登记选中的 ' + checked.size + ' 个';
+      };
+      found.forEach((c) => {
+        const row = el('div', 'scan-candidate' + (c.registered ? ' registered' : ''));
+        const cb = el('input', 'scan-cb');
+        cb.type = 'checkbox';
+        cb.disabled = !!c.registered;
+        cb.checked = !c.registered;
+        const famSel = el('select', 'prep-select scan-fam');
+        [['llm', '翻译/讲解'], ['tts', '语音合成'], ['nlp', '分词/NLP']].forEach(([v, l]) => {
+          const o = el('option', null, l); o.value = v; famSel.appendChild(o);
+        });
+        const hint = c.family_hint || 'unknown';
+        if (hint === 'llm' || hint === 'tts' || hint === 'nlp') famSel.value = hint;
+        // 识别不出 / 识别出但本应用无对应功能 (asr/vad) → 一律「未识别」, 不许自称语音合成
+        const known = famLabel[hint];
+        const famBadge = el('span', 'book-badge ' + (known ? 'badge-idle' : 'badge-warn'),
+          known ? known : '未识别');
+        famBadge.title = known ? '' : '识别不出用途 (可能是 whisper/silero 等)。选个用途再登记, 不确定就别勾。';
+        const size = el('span', 'model-meta', `${Math.round((c.size_bytes || 0) / 1e6)} MB`);
+        const name = el('span', 'scan-fname', c.file_name + (c.registered ? ' (已登记)' : ''));
+        const path = el('div', 'scan-cpath', c.path);
+        const famCell = el('span', 'scan-fam-cell');
+        famCell.append(famBadge);
+        if (!c.registered) famCell.appendChild(famSel);
+        row.append(cb, name, size, famCell);
+        row.appendChild(path);
+        cb.onchange = () => {
+          row.classList.toggle('unchecked', !cb.checked);
+          if (cb.checked) checked.set(c.path, { c, family: famSel.value });
+          else checked.delete(c.path);
+          updateCount();
+        };
+        famSel.onchange = () => {
+          if (checked.has(c.path)) checked.set(c.path, { c, family: famSel.value });
+        };
+        if (!c.registered) checked.set(c.path, { c, family: famSel.value });
+        listEl.appendChild(row);
+      });
+      resultEl.appendChild(listEl);
+      regBtn = el('button', 'btn-primary', '登记选中的 ' + checked.size + ' 个');
+      regBtn.onclick = () => {
+        if (!checked.size) return;
+        regBtn.disabled = true;
+        const jobs = [];
+        checked.forEach(({ c, family }) => {
+          jobs.push(AiduModelService.register({
+            family, language: 'en',
+            model_id: c.file_name.replace(/\.[^.]+$/, ''),
+            version: 'scanned', variant: '', path: c.path,
+            source_type: 'local', source_ref: '', sha256: '', size_bytes: c.size_bytes || 0,
+            custom: true,
+          }));
+        });
+        Promise.all(jobs).then((rs) => {
+          const okN = rs.filter((r) => r && r.ok).length;
+          AiduToast.show(`已登记 ${okN} 个模型` + (okN < jobs.length ? ` (${jobs.length - okN} 个失败)` : ''), okN === jobs.length ? 'success' : 'error');
+          this._reload();
+          if (this._scanOv) this._scanOv.remove();
+        }).catch((e) => {
+          regBtn.disabled = false;
+          AiduToast.show('登记失败: ' + e, 'error');
+        });
+      };
+      resultEl.appendChild(regBtn);
     }
 
     _reload() {

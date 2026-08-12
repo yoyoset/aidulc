@@ -137,6 +137,12 @@ pub fn models_set_recommended(db: State<store::Db>, id: String) -> Result<(), St
     model_service::set_recommended(db.inner(), &id)
 }
 
+/// M4-3③ (2026-08-12): 存量误登记改家族 (移除旧 id, 按新家族重建; active 保持)。
+#[tauri::command]
+pub fn models_set_family(db: State<store::Db>, id: String, family: String) -> Result<(), String> {
+    model_service::set_family(db.inner(), &id, &family)
+}
+
 /// 移除
 #[tauri::command]
 pub fn models_remove(db: State<store::Db>, id: String) -> Result<(), String> {

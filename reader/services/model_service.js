@@ -18,6 +18,7 @@
       });
     },
     setRecommended(id) { return AiduBridge.invoke('models_set_recommended', { id }); },
+    setFamily(id, family) { return AiduBridge.invoke('models_set_family', { id, family }); },
     remove(id) { return AiduBridge.invoke('models_remove', { id }); },
     scan(dir) { return AiduBridge.invoke('models_scan', { modelDir: dir }); },
     // D (2026-08-11): 探测磁盘是否已有模型文件 (present/healthy/size_bytes)

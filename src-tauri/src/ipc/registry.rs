@@ -372,6 +372,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "设置推荐",
     },
     CommandInfo {
+        path: "commands::models::models_set_family",
+        domain: "模型",
+        desc: "M4: 存量误登记改家族 (移除旧 id, 按新家族重建, active 保持)",
+    },
+    CommandInfo {
         path: "commands::models::models_remove",
         domain: "模型",
         desc: "移除模型登记",

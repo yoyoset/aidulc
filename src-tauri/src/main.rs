@@ -530,6 +530,7 @@ fn main() {
             commands::models::models_recommend,
             commands::models::models_register,
             commands::models::models_set_recommended,
+            commands::models::models_set_family,
             commands::models::models_remove,
             commands::models::models_scan,
             commands::models::model_file_check,

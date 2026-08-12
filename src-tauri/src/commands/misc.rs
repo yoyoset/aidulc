@@ -14,6 +14,21 @@ pub fn runtime_config(
 ) -> Result<serde_json::Value, String> {
     use crate::application::model_service;
     let (llm, tts, _spacy) = model_service::resolve_paths(db.inner(), "en");
+    // M4-3① (2026-08-12): HF 缓存目录 —— 扫描路径的默认项之一。优先 HF_HOME 环境变量,
+    // 否则 ~/.cache/huggingface (Windows 同用 USERPROFILE/HOME)。
+    let hf_cache = std::env::var("HF_HOME")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| {
+            let home = std::env::var("USERPROFILE")
+                .or_else(|_| std::env::var("HOME"))
+                .unwrap_or_default();
+            std::path::Path::new(&home)
+                .join(".cache")
+                .join("huggingface")
+                .to_string_lossy()
+                .to_string()
+        });
     Ok(serde_json::json!({
         "llm_model": llm,
         "tts_model": tts,
@@ -21,6 +36,7 @@ pub fn runtime_config(
         // M7 R8 (2026-08-08): 首次下载模型的目标目录 —— 尚未有任何模型时用数据根 models/
         // J0 (2026-08-11): 数据根随用户数据目录走, 不再锚定 exe_dir (target 会被 cargo clean 删)
         "default_model_dir": paths.inner().data_dir.join("models").to_string_lossy(),
+        "hf_cache_dir": hf_cache,
     }))
 }
 

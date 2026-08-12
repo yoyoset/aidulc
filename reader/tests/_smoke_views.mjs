@@ -53,6 +53,14 @@ function makeElement(tag) {
       if (i >= 0) children.splice(i, 0, child); else children.push(child);
       return child;
     },
+    replaceWith(node) {
+      if (node.parentNode) node.parentNode._children = node.parentNode._children.filter((c) => c !== node);
+      node.parentNode = el.parentNode;
+      const i = el.parentNode ? el.parentNode._children.indexOf(el) : -1;
+      if (i >= 0) el.parentNode._children[i] = node; else node.parentNode && node.parentNode._children.push(node);
+      el.parentNode = null;
+      return node;
+    },
     removeChild(child) { const i = children.indexOf(child); if (i >= 0) children.splice(i, 1); child.parentNode = null; return child; },
     remove() { if (el.parentNode) el.parentNode.removeChild(el); },
     setAttribute(k, v) { attrs[k] = String(v); },
@@ -115,6 +123,12 @@ let failures = 0;
 function check(name, cond, detail) {
   if (cond) console.log('  ok  ' + name);
   else { failures++; console.log('  FAIL ' + name + (detail ? ' :: ' + detail : '')); }
+}
+// stub 的 textContent 是普通字符串不聚合子节点, 需要时用这个递归拼接
+function textOf(n) {
+  if (!n || typeof n !== 'object') return String(n);
+  if (n.nodeType === 3) return String(n.textContent || '');
+  return String(n.textContent || '') + (n._children || []).map(textOf).join('');
 }
 function load(rel) { eval(readFileSync(join(root, rel), 'utf8')); }
 
@@ -1225,6 +1239,140 @@ console.log('== 9. J1/J2: 模型按功能分组, 判据=该功能有无可用模
   check('J2: 下载单对磁盘已有文件显示「磁盘已有·点此登记」', dlBtn && dlBtn.textContent.includes('磁盘已有'), 'text=' + (dlBtn && dlBtn.textContent) + ' fileChecks=' + JSON.stringify(listCalls.fileCheck));
   // 恢复 stub, 不干扰其它段
   globalThis.ModelsView = fakeModelsView;
+}
+
+console.log('== 9c. M4 (2026-08-12): 分词/NLP 无空下载按钮 + 扫描候选勾选登记 + 家族识别 ==');
+{
+  load('views/models_view.js'); // 上一段 (9) 把 ModelsView 还原成了 stub
+  // 无模型时渲染 models 视图
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [] });
+  globalThis.AiduMiscService.runtimeConfig = async () => ({ ok: true, data: {
+    llm_model: 'C:/models/Qwen3-4B.gguf', tts_model: 'C:/models/kokoro-v1_0.pth',
+    default_model_dir: 'C:/aidulc/models', hf_cache_dir: 'F:/hf_cache',
+  } });
+  const mv9 = new globalThis.ModelsView(new globalThis.AiduStore());
+  const mc9 = makeElement('div');
+  mv9.render(mc9);
+  await new Promise((r) => setTimeout(r, 80));
+  const groups9 = queryAll(mc9, '.model-group');
+  const gtitle = (g) => { const h2 = (g._children || []).find((x) => x.tagName === 'H2'); return h2 ? h2.textContent : ''; };
+  const nlpSec9 = groups9.find((g) => gtitle(g).includes('分词'));
+  // M4-1: nlp 无目录项 → 不渲染「去下载」(空对话框的根源)
+  check('M4-1: 分词/NLP 段没有「去下载」按钮', nlpSec9 && !queryAll(nlpSec9, 'button').some((b) => b.textContent === '去下载'));
+  // M4-1: 回答"我现在用的什么" —— 当前方案写在这一段
+  const nlpText9 = textOf(nlpSec9);
+  check('M4-1: nlp 段写明当前方案 (spaCy en_core_web_sm 内置)', nlpText9.includes('spaCy') && nlpText9.includes('en_core_web_sm'), nlpText9.slice(0, 80));
+  // M4-1: llm/tts 有目录项 → 仍有「去下载」(有源才有按钮)
+  const llmSec9 = groups9.find((g) => gtitle(g).includes('翻译'));
+  const ttsSec9 = groups9.find((g) => gtitle(g).includes('语音合成'));
+  check('M4-1: 翻译段有「去下载」(有目录项)', llmSec9 && queryAll(llmSec9, 'button').some((b) => b.textContent === '去下载'));
+  check('M4-1: 语音段有「去下载」(有目录项)', ttsSec9 && queryAll(ttsSec9, 'button').some((b) => b.textContent === '去下载'));
+
+  // M4-3: 扫描弹窗 —— 默认路径 (模型目录 + HF 缓存) 可见
+  globalThis.AiduModelService.scan = async (dir) => {
+    // 两个路径各返回自己的文件 (llm/tts 在模型目录, nlp/asr/vad 在 HF 缓存)
+    if (String(dir).includes('hf_cache')) {
+      return { ok: true, data: [
+        { path: 'F:/hf_cache/hub/models--spacy--en_core_web_sm/snapshots/x/model.bin', file_name: 'model.bin', size_bytes: 1000, family_hint: 'nlp', registered: false },
+        { path: 'F:/hf_cache/ggml-large-v3.bin', file_name: 'ggml-large-v3.bin', size_bytes: 2000, family_hint: 'asr', registered: false },
+        { path: 'F:/hf_cache/ggml-silero-v5.1.2.onnx', file_name: 'ggml-silero-v5.1.2.onnx', size_bytes: 3000, family_hint: 'vad', registered: false },
+      ] };
+    }
+    return { ok: true, data: [
+      { path: 'C:/models/Qwen3-4B.gguf', file_name: 'Qwen3-4B.gguf', size_bytes: 2497280256, family_hint: 'llm', registered: false },
+      { path: 'C:/models/kokoro-v1_0.pth', file_name: 'kokoro-v1_0.pth', size_bytes: 327212226, family_hint: 'tts', registered: false },
+    ] };
+  };
+  const regCalls9 = [];
+  globalThis.AiduModelService.register = async (m) => { regCalls9.push(m); return { ok: true }; };
+  mv9._openScanModal();
+  await new Promise((r) => setTimeout(r, 80));
+  const ov9 = document.body._children.filter((c) => c.className && String(c.className).includes('modal-overlay')).slice(-1)[0];
+  const pathRows9 = ov9 && queryAll(ov9, '.scan-path-row');
+  const pathTexts9 = (pathRows9 || []).map(textOf);
+  check('M4-3①: 扫描弹窗默认列出模型目录', pathTexts9.some((t) => t.includes('C:/models')), pathTexts9.join(','));
+  check('M4-3①: 扫描弹窗默认列出 HF 缓存', pathTexts9.some((t) => t.includes('F:/hf_cache')), pathTexts9.join(','));
+  // 点扫描 → 候选列表 (路径/大小/家族/是否已登记)
+  const scanBtn9 = ov9 && queryAll(ov9, 'button').find((b) => b.textContent === '扫描');
+  scanBtn9.onclick();
+  await new Promise((r) => setTimeout(r, 80));
+  const cands9 = ov9 && queryAll(ov9, '.scan-candidate');
+  check('M4-3④: 扫描后渲染候选列表', cands9 && cands9.length === 5, 'n=' + (cands9 && cands9.length));
+  const famBadges9 = (cands9 || []).map((c) => {
+    const b = c.querySelector('.book-badge');
+    return b ? b.textContent : '';
+  });
+  check('M4-3③: 家族识别正确 (llm/tts/nlp)', famBadges9.includes('翻译/讲解') && famBadges9.includes('语音合成') && famBadges9.includes('分词/NLP'), famBadges9.join(','));
+  check('M4-3③: whisper(ggml-large) 标「未识别」不是语音合成', famBadges9.includes('未识别'), famBadges9.join(','));
+  check('M4-3③: silero 标「未识别」不是语音合成', famBadges9.filter((b) => b === '未识别').length >= 2, famBadges9.join(','));
+  // 未识别候选有家族下拉 (让用户选)
+  const unrecRow9 = cands9 && cands9.find((c) => c.querySelector('.book-badge') && c.querySelector('.book-badge').textContent === '未识别');
+  check('M4-3③: 未识别候选带家族下拉', unrecRow9 && queryAll(unrecRow9, 'select.scan-fam').length === 1);
+  // 勾选登记: 默认全勾 (未登记), 点登记 → register 被调且只登记未注册的
+  const regBtn9 = ov9 && queryAll(ov9, 'button').find((b) => b.textContent && b.textContent.startsWith('登记选中'));
+  check('M4-3④: 有「登记选中 N 个」按钮', !!regBtn9, regBtn9 && regBtn9.textContent);
+  regBtn9 && regBtn9.onclick();
+  await new Promise((r) => setTimeout(r, 60));
+  check('M4-3④: 登记只提交未注册候选 (5 个)', regCalls9.length === 5, 'n=' + regCalls9.length);
+  check('M4-3④: 登记的家族用候选下拉所选值', regCalls9.some((m) => m.family === 'llm') && regCalls9.some((m) => m.family === 'tts') && regCalls9.some((m) => m.family === 'nlp'), regCalls9.map((m) => m.family).join(','));
+
+  // M4-3⑤: 0 结果 → 明确列出扫过的路径 + 可点下一步
+  globalThis.AiduModelService.scan = async () => ({ ok: true, data: [] });
+  mv9._openScanModal();
+  await new Promise((r) => setTimeout(r, 80));
+  const ov9b = document.body._children.filter((c) => c.className && String(c.className).includes('modal-overlay')).slice(-1)[0];
+  const scanBtn9b = ov9b && queryAll(ov9b, 'button').find((b) => b.textContent === '扫描');
+  scanBtn9b && scanBtn9b.onclick();
+  await new Promise((r) => setTimeout(r, 80));
+  const emptyText9 = textOf(ov9b);
+  check('M4-3⑤: 0 结果列出扫过的路径', emptyText9.includes('没找到模型') && emptyText9.includes('F:/hf_cache'), emptyText9.slice(0, 100));
+  check('M4-3⑤: 0 结果给「选择目录扫描…」出口', ov9b && queryAll(ov9b, 'button').some((b) => b.textContent.includes('选择目录扫描')), queryAll(ov9b, 'button').map((b) => b.textContent).join(','));
+  check('M4-3⑤: 0 结果给「添加自定义模型」出口', ov9b && queryAll(ov9b, 'button').some((b) => b.textContent === '添加自定义模型'));
+
+  // M4-3③: 存量误登记改家族 —— 全部模型列表有「改家族」且调 setFamily
+  const setFamCalls = [];
+  globalThis.AiduModelService.setFamily = async (id, fam) => { setFamCalls.push([id, fam]); return { ok: true }; };
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [
+    { id: 'm-mis', family: 'tts', language: 'en', model_id: 'ggml-large-v3', version: 'x', variant: '', path: 'F:/hf_cache/ggml-large-v3.bin', size_bytes: 1, active: false, custom: true },
+  ] });
+  mv9._reload();
+  await new Promise((r) => setTimeout(r, 60));
+  // 「全部模型」组的标题是 .model-history-toggle 按钮, 行按钮要点了才铺开
+  const groupsAll9 = queryAll(mc9, '.model-group');
+  const allSec = groupsAll9.find((g) => queryAll(g, '.model-history-toggle').length > 0);
+  const toggleAll9 = allSec && allSec.querySelector('.model-history-toggle');
+  toggleAll9 && toggleAll9.onclick();
+  await new Promise((r) => setTimeout(r, 20));
+  const famBtn = allSec && queryAll(allSec, 'button').find((b) => b.textContent === '改家族');
+  check('M4-3③: 已登记模型行有「改家族」', !!famBtn);
+  if (famBtn) {
+    famBtn.onclick();
+    await new Promise((r) => setTimeout(r, 30));
+    const ov9c = document.body._children.filter((c) => c.className && String(c.className).includes('modal-overlay')).slice(-1)[0];
+    const saveFam = ov9c && queryAll(ov9c, 'button').find((b) => b.textContent === '保存');
+    const famSel9 = ov9c && queryAll(ov9c, 'select')[0];
+    famSel9 && (famSel9.value = 'nlp');
+    saveFam && saveFam.onclick();
+    await new Promise((r) => setTimeout(r, 40));
+    check('M4-3③: 保存改家族 → setFamily(id, nlp)', setFamCalls.some(([id, f]) => id === 'm-mis' && f === 'nlp'), JSON.stringify(setFamCalls));
+  }
+}
+
+console.log('== 9d. M4-2 (2026-08-12): 无更新渠道的本地模型给可操作的话 ==');
+{
+  store.state.settingsTab = 'models';
+  globalThis.AiduMiscService.componentsHealth = async () => ({ ok: true, data: [
+    { id: 'llm', name: 'LLM 模型', healthy: true, detail: 'Qwen3 4B', update_channel: '无更新渠道' },
+    { id: 'tts', name: 'TTS 模型', healthy: true, detail: 'Kokoro', update_channel: '无更新渠道' },
+  ] });
+  const sv9 = new globalThis.SettingsView(store);
+  const c9 = makeElement('div');
+  sv9.render(c9);
+  await new Promise((r) => setTimeout(r, 100));
+  store.state.settingsTab = null;
+  const rows9 = queryAll(c9, '.component-row');
+  const rowTexts9 = rows9.map(textOf);
+  check('M4-2: 无更新渠道的模型组件给「添加自定义模型」可操作指引', rowTexts9.some((t) => t.includes('无更新渠道') && t.includes('添加自定义模型')), rowTexts9.join('|').slice(0, 120));
 }
 
 console.log('== 9b. L5 (2026-08-11): 页头动作按钮成组 (.page-toolbar + gap), 不再被 space-between 撑开 ==');

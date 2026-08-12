@@ -288,24 +288,74 @@ pub fn scan_and_suggest(db: &Db, model_dir: &str) -> Vec<serde_json::Value> {
     use crate::infrastructure::model_store::scan::scan_model_dir;
     let found = scan_model_dir(model_dir);
     let repo = ModelRepo::new(db);
+    let registered_paths: std::collections::HashSet<String> =
+        repo.list_all().iter().map(|e| e.path.clone()).collect();
     found
         .into_iter()
-        .filter_map(|m| {
-            // 已登记的同路径跳过
-            if repo.list_all().iter().any(|e| e.path == m.path) {
-                return None;
-            }
-            Some(serde_json::json!({
+        .map(|m| {
+            let family =
+                infer_model_family(&m.file_name, &m.path, m.repo_id.as_deref().unwrap_or(""));
+            serde_json::json!({
                 "path": m.path,
                 "file_name": m.file_name,
                 "size_bytes": m.size_bytes,
                 "layout": m.layout,
                 "repo_id": m.repo_id,
                 "commit_sha": m.commit_sha,
-                "registered": false,
-            }))
+                // M4 (2026-08-12): 家族按特征推断, 不是'非 gguf 即 tts'的二元瞎猜;
+                // unknown = 未识别, 前端让用户自己选。
+                "family_hint": family,
+                "registered": registered_paths.contains(&m.path),
+            })
         })
         .collect()
+}
+
+/// M4-3③ (2026-08-12): 按文件名/路径特征推断模型家族。
+/// 此前前端二元判定 `file_name.ends_with('.gguf') ? 'llm' : 'tts'` —— 把 pytorch_model /
+/// ggml-silero (VAD) / ggml-large-v3 (whisper) 全塞进「语音合成」。这里按特征识别:
+///   .gguf → llm; kokoro → tts; silero → vad; whisper/ggml- → asr; spacy/core_web → nlp。
+/// 识别不出 → "unknown" (前端标「未识别」让用户自己选, 不许瞎猜)。
+/// asr/vad 有特征但本应用无对应功能 → 归 unknown 展示, 不自动登记。
+pub fn infer_model_family(file_name: &str, path: &str, repo_id: &str) -> String {
+    let f = file_name.to_lowercase();
+    let p = path.to_lowercase();
+    let r = repo_id.to_lowercase();
+    if f.ends_with(".gguf") || f.ends_with(".safetensors") {
+        "llm".to_string()
+    } else if f.contains("kokoro") || p.contains("kokoro") {
+        "tts".to_string()
+    } else if f.contains("silero") || p.contains("silero") {
+        "vad".to_string()
+    } else if f.contains("whisper")
+        || p.contains("whisper")
+        || (f.starts_with("ggml-") && !f.contains("silero"))
+    {
+        "asr".to_string()
+    } else if f.contains("spacy")
+        || r.contains("spacy")
+        || f.contains("core_web")
+        || p.contains("core_web")
+    {
+        "nlp".to_string()
+    } else {
+        "unknown".to_string()
+    }
+}
+
+/// M4-3③: 存量误登记改家族 (移除旧 id, 按新家族重建 id; 保持 active 状态)。
+pub fn set_family(db: &Db, id: &str, family: &str) -> Result<(), String> {
+    if !["llm", "tts", "nlp"].contains(&family) {
+        return Err("家族只支持 llm / tts / nlp".to_string());
+    }
+    let repo = ModelRepo::new(db);
+    let mut e = repo.get(id).ok_or("模型不存在")?;
+    e.family = family.to_string();
+    e.id = entry_id(&e.family, &e.language, &e.model_id, &e.version);
+    if e.id != id {
+        repo.remove(id)?;
+    }
+    repo.upsert(&e)
 }
 
 #[cfg(test)]
@@ -336,6 +386,71 @@ mod tests {
             active,
             custom: false,
         }
+    }
+
+    #[test]
+    fn m4_infer_model_family_by_features() {
+        // M4-3③: 家族按特征推断, 不再'非 gguf 即 tts'二元瞎猜。
+        assert_eq!(
+            infer_model_family("Qwen3-4B-Q4_K_M.gguf", "C:/m/x.gguf", ""),
+            "llm"
+        );
+        assert_eq!(
+            infer_model_family("kokoro-v1_0.pth", "C:/m/kokoro.pth", ""),
+            "tts"
+        );
+        assert_eq!(
+            infer_model_family("ggml-silero-v5.1.2.onnx", "C:/m/silero.onnx", ""),
+            "vad"
+        );
+        assert_eq!(
+            infer_model_family("ggml-large-v3.bin", "C:/m/ggml-large-v3.bin", ""),
+            "asr"
+        );
+        assert_eq!(
+            infer_model_family("ggml-base.bin", "C:/m/ggml-base.bin", ""),
+            "asr"
+        );
+        assert_eq!(
+            infer_model_family("whisper.cpp", "C:/m/whisper.bin", ""),
+            "asr"
+        );
+        assert_eq!(
+            infer_model_family(
+                "model.bin",
+                "F:/hf_cache/hub/models--spacy--en_core_web_sm/snapshots/x/model.bin",
+                "spacy/en_core_web_sm"
+            ),
+            "nlp"
+        );
+        assert_eq!(
+            infer_model_family("pytorch_model.bin", "C:/m/pytorch_model.bin", ""),
+            "unknown"
+        );
+        assert_eq!(
+            infer_model_family("random.pth", "C:/m/random.pth", ""),
+            "unknown"
+        );
+    }
+
+    #[test]
+    fn m4_set_family_rekeys_entry_and_keeps_active() {
+        // M4-3③: 存量误登记改家族 —— id 含家族, 改家族后 id 重建, active 保持。
+        let db = temp_db();
+        let mut e = entry("tts", "en", "kokoro-v1_0", false);
+        e.active = true;
+        register(&db, &mut e).unwrap();
+        let old_id = e.id.clone();
+        assert!(set_family(&db, &old_id, "nlp").is_ok());
+        let repo = ModelRepo::new(&db);
+        let updated = repo
+            .get(&entry_id("nlp", "en", "kokoro-v1_0", "1.0"))
+            .expect("新家族 id 应存在");
+        assert_eq!(updated.family, "nlp");
+        assert!(updated.active, "active 应保持");
+        assert!(repo.get(&old_id).is_none(), "旧 id 应移除");
+        // 非法家族拒绝
+        assert!(set_family(&db, &updated.id, "asr").is_err());
     }
 
     #[test]

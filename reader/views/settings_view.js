@@ -268,6 +268,15 @@
             ch.style.opacity = '.7';
             ch.style.fontSize = '0.78rem';
             row.appendChild(ch);
+            // M4-2 (2026-08-12): 本地文件类模型标"无更新渠道"时, 补一句可操作的下一步 ——
+            // 光知道"没渠道"用户不知道下一步干什么。
+            if ((c.update_channel || '无更新渠道') === '无更新渠道' && ['llm', 'tts', 'spacy'].includes(c.id)) {
+              const how = el('span', 'component-how', '要换新版: 下载后用「添加自定义模型」指向新文件, 再设为推荐。');
+              how.style.marginLeft = '8px';
+              how.style.opacity = '.7';
+              how.style.fontSize = '0.78rem';
+              row.appendChild(how);
+            }
           }
           // R3.4/J3: 文档解析器缺失 → 一键安装按钮 (这是真实渠道)
           if (c.id === 'pymupdf' && !c.healthy) {

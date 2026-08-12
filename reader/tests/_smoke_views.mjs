@@ -1331,7 +1331,9 @@ console.log('== 9. J1/J2: 模型按功能分组, 判据=该功能有无可用模
   // 段标题直接读第一个子元素 (stub 的 querySelector 对 tag 选择器有兼容问题, 直读更稳)
   const groupTitle = (g) => { const h2 = (g._children || []).find((x) => x.tagName === 'H2'); return h2 ? h2.textContent : ''; };
   const groupTexts = groups.map(groupTitle);
-  check('三段标题: 翻译/讲解 + 语音合成 + 分词/NLP', groupTexts.some((t) => t.includes('翻译')) && groupTexts.some((t) => t.includes('语音合成')) && groupTexts.some((t) => t.includes('分词')), JSON.stringify(groupTexts));
+  check('功能段标题: 翻译/讲解 + 语音合成', groupTexts.some((t) => t.includes('翻译')) && groupTexts.some((t) => t.includes('语音合成')), JSON.stringify(groupTexts));
+  check('UX5#5: 无已登记 nlp 模型 → 分词/NLP 段隐藏', !groupTexts.some((t) => t.includes('分词')), JSON.stringify(groupTexts));
+  check('UX5#5: 模型目录段在最上 (第一个 .model-group)', groupTitle(groups[0]).includes('模型目录'), JSON.stringify(groupTexts));
   check('L4: 界面不再出现「语音识别」', !groupTexts.some((t) => t.includes('语音识别')), JSON.stringify(groupTexts));
   const mcText = (mc.textContent || '').replace(/\s+/g, '');
   check('L4: 界面不再出现「跟读打分」', !mcText.includes('跟读打分'));
@@ -1373,16 +1375,19 @@ console.log('== 9c. M4 (2026-08-12): 分词/NLP 无空下载按钮 + 扫描候�
   const groups9 = queryAll(mc9, '.model-group');
   const gtitle = (g) => { const h2 = (g._children || []).find((x) => x.tagName === 'H2'); return h2 ? h2.textContent : ''; };
   const nlpSec9 = groups9.find((g) => gtitle(g).includes('分词'));
-  // M4-1: nlp 无目录项 → 不渲染「去下载」(空对话框的根源)
-  check('M4-1: 分词/NLP 段没有「去下载」按钮', nlpSec9 && !queryAll(nlpSec9, 'button').some((b) => b.textContent === '去下载'));
-  // M4-1: 回答"我现在用的什么" —— 当前方案写在这一段
-  const nlpText9 = textOf(nlpSec9);
-  check('M4-1: nlp 段写明当前方案 (spaCy en_core_web_sm 内置)', nlpText9.includes('spaCy') && nlpText9.includes('en_core_web_sm'), nlpText9.slice(0, 80));
+  // UX5 #5 (2026-08-13): nlp 段无已登记 nlp 模型 → 整段隐藏 (不是用户要配置的东西)
+  check('UX5#5: 无已登记 nlp 模型 → 分词/NLP 段整段不渲染', !nlpSec9, 'groups=' + groups9.map(gtitle).join(','));
   // M4-1: llm/tts 有目录项 → 仍有「去下载」(有源才有按钮)
   const llmSec9 = groups9.find((g) => gtitle(g).includes('翻译'));
   const ttsSec9 = groups9.find((g) => gtitle(g).includes('语音合成'));
   check('M4-1: 翻译段有「去下载」(有目录项)', llmSec9 && queryAll(llmSec9, 'button').some((b) => b.textContent === '去下载'));
   check('M4-1: 语音段有「去下载」(有目录项)', ttsSec9 && queryAll(ttsSec9, 'button').some((b) => b.textContent === '去下载'));
+  // UX5 #5: 模型目录段 —— 页面上可见模型目录路径 + 可增删
+  const dirsSec9 = groups9.find((g) => gtitle(g).includes('模型目录'));
+  const dirRows9 = dirsSec9 ? queryAll(dirsSec9, '.model-dir-row') : [];
+  check('UX5#5: 模型目录段显示路径 (llm/tts 目录 + HF 缓存)', dirRows9.some((r) => textOf(r).includes('C:/models')) && dirRows9.some((r) => textOf(r).includes('F:/hf_cache')),
+    (dirRows9 || []).map(textOf).join('|'));
+  check('UX5#5: 模型目录段有「+ 添加目录」可增删', dirsSec9 && queryAll(dirsSec9, 'button').some((b) => b.textContent.includes('添加目录')));
 
   // M4-3: 扫描弹窗 —— 默认路径 (模型目录 + HF 缓存) 可见
   globalThis.AiduModelService.scan = async (dir) => {
@@ -1421,7 +1426,30 @@ console.log('== 9c. M4 (2026-08-12): 分词/NLP 无空下载按钮 + 扫描候�
   check('M4-3③: 家族识别正确 (llm/tts/nlp)', famBadges9.includes('翻译/讲解') && famBadges9.includes('语音合成') && famBadges9.includes('分词/NLP'), famBadges9.join(','));
   check('M4-3③: whisper(ggml-large) 标「未识别」不是语音合成', famBadges9.includes('未识别'), famBadges9.join(','));
   check('M4-3③: silero 标「未识别」不是语音合成', famBadges9.filter((b) => b === '未识别').length >= 2, famBadges9.join(','));
-  // 未识别候选有家族下拉 (让用户选)
+  // UX5 #5: 版本/更新判定 (候选 vs DOWNLOAD_CATALOG)。行内最后一个 .book-badge 是版本徽章
+  // (stub 的 querySelector 不支持后代选择器, 用 slice(-1) 取最后一个)。
+  const verTexts9 = (cands9 || []).map((c) => {
+    const badges = c.querySelectorAll('.book-badge');
+    const v = badges[badges.length - 1];
+    return v ? v.textContent : '';
+  });
+  check('UX5#5: 已知 llm 候选标「可下载/可登记」', verTexts9.some((t) => t.includes('可下载/可登记')), verTexts9.join(','));
+  check('UX5#5: 目录里没有的候选老实说「版本未知, 无法判断」', verTexts9.filter((t) => t.includes('版本未知')).length >= 2, verTexts9.join(','));
+  // 未识别 (asr/vad) 的候选版本标「版本未知」—— 不谎称已知版本可下载
+  const unrecVerOk = (cands9 || []).every((c) => {
+    const badges = c.querySelectorAll('.book-badge');
+    const fam = badges[0] && badges[0].textContent;
+    const ver = badges[badges.length - 1] && badges[badges.length - 1].textContent;
+    if (fam === '未识别') return ver.includes('版本未知');
+    return true;
+  });
+  check('UX5#5: 未识别候选版本标「版本未知」', unrecVerOk, verTexts9.join(','));
+  // UX5 #5: 已登记且文件在 → 「已是最新」
+  const mkVer = (c, reg) => mv9._versionStatus(Object.assign({}, c, { registered: reg }));
+  check('UX5#5: 已登记 Qwen → vQ4_K_M · 已是最新', mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Q4_K_M.gguf' }, true).text.includes('已是最新'),
+    mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Q4_K_M.gguf' }, true).text);
+  check('UX5#5: 未登记 Qwen → 可下载/可登记', mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Q4_K_M.gguf' }, false).text.includes('可下载'),
+    mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Q4_K_M.gguf' }, false).text);
   const unrecRow9 = cands9 && cands9.find((c) => c.querySelector('.book-badge') && c.querySelector('.book-badge').textContent === '未识别');
   check('M4-3③: 未识别候选带家族下拉', unrecRow9 && queryAll(unrecRow9, 'select.scan-fam').length === 1);
   // 勾选登记: 默认全勾 (未登记), 点登记 → register 被调且只登记未注册的
@@ -1444,6 +1472,7 @@ console.log('== 9c. M4 (2026-08-12): 分词/NLP 无空下载按钮 + 扫描候�
   check('M4-3⑤: 0 结果列出扫过的路径', emptyText9.includes('没找到模型') && emptyText9.includes('F:/hf_cache'), emptyText9.slice(0, 100));
   check('M4-3⑤: 0 结果给「选择目录扫描…」出口', ov9b && queryAll(ov9b, 'button').some((b) => b.textContent.includes('选择目录扫描')), queryAll(ov9b, 'button').map((b) => b.textContent).join(','));
   check('M4-3⑤: 0 结果给「添加自定义模型」出口', ov9b && queryAll(ov9b, 'button').some((b) => b.textContent === '添加自定义模型'));
+  check('UX5#5: 0 结果给「去下载推荐模型」出口', ov9b && queryAll(ov9b, 'button').some((b) => b.textContent === '去下载推荐模型'), queryAll(ov9b, 'button').map((b) => b.textContent).join(','));
 
   // M4-3③: 存量误登记改家族 —— 全部模型列表有「改家族」且调 setFamily
   const setFamCalls = [];
@@ -1472,6 +1501,18 @@ console.log('== 9c. M4 (2026-08-12): 分词/NLP 无空下载按钮 + 扫描候�
     await new Promise((r) => setTimeout(r, 40));
     check('M4-3③: 保存改家族 → setFamily(id, nlp)', setFamCalls.some(([id, f]) => id === 'm-mis' && f === 'nlp'), JSON.stringify(setFamCalls));
   }
+  // UX5 #5: 有已登记 nlp 模型 → 分词/NLP 段显示 (带当前方案)
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [
+    { id: 'nlp|en|spacy|sm', family: 'nlp', language: 'en', model_id: 'en_core_web_sm', version: '3.7.1', variant: '', path: 'C:/models/en_core_web_sm', size_bytes: 12 * 1024 * 1024, active: true, custom: false },
+  ] });
+  mv9._reload();
+  await new Promise((r) => setTimeout(r, 60));
+  const groupsNlp = queryAll(mc9, '.model-group');
+  const nlpSecShown = groupsNlp.find((g) => gtitle(g).includes('分词'));
+  check('UX5#5: 有已登记 nlp 模型 → 分词/NLP 段显示', !!nlpSecShown, 'groups=' + groupsNlp.map(gtitle).join(','));
+  const nlpRowName = nlpSecShown && nlpSecShown.querySelector('.model-name');
+  check('UX5#5: nlp 段显示已登记模型名 + 可用', nlpSecShown && nlpRowName && nlpRowName.textContent.includes('en_core_web_sm') &&
+    queryAll(nlpSecShown, '.book-badge').some((b) => b.textContent === '可用'), nlpSecShown && textOf(nlpSecShown).slice(0, 80));
 }
 
 console.log('== 9d. M4-2 (2026-08-12): 无更新渠道的本地模型给可操作的话 ==');

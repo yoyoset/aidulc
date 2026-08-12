@@ -66,6 +66,12 @@
           })();
       wrap.appendChild(header);
 
+      // UX5 #5 (2026-08-13): 模型目录显示 —— 扫描/下载默认在这些目录进行, 可增删。
+      // 与扫描弹窗的默认路径同一份数据 (this._modelDirs)。
+      const dirsEl = el('div', 'model-dirs');
+      wrap.appendChild(dirsEl);
+      this._loadModelDirs(dirsEl);
+
       const listEl = el('div', 'models-list');
       wrap.appendChild(listEl);
       container.appendChild(wrap);
@@ -74,6 +80,7 @@
         listEl.innerHTML = '';
         if (!res.ok) { listEl.appendChild(el('div', 'global-error', '读模型列表失败: ' + res.error)); return; }
         const models = res.data || [];
+        this._models = models;
         this._renderGrouped(listEl, models);
       }).catch((err) => {
         listEl.innerHTML = '';
@@ -82,6 +89,55 @@
         retry.onclick = () => this.render(this.host);
         listEl.append(error, retry);
       });
+    }
+
+    /** UX5 #5 (2026-08-13): 模型目录 —— 已登记模型所在目录 + HF 缓存, 可增删。
+     *  扫描弹窗 (M4-3①) 与这里共用 this._modelDirs, 一处维护两处生效。 */
+    _loadModelDirs(dirsEl) {
+      AiduMiscService.runtimeConfig().then((cfg) => {
+        const d = (cfg && cfg.ok && cfg.data) || {};
+        const modelDir = String(d.llm_model || d.tts_model || '').replace(/[\\/][^\\/]+$/, '');
+        const dirs = [];
+        if (modelDir) dirs.push(modelDir);
+        if (d.hf_cache_dir && !dirs.includes(d.hf_cache_dir)) dirs.push(d.hf_cache_dir);
+        this._modelDirs = dirs;
+        this._renderModelDirs(dirsEl);
+      }).catch(() => {
+        this._modelDirs = [];
+        this._renderModelDirs(dirsEl);
+      });
+    }
+
+    _renderModelDirs(dirsEl) {
+      dirsEl.innerHTML = '';
+      const sec = el('div', 'model-group');
+      sec.appendChild(el('h2', null, '模型目录'));
+      sec.appendChild(el('div', 'import-tip',
+        '扫描和下载都默认在这些目录进行。选目录 → 扫描已有模型; 没有就下载推荐, 有就看版本与更新。'));
+      const rows = el('div', 'model-dir-list');
+      (this._modelDirs || []).forEach((p, i) => {
+        const row = el('div', 'model-dir-row');
+        const code = el('code', 'j0-path', p);
+        const rm = el('button', 'btn-small scan-path-rm', '×');
+        rm.title = '从扫描/下载目录移除';
+        rm.onclick = () => { this._modelDirs.splice(i, 1); this._renderModelDirs(dirsEl); };
+        row.append(code, rm);
+        rows.appendChild(row);
+      });
+      sec.appendChild(rows);
+      const addBtn = el('button', 'btn-small', '+ 添加目录');
+      addBtn.onclick = () => {
+        AiduMiscService.libraryDirPick().then((r) => {
+          if (r.ok && r.data && !r.data.cancelled && r.data.path) {
+            if (!this._modelDirs.includes(r.data.path)) {
+              this._modelDirs.push(r.data.path);
+              this._renderModelDirs(dirsEl);
+            }
+          }
+        });
+      };
+      sec.appendChild(addBtn);
+      dirsEl.appendChild(sec);
     }
 
     /** J2 (2026-08-11): 一个功能段的下载弹窗 —— 列出该 family 的候选目录 (磁盘探测)。
@@ -225,6 +281,33 @@
       const size = parts[1] || '';
       const quant = String(m.variant || '').toUpperCase() || 'Q4_K_M';
       return `${brand} ${size}`.trim() + (quant ? ' · ' + quant : '');
+    }
+
+    /** UX5 #5 (2026-08-13): 版本/更新判定 —— 候选文件 vs DOWNLOAD_CATALOG 已知版本。
+     *  无已登记 → 「可下载/可登记」; 已登记且文件在 → 版本 + 「已是最新」/「有新版」;
+     *  目录里没有该文件 → 老实说「版本未知, 无法判断」。 */
+    _versionStatus(candidate) {
+      const family = candidate.family_hint || 'unknown';
+      const base = String(candidate.file_name || '');
+      const cat = DOWNLOAD_CATALOG.find((x) =>
+        x.family === family && (x.file === base || x.name === base.replace(/\.[^.]+$/, '')));
+      if (!cat) {
+        return { text: '版本未知, 无法判断', cls: 'badge-warn' };
+      }
+      if (!candidate.registered) {
+        return { text: `v${cat.version} · 可下载/可登记`, cls: 'badge-idle' };
+      }
+      const newer = DOWNLOAD_CATALOG.filter((x) => x.family === cat.family && x.version !== cat.version);
+      if (newer.length) {
+        return { text: `v${cat.version} · 有新版 v${newer[0].version}, 可更新`, cls: 'badge-warn' };
+      }
+      return { text: `v${cat.version} · 已是最新`, cls: 'badge-ok' };
+    }
+
+    /** 该 family 是否有"已登记且文件存在"的模型 (与 _renderGrouped 的 usableOf 同判据)。 */
+    _familyUsable(family) {
+      const models = this._models || [];
+      return models.some((m) => m.family === family && m.path && String(m.path).trim() !== '');
     }
 
     /** M4-3③: 存量误登记改家族 (id 含家族, 改家族重建 id; active 保持) */
@@ -424,9 +507,13 @@
 
       section('llm', '解释词义、例句翻译、讲解。处理书籍前必须先有这个。', '未配置 —— 翻译/讲解需要它, 否则无法处理书籍。');
       section('tts', '朗读原文/译文。没有语音不影响文字阅读。', '未配置 —— 没有语音合成不影响文字阅读, 需要跟读/听读时再下载。');
-      section('nlp', '分词 / NLP: 分句、词形还原 (lemma)、短语识别, 备料时自动用。未配置时用内置兜底, 不影响阅读。',
-        '未配置 —— 用内置兜底分词, 不影响阅读; 需要精确分词时再添加。',
-        '当前方案: 内置 spaCy en_core_web_sm (en)。未添加自定义 NLP 模型时就是这个兜底, 无需下载。');
+      // UX5 #5 (2026-08-13): nlp 段无已登记 nlp 模型时整段隐藏 —— 分词是内置 spaCy
+      // 兜底, 不是用户要配置的东西; 有已登记的自定义 NLP 模型才显示 (让用户看到它的状态)。
+      if (all.some((m) => m.family === 'nlp')) {
+        section('nlp', '分词 / NLP: 分句、词形还原 (lemma)、短语识别, 备料时自动用。未配置时用内置兜底, 不影响阅读。',
+          '未配置 —— 用内置兜底分词, 不影响阅读; 需要精确分词时再添加。',
+          '当前方案: 内置 spaCy en_core_web_sm (en)。未添加自定义 NLP 模型时就是这个兜底, 无需下载。');
+      }
 
       // 其余已登记模型收进"全部模型"折叠区 (J1: 不再两套并列, 这里是次要的登记清单)
       if (all.length) {
@@ -532,22 +619,27 @@
       ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
       document.body.appendChild(ov);
 
-      // 初始化扫描路径: 模型目录 + HF 缓存 (M4-3①)
-      this._scanPaths = [];
+      // 初始化扫描路径: 模型目录 + HF 缓存 (M4-3①)。UX5 #5: 与页面顶部"模型目录"
+      // 共用 this._modelDirs —— 页面加过目录, 弹窗直接继承, 不重复探测。
+      this._scanPaths = (this._modelDirs || []).slice();
       this._scanOv = ov;
-      AiduMiscService.runtimeConfig().then((cfg) => {
-        const d = (cfg && cfg.ok && cfg.data) || {};
-        const modelDir = String(d.llm_model || d.tts_model || '').replace(/[\\/][^\\/]+$/, '');
-        if (modelDir) this._scanPaths.push(modelDir);
-        if (d.hf_cache_dir && !this._scanPaths.includes(d.hf_cache_dir)) {
-          this._scanPaths.push(d.hf_cache_dir);
-        }
-        if (!this._scanPaths.length) {
-          // M4-3②: 没有已知目录 → 让用户选一个, 绝不 fallback 'C:/' 扫系统盘
-          statusEl.textContent = '还没有已知的模型目录, 先「+ 添加路径」选一个。';
-        }
+      if (this._scanPaths.length) {
         this._renderScanPaths(pathList, resultEl);
-      });
+      } else {
+        AiduMiscService.runtimeConfig().then((cfg) => {
+          const d = (cfg && cfg.ok && cfg.data) || {};
+          const modelDir = String(d.llm_model || d.tts_model || '').replace(/[\\/][^\\/]+$/, '');
+          if (modelDir) this._scanPaths.push(modelDir);
+          if (d.hf_cache_dir && !this._scanPaths.includes(d.hf_cache_dir)) {
+            this._scanPaths.push(d.hf_cache_dir);
+          }
+          if (!this._scanPaths.length) {
+            // M4-3②: 没有已知目录 → 让用户选一个, 绝不 fallback 'C:/' 扫系统盘
+            statusEl.textContent = '还没有已知的模型目录, 先「+ 添加路径」选一个。';
+          }
+          this._renderScanPaths(pathList, resultEl);
+        });
+      }
     }
 
     _renderScanPaths(pathList, resultEl) {
@@ -606,7 +698,14 @@
         };
         const customBtn = el('button', 'btn-small', '添加自定义模型');
         customBtn.onclick = () => { if (this._scanOv) this._scanOv.remove(); this._openCustomModelForm(); };
-        btns.append(pickBtn, customBtn);
+        // UX5 #5 (2026-08-13): 无候选 → 给下载推荐 —— 关掉扫描弹窗, 打开缺失引擎的下载单
+        const dlRec = el('button', 'btn-small', '去下载推荐模型');
+        dlRec.onclick = () => {
+          if (this._scanOv) this._scanOv.remove();
+          const target = DOWNLOAD_CATALOG.find((c) => !this._familyUsable(c.family));
+          if (target) this._showDownloadSheet(target.family);
+        };
+        btns.append(pickBtn, customBtn, dlRec);
         resultEl.appendChild(btns);
         return;
       }
@@ -649,7 +748,11 @@
         const famCell = el('span', 'scan-fam-cell');
         famCell.append(famBadge);
         if (!c.registered) famCell.appendChild(famSel);
-        row.append(cb, name, size, famCell);
+        // UX5 #5 (2026-08-13): 版本/更新判定 —— 候选 vs DOWNLOAD_CATALOG 已知版本
+        const verInfo = this._versionStatus(c);
+        const verCell = el('span', 'scan-ver-cell');
+        verCell.appendChild(el('span', 'book-badge ' + verInfo.cls, verInfo.text));
+        row.append(cb, name, size, famCell, verCell);
         row.appendChild(path);
         cb.onchange = () => {
           row.classList.toggle('unchecked', !cb.checked);

@@ -361,6 +361,18 @@ body::before {
 .model-meta { color: var(--md-sys-color-on-surface-variant); font-size: 0.82rem; }
 .model-actions { display: flex; gap: 6px; }
 
+/* UX5 #5 (2026-08-13): 模型目录段 —— 扫描/下载目录列表 (与扫描弹窗同款行式) */
+.model-dir-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.model-dir-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-sm);
+}
+.model-dir-row .j0-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scan-ver-cell { margin-left: 8px; }
+.scan-ver-cell .book-badge { font-weight: 500; white-space: nowrap; }
+
 /* ---- 璇嶅吀闈㈡澘 (I-A) ---- */
 .dict-panel {
   position: fixed; top: 0; right: 0; bottom: 0; width: 340px;

@@ -141,9 +141,10 @@ function bridgeSource(mode) {
       edition_lookup: () => ({ id: 'job-1786205609337-11852-1', title: 'Alice 译本', chapter_count: 12, source_id: 's1' }),
       // ---- 模型 (UX5 #5) ----
       models_list: () => [
-        { id: 'llm|en|qwen3-4b|2507-q4_k_m', family: 'llm', language: 'en', model_id: 'Qwen3-4B-Instruct-2507-Q4_K_M', version: '2507-Q4_K_M', variant: 'CUDA12.4', path: 'D:/aidulc-data/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf', size_bytes: 2497280256, active: true, custom: true },
-        { id: 'tts|en|pytorch|1', family: 'tts', language: 'en', model_id: 'pytorch_model', version: 'x', variant: 'CUDA12.4', path: 'F:/hf_cache/pytorch_model.bin', size_bytes: 444 * 1024 * 1024, active: false, custom: true },
-        { id: 'tts|en|kokoro|1', family: 'tts', language: 'en', model_id: 'kokoro-v1_0', version: 'v1.0', variant: 'CUDA12.4', path: 'F:/hf_cache/kokoro-v1_0.pth', size_bytes: 327 * 1024 * 1024, active: false, custom: true },
+        { id: 'llm|en|qwen3-4b|2507-q4_k_m', family: 'llm', language: 'en', model_id: 'Qwen3-4B-Instruct-2507-Q4_K_M', version: '2507-Q4_K_M', variant: 'CUDA12.4', path: 'D:/aidulc-data/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf', size_bytes: 2497280256, active: true, custom: true, detected_family: 'llm' },
+        { id: 'tts|en|pytorch|1', family: 'tts', language: 'en', model_id: 'pytorch_model', version: 'x', variant: 'CUDA12.4', path: 'F:/hf_cache/hub/models--kha-white--manga-ocr-base/snapshots/x/pytorch_model.bin', size_bytes: 444 * 1024 * 1024, active: false, custom: true, detected_family: 'unknown' },
+        { id: 'tts|en|ggml-large|1', family: 'tts', language: 'en', model_id: 'ggml-large-v3', version: 'x', variant: 'CUDA12.4', path: 'F:/hf_cache/ggml-large-v3.bin', size_bytes: 3095 * 1024 * 1024, active: false, custom: true, detected_family: 'asr' },
+        { id: 'tts|en|kokoro|1', family: 'tts', language: 'en', model_id: 'kokoro-v1_0', version: 'v1.0', variant: 'CUDA12.4', path: 'F:/hf_cache/hub/models--hexgrad--Kokoro-82M/snapshots/f3ff3571791e39611d31c381e3a41a3af07b4987/kokoro-v1_0.pth', size_bytes: 327 * 1024 * 1024, active: true, custom: true, detected_family: 'tts' },
       ],
       models_scan: (args) => {
         const dir = (args && (args.modelDir || args.model_dir)) || '';

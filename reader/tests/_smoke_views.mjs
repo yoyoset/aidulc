@@ -237,6 +237,27 @@ globalThis.AiduModal = { confirm: (opts) => { confirmCaptured = opts; return { c
 
 const store = new globalThis.AiduStore();
 
+console.log('== 1d. UX5 修正 (2026-08-13): 失败任务给「去修模型」入口 (TTS/模型类错误) ==');
+{
+  const pv1d = new globalThis.PrepView(store);
+  const mkErr = (error) => ({ id: 'job-x', status: 'failed', stage: 'tts', current: 3, total: 240, progress: 57, error, book_path: 'C:/Books/Alice.epub', profile_id: 'default', output_dir: 'C:/out/job-x', batch_id: null });
+  // 模型类错误 → 有「去修模型」按钮
+  const rowM = pv1d._buildTaskRow(mkErr('TTS voices 目录不存在: F:/hf_cache/.../voices'));
+  const fixBtn = queryAll(rowM, 'button').find((b) => b.textContent === '去修模型');
+  check('UX5修正: TTS 类失败 → 有「去修模型」按钮', !!fixBtn);
+  const hashBefore = location.hash;
+  store.state.settingsTab = null;
+  fixBtn && fixBtn.onclick();
+  check('UX5修正: 点「去修模型」→ settingsTab=models 意图', store.state.settingsTab === 'models', 'tab=' + store.state.settingsTab);
+  check('UX5修正: 点「去修模型」→ 跳 #/settings', location.hash === '#/settings', 'hash=' + location.hash);
+  location.hash = hashBefore;
+  // 非模型类错误 → 没有「去修模型」(不该误导)
+  const rowN = pv1d._buildTaskRow(mkErr('文件格式不支持: .djvu'));
+  check('UX5修正: 非模型类失败不显示「去修模型」', !queryAll(rowN, 'button').some((b) => b.textContent === '去修模型'));
+  // 有重试按钮 (恢复路径仍在)
+  check('UX5修正: 失败行仍有「重试失败句」', !!queryAll(rowM, 'button').find((b) => b.textContent === '重试失败句'));
+}
+
 console.log('== 1. prep_view 移除确认 (running/queued/done 三态) ==');
 {
   const pv = new globalThis.PrepView(store);
@@ -1898,6 +1919,35 @@ console.log('== 9f. UX5 修正 (2026-08-13): 模型目录斜杠归一化去重 (
   check('UX5修正: 同一目录正/反斜杠只显示一项', dirRows.length === 1,
     'rows=' + dirRows.length + ' texts=' + (dirRows || []).map(textOf).join('|'));
   check('UX5修正: 目录显示为归一化路径', dirRows.length === 1 && textOf(dirRows[0]).includes('F:/hf_cache'), textOf(dirRows[0]));
+}
+
+console.log('== 9g. UX5 修正 (2026-08-13): 非本项目模型标注用途 (asr/vad/OCR 不选错) ==');
+{
+  load('views/models_view.js');
+  // 用户实测: manga-ocr/whisper/silero 被误登记成 tts, 模型页不说明它们是什么 → 被当语音合成推荐
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [
+    { id: 'tts|en|pytorch|1', family: 'tts', language: 'en', model_id: 'pytorch_model', version: 'x', variant: 'CUDA12.4', path: 'F:/hf_cache/hub/models--kha-white--manga-ocr-base/snapshots/x/pytorch_model.bin', size_bytes: 1, active: false, custom: true, detected_family: 'unknown' },
+    { id: 'tts|en|ggml-large|1', family: 'tts', language: 'en', model_id: 'ggml-large-v3', version: 'x', variant: 'CUDA12.4', path: 'F:/hf_cache/ggml-large-v3.bin', size_bytes: 1, active: false, custom: true, detected_family: 'asr' },
+    { id: 'tts|en|kokoro|1', family: 'tts', language: 'en', model_id: 'kokoro-v1_0', version: 'v1.0', variant: 'CUDA12.4', path: 'F:/hf_cache/kokoro-v1_0.pth', size_bytes: 1, active: false, custom: true, detected_family: 'tts' },
+  ] });
+  globalThis.AiduMiscService.runtimeConfig = async () => ({ ok: true, data: { llm_model: '', tts_model: 'F:/hf_cache/kokoro-v1_0.pth', default_model_dir: 'C:/models', hf_cache_dir: 'F:/hf_cache' } });
+  const mv9g = new globalThis.ModelsView(new globalThis.AiduStore());
+  const mc9g = makeElement('div');
+  mv9g.render(mc9g);
+  await new Promise((r) => setTimeout(r, 80));
+  const allToggle = queryAll(mc9g, 'button').find((b) => b.textContent && b.textContent.includes('全部模型'));
+  allToggle && allToggle.onclick();
+  await new Promise((r) => setTimeout(r, 20));
+  const allText = textOf(mc9g);
+  // 教训 8: 断言的 DOM 文案 —— 每个非本项目模型都明说是干什么的
+  check('UX5修正: manga-ocr (detected=unknown) 标「本项目用不到」', allText.includes('未识别用途') && allText.includes('本项目用不到'), allText.slice(0, 200));
+  check('UX5修正: whisper (detected=asr) 标「语音识别 · 本项目用不到」', allText.includes('语音识别') && allText.includes('whisper'), allText.slice(0, 200));
+  // 语音合成段: 没有任何 tts 推荐 → 诚实显示"未设推荐" (不再把 pytorch_model 当可用)
+  const gtitle = (g) => { const h2 = (g._children || []).find((x) => x.tagName === 'H2'); return h2 ? h2.textContent : ''; };
+  const ttsSec9g = queryAll(mc9g, '.model-group').find((g) => gtitle(g).includes('语音合成'));
+  const ttsTxt9g = textOf(ttsSec9g);
+  check('UX5修正: 无推荐时语音段不显示"可用"', !ttsTxt9g.includes('可用'), ttsTxt9g.slice(0, 60));
+  check('UX5修正: 语音段 tip 说明需要 Kokoro (config+voices)', ttsTxt9g.includes('Kokoro') && ttsTxt9g.includes('voices'), ttsTxt9g.slice(0, 140));
 }
 
 console.log('== 9d. M4-2 (2026-08-12): 无更新渠道的本地模型给可操作的话 ==');

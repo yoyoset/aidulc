@@ -319,6 +319,28 @@
       return models.some((m) => m.family === family && m.path && String(m.path).trim() !== '');
     }
 
+    /** UX5 修正 (2026-08-13): 已登记模型的用途提示 —— 有些模型不是本项目用的 (whisper/silero/
+     *  OCR 被误登记成语音合成), 明说它们是干什么的, 用户才不选错、不误设推荐。
+     *  detected_family (扫描时按特征识别存的) 为空 (老行) 时按文件名兜底推断。 */
+    _modelDetectedHint(m) {
+      const famLabel = { llm: '翻译/讲解', tts: '语音合成', nlp: '分词/NLP' };
+      const det = m.detected_family || this._inferDetected(m.model_id || m.path);
+      if (!det) return '';
+      if (det === 'asr') return '语音识别 (whisper) —— 本项目用不到';
+      if (det === 'vad') return '端点检测 (silero) —— 本项目用不到';
+      if (det === 'unknown') return '未识别用途 —— 本项目用不到 (除非你确认它是翻译/语音/分词模型)';
+      if (det === m.family) return '';
+      return `检测为 ${famLabel[det] || det} —— 与本项目「${famLabel[m.family] || m.family}」不符, 可能选错`;
+    }
+
+    _inferDetected(name) {
+      const n = String(name || '').toLowerCase();
+      if (n.includes('whisper') || n.includes('ggml-large')) return 'asr';
+      if (n.includes('silero')) return 'vad';
+      if (n.includes('manga-ocr') || n.includes('ocr') || (n.includes('pytorch_model') && n.includes('hub'))) return 'unknown';
+      return '';
+    }
+
     /** M4-3③: 存量误登记改家族 (id 含家族, 改家族重建 id; active 保持) */
     _setFamilyModal(m) {
       const ov = document.createElement('div');
@@ -500,6 +522,9 @@
             actions.appendChild(switchBtn);
             row.append(name, size, actions);
             sec.appendChild(row);
+            // UX5 修正: 推荐模型若是误登记的非本项目模型, 明说 (别让它默默当推荐)
+            const hint = this._modelDetectedHint(active);
+            if (hint) sec.appendChild(el('div', 'import-tip', '⚠ ' + hint));
           } else {
             // 有登记但没设推荐 → 处理时不会用 (与依赖组件"缺引擎"一致, 不再谎称可用)
             sec.appendChild(el('div', 'settings-hint settings-warn',
@@ -534,8 +559,13 @@
         listEl.appendChild(sec);
       };
 
-      section('llm', '解释词义、例句翻译、讲解。处理书籍前必须先有这个。', '未配置 —— 翻译/讲解需要它, 否则无法处理书籍。');
-      section('tts', '朗读原文/译文。没有语音不影响文字阅读。', '未配置 —— 没有语音合成不影响文字阅读, 需要跟读/听读时再下载。');
+      // UX5 修正: 每段 tip 说清楚"需要什么模型", 用户才知道该登什么
+      section('llm',
+        '需要 GGUF 格式的翻译/讲解模型 (如 Qwen)。处理书籍前必须先有这个。',
+        '未配置 —— 翻译/讲解需要它, 否则无法处理书籍。');
+      section('tts',
+        '需要 Kokoro 语音模型 (kokoro-v1_0.pth + config.json + voices/ 同一目录, 如 HF 缓存 models--hexgrad--Kokoro-82M/snapshots/<sha>/)。没有语音不影响文字阅读。',
+        '未配置 —— 没有语音合成不影响文字阅读, 需要跟读/听读时再下载。');
       // UX5 #5 (2026-08-13): nlp 段无已登记 nlp 模型时整段隐藏 —— 分词是内置 spaCy
       // 兜底, 不是用户要配置的东西; 有已登记的自定义 NLP 模型才显示 (让用户看到它的状态)。
       if (all.some((m) => m.family === 'nlp')) {
@@ -583,6 +613,12 @@
             famBtn.onclick = () => this._setFamilyModal(m);
             actions.appendChild(famBtn);
             row.append(nameWrap, size, actions);
+            // UX5 修正: 非本项目用的模型 (asr/vad/OCR 等) 明说是干什么的, 用户不选错
+            const detHint = this._modelDetectedHint(m);
+            if (detHint) {
+              const hintEl = el('div', 'model-detected-hint', '⚠ ' + detHint);
+              row.appendChild(hintEl);
+            }
             body.appendChild(row);
           });
           toggle.replaceWith(body);
@@ -811,6 +847,8 @@
             version: 'scanned', variant: '', path: c.path,
             source_type: 'local', source_ref: '', sha256: '', size_bytes: c.size_bytes || 0,
             custom: true,
+            // UX5 修正: 带上扫描识别出的家族 (asr/vad/unknown 前端据此标"本项目用不到")
+            family_hint: c.family_hint || null,
           }));
         });
         Promise.all(jobs).then((rs) => {

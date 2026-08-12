@@ -108,6 +108,7 @@ pub fn models_register(
     sha256: String,
     size_bytes: i64,
     custom: bool,
+    detected_family: Option<String>,
 ) -> Result<String, String> {
     let id = model_service::entry_id(&family, &language, &model_id, &version);
     let mut e = store::model_repo::ModelEntry {
@@ -126,6 +127,7 @@ pub fn models_register(
         installed_at: crate::commands::library::now_ms(),
         active: false,
         custom,
+        detected_family: detected_family.unwrap_or_default(),
     };
     model_service::register(db.inner(), &mut e)?;
     Ok(id)

@@ -711,6 +711,17 @@ impl Db {
                 }
             }
         }
+        // v25 (UX5 修正, 2026-08-13): model_registry 加 detected_family —— 扫描时按特征推断的
+        // 家族 (llm/tts/nlp/asr/vad/unknown)。前端据此标注"这个模型是不是本项目用的" (asr/vad/unknown
+        // 不是本项目的引擎, 用户据此不会选错, 也不会被自动当上推荐)。老行默认空 (前端按文件名兜底)。
+        if version < 25 {
+            conn.execute_batch(
+                "ALTER TABLE model_registry ADD COLUMN detected_family TEXT NOT NULL DEFAULT '';
+                 INSERT INTO schema_migrations (version, applied_at) VALUES (25, strftime('%s','now')*1000);
+                 ",
+            )
+            .map_err(|e| format!("迁移 v25 失败: {e}"))?;
+        }
         Ok(())
     }
 }
@@ -973,7 +984,10 @@ mod tests {
                     VALUES ('u-kid', 200, 7, 'https://a.workers.dev|kid', 200);
                  INSERT INTO sync_state (user_id, last_push_at, last_pull_rev, endpoint_key, updated_at)
                     VALUES ('legacy-empty', 999, 9, '', 999);
-                 DELETE FROM schema_migrations WHERE version=24;",
+                 DELETE FROM schema_migrations WHERE version=24;
+                 -- 撤 v25 (model_registry.detected_family), 让迁移从 v23 状态完整重跑
+                 ALTER TABLE model_registry DROP COLUMN detected_family;
+                 DELETE FROM schema_migrations WHERE version=25;",
             )
             .unwrap();
             drop(conn);
@@ -1086,7 +1100,9 @@ mod tests {
                  DROP TABLE highlights;
                  ALTER TABLE highlights_v17 RENAME TO highlights;
                  DROP TABLE sync_state;
-                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23, 24);
+                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23, 24, 25);
+                 -- 撤 v25 列, 让 v25 迁移能重跑
+                 ALTER TABLE model_registry DROP COLUMN detected_family;
                  INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,source_book_id,
                     chapter_count,failed_count,source_language,target_language,llm_id,tts_id,nlp_id,
                     created_at,updated_at)
@@ -1184,6 +1200,9 @@ mod tests {
                  DELETE FROM schema_migrations WHERE version=23;
                  -- 撤 v24 (sync_state 复合主键 + enabled), 让迁移从 v19 状态完整重跑
                  DELETE FROM schema_migrations WHERE version=24;
+                 -- 撤 v25 (model_registry.detected_family), 让迁移从 v19 状态完整重跑
+                 ALTER TABLE model_registry DROP COLUMN detected_family;
+                 DELETE FROM schema_migrations WHERE version=25;
                  -- vocab key 还原为 v19 的 {profile}:{lemma} 形式
                  UPDATE vocab SET key = substr(key, 4) WHERE key LIKE 'me:%';
                  UPDATE dictionary SET key = substr(key, 4) WHERE key LIKE 'me:%';",

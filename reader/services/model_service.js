@@ -15,6 +15,8 @@
         version: m.version || '1.0', variant: m.variant || 'cuda12.4',
         path: m.path, sourceType: m.source_type || 'local', sourceRef: m.source_ref || '',
         sha256: m.sha256 || '', sizeBytes: m.size_bytes || 0, custom: !!m.custom,
+        // UX5 修正: 扫描登记带上的特征识别家族 (asr/vad/unknown/llm/tts/nlp), 前端据此标注用途
+        detectedFamily: m.detected_family || m.family_hint || null,
       });
     },
     setRecommended(id) { return AiduBridge.invoke('models_set_recommended', { id }); },

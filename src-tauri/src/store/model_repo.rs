@@ -22,6 +22,9 @@ pub struct ModelEntry {
     pub installed_at: i64,
     pub active: bool, // 推荐标记 (每 family+language 可多个 active, 书级自由选)
     pub custom: bool,
+    /// UX5 修正 (2026-08-13): 扫描登记时按特征推断的家族 (llm/tts/nlp/asr/vad/unknown)。
+    /// 前端据此标注"本项目用不用得到"; asr/vad/unknown 不是本项目的引擎。
+    pub detected_family: String,
 }
 
 pub struct ModelRepo<'a> {
@@ -38,8 +41,8 @@ impl<'a> ModelRepo<'a> {
         conn.execute(
             "INSERT INTO model_registry (id, family, language, model_id, version, variant,
                                          path, source_type, source_ref, commit_sha, sha256,
-                                         size_bytes, installed_at, active, custom)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                                         size_bytes, installed_at, active, custom, detected_family)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
              ON CONFLICT(id) DO UPDATE SET
                 family = excluded.family, language = excluded.language,
                 model_id = excluded.model_id, version = excluded.version,
@@ -47,7 +50,7 @@ impl<'a> ModelRepo<'a> {
                 source_type = excluded.source_type, source_ref = excluded.source_ref,
                 commit_sha = excluded.commit_sha, sha256 = excluded.sha256,
                 size_bytes = excluded.size_bytes, active = excluded.active,
-                custom = excluded.custom",
+                custom = excluded.custom, detected_family = excluded.detected_family",
             params![
                 m.id,
                 m.family,
@@ -63,7 +66,8 @@ impl<'a> ModelRepo<'a> {
                 m.size_bytes,
                 m.installed_at,
                 if m.active { 1 } else { 0 },
-                if m.custom { 1 } else { 0 }
+                if m.custom { 1 } else { 0 },
+                m.detected_family
             ],
         )
         .map_err(|e| format!("写模型注册表失败: {e}"))?;
@@ -75,7 +79,7 @@ impl<'a> ModelRepo<'a> {
         conn.query_row(
             "SELECT id, family, language, model_id, version, variant,
                     path, source_type, source_ref, commit_sha, sha256,
-                    size_bytes, installed_at, active, custom
+                    size_bytes, installed_at, active, custom, detected_family
              FROM model_registry WHERE id = ?1",
             [id],
             Self::row_to_entry,
@@ -100,6 +104,7 @@ impl<'a> ModelRepo<'a> {
             installed_at: r.get(12)?,
             active: r.get::<_, i64>(13)? != 0,
             custom: r.get::<_, i64>(14)? != 0,
+            detected_family: r.get(15)?,
         })
     }
 
@@ -110,7 +115,7 @@ impl<'a> ModelRepo<'a> {
             .prepare(
                 "SELECT id, family, language, model_id, version, variant,
                              path, source_type, source_ref, commit_sha, sha256,
-                             size_bytes, installed_at, active, custom
+                             size_bytes, installed_at, active, custom, detected_family
                       FROM model_registry WHERE family = ?1 AND (language = ?2 OR language = '*')
                       ORDER BY installed_at DESC",
             )
@@ -127,7 +132,7 @@ impl<'a> ModelRepo<'a> {
             .prepare(
                 "SELECT id, family, language, model_id, version, variant,
                              path, source_type, source_ref, commit_sha, sha256,
-                             size_bytes, installed_at, active, custom
+                             size_bytes, installed_at, active, custom, detected_family
                       FROM model_registry ORDER BY family, language, installed_at DESC",
             )
             .unwrap();
@@ -146,7 +151,7 @@ impl<'a> ModelRepo<'a> {
             .prepare(
                 "SELECT id, family, language, model_id, version, variant,
                              path, source_type, source_ref, commit_sha, sha256,
-                             size_bytes, installed_at, active, custom
+                             size_bytes, installed_at, active, custom, detected_family
                       FROM model_registry ORDER BY family, language, installed_at DESC",
             )
             .unwrap();
@@ -206,6 +211,7 @@ mod tests {
             installed_at: 100,
             active: false,
             custom: false,
+            detected_family: String::new(),
         }
     }
 

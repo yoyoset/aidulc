@@ -49,19 +49,25 @@ pub fn resolve_paths(db: &Db, language: &str) -> (String, String, String) {
     )
 }
 
-/// 登记 (安装/复用后写入注册表); 若该家族语言无 active, 自动设为推荐
+/// 登记 (安装/复用后写入注册表); 若该家族语言无 active, 自动设为推荐。
+/// UX5 修正 (2026-08-13): **自定义/扫描登记 (custom=true) 不再自动设推荐** —— 扫描扫到的
+/// 文件家族可能误判 (whisper/silero/OCR 被当 tts), 自动推荐会让任务一路跑到 TTS 阶段才炸
+/// (用户实测: manga-ocr 的 pytorch_model 被扫成 tts 自动当上推荐 → voices 不存在)。只有
+/// 官方下载 (custom=false) 自动推荐; 扫描登记需用户显式「设为推荐」(模型页会标"未设推荐")。
 pub fn register(db: &Db, m: &mut ModelEntry) -> Result<(), String> {
     let repo = ModelRepo::new(db);
     let has_active = repo
         .list_by(&m.family, &m.language)
         .iter()
         .any(|x| x.active);
-    if !has_active {
+    if !m.custom && !has_active {
         m.active = true;
     }
     repo.upsert(m)
 }
 
+/// UX5 修正 (2026-08-13): 模型完整性校验已内联进 preflight_check (每本书前置检查), 见
+/// preflight_check 的 TTS 完整性分支 (config.json + voices/)。这里不再保留独立函数。
 /// 设置推荐 (同一家族语言内把 active 唯一化)
 pub fn set_recommended(db: &Db, id: &str) -> Result<(), String> {
     let repo = ModelRepo::new(db);
@@ -234,6 +240,19 @@ pub fn preflight_check(
         problems.push("缺语音引擎 (TTS), 请到模型中心配置".into());
     } else if !std::path::Path::new(&tts).exists() {
         problems.push(format!("语音引擎文件丢失: {tts}"));
+    } else {
+        // UX5 修正 (2026-08-13): TTS 完整性 —— Kokoro 需要 模型文件+config.json+voices/ 同目录,
+        // 否则任务一路跑到 TTS 阶段才炸 (扫到的假 tts 只查"文件存在"也能通过, 用户实测撞见)。
+        let tts_dir = std::path::Path::new(&tts)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_default();
+        if !tts_dir.join("config.json").is_file() || !tts_dir.join("voices").is_dir() {
+            problems.push(format!(
+                "语音模型不完整: {} 同目录缺 config.json 或 voices/ (Kokoro 需要 模型+config.json+voices/ 同目录)。到模型中心把推荐 TTS 指向 HF 缓存里完整的 models--hexgrad--Kokoro-82M/snapshots/<sha>/kokoro-v1_0.pth, 或直接下载推荐引擎。",
+                tts
+            ));
+        }
     }
     // 3. 侧车存在
     if !prep_path.exists() {
@@ -385,6 +404,7 @@ mod tests {
             installed_at: 100,
             active,
             custom: false,
+            detected_family: String::new(),
         }
     }
 
@@ -654,6 +674,54 @@ mod tests {
             problems.iter().any(|p| p.contains("处理引擎")),
             "应报缺侧车"
         );
+    }
+
+    /// UX5 修正 (2026-08-13): preflight 必须拒绝不完整的推荐 TTS (无 config.json/voices)。
+    /// 用户实测: 扫到 manga-ocr 当 tts 推荐 (文件在, 无 voices), 跑完 translate 才在 TTS 炸。
+    #[test]
+    fn preflight_rejects_incomplete_tts() {
+        let root = std::env::temp_dir().join(format!("aidulc_pt_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let db = temp_db();
+        let repo = ModelRepo::new(&db);
+        let mut llm = entry("llm", "en", "qwen", true);
+        llm.path = format!("{}/qwen.gguf", root.to_string_lossy());
+        std::fs::write(&llm.path, b"x").unwrap();
+        repo.upsert(&llm).unwrap();
+        let mut tts = entry("tts", "en", "kokoro", true);
+        tts.path = format!("{}/kokoro-v1_0.pth", root.to_string_lossy());
+        std::fs::write(&tts.path, b"x").unwrap();
+        repo.upsert(&tts).unwrap();
+        // 只有 .pth, 没有 config.json/voices → preflight 必须报"语音模型不完整"
+        let problems = preflight_check(
+            &db,
+            "b1",
+            "C:/book.epub",
+            "en",
+            std::path::Path::new("C:/prep"),
+            std::path::Path::new(""),
+        );
+        assert!(
+            problems.iter().any(|p| p.contains("语音模型不完整")),
+            "不完整 tts 必须被 preflight 拦下: {problems:?}"
+        );
+        // 补上 config.json + voices → 不再报模型问题
+        std::fs::write(root.join("config.json"), b"{}").unwrap();
+        std::fs::create_dir_all(root.join("voices")).unwrap();
+        let problems2 = preflight_check(
+            &db,
+            "b1",
+            "C:/book.epub",
+            "en",
+            std::path::Path::new("C:/prep"),
+            std::path::Path::new(""),
+        );
+        assert!(
+            !problems2.iter().any(|p| p.contains("模型不完整")),
+            "补全后不应再报模型不完整: {problems2:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

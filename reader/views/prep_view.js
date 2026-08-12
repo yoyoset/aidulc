@@ -262,6 +262,18 @@
           });
         };
         actions.appendChild(btnRetry);
+        // UX5 修正 (2026-08-13): 模型类失败 → 给「去修模型」入口 (用户实测: TTS 引擎错,
+        // 任务失败后没有入口去改模型设置再重跑)。错误信息里带模型/TTS/引擎关键词就显示。
+        const errText = String(job.error || '');
+        if (/(模型|TTS|voices|config|引擎|缺少|模型文件)/.test(errText)) {
+          const btnFix = el('button', 'btn-small btn-primary', '去修模型');
+          btnFix.title = '这个失败和模型有关。去模型中心检查/更换推荐模型后, 再回来点「重试失败句」。';
+          btnFix.onclick = () => {
+            if (this.store) this.store.set({ settingsTab: 'models' });
+            window.location.hash = '#/settings';
+          };
+          actions.appendChild(btnFix);
+        }
       }
       const btnRemove = el('button', 'btn-small', '移除');
       btnRemove.onclick = () => {

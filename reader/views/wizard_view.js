@@ -230,16 +230,22 @@
         } else {
           // F16 (2026-08-08): 扫描命中即自动登记, 不再只是展示 —— 否则下一步的"已就绪"
           // 是假承诺, 导入时照样 preflight 报缺引擎。
-          const jobs = found.map(m => AiduModelService.register({
-            family: m.file_name.endsWith('.gguf') ? 'llm' : 'tts',
-            language: 'en',
-            model_id: m.file_name.replace(/\.[^.]+$/, ''),
-            version: 'scanned',
-            path: m.path,
-            source_type: 'local',
-            size_bytes: m.size_bytes,
-            custom: true,
-          }));
+          // UX5 修正 (2026-08-13): 用扫描识别出的家族登记, 不再'gguf 即 llm 否则 tts'二元瞎猜
+          // (会误登记; whisper/silero/OCR 会被塞进语音合成)。非本项目家族 (asr/vad/unknown)
+          // 不自动登记 —— 让用户在模型中心手动决定。
+          const jobs = found
+            .filter((m) => ['llm', 'tts', 'nlp'].includes(m.family_hint))
+            .map(m => AiduModelService.register({
+              family: m.family_hint,
+              language: 'en',
+              model_id: m.file_name.replace(/\.[^.]+$/, ''),
+              version: 'scanned',
+              path: m.path,
+              source_type: 'local',
+              size_bytes: m.size_bytes,
+              custom: true,
+              family_hint: m.family_hint || null,
+            }));
           content.appendChild(el('p', null, `找到 ${found.length} 个可复用的模型文件, 已自动登记:`));
           Promise.all(jobs).then(() => {
             found.slice(0, 8).forEach(m => {

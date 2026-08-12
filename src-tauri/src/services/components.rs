@@ -78,7 +78,9 @@ fn no_channel_for(id: &str) -> String {
     }
 }
 
-/// 检查目录组件
+/// 检查目录组件 (UX5 修正 2026-08-13: 原 TTS 用 check_dir 只查文件, 不查 config/voices,
+/// 已被 check_tts 取代; 保留作通用单文件存在检查)
+#[allow(dead_code)]
 pub fn check_dir(path: &str, id: &str, name: &str, required_file: &str) -> ComponentStatus {
     let full = std::path::Path::new(path).join(required_file);
     let md = std::fs::metadata(&full);
@@ -240,20 +242,61 @@ pub fn health_check(
         ));
     }
     out.push(check_file(llm_path, "llm", "LLM 模型", 500_000_000));
-    out.push(check_dir(
-        std::path::Path::new(tts_path)
-            .parent()
-            .unwrap_or(std::path::Path::new(""))
-            .to_string_lossy()
-            .as_ref(),
-        "tts",
-        "TTS 模型",
-        "kokoro-v1_0.pth",
-    ));
+    out.push(check_tts(tts_path));
     out.push(check_pymupdf(&cfg.prep_path));
     let _ = lib_dir;
     let _ = hf_home;
     out
+}
+
+/// UX5 修正 (2026-08-13): TTS 完整性健康检查 —— Kokoro 需要 模型文件+config.json+voices/ 同目录。
+/// 此前只查 kokoro-v1_0.pth, 平铺的不完整模型 (如只拷了 .pth 没有 voices) 会误报 OK,
+/// 任务跑到 TTS 阶段才炸 (用户实测: manga-ocr 被扫成 tts 当推荐, voices 不存在)。
+fn check_tts(tts_path: &str) -> ComponentStatus {
+    let dir = std::path::Path::new(tts_path)
+        .parent()
+        .unwrap_or(std::path::Path::new(""))
+        .to_path_buf();
+    let model_file = dir.join("kokoro-v1_0.pth");
+    let config = dir.join("config.json");
+    let voices = dir.join("voices");
+    let missing: Vec<&str> = [
+        (!model_file.is_file(), "kokoro-v1_0.pth"),
+        (!config.is_file(), "config.json"),
+        (!voices.is_dir(), "voices/"),
+    ]
+    .into_iter()
+    .filter(|(miss, _)| *miss)
+    .map(|(_, n)| n)
+    .collect();
+    if missing.is_empty() {
+        ComponentStatus {
+            id: "tts".into(),
+            name: "TTS 模型".into(),
+            present: true,
+            healthy: true,
+            detail: "OK (Kokoro: kokoro-v1_0.pth + config.json + voices/)".into(),
+            size_bytes: std::fs::metadata(&model_file)
+                .map(|m| m.len() as i64)
+                .unwrap_or(0),
+            version: String::new(),
+            update_channel: no_channel_for("tts"),
+        }
+    } else {
+        ComponentStatus {
+            id: "tts".into(),
+            name: "TTS 模型".into(),
+            present: false,
+            healthy: false,
+            detail: format!(
+                "Kokoro 不完整: 缺 {} (需要 模型+config.json+voices/ 同目录)",
+                missing.join("、")
+            ),
+            size_bytes: 0,
+            version: String::new(),
+            update_channel: no_channel_for("tts"),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -271,4 +271,21 @@ rooted_around_out 结果文案; Rust 单测 `ux5_migrate_root_into_out_roots_aro
 **验证**: `check.ps1` **24 项全绿** (cargo test 264 passed / vitest 124 / smoke 全绿含 2g3 / no_silent /
 fmt / clippy 7 未升)。
 
+## 八、"TTS 引擎报错 / 误登记模型选错"整类根治 (2026-08-13 第三次收尾)
+
+用户实测: 任务在 TTS 阶段报 `TTS voices 目录不存在: .../manga-ocr.../voices`, 失败任务没有改设置重跑的入口;
+模型页不说明哪些模型不是本项目用的, 容易选错。整类根因 + 根治:
+
+| 根因 | 修复 | 锁住 |
+|---|---|---|
+| **preflight 只查"有没有模型路径", 不查模型能不能用** → 误登记/不完整的推荐模型过 preflight, 跑完 translate/explain 2708 句才在 TTS 炸 | `preflight_check` 加 TTS 完整性校验: 推荐 tts 必须 文件+同目录 config.json+voices/ 全齐, 否则返回可操作错误 ("语音模型不完整…请把推荐 TTS 指向 HF 缓存 models--hexgrad--Kokoro-82M/snapshots/<sha>/kokoro-v1_0.pth")。**任务开始前就拦下, 不浪费翻译工作** | Rust 单测 `preflight_rejects_incomplete_tts` (无 config/voices 被拦, 补全后放行) |
+| **扫描登记的自定义模型自动当上推荐** → manga-ocr 被悄悄提为推荐 TTS | `model_service::register`: `custom=true` (扫描/自定义) 不再自动设推荐, 需用户显式「设为推荐」; 官方下载 (custom=false) 照旧自动推荐 | `first_registered_becomes_recommended` 等测试更新 |
+| **失败任务没有入口改模型重跑** | prep 失败行: 错误含 模型/TTS/引擎/voices/config/缺少 → 显示「去修模型」按钮 (跳设置·模型 tab), 修完回来点「重试失败句」 | smoke 1d (按钮出现/跳转/非模型错误不误导/重试仍在) |
+| **模型页不说明模型用途 → 用户选错** | ①`detected_family` 列 (迁移 v25): 扫描登记时存特征识别家族; ②模型页每个非本项目模型 (asr/vad/unknown/OCR) 标注「⚠ 语音识别 (whisper) —— 本项目用不到」等; ③每段 tip 写明"需要什么模型" (tts: Kokoro 需 config.json+voices/ 同目录); ④推荐模型若是误登记的非本项目模型, 段内直接警示 | smoke 9g (asr/OCR 标本项目用不到; 无推荐不显示"可用"; tts tip 含 Kokoro+voices) |
+| **向导模型发现仍二元瞎猜** (gguf 即 llm 否则 tts) | 向导改用扫描的 `family_hint` 登记, 非本项目家族 (asr/vad/unknown) 不自动登记 | — |
+| **健康检查 TTS 只查文件不查完整性** | `components::check_tts`: 推荐 tts 必须 kokoro-v1_0.pth+config.json+voices/ 全齐, 否则标红 "Kokoro 不完整: 缺 …" | — |
+
+**验证**: `check.ps1` **24 项全绿** (cargo test 266 passed / vitest 124 / smoke 全绿含 1d/9g / no_silent /
+fmt / clippy 7 未升)。侧车 `prep/engine.py` 报错文案改进已提交, 下次 `build_prep.ps1` 重建生效。
+
 

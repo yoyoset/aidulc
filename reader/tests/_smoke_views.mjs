@@ -662,6 +662,9 @@ console.log('== 2d3. UX6 #4 (2026-08-13): 词典面板治理 —— 点正文收
   // 底部不是查询历史 (讲清楚)
   const srcText = queryAll(p4.body, '.dict-source').map((s) => s.textContent).join(' ');
   check('UX6#4: 底部明确"不是查询历史"', srcText.includes('不是查询历史'), srcText);
+  // UX6 #3 (2026-08-13): 本地查词成功 → 绝不出现「用在线 AI 查一次」(不回退在线)。
+  // 在线入口只出现在本地失败面板 (_setError), 且需用户再点一次确认才外发。
+  check('UX6#3: 本地命中 → 无在线入口', !queryAll(p4.body, 'button').some((b) => b.textContent === '用在线 AI 查一次'), queryAll(p4.body, 'button').map((b) => b.textContent).join(','));
 
   // 点正文 (面板外) → 自动收起
   p4._bindDocClick();

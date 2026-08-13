@@ -2329,5 +2329,46 @@ console.log('== 11. M6 (2026-08-12): 主题顺序 + 跟随系统断言 + 色系�
   check('M6: resolveTheme(system) 在系统浅色下返回 light', globalThis.AiduTheme.resolveTheme('system', false) === 'light');
 }
 
+console.log('== 12. UX6 #5 (2026-08-13): 章节下拉菜单 —— 章多时精确选章 (顶栏章名可点) ==');
+{
+  load('views/reader/chapter_menu.js');
+  const jumpCalls = [];
+  const trigger = makeElement('span');
+  trigger.className = 'rd-title';
+  const menu = new globalThis.ChapterMenu({
+    triggerEl: trigger,
+    getChapters: () => [
+      { title: 'Introduction' }, { title: 'The Awakening' },
+      { title: 'Storm' }, { title: 'Homecoming' },
+    ],
+    getCurrentIndex: () => 1,
+    onSelect: (i) => jumpCalls.push(i),
+  });
+  // 触发点: 加 rd-title-btn 类 (可点暗示) + ▾
+  check('UX6#5: 触发点章名加 rd-title-btn 类', trigger.classList.contains('rd-title-btn'), trigger.className);
+  // 打开: 点触发点 → 弹列表
+  trigger.onclick && trigger.onclick({ stopPropagation: () => {} });
+  check('UX6#5: 点章名 → 下拉打开 (isOpen)', menu.isOpen(), 'open=' + menu.isOpen());
+  check('UX6#5: 下拉列出全部章', menu.el && queryAll(menu.el, '.rd-chapter-menu-item').length === 4, 'items=' + (menu.el && queryAll(menu.el, '.rd-chapter-menu-item').length));
+  const itemTexts = menu.el ? queryAll(menu.el, '.rd-chapter-menu-item').map((b) => b.textContent) : [];
+  check('UX6#5: 章节带序号 + 章名', itemTexts[0] === '1. Introduction' && itemTexts[3] === '4. Homecoming', itemTexts.join('|'));
+  const cur = menu.el && menu.el.querySelector('.rd-chapter-menu-item.current');
+  check('UX6#5: 当前章高亮 (第2章 current)', cur && cur.textContent.includes('Awakening'), cur && cur.textContent);
+  // 点非当前章 → 跳章 + 关闭
+  const item2 = menu.el && queryAll(menu.el, '.rd-chapter-menu-item')[2];
+  item2 && item2.onclick();
+  check('UX6#5: 点「3. Storm」→ onSelect(2) + 关闭', jumpCalls.at(-1) === 2 && !menu.isOpen(), 'calls=' + jumpCalls.join(',') + ' open=' + menu.isOpen());
+  // Esc 关闭
+  trigger.onclick({ stopPropagation: () => {} });
+  menu.close(); // 无 keydown stub, 直接走 close
+  check('UX6#5: close 后非打开', !menu.isOpen());
+  // 点当前章 → 不跳 (当前章已是 1)
+  trigger.onclick({ stopPropagation: () => {} });
+  const cur2 = menu.el && queryAll(menu.el, '.rd-chapter-menu-item')[1];
+  const before = jumpCalls.length;
+  cur2 && cur2.onclick();
+  check('UX6#5: 点当前章 → 不跳章', jumpCalls.length === before, 'calls=' + jumpCalls.join(','));
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

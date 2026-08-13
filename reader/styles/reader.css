@@ -73,6 +73,45 @@ body.reader-active ::selection {
 }
 .rd-back:hover, .rd-gear:hover { background: var(--md-sys-state-hover); color: var(--rd-ink); }
 
+/* UX6 #5 (2026-08-13): 章节下拉菜单 —— 顶栏章名可点, 章多时精确选章 */
+.rd-title-btn { cursor: pointer; }
+.rd-title-btn::after { content: ' ▾'; color: var(--rd-ink-3); font-size: 0.8em; }
+.rd-title-btn:hover::after { color: var(--rd-accent); }
+.rd-chapter-menu {
+  position: fixed;
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(360px, 92vw);
+  max-height: 60vh;
+  background: var(--rd-surface);
+  border: 1px solid var(--rd-surface-sunken);
+  border-radius: var(--md-sys-radius-md);
+  box-shadow: var(--md-sys-elevation-3);
+  z-index: 200;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.rd-chapter-menu-list { overflow-y: auto; padding: 6px; }
+.rd-chapter-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--rd-ink);
+  font-size: var(--md-sys-font-size-body-s);
+  padding: 7px 10px;
+  border-radius: var(--md-sys-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rd-chapter-menu-item:hover { background: var(--rd-state-hover); }
+.rd-chapter-menu-item.current { background: var(--rd-accent); color: var(--rd-surface-raised); font-weight: 650; }
+
 /* ---- 章节尺: 最左 26px 一列刻度, 整本书压成一列 ---- */
 .rd-ruler {
   position: fixed;
@@ -86,7 +125,12 @@ body.reader-active ::selection {
   flex-direction: column;
   gap: 2px;
   padding: 10px 5px;
+  /* UX6 #5 (2026-08-13): 章多时刻度被 flex:1 压到 min-height 3px 仍溢出 (列高有限),
+     后面的章既看不到也无法滚动。改 overflow-y auto: 章多时可上下滚, 章少时 flex 照常摊开。 */
+  overflow-y: auto;
+  scrollbar-width: none; /* 26px 窄列不占滚动条宽度; 悬停仍可滚 */
 }
+.rd-ruler::-webkit-scrollbar { width: 0; }
 .rd-ruler-tick {
   flex: 1;
   min-height: 3px;

@@ -413,6 +413,15 @@
       });
       document.body.appendChild(this.ruler.el);
 
+      // UX6 #5 (2026-08-13): 章节下拉菜单 —— 章多时章节尺刻度太密/放不下,
+      // 顶栏章名可点弹全部章节列表精确选章。与章节尺互补, 不替代。
+      this.chapterMenu = new ChapterMenu({
+        triggerEl: title,
+        getChapters: () => (this.bookpack ? this.bookpack.chapters : []),
+        getCurrentIndex: () => this.chapterIndex,
+        onSelect: (idx) => this._jumpChapter(idx),
+      });
+
       // 音频接线 (进度轨外部注入)
       this.player.bindDOM({
         shadow: this.shadow,
@@ -1017,6 +1026,7 @@
       // Ctrl+K 命令面板优先 (即使焦点在输入框)
       if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault();
+        if (this.chapterMenu) this.chapterMenu.closeExternal(); // UX6 #5: 面板互斥
         if (this.commandPalette) this.commandPalette.toggle();
         return;
       }
@@ -1057,6 +1067,8 @@
     }
 
     _onEscape() {
+      // UX6 #5: 章节下拉优先于其它浮层收起
+      if (this.chapterMenu && this.chapterMenu.isOpen()) { this.chapterMenu.close(); return; }
       if (this.silentCard && this.silentCard.isOpen()) { this.silentCard.hide(); return; }
       if (this.settingsOverlay && this.settingsOverlay.isOpen()) { this.settingsOverlay.close(); return; }
       if (this.commandPalette && this.commandPalette.isOpen()) { this.commandPalette.close(); return; }
@@ -1106,6 +1118,7 @@
       const onboard = document.querySelector('.rd-onboard');
       if (onboard && onboard.parentNode) onboard.parentNode.removeChild(onboard);
       if (this.ruler && this.ruler.el.parentNode) this.ruler.el.parentNode.removeChild(this.ruler.el);
+      if (this.chapterMenu) this.chapterMenu.close(); // UX6 #5: 移除 doc 监听 + 下拉节点
       if (this.silentCard) this.silentCard.hide();
       if (this.commandPalette) this.commandPalette.close();
       if (this.followBar && this.followBar.el.parentNode) this.followBar.el.parentNode.removeChild(this.followBar.el);

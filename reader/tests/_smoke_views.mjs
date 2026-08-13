@@ -2370,5 +2370,24 @@ console.log('== 12. UX6 #5 (2026-08-13): 章节下拉菜单 —— 章多时精�
   check('UX6#5: 点当前章 → 不跳章', jumpCalls.length === before, 'calls=' + jumpCalls.join(','));
 }
 
+console.log('== 13. UX7 #2 (2026-08-13): 浮动全局播放/停止按钮 ==');
+{
+  load('views/reader/global_stop.js');
+  const toggleCalls = [];
+  const gs = new globalThis.GlobalStopButton({ onToggle: () => toggleCalls.push(1) });
+  check('UX7#2: 初始 hidden (无音频章节不显示)', gs.el.hidden === true, 'hidden=' + gs.el.hidden);
+  gs.setVisible(true);
+  check('UX7#2: setVisible(true) → 不再 hidden', gs.el.hidden === false, 'hidden=' + gs.el.hidden);
+  check('UX7#2: 初始文案是播放态(▶)', gs.el.textContent === '▶', gs.el.textContent);
+  gs.setPlaying(true);
+  check('UX7#2: setPlaying(true) → 停止态(⏹) + playing 类', gs.el.textContent === '⏹' && gs.el.classList.contains('playing'), gs.el.textContent + '|' + gs.el.className);
+  gs.el.onclick();
+  check('UX7#2: 点击 → 调 onToggle (即 player.toggle())', toggleCalls.length === 1, 'calls=' + toggleCalls.length);
+  gs.setPlaying(false);
+  check('UX7#2: setPlaying(false) → 回到播放态(▶)', gs.el.textContent === '▶' && !gs.el.classList.contains('playing'), gs.el.textContent);
+  gs.setVisible(false);
+  check('UX7#2: 无音频章节 setVisible(false) → 重新 hidden', gs.el.hidden === true, 'hidden=' + gs.el.hidden);
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

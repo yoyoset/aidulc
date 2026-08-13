@@ -161,6 +161,26 @@ body.reader-active ::selection {
   background: var(--rd-surface-sunken);
 }
 
+/* ---- UX7 #2: 浮动全局播放/停止按钮 (右下角常驻, 无音频章节隐藏) ---- */
+.rd-global-stop {
+  position: fixed;
+  right: 24px;
+  bottom: 32px;
+  z-index: 300;
+  width: 52px;
+  height: 52px;
+  border: none;
+  border-radius: 50%;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  font-size: var(--md-sys-font-size-title-m);
+  cursor: pointer;
+  box-shadow: var(--md-sys-elevation-2);
+}
+.rd-global-stop:hover { filter: brightness(1.08); }
+.rd-global-stop.playing { background: var(--md-sys-color-neutral); }
+.rd-global-stop[hidden] { display: none; }
+
 /* ---- 底部 3px 进度轨 ---- */
 .rd-progress {
   position: fixed;

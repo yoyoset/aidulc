@@ -405,6 +405,10 @@
 
       container.appendChild(wrap);
 
+      // UX7 #2: 浮动全局播放/停止按钮 (挂 body, 定位自由, 仿 silentCard/ruler)
+      this.globalStop = new GlobalStopButton({ onToggle: () => this.player.toggle() });
+      document.body.appendChild(this.globalStop.el);
+
       // 章节尺 (最左 26px, 全屏定位)
       this.ruler = new ChapterRuler({
         chapters: this.bookpack ? this.bookpack.chapters : [],
@@ -546,6 +550,7 @@
       // R1/UX5 #7: 无音频的章节 (如内置样书) 不进入加载流程, 避免对空 audioFile 报"音频加载失败"
       if (ch.audioFile) this.player.loadChapter(ch);
       else this.player.audio = null;
+      if (this.globalStop) this.globalStop.setVisible(!!ch.audioFile);
       this.rd.restoreVerified((this._verifiedMap && this._verifiedMap[this.chapterIndex]) || []);
     }
 
@@ -893,6 +898,7 @@
 
     /** 音频暂停 → 复位所有句内 ▶/❙❙ 按钮 (自然播完/手动暂停都走到这) */
     _onPlayingChange(playing) {
+      if (this.globalStop) this.globalStop.setPlaying(playing); // UX7 #2
       if (playing || !this.renderer) return;
       this.renderer._blockCache.forEach((c) => {
         if (c && c.ab) c.ab.setPlaying(false);
@@ -1118,6 +1124,7 @@
       const onboard = document.querySelector('.rd-onboard');
       if (onboard && onboard.parentNode) onboard.parentNode.removeChild(onboard);
       if (this.ruler && this.ruler.el.parentNode) this.ruler.el.parentNode.removeChild(this.ruler.el);
+      if (this.globalStop && this.globalStop.el.parentNode) this.globalStop.el.parentNode.removeChild(this.globalStop.el);
       if (this.chapterMenu) this.chapterMenu.close(); // UX6 #5: 移除 doc 监听 + 下拉节点
       if (this.silentCard) this.silentCard.hide();
       if (this.commandPalette) this.commandPalette.close();

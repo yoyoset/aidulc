@@ -202,7 +202,11 @@ mod tests {
         let got = repo.get("me", "k").unwrap();
         assert_eq!(got.chapter, 1);
         assert_eq!(got.position_ms, 500);
-        assert_eq!(got.bookmarks.get("1"), Some(&vec![1]), "按章存, 第 1 章书签应可读回");
+        assert_eq!(
+            got.bookmarks.get("1"),
+            Some(&vec![1]),
+            "按章存, 第 1 章书签应可读回"
+        );
         assert_eq!(got.time_spent_ms, 60000, "阅读时长应持久化");
     }
 

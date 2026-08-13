@@ -732,9 +732,7 @@ impl Db {
             let result = (|| -> Result<(), String> {
                 let rows: Vec<(String, String, i64, String)> = {
                     let mut stmt = conn
-                        .prepare(
-                            "SELECT user_id, book_key, chapter, bookmarks FROM reading_state",
-                        )
+                        .prepare("SELECT user_id, book_key, chapter, bookmarks FROM reading_state")
                         .map_err(|e| format!("迁移 v26 读取失败: {e}"))?;
                     let mapped = stmt
                         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
@@ -744,8 +742,8 @@ impl Db {
                         .map_err(|e| format!("迁移 v26 读取失败: {e}"))?
                 };
                 for (user_id, book_key, chapter, bm_text) in rows {
-                    let parsed: serde_json::Value = serde_json::from_str(&bm_text)
-                        .unwrap_or(serde_json::Value::Array(vec![]));
+                    let parsed: serde_json::Value =
+                        serde_json::from_str(&bm_text).unwrap_or(serde_json::Value::Array(vec![]));
                     if let serde_json::Value::Array(arr) = parsed {
                         let mut obj = serde_json::Map::new();
                         obj.insert(chapter.to_string(), serde_json::Value::Array(arr));

@@ -40,6 +40,7 @@
         setTimeout(() => this.el.remove(), 200);
       }
       this._unbindDocClick();
+      if (this.onClose) this.onClose();
     }
 
     /** UX6 #4 (2026-08-13): 点正文 (面板外) 自动收起 —— document 级 click 监听。

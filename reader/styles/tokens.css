@@ -202,7 +202,7 @@ body[data-theme="dark"] {
   --rd-ink-2: #aca598;
   --rd-ink-3: #a29c8f;           /* Round 6 对比度实测: #746d61 只有 3.25, 提亮到 6.09 */
   --rd-accent: #d9ae8c;
-  --rd-reading-bg: #5a4630;
+  --rd-reading-bg: #7f5a34;  /* K1 (2026-08-13): 深色跳字实测 ΔL 仅 0.055 (贴着门禁 0.05 下限, 肉眼几乎看不出跳动), 提亮+提饱和到 ΔL≈0.108 (对比度门禁重跑复核: AA 4.77, 仍 ≥4.5) */
   --rd-mark: #e3b95a;
   --rd-saved: #7fa3b3;
   --rd-hl: #6fc9a8;
@@ -253,7 +253,7 @@ body[data-theme="dark"][data-palette="sage"] {
   --md-sys-color-on-primary-container: #e3ead6;
   --md-sys-color-inverse-primary: #6a7f54;
   --rd-accent: #b3c79a;
-  --rd-reading-bg: #4a5c3a;
+  --rd-reading-bg: #4d6836;  /* K1: 同 clay-dark 理由, ΔL 0.081→0.104 */
   --rd-mark: #e3b95a;
   --rd-saved: #7fa3b3;
   --rd-hl: #c79bc7;
@@ -284,7 +284,7 @@ body[data-theme="dark"][data-palette="ocean"] {
   --md-sys-color-on-primary-container: #d9e4ec;
   --md-sys-color-inverse-primary: #4a6a80;
   --rd-accent: #a3c1d6;
-  --rd-reading-bg: #3a4f63;
+  --rd-reading-bg: #406587;  /* K1: 同 clay-dark 理由, ΔL 0.061→0.108 */
   --rd-mark: #e3b95a;
   --rd-saved: #b08f7a;
   --rd-hl: #c79bc7;
@@ -315,7 +315,7 @@ body[data-theme="dark"][data-palette="rose"] {
   --md-sys-color-on-primary-container: #f0dfe3;
   --md-sys-color-inverse-primary: #96626d;
   --rd-accent: #d3a6b1;
-  --rd-reading-bg: #5d4048;
+  --rd-reading-bg: #8c4f60;  /* K1: 同 clay-dark 理由, ΔL 0.052→0.107 (5 色系里原来最弱的一档) */
   --rd-mark: #e3b95a;
   --rd-saved: #7fa3b3;
   --rd-hl: #6fc9a8;
@@ -346,7 +346,7 @@ body[data-theme="dark"][data-palette="slate"] {
   --md-sys-color-on-primary-container: #dfe3e8;
   --md-sys-color-inverse-primary: #5a6673;
   --rd-accent: #b0bac5;
-  --rd-reading-bg: #42505f;
+  --rd-reading-bg: #4a637d;  /* K1: 同 clay-dark 理由, ΔL 0.064→0.105 */
   --rd-mark: #e3b95a;
   --rd-saved: #a08b7a;
   --rd-hl: #6fc9a8;

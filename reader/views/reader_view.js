@@ -75,6 +75,7 @@
         setStatus: (text) => this._setStatus(text),
       });
       this.dictPanel = null;
+      this._lookupActiveEl = null; // K1: 当前查词面板对应的正文词元素, 用于加/清 lookup-active 高亮
 
       // S5 view 模块 (render 时建)
       this.ruler = null;
@@ -99,7 +100,7 @@
       this._handlers = {
         onPlay: (i) => this._toggleSentencePlay(i),
         onSelect: (i) => this._setAnchor(i, { scroll: false }),
-        onBubbleClick: (bubble, seg) => this._onWordClick(seg),
+        onBubbleClick: (bubble, seg) => this._onWordClick(seg, bubble),
         onBookmark: (i) => this._toggleBookmark(i),
         onFollowToggle: (i) => this._toggleFollow(i),
         onRevealToggle: (i) => this._toggleReveal(i),
@@ -1020,7 +1021,7 @@
       this._scheduleSave();
     }
 
-    _onWordClick(seg) {
+    _onWordClick(seg, tokEl) {
       const word = Array.isArray(seg) ? seg[0] : (seg && seg.word);
       if (!word) return;
       const profileId = (this.bookpack && this.bookpack.profile && this.bookpack.profile.id) || 'default';
@@ -1028,6 +1029,14 @@
         this.dictPanel = new DictionaryPanel();
         // F32 (2026-08-08): 加词入生词本 → 正文该词立即加下划线 (不用重开书)
         this.dictPanel.onVocabAdded = (w) => this._markSavedImmediate(w);
+        // K1 (2026-08-13): 面板收起 → 清掉正文里"正在查这个词"的高亮
+        this.dictPanel.onClose = () => this._clearLookupActive();
+      }
+      // K1: 查词入口本身此前没有视觉反馈, 与 hover/生词/跟读/摘录四条通道并列补第五条
+      this._clearLookupActive();
+      if (tokEl) {
+        tokEl.classList.add('lookup-active');
+        this._lookupActiveEl = tokEl;
       }
       const idx = this.sentences.findIndex(s =>
         s.original_text && s.original_text.toLowerCase().includes(word.toLowerCase()));
@@ -1039,6 +1048,14 @@
         sentenceIndex: idx >= 0 ? idx : null,
       };
       this.dictPanel.show(word, profileId, context, source);
+    }
+
+    /** K1: 清掉正文里"正在查这个词"的高亮 (面板收起 / 换词时先清旧的) */
+    _clearLookupActive() {
+      if (this._lookupActiveEl) {
+        this._lookupActiveEl.classList.remove('lookup-active');
+        this._lookupActiveEl = null;
+      }
     }
 
     /** F32: 加词后立即给已渲染的匹配 token 加 saved 标记 + 并入 _savedSet */

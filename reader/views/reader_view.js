@@ -44,6 +44,7 @@
       this._anchorIndex = -1;
       this._followTarget = -1;
       this._verifiedMap = {}; // 章下标 → [句下标,...] (持久化)
+      this._bookmarksByChapter = {}; // UX7 #3: 章下标(字符串) → [句下标,...] (持久化, 迁移 v26)
 
       // R2 模块
       this.shadow = new ShadowMachine();
@@ -53,6 +54,15 @@
         onSave: () => this._scheduleSave(),
         onPlay: (i) => this._playFrom(i),
         getSentences: () => this.sentences,
+        getChapterIndex: () => this.chapterIndex,
+        getChapterTitle: (idx) => (this.bookpack && this.bookpack.chapters[idx] && this.bookpack.chapters[idx].title) || ('第 ' + (idx + 1) + ' 章'),
+        onJumpChapter: (chapter, index) => this._jumpToHighlight(chapter, index),
+        listAllChapters: async () => {
+          if (!this.bookId) return null;
+          const profileId = (this._settings && this._settings.profile_id) || 'default';
+          const res = await AiduReadingService.bookmarksList(this.bookId, profileId);
+          return res.ok && res.data ? res.data.bookmarks : null;
+        },
       });
       this.search = new ReaderSearch({
         getChapterIndex: () => this.chapterIndex,
@@ -180,6 +190,10 @@
       if (rdRes.ok && rdRes.data) {
         this._verifiedMap = rdRes.data.verified || {};
         this._readingState = rdRes.data;
+        // UX7 #3: bookmarks 现在是按章分组的对象 {章下标: [句下标,...]} (迁移 v26)。
+        // 老前端/老数据万一还是数组, 当空对象处理 (不强行猜是哪一章的)。
+        const bm = rdRes.data.bookmarks;
+        this._bookmarksByChapter = (bm && typeof bm === 'object' && !Array.isArray(bm)) ? bm : {};
       }
 
       if (sres.ok && sres.data) this._applySettings(sres.data);
@@ -320,6 +334,12 @@
       const today = document.createElement('span');
       today.className = 'rd-today';
       this.todayEl = today;
+      // UX7 #3: 顶栏「🔖 书签」入口 —— 不再只藏在 Ctrl+K 命令面板里
+      const bookmarksBtn = document.createElement('button');
+      bookmarksBtn.className = 'rd-gear rd-bookmarks-btn';
+      bookmarksBtn.textContent = '🔖';
+      bookmarksBtn.title = '书签';
+      bookmarksBtn.onclick = () => this.bookmarks.showPanel();
       const gear = document.createElement('button');
       gear.className = 'rd-gear';
       gear.textContent = '⚙';
@@ -335,7 +355,7 @@
         this.settingsOverlay.setSettings(this._settings);
         this.settingsOverlay.toggle();
       };
-      top.append(back, title, today, count, gear);
+      top.append(back, title, today, count, bookmarksBtn, gear);
       wrap.appendChild(top);
 
       // 正文容器 (滚动条归窗口)
@@ -552,6 +572,14 @@
       else this.player.audio = null;
       if (this.globalStop) this.globalStop.setVisible(!!ch.audioFile);
       this.rd.restoreVerified((this._verifiedMap && this._verifiedMap[this.chapterIndex]) || []);
+      // UX7 #3: 本章书签从按章分组的 map 里读回 (不再是切章就清空不回填)
+      const chapterBm = this._bookmarksByChapter[String(this.chapterIndex)] || [];
+      this.bookmarks.restore(chapterBm);
+      if (chapterBm.length && this.renderer) await this.renderer.ensureRendered(Math.max(...chapterBm));
+      chapterBm.forEach((i) => {
+        const block = document.querySelector(`.atomic-block[data-index="${i}"]`);
+        if (block) block.classList.add('bookmark-active');
+      });
     }
 
     /** S5: 用当前模式/粒度重建正文 (模式切换时复用 renderer, 保持滚动位置) */
@@ -664,16 +692,9 @@
         this.bookmarks.restore([]);
         await this._loadChapter();
       }
-      const bookmarks = state.bookmarks || state.bm;
-      if (Array.isArray(bookmarks)) {
-        this.bookmarks.restore(bookmarks);
-        const maxBm = this.bookmarks.bookmarks.size ? Math.max(...this.bookmarks.bookmarks) : -1;
-        if (maxBm >= 0 && this.renderer) await this.renderer.ensureRendered(maxBm);
-        this.bookmarks.bookmarks.forEach(i => {
-          const block = document.querySelector(`.atomic-block[data-index="${i}"]`);
-          if (block) block.classList.add('bookmark-active');
-        });
-      }
+      // UX7 #3: 书签按章持久化, 已经在 _loadChapter() 里按 this.chapterIndex 读回
+      // (无论是这里上面刚跳的章, 还是 open() 里默认的第 0 章都走同一条路径, 不再在这里
+      // 重复处理——避免两处各写一份逻辑、又漏改一处的老毛病)。
       this.rd.restoreVerified((this._verifiedMap && this._verifiedMap[this.chapterIndex]) || []);
       const pos = state.position_ms != null ? state.position_ms : 0;
       if (pos && chapter === this.chapterIndex) {
@@ -1092,11 +1113,16 @@
 
     _saveProgress() {
       if (!this.bookId) return;
+      // UX7 #3: 当前章的书签集合写回按章分组的 map, 再整个 map 落盘——不会覆盖其它章
+      const currentIdx = String(this.chapterIndex);
+      const currentBm = Array.from(this.bookmarks.bookmarks);
+      if (currentBm.length) this._bookmarksByChapter[currentIdx] = currentBm;
+      else delete this._bookmarksByChapter[currentIdx];
       const state = {
         bookKey: this.bookId,
         chapter: this.chapterIndex,
         position_ms: this.player.currentTimeMs,
-        bookmarks: Array.from(this.bookmarks.bookmarks),
+        bookmarks: this._bookmarksByChapter,
         verified: this._verifiedMap || {},
         time_spent_ms: this.player.timeSpentMs || 0, // M7 R18
       };

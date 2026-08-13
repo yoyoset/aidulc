@@ -16,6 +16,10 @@
     },
     get(bookKey) { return AiduBridge.reading.get(bookKey, currentUser()); },
     stats(bookKey, days) { return AiduBridge.invoke('reading_stats', { bookKey, userId: currentUser(), days }); }, // M7 R37
+    // UX7 #3: 全书各章书签 (跨章遍历面板用), profileId 只是回显不参与查询
+    bookmarksList(bookKey, profileId) {
+      return AiduBridge.invoke('bookmarks_list', { bookKey, userId: currentUser(), profileId: profileId || 'default' });
+    },
   };
 
   global.AiduReadingService = ReadingService;

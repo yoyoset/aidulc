@@ -12,12 +12,21 @@
      *   onSave(): 书签集合变化时调用 (宿主落盘)
      *   onPlay(index): 面板里点书签行 → 跳转播放
      *   getSentences(): () => Sentence[] 当前章句子 (面板显示原文预览)
+     *   getChapterIndex(): () => number 当前章下标 (排除, 不在"其它章节"里重复列)
+     *   listAllChapters(): () => Promise<{[chapter]: number[]}|null> UX7 #3 全书书签
+     *     (接 bookmarks_list 命令; 返回 null 表示取失败, 面板不显示"其它章节"分节)
+     *   getChapterTitle(idx): (idx) => string 章名 (面板里跨章行的标签)
+     *   onJumpChapter(chapter, index): 点跨章书签行 → 跳章定位
      */
     constructor(deps) {
       this.bookmarks = new Set(); // 句下标
       this.onSave = deps.onSave || (() => {});
       this.onPlay = deps.onPlay || (() => {});
       this.getSentences = deps.getSentences || (() => []);
+      this.getChapterIndex = deps.getChapterIndex || (() => 0);
+      this.listAllChapters = deps.listAllChapters || (() => Promise.resolve(null));
+      this.getChapterTitle = deps.getChapterTitle || ((idx) => '第 ' + (idx + 1) + ' 章');
+      this.onJumpChapter = deps.onJumpChapter || (() => {});
     }
 
     /** 恢复集合 (从阅读状态加载); highlight 由宿主根据 renderer 做 */
@@ -46,8 +55,8 @@
       this.onSave();
     }
 
-    /** 渲染书签抽屉面板 (重复调用 = 关闭) */
-    showPanel() {
+    /** 渲染书签抽屉面板 (重复调用 = 关闭)。UX7 #3: 额外拉一次全书书签, 列"其它章节"分节。 */
+    async showPanel() {
       const existing = document.getElementById('bookmarks-panel');
       if (existing) { existing.remove(); return; }
       const panel = document.createElement('div');
@@ -56,7 +65,7 @@
       const header = document.createElement('div');
       header.className = 'bookmarks-header';
       const title = document.createElement('span');
-      title.textContent = '书签 (' + this.bookmarks.size + ')';
+      title.textContent = '本章书签 (' + this.bookmarks.size + ')';
       const close = document.createElement('button');
       close.className = 'btn-small';
       close.textContent = '✕';
@@ -70,7 +79,7 @@
       const sentences = this.getSentences();
       const idxs = Array.from(this.bookmarks).sort((a, b) => a - b);
       if (!idxs.length) {
-        list.appendChild(this._makeRow('暂无书签。播放时点"🔖 当前句书签"。', null));
+        list.appendChild(this._makeRow('本章暂无书签。播放时点"🔖 当前句书签"。', null));
       }
       idxs.forEach(i => {
         const s = sentences[i];
@@ -80,6 +89,34 @@
           row.onclick = () => { this.onPlay(i); panel.remove(); };
         }
         list.appendChild(row);
+      });
+
+      // UX7 #3: 其它章节的书签(跨章遍历), 只给"第 N 章 · 第 i 句"标签, 没有原文预览
+      // (要拿其它章原文得再发一次章节内容请求, 面板打开这一下没必要多这个 IPC)。
+      const all = await this.listAllChapters();
+      if (!all || typeof all !== 'object') return;
+      if (!document.body.contains(panel)) return; // 面板在 await 期间被关了
+      const curIdx = this.getChapterIndex();
+      const otherEntries = Object.keys(all)
+        .map((k) => [Number(k), all[k]])
+        .filter(([ch, arr]) => ch !== curIdx && Array.isArray(arr) && arr.length)
+        .sort((a, b) => a[0] - b[0]);
+      if (!otherEntries.length) return;
+      const otherHeader = document.createElement('div');
+      otherHeader.className = 'bookmarks-header bookmarks-header-other';
+      const otherTitle = document.createElement('span');
+      otherTitle.textContent = '其它章节';
+      otherHeader.appendChild(otherTitle);
+      panel.appendChild(otherHeader);
+      const otherList = document.createElement('div');
+      otherList.className = 'bookmarks-list';
+      panel.appendChild(otherList);
+      otherEntries.forEach(([ch, arr]) => {
+        arr.slice().sort((a, b) => a - b).forEach((i) => {
+          const row = this._makeRow(this.getChapterTitle(ch) + ' · 第 ' + (i + 1) + ' 句', null);
+          row.onclick = () => { this.onJumpChapter(ch, i); panel.remove(); };
+          otherList.appendChild(row);
+        });
       });
     }
 

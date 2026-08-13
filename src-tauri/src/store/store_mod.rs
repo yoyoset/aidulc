@@ -722,6 +722,59 @@ impl Db {
             )
             .map_err(|e| format!("迁移 v25 失败: {e}"))?;
         }
+        // v26 (UX7 #3, 2026-08-13): reading_state.bookmarks 从"当前章一组下标" number[]
+        // 改成按章分组 { chapter: number[] }——旧格式切章时互相覆盖, 导致"书签没了", 见
+        // docs/GOAL_2026-08-13_UX7.md 二/#3。老数据不丢: 数组按该行自己的 chapter 列归位;
+        // 已经是对象的行原样跳过 (幂等, 防止迁移重跑把数据二次包裹)。
+        if version < 26 {
+            conn.execute_batch("BEGIN IMMEDIATE;")
+                .map_err(|e| format!("迁移 v26 开始失败: {e}"))?;
+            let result = (|| -> Result<(), String> {
+                let rows: Vec<(String, String, i64, String)> = {
+                    let mut stmt = conn
+                        .prepare(
+                            "SELECT user_id, book_key, chapter, bookmarks FROM reading_state",
+                        )
+                        .map_err(|e| format!("迁移 v26 读取失败: {e}"))?;
+                    let mapped = stmt
+                        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+                        .map_err(|e| format!("迁移 v26 读取失败: {e}"))?;
+                    mapped
+                        .collect::<Result<Vec<_>, rusqlite::Error>>()
+                        .map_err(|e| format!("迁移 v26 读取失败: {e}"))?
+                };
+                for (user_id, book_key, chapter, bm_text) in rows {
+                    let parsed: serde_json::Value = serde_json::from_str(&bm_text)
+                        .unwrap_or(serde_json::Value::Array(vec![]));
+                    if let serde_json::Value::Array(arr) = parsed {
+                        let mut obj = serde_json::Map::new();
+                        obj.insert(chapter.to_string(), serde_json::Value::Array(arr));
+                        let new_text = serde_json::Value::Object(obj).to_string();
+                        conn.execute(
+                            "UPDATE reading_state SET bookmarks = ?1 WHERE user_id = ?2 AND book_key = ?3",
+                            params![new_text, user_id, book_key],
+                        )
+                        .map_err(|e| format!("迁移 v26 写入失败: {e}"))?;
+                    }
+                    // 已是对象 → 幂等跳过
+                }
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, applied_at) VALUES (26, strftime('%s','now')*1000)",
+                    [],
+                )
+                .map_err(|e| format!("迁移 v26 失败: {e}"))?;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => conn
+                    .execute_batch("COMMIT;")
+                    .map_err(|e| format!("迁移 v26 提交失败: {e}"))?,
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK;");
+                    return Err(format!("迁移 v26 失败: {e}"));
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -960,6 +1013,50 @@ mod tests {
     }
 
     #[test]
+    fn v26_migrates_legacy_bookmarks_array_by_chapter() {
+        // UX7 #3 (2026-08-13): 老 reading_state.bookmarks 是不分章的 number[]。
+        // 迁移后应按该行自己的 chapter 归位成 {chapter: number[]}, 且幂等 (重跑不二次包裹)。
+        let path = temp_path("v26");
+        let _ = std::fs::remove_file(&path);
+        {
+            let db = Db::open(&path).unwrap();
+            let conn = db.conn.lock().unwrap();
+            conn.execute_batch(
+                "INSERT INTO reading_state (user_id, book_key, chapter, position_ms, bookmarks, updated_at)
+                    VALUES ('me', 'legacy-book', 2, 500, '[3,7]', 100);
+                 INSERT INTO reading_state (user_id, book_key, chapter, position_ms, bookmarks, updated_at)
+                    VALUES ('me', 'already-migrated', 1, 0, '{\"1\":[9]}', 100);
+                 DELETE FROM schema_migrations WHERE version=26;",
+            )
+            .unwrap();
+            drop(conn);
+        }
+        // 重开触发迁移
+        let db = Db::open(&path).unwrap();
+        let conn = db.conn.lock().unwrap();
+        let bm: String = conn
+            .query_row(
+                "SELECT bookmarks FROM reading_state WHERE book_key='legacy-book'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(bm, "{\"2\":[3,7]}", "老数组应按 chapter=2 归位成对象");
+        let bm2: String = conn
+            .query_row(
+                "SELECT bookmarks FROM reading_state WHERE book_key='already-migrated'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(bm2, "{\"1\":[9]}", "已是对象的行应幂等跳过, 不被二次包裹");
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-wal"));
+        let _ = std::fs::remove_file(format!("{path}-shm"));
+    }
+
+    #[test]
     fn v24_migrates_legacy_sync_state_rows() {
         // UX5 #3 (M3): v23 老 sync_state (user_id 主键, 含 endpoint_key) → v24 复合主键。
         // 老行按各自的 endpoint_key 落一行 (enabled=1); 空 endpoint_key (从未同步) 丢弃。
@@ -987,7 +1084,9 @@ mod tests {
                  DELETE FROM schema_migrations WHERE version=24;
                  -- 撤 v25 (model_registry.detected_family), 让迁移从 v23 状态完整重跑
                  ALTER TABLE model_registry DROP COLUMN detected_family;
-                 DELETE FROM schema_migrations WHERE version=25;",
+                 DELETE FROM schema_migrations WHERE version=25;
+                 -- 撤 v26 (reading_state.bookmarks 按章分组), 让迁移从 v23 状态完整重跑
+                 DELETE FROM schema_migrations WHERE version=26;",
             )
             .unwrap();
             drop(conn);
@@ -1100,7 +1199,7 @@ mod tests {
                  DROP TABLE highlights;
                  ALTER TABLE highlights_v17 RENAME TO highlights;
                  DROP TABLE sync_state;
-                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23, 24, 25);
+                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23, 24, 25, 26);
                  -- 撤 v25 列, 让 v25 迁移能重跑
                  ALTER TABLE model_registry DROP COLUMN detected_family;
                  INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,source_book_id,
@@ -1203,6 +1302,8 @@ mod tests {
                  -- 撤 v25 (model_registry.detected_family), 让迁移从 v19 状态完整重跑
                  ALTER TABLE model_registry DROP COLUMN detected_family;
                  DELETE FROM schema_migrations WHERE version=25;
+                 -- 撤 v26 (reading_state.bookmarks 按章分组), 让迁移从 v19 状态完整重跑
+                 DELETE FROM schema_migrations WHERE version=26;
                  -- vocab key 还原为 v19 的 {profile}:{lemma} 形式
                  UPDATE vocab SET key = substr(key, 4) WHERE key LIKE 'me:%';
                  UPDATE dictionary SET key = substr(key, 4) WHERE key LIKE 'me:%';",

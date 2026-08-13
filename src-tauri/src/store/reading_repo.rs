@@ -12,7 +12,10 @@ pub struct ReadingState {
     pub book_key: String,
     pub chapter: i64,
     pub position_ms: i64,
-    pub bookmarks: Vec<i64>, // 句下标
+    // UX7 #3 (2026-08-13, 迁移 v26): 按章分组 {章下标(字符串): [句下标,...]}, 和 verified
+    // 字段同一惯例。老格式是不分章的单一 number[], 切章互相覆盖导致"书签没了"——不能再犯。
+    #[serde(default)]
+    pub bookmarks: std::collections::HashMap<String, Vec<i64>>,
     // S5 (2026-08-08): 每章"已核对"句下标。JSON 对象 {章下标: [句下标,...]}。
     // 按章隔离(书签 Set 跨章串位 R4-1 是前车之鉴)。旧前端无此字段时反序列化容错为空对象。
     #[serde(default)]
@@ -164,7 +167,7 @@ mod tests {
             book_key: "alice_self".into(),
             chapter: 0,
             position_ms: 12345,
-            bookmarks: vec![3, 7],
+            bookmarks: std::collections::HashMap::from([("0".to_string(), vec![3, 7])]),
             verified: Default::default(),
             time_spent_ms: 90000,
         };
@@ -181,7 +184,7 @@ mod tests {
             book_key: "k".into(),
             chapter: 0,
             position_ms: 100,
-            bookmarks: vec![],
+            bookmarks: Default::default(),
             verified: Default::default(),
             time_spent_ms: 0,
         })
@@ -191,7 +194,7 @@ mod tests {
             book_key: "k".into(),
             chapter: 1,
             position_ms: 500,
-            bookmarks: vec![1],
+            bookmarks: std::collections::HashMap::from([("1".to_string(), vec![1])]),
             verified: Default::default(),
             time_spent_ms: 60000,
         })
@@ -199,7 +202,7 @@ mod tests {
         let got = repo.get("me", "k").unwrap();
         assert_eq!(got.chapter, 1);
         assert_eq!(got.position_ms, 500);
-        assert_eq!(got.bookmarks, vec![1]);
+        assert_eq!(got.bookmarks.get("1"), Some(&vec![1]), "按章存, 第 1 章书签应可读回");
         assert_eq!(got.time_spent_ms, 60000, "阅读时长应持久化");
     }
 
@@ -213,7 +216,7 @@ mod tests {
             book_key: "b".into(),
             chapter: 0,
             position_ms: 100,
-            bookmarks: vec![],
+            bookmarks: Default::default(),
             verified: Default::default(),
             time_spent_ms: 0,
         })
@@ -223,14 +226,17 @@ mod tests {
             book_key: "b".into(),
             chapter: 2,
             position_ms: 500,
-            bookmarks: vec![9],
+            bookmarks: std::collections::HashMap::from([("2".to_string(), vec![9])]),
             verified: Default::default(),
             time_spent_ms: 0,
         })
         .unwrap();
         assert_eq!(repo.get("me", "b").unwrap().position_ms, 100);
         assert_eq!(repo.get("u-kid", "b").unwrap().chapter, 2);
-        assert_eq!(repo.get("u-kid", "b").unwrap().bookmarks, vec![9]);
+        assert_eq!(
+            repo.get("u-kid", "b").unwrap().bookmarks.get("2"),
+            Some(&vec![9])
+        );
     }
 
     #[test]
@@ -245,7 +251,7 @@ mod tests {
             book_key: "b".into(),
             chapter: 3,
             position_ms: 0,
-            bookmarks: vec![],
+            bookmarks: Default::default(),
             verified,
             time_spent_ms: 0,
         })
@@ -266,7 +272,7 @@ mod tests {
             book_key: "b".into(),
             chapter: 0,
             position_ms: 0,
-            bookmarks: vec![],
+            bookmarks: Default::default(),
             verified: Default::default(),
             time_spent_ms: 100,
         })
@@ -276,7 +282,7 @@ mod tests {
             book_key: "b".into(),
             chapter: 0,
             position_ms: 0,
-            bookmarks: vec![],
+            bookmarks: Default::default(),
             verified: Default::default(),
             time_spent_ms: 150,
         })
@@ -287,7 +293,7 @@ mod tests {
             book_key: "b".into(),
             chapter: 0,
             position_ms: 0,
-            bookmarks: vec![],
+            bookmarks: Default::default(),
             verified: Default::default(),
             time_spent_ms: 150,
         })

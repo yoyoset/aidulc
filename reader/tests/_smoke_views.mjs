@@ -2389,5 +2389,31 @@ console.log('== 13. UX7 #2 (2026-08-13): 浮动全局播放/停止按钮 ==');
   check('UX7#2: 无音频章节 setVisible(false) → 重新 hidden', gs.el.hidden === true, 'hidden=' + gs.el.hidden);
 }
 
+console.log('== 14. UX7 #3 (2026-08-13): 书签按章持久化 + 跨章遍历面板 ==');
+{
+  load('views/reader/bookmarks.js');
+  const jumpCalls = [];
+  const bp = new globalThis.BookmarkPanel({
+    getSentences: () => [{ original_text: 'Hello world.' }, { original_text: 'Second sentence.' }],
+    getChapterIndex: () => 2, // 当前在第 3 章 (0-based idx 2)
+    getChapterTitle: (idx) => 'Chapter ' + (idx + 1),
+    onJumpChapter: (ch, i) => jumpCalls.push([ch, i]),
+    listAllChapters: () => Promise.resolve({ '0': [1, 2], '2': [0] }), // 第 2 章 = 当前章, 应被排除
+  });
+  bp.restore([0]);
+  await bp.showPanel();
+  const panel = document.body._children.find((c) => c.id === 'bookmarks-panel');
+  check('UX7#3: showPanel 挂出面板', !!panel, String(!!panel));
+  const headers = panel ? queryAll(panel, '.bookmarks-header-other') : [];
+  check('UX7#3: 有「其它章节」分节', headers.length === 1, 'headers=' + headers.length);
+  const otherLists = panel ? queryAll(panel, '.bookmarks-list') : [];
+  // 第一个 .bookmarks-list 是本章(1 行), 第二个是跨章(第 0 章 2 条书签)
+  check('UX7#3: 跨章分节列出第 0 章的 2 条书签', otherLists[1] && otherLists[1]._children.length === 2, otherLists[1] && otherLists[1]._children.length);
+  check('UX7#3: 当前章 (第 2 章) 不出现在跨章分节里', !(otherLists[1] && otherLists[1]._children.some((r) => r._children[0] && String(r._children[0].textContent).includes('Chapter 3'))));
+  const row0 = otherLists[1] && otherLists[1]._children[0];
+  row0 && row0.onclick();
+  check('UX7#3: 点跨章书签行 → 调 onJumpChapter(0, 1)', jumpCalls.length === 1 && jumpCalls[0][0] === 0 && jumpCalls[0][1] === 1, JSON.stringify(jumpCalls));
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

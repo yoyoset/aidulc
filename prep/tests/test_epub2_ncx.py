@@ -364,6 +364,110 @@ class TestLoadEpub2:
             os.remove(tmp)
 
 
+class TestLoadEpubCover:
+    """K2-2 (2026-08-13): 封面识别 —— EPUB2 <meta name="cover"> 与 EPUB3 properties="cover-image"。"""
+
+    def _opf(self, extra_manifest: str, extra_metadata: str = "") -> str:
+        return f"""<?xml version="1.0"?>
+        <package xmlns="http://www.idpf.org/2007/opf">
+          <metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">Cover Book</dc:title>{extra_metadata}</metadata>
+          <manifest>
+            <item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/>
+            {extra_manifest}
+          </manifest>
+          <spine><itemref idref="c1"/></spine>
+        </package>"""
+
+    def test_epub2_meta_cover_resolved_via_manifest(self):
+        opf = self._opf(
+            '<item id="cover-img" href="images/cover.jpg" media-type="image/jpeg"/>',
+            '<meta name="cover" content="cover-img"/>',
+        )
+        extra = {"c1.xhtml": "<html><body><p>Body sentence here is long enough.</p></body></html>"}
+        tmp = _make_epub(opf, extra)
+        try:
+            book = load_epub(tmp)
+            assert book.cover == "images/cover.jpg"
+        finally:
+            os.remove(tmp)
+
+    def test_epub3_properties_cover_image(self):
+        opf = self._opf(
+            '<item id="cover-img" href="cover.jpg" media-type="image/jpeg" properties="cover-image"/>'
+        )
+        extra = {"c1.xhtml": "<html><body><p>Body sentence here is long enough.</p></body></html>"}
+        tmp = _make_epub(opf, extra)
+        try:
+            book = load_epub(tmp)
+            assert book.cover == "cover.jpg"
+        finally:
+            os.remove(tmp)
+
+    def test_no_cover_gives_none_not_error(self):
+        opf = self._opf("")
+        extra = {"c1.xhtml": "<html><body><p>Body sentence here is long enough.</p></body></html>"}
+        tmp = _make_epub(opf, extra)
+        try:
+            book = load_epub(tmp)
+            assert book.cover is None
+        finally:
+            os.remove(tmp)
+
+
+class TestPackCover:
+    """K2-2: pack._copy_cover 从源 EPUB 拷封面进书包根, 失败/缺失不报错(展示性字段)。"""
+
+    def test_copies_cover_with_original_extension(self):
+        from aidulc_prep.core.models import Book
+        from aidulc_prep.pipeline.pack import _copy_cover
+        import tempfile
+        import shutil
+
+        src = os.path.join(os.path.dirname(__file__), "..", "_tmp_cover_src.epub")
+        with zipfile.ZipFile(src, "w") as zf:
+            zf.writestr("OEBPS/images/cover.jpg", b"\xff\xd8\xfffakejpeg")
+        book = Book(title="T", cover="OEBPS/images/cover.jpg")
+        bookpack_dir = tempfile.mkdtemp(prefix="aidulc_cover_")
+        try:
+            result = _copy_cover(book, bookpack_dir, src)
+            assert result == "cover.jpg"
+            with open(os.path.join(bookpack_dir, "cover.jpg"), "rb") as f:
+                assert f.read() == b"\xff\xd8\xfffakejpeg"
+        finally:
+            os.remove(src)
+            shutil.rmtree(bookpack_dir, ignore_errors=True)
+
+    def test_no_cover_returns_none(self):
+        from aidulc_prep.core.models import Book
+        from aidulc_prep.pipeline.pack import _copy_cover
+        import tempfile
+        import shutil
+
+        book = Book(title="T", cover=None)
+        bookpack_dir = tempfile.mkdtemp(prefix="aidulc_cover2_")
+        try:
+            assert _copy_cover(book, bookpack_dir, "irrelevant.epub") is None
+        finally:
+            shutil.rmtree(bookpack_dir, ignore_errors=True)
+
+    def test_missing_cover_in_zip_returns_none_not_fatal(self):
+        from aidulc_prep.core.models import Book
+        from aidulc_prep.pipeline.pack import _copy_cover
+        import tempfile
+        import shutil
+
+        src = os.path.join(os.path.dirname(__file__), "..", "_tmp_cover_src3.epub")
+        with zipfile.ZipFile(src, "w") as zf:
+            zf.writestr("OEBPS/images/other.jpg", b"data")
+        book = Book(title="T", cover="OEBPS/images/nonexistent.jpg")
+        bookpack_dir = tempfile.mkdtemp(prefix="aidulc_cover3_")
+        try:
+            assert _copy_cover(book, bookpack_dir, src) is None
+        finally:
+            os.remove(src)
+            shutil.rmtree(bookpack_dir, ignore_errors=True)
+
+
 class TestMupdfFallbackRouting:
     """R3.2 (2026-08-08): pdf/mobi/azw3/fb2 走 PyMuPDF 兜底, epub 不走。"""
 

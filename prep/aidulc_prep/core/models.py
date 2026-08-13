@@ -114,6 +114,9 @@ class Chapter:
 class Book:
     title: str
     chapters: list[Chapter] = field(default_factory=list)
+    # K2-2 (2026-08-13): 封面 —— loader 里是书根相对路径 (同 ChapterImage.file 的约定),
+    # pack.py 拷进书包后改写成书包内路径 (如 "cover.jpg"); 抽不到留 None, 前端占位展示。
+    cover: str | None = None
 
     @property
     def sentence_count(self) -> int:

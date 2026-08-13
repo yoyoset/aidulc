@@ -61,6 +61,13 @@ pub fn parse_bookpack_counts(text: &str) -> (i64, i64) {
     (sentences, audio_ms / 1000)
 }
 
+/// K2-2 (2026-08-13): 从 bookpack.json 文本取封面书包内相对路径 (无封面/解析失败返回 None,
+/// 展示性字段, 同 parse_bookpack_counts 的"失败不阻断列表"原则)。
+pub fn parse_bookpack_cover(text: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(text).ok()?;
+    v.get("cover")?.as_str().map(String::from)
+}
+
 /// 登记一本书到书库 (幂等: 同 id 覆盖)。
 /// v8 资产模型: source_book_id 关联原书; llm_id/tts_id/nlp_id 是本次处理用的模型快照
 /// (不同模型组合 = 不同资产, 完成库按 (原书, 模型) 分组展示)。
@@ -243,6 +250,21 @@ mod tests {
         assert_eq!(parse_bookpack_counts("not json"), (0, 0));
         assert_eq!(parse_bookpack_counts(r#"{"no":"chapters"}"#), (0, 0));
         assert_eq!(parse_bookpack_counts(r#"{"chapters":[]}"#), (0, 0));
+    }
+
+    #[test]
+    fn parse_cover_reads_top_level_field() {
+        assert_eq!(
+            parse_bookpack_cover(r#"{"cover":"cover.jpg"}"#),
+            Some("cover.jpg".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_cover_missing_or_null_is_none_not_error() {
+        assert_eq!(parse_bookpack_cover("not json"), None);
+        assert_eq!(parse_bookpack_cover(r#"{"no":"cover"}"#), None);
+        assert_eq!(parse_bookpack_cover(r#"{"cover":null}"#), None);
     }
 
     #[test]

@@ -82,6 +82,9 @@ def pack_book(
     for ch in book.chapters:
         _copy_chapter_images(ch, images_dir, job.get("book_path", ""))
 
+    # K2-2 (2026-08-13): 封面拷进书包根 (同 _copy_chapter_images 的读字节套路, 单文件版)
+    cover_file = _copy_cover(book, bookpack_dir, job.get("book_path", ""))
+
     # 组装 bookpack.json
     profile = job.get("profile") or {}
     bp = {
@@ -96,6 +99,7 @@ def pack_book(
         },
         "generatedAt": int(__import__("time").time() * 1000),
         "prepVersion": "0.1.0",
+        "cover": cover_file,
         "chapters": [
             {
                 "index": ch.index,
@@ -153,6 +157,27 @@ def _rm_quiet(path: str):
             os.remove(path)
     except OSError:
         pass
+
+
+def _copy_cover(book, bookpack_dir: str, source_book: str) -> str | None:
+    """把封面从源书 (EPUB zip) 拷进书包根, 返回书包内相对路径 (无封面/拷贝失败返回 None,
+    不让打包失败 —— 封面是展示性数据, 同 _copy_chapter_images 的"缺了就跳过"原则)。"""
+    if not book.cover:
+        return None
+    if not (source_book and os.path.exists(source_book)):
+        return None
+    import zipfile
+    try:
+        with zipfile.ZipFile(source_book) as zf:
+            src = book.cover.replace("\\", "/")
+            data = zf.read(src)
+    except (zipfile.BadZipFile, KeyError):
+        return None
+    ext = os.path.splitext(src)[1] or ".jpg"
+    dest_name = f"cover{ext}"
+    with open(os.path.join(bookpack_dir, dest_name), "wb") as f:
+        f.write(data)
+    return dest_name
 
 
 def _copy_chapter_images(ch, images_dir: str, source_book: str) -> None:

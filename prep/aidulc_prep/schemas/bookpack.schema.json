@@ -57,6 +57,13 @@
       "type": "string",
       "description": "生成该书包的 prep 版本"
     },
+    "cover": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "K2-2 (2026-08-13): 封面, 书包内相对路径 (如 cover.jpg)。源书没有封面时为 null, 是展示性字段, 不影响可读性。"
+    },
     "chapters": {
       "type": "array",
       "minItems": 1,

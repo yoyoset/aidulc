@@ -168,6 +168,17 @@ pub fn library_list(
                         obj.insert("time_spent_ms".into(), serde_json::json!(rs.time_spent_ms));
                     }
                 }
+                // K2-2 (2026-08-13): 封面 —— 同 original 分支一样从 bookpack.json 轻量解析
+                let bp = std::path::Path::new(&e.pack_dir).join("bookpack.json");
+                if let Ok(text) = std::fs::read_to_string(&bp) {
+                    if let Some(cover) =
+                        crate::application::library_service::parse_bookpack_cover(&text)
+                    {
+                        if let Some(obj) = v.as_object_mut() {
+                            obj.insert("cover_file".into(), serde_json::json!(cover));
+                        }
+                    }
+                }
                 attach_pack_state(&mut v);
                 v
             })
@@ -202,9 +213,13 @@ pub fn library_list(
                 if let Ok(text) = std::fs::read_to_string(&bp) {
                     let (sentences, audio_seconds) =
                         crate::application::library_service::parse_bookpack_counts(&text);
+                    let cover = crate::application::library_service::parse_bookpack_cover(&text);
                     if let Some(o) = x.as_object_mut() {
                         o.insert("sentence_count".into(), serde_json::json!(sentences));
                         o.insert("audio_seconds".into(), serde_json::json!(audio_seconds));
+                        if let Some(c) = cover {
+                            o.insert("cover_file".into(), serde_json::json!(c));
+                        }
                     }
                 }
             }

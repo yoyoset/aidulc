@@ -23,18 +23,34 @@
 ### K2-1 响应式治理 ✅ 已完成 (本次会话)
 `.library-toolbar` 加 `flex-wrap` + 搜索框弹性下限 + 分段横滚兜底。
 
-### K2-2 封面抽取管线
-- `prep/aidulc_prep/pipeline/loader/epub.py`: EPUB manifest 里找 `cover-image` /
-  OPF `<meta name="cover">` 引用的图片, 抽取存到书的处理目录下 (如 `cover.jpg`),
-  抽不到就留空 (不是所有 EPUB 都带封面, 前端要有兜底展示, 不能假设有图)。
-- `contracts/`: book/edition 的 schema 加 `cover_path`(可选字段), 跑
-  `scripts/sync_schema.ps1` 同步 + `-Verify`。
-- Rust: `books_repo.rs`/`editions_repo.rs` 落这个字段; 需要一个 IPC 命令把封面文件
-  转成前端能显示的 URL/base64 (Tauri 本地文件在 webview 里不能直接 `<img src="C:\...">`,
-  要走 `convertFileSrc` 或专门命令读字节转 data URI ——这一步先查 Tauri 现有约定怎么处理
-  本地图片, 全仓搜一遍别重新发明)。
-- 前端: 书卡加封面缩略图, 无封面时用"书名首字 + 按书名 hash 出的主题色系"占位块
-  (不用灰色空块——那不是"成熟专业", 至少要看着像有意设计的占位)。
+### K2-2 封面抽取管线 ✅ 已完成
+实测比预想的简单——全仓已有 `read_image` 命令(R4 2026-08-08 为原书插图建的,
+读字节转 base64, 路径 canonicalize + 越界校验都现成)和 `pack_dir` 字段(编辑
+listing 里本来就带), 不需要新 Tauri 命令/DB 迁移, 纯粹是"多解析一个字段"。
+
+- `prep/aidulc_prep/core/models.py`: `Book.cover: str | None`。
+- `prep/aidulc_prep/pipeline/loader/epub.py`: 从 OPF 识别封面, EPUB2
+  `<meta name="cover" content="id"/>` 查 manifest, EPUB3
+  `properties="cover-image"` 直接读 item href, 都没有留 `None`。
+- `prep/aidulc_prep/pipeline/pack.py`: `_copy_cover()` 镜像已有的
+  `_copy_chapter_images()` 套路, 把封面字节从源 EPUB 拷进书包根 (`cover.<ext>`),
+  `bookpack.json` 顶层加 `"cover"` 字段。
+- `contracts/bookpack.schema.json`(**权威源**, 不是 `prep/aidulc_prep/schemas/`
+  那份拷贝——本期踩过一次坑, 见下)加 `cover` 可选字段, 未升 `schemaVersion`
+  (对齐 R4 images 字段的先例: 纯新增可选字段不算破坏性变更)。
+- Rust: `library_service.rs::parse_bookpack_cover()` 镜像
+  `parse_bookpack_counts()`; `commands/library.rs::library_list` 的
+  `product`/`original` 两个分支都往 edition JSON 里塞 `cover_file`(`product`
+  分支此前完全没有 bookpack.json 读取, 这次一并补上)。
+- 前端: `library_view.js` 新增 `_buildCover()`, 书卡走 `AiduLibraryService.readImage
+  (pack_dir, cover_file)`, 拿到 base64 就渲染 `<img>`, 无封面/加载失败时回落到书名
+  首字 + 按书名哈希出的色系占位块(复用 `tokens.css` 已有的 5 色 swatch, 不用灰块)。
+
+**本期踩的坑**: 一开始把 `prep/aidulc_prep/schemas/bookpack.schema.json`(**拷贝**)
+当成权威源改了, 跑 `sync_schema.ps1`(方向是 `contracts/` → `prep/schemas/`)后被
+静默覆盖回旧内容, `-Verify` 通过只是因为两边"一致地都没有这个字段", 不是改动生效
+——这正是 CLAUDE.md 里那条契约规约想防的漂移, 这次是自己踩了一遍。改回 `contracts/`
+后重新同步验证, 补记在这里。
 
 ### K2-3 视图模式切换
 - 现有列表视图保留(信息密度最高, 处理中的书需要看进度条/阶段文案, 不能丢)。

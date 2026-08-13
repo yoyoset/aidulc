@@ -375,6 +375,24 @@ def load_epub_with_spine_health(path: str) -> tuple[Book, list[str]]:
                 manifest[mid.group(1)] = mhref.group(1)
         files = [manifest.get(i) for i in spine if i in manifest]
 
+        # K2-2 (2026-08-13): 封面 —— EPUB2 <meta name="cover" content="id"/> 查 manifest;
+        # EPUB3 manifest item 直接标 properties="cover-image"。两种都没有就是真没封面
+        # (不是所有书都带, 前端要有占位兜底, 这里不报错不强求)。
+        cover_href = None
+        cm = re.search(r'<meta[^>]*name="cover"[^>]*content="([^"]+)"', opf)
+        if cm and cm.group(1) in manifest:
+            cover_href = manifest[cm.group(1)]
+        if not cover_href:
+            for item in re.findall(r'<item[^>]*/?>', opf):
+                if re.search(r'properties="[^"]*cover-image[^"]*"', item):
+                    mhref = re.search(r'href="([^"]+)"', item)
+                    if mhref:
+                        cover_href = mhref.group(1)
+                        break
+        cover = None
+        if cover_href:
+            cover = _norm_zip_path(f"{opf_dir}/{cover_href}" if opf_dir else cover_href)
+
         # 质量修复 3 (章节划分): 用 TOC 划章节 (真实标题 + 过滤非正文)
         # 兼容 spine id 与 manifest id 不一致的书 (Wolf 21: spine=nav_00, manifest=nav_1)
         # → 直接从 manifest 里找 nav.xhtml (properties="nav"), 不依赖 spine 映射
@@ -469,7 +487,7 @@ def load_epub_with_spine_health(path: str) -> tuple[Book, list[str]]:
         and not (f in toc_nonbody and f not in toc_body)
         and (first_body_idx is None or i >= first_body_idx)
     ]
-    return Book(title=title, chapters=chapters), uncovered
+    return Book(title=title, chapters=chapters, cover=cover), uncovered
 
 
 def _is_real_sentence(text: str) -> bool:

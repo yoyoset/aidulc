@@ -17,6 +17,43 @@
     tts: '语音', align: '对齐', pack: '排版', spawn_error: '启动失败',
   };
 
+  /** K2-2 (2026-08-13): 无封面占位色系 —— 复用 tokens.css 已有的 5 色系 swatch,
+   *  书名 hash 出稳定色, 同一本书刷新页面颜色不变(不用灰块, 灰块看着像加载失败)。 */
+  const COVER_SWATCHES = ['clay', 'sage', 'ocean', 'rose', 'slate'];
+  function _coverSwatch(title) {
+    let h = 0;
+    const s = String(title || '');
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return COVER_SWATCHES[h % COVER_SWATCHES.length];
+  }
+  /** 书名首字(中文取第一个汉字, 英文取首字母大写)作占位块文字 */
+  function _coverInitial(title) {
+    const s = String(title || '').trim();
+    return s ? s[0].toUpperCase() : '?';
+  }
+  /** 封面元素: 有 pack_dir+cover_file 就异步拉图片, 失败/无封面回落占位块 */
+  function _buildCover(title, packDir, coverFile) {
+    const cover = el('div', 'book-cover');
+    const swatch = _coverSwatch(title);
+    const placeholder = el('div', 'book-cover-placeholder', _coverInitial(title));
+    placeholder.style.background = `var(--swatch-${swatch})`;
+    cover.appendChild(placeholder);
+    if (packDir && coverFile && window.AiduLibraryService) {
+      AiduLibraryService.readImage(packDir, coverFile).then((res) => {
+        const b64 = res.ok && res.data && res.data.data_b64;
+        if (!b64) return;
+        const ext = String(coverFile).split('.').pop().toLowerCase();
+        const mime = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' }[ext] || 'image/jpeg';
+        const img = el('img');
+        img.src = `data:${mime};base64,${b64}`;
+        img.alt = title || '';
+        cover.innerHTML = '';
+        cover.appendChild(img);
+      });
+    }
+    return cover;
+  }
+
   class LibraryView {
     constructor(store, kind) {
       this.store = store;
@@ -229,6 +266,10 @@
         const card = el('div', 'book-card');
         // UX5 #1 (2026-08-13): 卡片带 data-book-id —— 轮巡按 id 找卡只刷进度条, 不整列重建
         card.dataset.bookId = String(book.id);
+        // K2-2 (2026-08-13): 封面 —— product 视图书本身就是 edition(自带 pack_dir);
+        // original 视图的原书没有 pack_dir, 借第一个译本的封面(通常同一本源书)。
+        const coverSrc = this.kind === 'product' ? book : (Array.isArray(book.editions) && book.editions[0]);
+        card.appendChild(_buildCover(book.title || book.id, coverSrc && coverSrc.pack_dir, coverSrc && coverSrc.cover_file));
         // G5 (2026-08-11): 书名/作者清洗 —— 文件名原样上屏不是设计 (z-library 后缀/作者括括号)。
         // 拆成 书名 + 作者 两行; 解析不出就保留原串。
         const parsed = global.AiduTitleCleanup ? global.AiduTitleCleanup.parseBookTitle(book.title || book.id) : { title: book.title || book.id, author: null };

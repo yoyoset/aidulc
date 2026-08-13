@@ -160,7 +160,7 @@ pub fn persist_llm(
     user_id: &str,
     profile_id: &str,
     key: &str,
-    (pos, phonetic, meanings, examples, example_zh, usage, phrases): crate::commands::reader::LookupTuple,
+    (pos, phonetic, meanings, examples, example_zh, usage, phrases): crate::commands::vocab::LookupTuple,
 ) -> Result<WordLookup, String> {
     let payload = serde_json::json!({
         "word": key, "lemma": key, "pos": pos, "phonetic": phonetic,

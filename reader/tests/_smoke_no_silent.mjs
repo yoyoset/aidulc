@@ -399,6 +399,11 @@ load('views/library_view.js');
 load('views/models_view.js');
 load('views/vocab_view.js');
 load('views/prep_view.js');
+load('views/settings/system_tab.js');
+load('views/settings/models_tab.js');
+load('views/settings/profiles_tab.js');
+load('views/settings/sync_tab.js');
+load('views/settings/reading_tab.js');
 load('views/settings_view.js');
 
 async function main() {

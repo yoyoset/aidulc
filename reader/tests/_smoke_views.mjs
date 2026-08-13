@@ -233,6 +233,11 @@ load('core/import_guard.js');
 load('core/builtin_profiles.js');
 load('views/library_view.js');
 load('views/prep_view.js');
+load('views/settings/system_tab.js');
+load('views/settings/models_tab.js');
+load('views/settings/profiles_tab.js');
+load('views/settings/sync_tab.js');
+load('views/settings/reading_tab.js');
 load('views/settings_view.js');
 
 // modal.js 加载时会覆盖全局 AiduModal, 这里重新装捕获确认的 stub

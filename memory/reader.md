@@ -50,6 +50,10 @@
 - **PowerShell 5.1 门禁脚本必须 UTF-8 BOM**: check.ps1 编辑后用字节校验 BOM 仍在。
 - **首帧插图丢失**: 模式重渲染 `_renderSentences` 从 `renderer.images` 取图, 首次调用
   时还是空; 修复为从 `_chapterImages`(ch.images 快照)取。
+- **词典面板 UX6 #4 (2026-08-13)**: 点正文(面板外)自动收起的 document 级 click 监听必须
+  排除 `dict-panel` 内与正文 `.bubble`(查词入口, 由 _onWordClick 刷新面板)——否则点词收起、
+  点面板按钮也收起, 交互全错。smoke 2d3 锁 8 项断言, test stub 补了 closest/contains
+  (此前缺失, 真实 DOM 有但 stub 没有)。
 
 ## 待实测验证 (设计 §8 风险清单, 连续使用两周才判)
 

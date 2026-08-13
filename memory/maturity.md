@@ -61,6 +61,17 @@
   加固留档: 读超时线程。
 - **守护 ready 行坑**: dict_server 启动先写 `{"ok":true,"ready":true}` —— Rust spawn 必须消费掉
   这行, 否则第一个查询响应被 ready 顶掉, 首查必失败(抓到的实测级 bug, 已修)。
+- **启动超时误报根因 (2026-08-13 UX6 #2, 实测 A→B)**: 用户报"词义查询失败 (词典守护启动超时
+  (侧车未就绪))"。**最初以为是 A**: 侧车冷启动加载 2.4GB LLM 超过 START_TIMEOUT。**实测是 B**:
+  dict_server.py 的 ready 行在模型加载**之前**就写出(懒加载), 换正确参数实测打包侧车 ~713ms
+  即发 ready; 真根因是 Rust `dict_daemon.rs::spawn` 传 `--lookup-server --model <path>`, 但打包
+  入口 `cli.py` 只认 `--lookup-model`(dict_server.py 自己的 argparse 才接受 --model, 单测直连它
+  所以一直没暴露)——侧车 argparse 秒退 exit 2, stderr 被 `Stdio::null()` 吞, `recv_timeout` 拿
+  Disconnected 又被统一标成"启动超时"。**修法**: spawn 传 `--lookup-model` + stderr 改 piped
+  (秒退时把 argparse 报错上屏) + 区分"超时(进程还活着)"/"启动失败(提前退出,带 stderr)"两套文案。
+  **教训**: 参数名契约要看真实入口(cli.py), 别按内部模块的 argparse 猜; 单测绕过真实入口的
+  集成边界会一直漏。回归锁: Rust `sidecar_exiting_early_surfaces_stderr_not_timeout` + Python
+  `TestCliContract`(cli.py 接受 --lookup-model 拒绝 --model)。
 
 ## R4-1 / R6-1 / F40 (候选缺陷防修, 未 exe 复现按静态取证修)
 

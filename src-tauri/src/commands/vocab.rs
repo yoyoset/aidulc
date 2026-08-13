@@ -444,7 +444,6 @@ mod h5_tests {
         repo.upsert_content(entry("either"), "me", "default")
             .unwrap();
 
-        let common = crate::infrastructure::frequency::top_n(3000);
         let result = (|| -> Result<(), String> {
             let conn = db.conn.lock().unwrap();
             conn.execute_batch("BEGIN IMMEDIATE;")

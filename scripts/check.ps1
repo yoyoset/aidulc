@@ -64,6 +64,44 @@ Run-Check "cargo clippy (baseline<=$ClippyBaseline)" {
     }
 }
 
+# 3b. 单文件规模基线 (docs/GOAL_2026-08-13_FILESIZE.md, 2026-08-13): 抄 clippy 基线同一套
+# 治理方式 —— scripts/file_size_baseline.json 登记了审计过的"长但没混域, 拆了反而伤可
+# 审计性/事务原子性"的正当例外(顺序迁移链/F29 注册表/单事务级联删除等), 只能降不能加;
+# 不在这份清单里的文件超过默认阈值(600 行)即失败, 逼着新代码在变胖之前就被看见,
+# 不是攒到 1000+ 行才有人想起来管。范围: src-tauri/src、reader/(排除 node_modules 和
+# 前端独立测试文件, JS 测试不与生产代码同文件, 不需要像 Rust 那样排除 #[cfg(test)])。
+Run-Check "file-size (基线见 scripts/file_size_baseline.json)" {
+    $baselineJson = [System.IO.File]::ReadAllText("$root\scripts\file_size_baseline.json", [System.Text.Encoding]::UTF8)
+    $baseline = $baselineJson | ConvertFrom-Json
+    $baselineMap = @{}
+    $baseline.PSObject.Properties | Where-Object { $_.Name -ne '_comment' } | ForEach-Object {
+        $baselineMap[$_.Name] = $_.Value
+    }
+    $defaultMax = 600
+    $violations = @()
+    $files = Get-ChildItem "$root\src-tauri\src" -Recurse -Include *.rs
+    $files += Get-ChildItem "$root\reader" -Recurse -Include *.js |
+        Where-Object { $_.FullName -notmatch '[\\/]node_modules[\\/]' -and $_.FullName -notmatch '[\\/]tests[\\/]' -and $_.Name -notlike '*.test.js' }
+    foreach ($f in $files) {
+        $rel = $f.FullName.Substring($root.Length + 1) -replace '\\', '/'
+        $lines = (Get-Content $f.FullName | Measure-Object -Line).Lines
+        $max = if ($baselineMap.ContainsKey($rel)) { $baselineMap[$rel] } else { $defaultMax }
+        if ($lines -gt $max) {
+            $violations += "  $rel : $lines 行 (上限 $max)"
+        }
+    }
+    if ($violations.Count -gt 0) {
+        Write-Output "超过文件规模基线:"
+        $violations | ForEach-Object { Write-Output $_ }
+        Write-Output "—— 新文件先看能不能按真实职责边界拆(参考 docs/GOAL_2026-08-13_FILESIZE.md);"
+        Write-Output "确认'长但没混域、拆了更糟'才登记进 scripts/file_size_baseline.json, 不要为了让门禁绿随手改数字。"
+        $global:LASTEXITCODE = 1
+    } else {
+        Write-Output "全部文件在基线内 ($($files.Count) 个文件扫描)"
+        $global:LASTEXITCODE = 0
+    }
+}
+
 # 4. Rust 产物构建 (R0, 2026-08-07): "门禁全绿"必须蕴含"exe 是最新的"。
 # 前端资源在编译期经 generate_context! 嵌入二进制(build.rs 已把 ../reader 递归声明为
 # rerun-if-changed), 只跑 clippy/test 产不出 release/aidulc.exe —— 之前就是这个洞让

@@ -128,6 +128,9 @@
       if (old) { old.onerror = null; old.remove(); }
       if (page) page.appendChild(audio);
       audio.addEventListener('error', () => {
+        // UX7 #1: 切章/重开时 prevAudio.src='' (L85) 会让旧一代这个监听器异步触发,
+        // 此时新章节已经在播——不判 gen 就是"音频正常但报错一闪而过"的假阳性。
+        if (gen !== this._generation) return;
         this._onStatus('音频播放错误: ' + (audio.error ? audio.error.message : '未知'));
       });
 

@@ -4,34 +4,20 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 // 阶段6 设计交付 §01: 书库状态分段(全部/已就绪/处理中/未处理)的桶映射是纯逻辑。
-// 用 Object.create(prototype) 绕过重构造器, 只测 _inStatusBucket 映射语义。
+// K2-3 (2026-08-13): 逻辑拆到 views/library/status.js (AiduLibraryStatus), 不再需要
+// Object.create(LibraryView.prototype) 绕构造器的写法——现在就是纯函数。
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, '..');
 
-let LibraryView;
+let AiduLibraryStatus;
 
 beforeAll(() => {
-  // library_view.js 顶层 el() 引用 document; 构造器引用 AiduListenerSlot/ImportDedup。
-  // 用 Object.create(prototype) 绕过构造器, 但 IIFE 需要 window/document 存在。
-  globalThis.document = {
-    createElement: () => ({}),
-    querySelector: () => null,
-    querySelectorAll: () => [],
-    body: { appendChild: () => {} },
-    documentElement: {},
-  };
-  globalThis.AiduListenerSlot = class {};
-  globalThis.AiduImportDedup = class {};
-  const code = readFileSync(join(root, 'views/library_view.js'), 'utf8');
+  const code = readFileSync(join(root, 'views/library/status.js'), 'utf8');
   eval(code);
-  LibraryView = globalThis.LibraryView;
+  AiduLibraryStatus = globalThis.AiduLibraryStatus;
 });
 
-function makeView() {
-  return Object.create(LibraryView.prototype);
-}
-
-describe('LibraryView._inStatusBucket (阶段6: 状态分段语义)', () => {
+describe('AiduLibraryStatus.inStatusBucket (阶段6: 状态分段语义)', () => {
   const cases = [
     // [status, ready, processing, pending]
     ['ready', true, false, false],
@@ -43,26 +29,23 @@ describe('LibraryView._inStatusBucket (阶段6: 状态分段语义)', () => {
   ];
   cases.forEach(([status, inReady, inProc, inPending]) => {
     it(`${status} → ready=${inReady} processing=${inProc} pending=${inPending}`, () => {
-      const v = makeView();
       const book = { status };
-      expect(v._inStatusBucket(book, 'ready')).toBe(inReady);
-      expect(v._inStatusBucket(book, 'processing')).toBe(inProc);
-      expect(v._inStatusBucket(book, 'pending')).toBe(inPending);
+      expect(AiduLibraryStatus.inStatusBucket(book, 'ready')).toBe(inReady);
+      expect(AiduLibraryStatus.inStatusBucket(book, 'processing')).toBe(inProc);
+      expect(AiduLibraryStatus.inStatusBucket(book, 'pending')).toBe(inPending);
     });
   });
 
   it('all 桶恒 true', () => {
-    const v = makeView();
     ['ready', 'processing', 'pending', 'failed', 'weird'].forEach((status) => {
-      expect(v._inStatusBucket({ status }, 'all')).toBe(true);
+      expect(AiduLibraryStatus.inStatusBucket({ status }, 'all')).toBe(true);
     });
   });
 
   it('未知状态不进任何具体桶(不误导)', () => {
-    const v = makeView();
     const book = { status: 'mystery' };
-    expect(v._inStatusBucket(book, 'ready')).toBe(false);
-    expect(v._inStatusBucket(book, 'processing')).toBe(false);
-    expect(v._inStatusBucket(book, 'pending')).toBe(false);
+    expect(AiduLibraryStatus.inStatusBucket(book, 'ready')).toBe(false);
+    expect(AiduLibraryStatus.inStatusBucket(book, 'processing')).toBe(false);
+    expect(AiduLibraryStatus.inStatusBucket(book, 'pending')).toBe(false);
   });
 });

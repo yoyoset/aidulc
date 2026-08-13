@@ -395,6 +395,8 @@ load('core/vocab_stats.js');
 load('core/title_cleanup.js');
 load('core/import_guard.js');
 load('app/page_toolbar.js');
+load('views/library/cover.js');
+load('views/library/status.js');
 load('views/library_view.js');
 load('views/models_view.js');
 load('views/vocab_view.js');

@@ -231,6 +231,8 @@ load('components/modal.js');
 load('components/toast.js');
 load('core/import_guard.js');
 load('core/builtin_profiles.js');
+load('views/library/cover.js');
+load('views/library/status.js');
 load('views/library_view.js');
 load('views/prep_view.js');
 load('views/settings/system_tab.js');

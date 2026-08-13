@@ -142,6 +142,47 @@
   border: 1.5px dashed var(--md-sys-color-primary);
 }
 
+/* K2-3 (2026-08-13): "最近阅读"横滑区 —— 抓横向滚动这个交互内核, 不做 3D 书架透视
+   拟物皮(和本项目"暖纸克制"的设计语言冲突, 维护成本也高)。 */
+.library-shelf { margin-bottom: 22px; }
+.library-shelf.hidden { display: none; }
+.library-shelf-title {
+  font-weight: 650;
+  font-size: var(--md-sys-font-size-title-s);
+  color: var(--md-sys-color-on-surface-variant);
+  margin-bottom: 10px;
+}
+.library-shelf-track {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  padding-bottom: 6px;
+}
+.shelf-card {
+  flex: 0 0 132px;
+  width: 132px;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition: transform 0.15s ease;
+}
+.shelf-card:hover { transform: translateY(-2px); }
+.shelf-card .book-cover {
+  box-shadow: var(--md-sys-elevation-2);
+  margin-bottom: 6px;
+}
+.shelf-card-title {
+  font-size: var(--md-sys-font-size-label-l);
+  color: var(--md-sys-color-on-surface);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.shelf-card-disabled { cursor: default; opacity: 0.6; }
+.shelf-card-disabled:hover { transform: none; }
+
 /* ---- G 系列 (2026-08-11): 书卡信息补齐 ---- */
 .book-card-author {
   font-size: var(--md-sys-font-size-body-s);

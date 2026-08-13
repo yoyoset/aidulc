@@ -11,48 +11,7 @@
     return e;
   }
 
-  /** 阶段名 → 中文 (与 prep_view 一致) */
-  const STAGE_LABEL = {
-    parse: '识别', nlp: '分词', translate: '翻译', explain: '讲解',
-    tts: '语音', align: '对齐', pack: '排版', spawn_error: '启动失败',
-  };
-
-  /** K2-2 (2026-08-13): 无封面占位色系 —— 复用 tokens.css 已有的 5 色系 swatch,
-   *  书名 hash 出稳定色, 同一本书刷新页面颜色不变(不用灰块, 灰块看着像加载失败)。 */
-  const COVER_SWATCHES = ['clay', 'sage', 'ocean', 'rose', 'slate'];
-  function _coverSwatch(title) {
-    let h = 0;
-    const s = String(title || '');
-    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-    return COVER_SWATCHES[h % COVER_SWATCHES.length];
-  }
-  /** 书名首字(中文取第一个汉字, 英文取首字母大写)作占位块文字 */
-  function _coverInitial(title) {
-    const s = String(title || '').trim();
-    return s ? s[0].toUpperCase() : '?';
-  }
-  /** 封面元素: 有 pack_dir+cover_file 就异步拉图片, 失败/无封面回落占位块 */
-  function _buildCover(title, packDir, coverFile) {
-    const cover = el('div', 'book-cover');
-    const swatch = _coverSwatch(title);
-    const placeholder = el('div', 'book-cover-placeholder', _coverInitial(title));
-    placeholder.style.background = `var(--swatch-${swatch})`;
-    cover.appendChild(placeholder);
-    if (packDir && coverFile && window.AiduLibraryService) {
-      AiduLibraryService.readImage(packDir, coverFile).then((res) => {
-        const b64 = res.ok && res.data && res.data.data_b64;
-        if (!b64) return;
-        const ext = String(coverFile).split('.').pop().toLowerCase();
-        const mime = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' }[ext] || 'image/jpeg';
-        const img = el('img');
-        img.src = `data:${mime};base64,${b64}`;
-        img.alt = title || '';
-        cover.innerHTML = '';
-        cover.appendChild(img);
-      });
-    }
-    return cover;
-  }
+  // K2-2/K2-3: 封面渲染/横滑区拆去 library/cover.js; 状态徽章/分段拆去 library/status.js。
 
   class LibraryView {
     constructor(store, kind) {
@@ -68,44 +27,6 @@
       // UX5 #1 (2026-08-13): 译本展开状态持久化 —— 整列重建/轮巡不冲掉用户展开的书。
       // 重建卡片时按 set 决定 .edition-body 是否保留 collapsed; toggle 时加入/移出。
       this._expanded = new Set();
-    }
-
-    /** 书状态 → { label, badgeClass } (苹果级: 状态可视) */
-    _bookStatus(book) {
-      const map = {
-        ready: { label: '就绪', cls: 'badge-ok' },
-        // mark_original_done 把源书标成 done: 已生成译本, 展示为"已就绪"
-        done: { label: '已就绪', cls: 'badge-ok' },
-        partial: { label: '部分失败', cls: 'badge-warn' },
-        processing: { label: '处理中', cls: 'badge-busy' },
-        // G6 (2026-08-11): 措辞统一 —— 卡片徽章与筛选条都叫「未处理」(设计稿用词)
-        pending: { label: '未处理', cls: 'badge-idle' },
-        failed: { label: '未处理', cls: 'badge-idle' },
-      };
-      return map[book.status] || { label: book.status, cls: 'badge-idle' };
-    }
-
-    /** 阶段6 设计交付 §01: 状态分段映射 —— 未处理 = pending/failed; 已就绪 = ready/done/partial */
-    _inStatusBucket(book, bucket) {
-      switch (bucket) {
-        case 'ready': return ['ready', 'done', 'partial'].includes(book.status);
-        case 'processing': return book.status === 'processing';
-        case 'pending': return ['pending', 'failed'].includes(book.status);
-        default: return true;
-      }
-    }
-
-    /** 阶段6 设计交付 §01: 分段计数 (苹果级: 数量可见, 空分段不误导) */
-    _updateSegCounts(books, segBar) {
-      if (!segBar) return;
-      segBar.querySelectorAll('.lib-seg').forEach((seg) => {
-        const bucket = seg.dataset.bucket;
-        const n = bucket === 'all' ? (books || []).length
-          : (books || []).filter((b) => this._inStatusBucket(b, bucket)).length;
-        seg.dataset.count = String(n);
-        const countEl = seg.querySelector('.lib-seg-count');
-        if (countEl) countEl.textContent = String(n);
-      });
     }
 
     /** F33/F34 (2026-08-09): 路由离开时注销事件订阅, 不残留拖拽监听/轮询 (与 prep_view 对称) */
@@ -152,6 +73,10 @@
       // 「成人自读/英文」两个下拉移除 —— 参数只留在创建译本弹窗一处。
       if (isOriginal) wrap.append(header);
 
+      // K2-3 (2026-08-13): "最近阅读"横向滑动区 (成品架专属——书库页是处理管理, 不是阅读入口)。
+      const shelfEl = isOriginal ? null : el('div', 'library-shelf');
+      if (shelfEl) wrap.append(shelfEl);
+
       const listEl = el('div', 'book-list');
       wrap.append(listEl);
 
@@ -177,7 +102,7 @@
         seg.addEventListener('click', () => {
           this._statusFilter = b.key;
           segBar.querySelectorAll('.lib-seg').forEach((s) => s.classList.toggle('active', s === seg));
-          this._renderBooks(listEl, this.store.state.books || [], searchInput, segBar);
+          this._renderBooks(listEl, this.store.state.books || [], searchInput, segBar, shelfEl);
         });
         segBar.appendChild(seg);
       });
@@ -186,7 +111,7 @@
 
       // Bug fix (审查确认): 注销旧监听 (每次 render 叠加导致 listener 累积)
       this._off && this._off();
-      this._off = this.store.on('change', (s) => this._renderBooks(listEl, s.books, searchInput, segBar));
+      this._off = this.store.on('change', (s) => this._renderBooks(listEl, s.books, searchInput, segBar, shelfEl));
       // 阶段7 (UX 3.3): 备料完成/导入后 library-changed 事件即时刷新书库, 译本子卡不用等 5s 轮询
       if (this._offLibChanged) { this._offLibChanged(); this._offLibChanged = null; }
       this._offLibChanged = AiduBridge.listen('library-changed', () => {
@@ -217,14 +142,16 @@
           : '还没有完成的书。书库导入 → 阅读准备处理完成后, 会出现在这里。');
         listEl.appendChild(empty);
       } else {
-        this._renderBooks(listEl, books, searchInput, segBar);
+        this._renderBooks(listEl, books, searchInput, segBar, shelfEl);
       }
-      searchInput.oninput = () => this._renderBooks(listEl, this.store.state.books || [], searchInput, segBar);
+      searchInput.oninput = () => this._renderBooks(listEl, this.store.state.books || [], searchInput, segBar, shelfEl);
       container.appendChild(wrap);
     }
 
-    _renderBooks(listEl, books, searchInput, segBar) {
+    _renderBooks(listEl, books, searchInput, segBar, shelfEl) {
       listEl.innerHTML = '';
+      const parseTitle = (b) => (global.AiduTitleCleanup ? global.AiduTitleCleanup.parseBookTitle(b.title || b.id).title : (b.title || b.id));
+      if (shelfEl) global.AiduLibraryCover.renderShelf(shelfEl, books, { onOpenBook: (b) => this.onOpenBook && this.onOpenBook(b), parseTitle });
       if (!books || books.length === 0) {
         const empty = el('div', 'book-empty', this.kind === 'original'
           ? '书库还是空的。用上方"导入书籍"卡片, 拖入或选择一本 EPUB / PDF / TXT。'
@@ -233,7 +160,7 @@
         return;
       }
       // 阶段6 设计交付 §01: 状态分段带计数 (已就绪/处理中/未处理)
-      this._updateSegCounts(books, segBar);
+      global.AiduLibraryStatus.updateSegCounts(books, segBar);
       // I-D: 搜索 + 筛选 (分段状态映射见 _statusBuckets)
       const q = (searchInput && searchInput.value || '').toLowerCase();
       const filter = this._statusFilter || 'all';
@@ -246,7 +173,7 @@
       });
       const filtered = sorted.filter(b => {
         if (q && !(b.title || b.id).toLowerCase().includes(q)) return false;
-        if (filter !== 'all' && !this._inStatusBucket(b, filter)) return false;
+        if (filter !== 'all' && !global.AiduLibraryStatus.inStatusBucket(b, filter)) return false;
         return true;
       });
       if (!filtered.length && !(this.kind === 'original')) {
@@ -266,10 +193,9 @@
         const card = el('div', 'book-card');
         // UX5 #1 (2026-08-13): 卡片带 data-book-id —— 轮巡按 id 找卡只刷进度条, 不整列重建
         card.dataset.bookId = String(book.id);
-        // K2-2 (2026-08-13): 封面 —— product 视图书本身就是 edition(自带 pack_dir);
-        // original 视图的原书没有 pack_dir, 借第一个译本的封面(通常同一本源书)。
+        // K2-2: product 书自带 pack_dir; original 书借第一个译本的封面(通常同一本源书)。
         const coverSrc = this.kind === 'product' ? book : (Array.isArray(book.editions) && book.editions[0]);
-        card.appendChild(_buildCover(book.title || book.id, coverSrc && coverSrc.pack_dir, coverSrc && coverSrc.cover_file));
+        card.appendChild(global.AiduLibraryCover.build(book.title || book.id, coverSrc && coverSrc.pack_dir, coverSrc && coverSrc.cover_file));
         // G5 (2026-08-11): 书名/作者清洗 —— 文件名原样上屏不是设计 (z-library 后缀/作者括括号)。
         // 拆成 书名 + 作者 两行; 解析不出就保留原串。
         const parsed = global.AiduTitleCleanup ? global.AiduTitleCleanup.parseBookTitle(book.title || book.id) : { title: book.title || book.id, author: null };
@@ -280,7 +206,7 @@
         }
         const profileLabel = this._profileName(book.profile_id);
         const langLabel = { en: '英文', ja: '日文' }[book.source_language] || book.source_language || '英文';
-        const st = this._bookStatus(book);
+        const st = global.AiduLibraryStatus.bookStatus(book);
         // M1-a (2026-08-12): 成品文件缺失时状态徽章被 pack_state 覆盖 —— 数据没了不许
         // 再显示「已就绪」假装可读。徽章文案直接来自事实 (missing/incomplete)。
         const badPack = book.pack_state && book.pack_state !== 'ok';
@@ -321,7 +247,7 @@
             j.book_path.replace(/\\/g, '/') === book.source_path.replace(/\\/g, '/'));
           if (job && job.total > 0) {
             const pct = Math.round((job.current / job.total) * 100);
-            const stLabel = STAGE_LABEL[job.stage] || job.stage;
+            const stLabel = global.AiduLibraryStatus.STAGE_LABEL[job.stage] || job.stage;
             const pbar = el('div', 'prep-bar');
             const pfill = el('div', 'prep-bar-fill');
             pfill.style.width = pct + '%';
@@ -461,7 +387,7 @@
           j.book_path.replace(/\\/g, '/') === book.source_path.replace(/\\/g, '/'));
         if (!job || !(job.total > 0)) return;
         const pct = Math.round((job.current / job.total) * 100);
-        const stLabel = STAGE_LABEL[job.stage] || job.stage;
+        const stLabel = global.AiduLibraryStatus.STAGE_LABEL[job.stage] || job.stage;
         let pbar = card.querySelector('.prep-bar');
         if (!pbar) {
           // 书卡渲染时还是 pending、任务随即开始 —— 增量补上进度条 (只动这张卡)

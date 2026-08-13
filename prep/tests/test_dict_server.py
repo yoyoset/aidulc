@@ -82,3 +82,41 @@ class TestServe:
         rc, msgs = self._serve_lines(monkeypatch, [])
         assert rc == 0
         assert len(msgs) == 1 and msgs[0]["ready"] is True, "空输入只回 ready 标记即退出"
+
+
+class TestCliContract:
+    """2026-08-13 实测根因回归: Rust dict_daemon 经打包 exe 调 cli.py, 参数名必须用
+    cli.py 的 --lookup-model (不是 dict_server 内部 argparse 的 --model)。此前 Rust 传
+    --model → cli.py argparse 秒退 exit 2 → 误报"词典守护启动超时"。本测试锁住
+    cli.py 的 --lookup-server 入口契约: 接受 --lookup-model 且正确转发给 dict_server。"""
+
+    def test_lookup_server_accepts_lookup_model(self, monkeypatch):
+        import aidulc_prep.cli as cli
+
+        captured = {}
+
+        def fake_dict_server_main(argv):
+            captured["argv"] = argv
+            return 0
+
+        monkeypatch.setattr(sys, "stdin", StringIO(""))
+        monkeypatch.setattr(
+            "aidulc_prep.application.dict_server.main", fake_dict_server_main
+        )
+        rc = cli.main(["--lookup-server", "--lookup-model", "F:/m.gguf"])
+        assert rc == 0
+        assert captured["argv"] == ["--model", "F:/m.gguf"], (
+            "cli.py 应把 --lookup-model 转成 dict_server 的 --model: "
+            + str(captured.get("argv"))
+        )
+
+    def test_lookup_server_rejects_model_alias(self):
+        """--model 不是 cli.py 的参数 (Rust 旧调用传它 → argparse 秒退)。"""
+        import aidulc_prep.cli as cli
+
+        try:
+            cli.main(["--lookup-server", "--model", "F:/m.gguf"])
+        except SystemExit as e:
+            assert e.code != 0, "--model 是非法参数, 应报错退出"
+            return
+        raise AssertionError("--model 是非法参数, 应 SystemExit 报错")

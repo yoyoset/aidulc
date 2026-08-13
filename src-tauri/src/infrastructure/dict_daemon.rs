@@ -21,10 +21,11 @@
 //! 同一模式, 不新造一套): 超时 → kill 守护 → 从注册表移除 → 返回明确错误。查词路径
 //! 永远在超时内返回, 不会再永久挂起主线程。
 
+use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -42,6 +43,8 @@ struct DictDaemon {
     stdin: ChildStdin,
     /// reader 线程推送的 stdout 行 (每查一词消费一行)
     rx: mpsc::Receiver<String>,
+    /// stderr 尾部 (进程秒退时取最后几行给人话, 不吞)
+    stderr_tail: Arc<Mutex<VecDeque<String>>>,
     model: String,
     last_used: Instant,
 }
@@ -64,14 +67,22 @@ pub fn stop() {
 fn spawn(prep_path: &std::path::Path, model: &str) -> Result<DictDaemon, String> {
     use std::os::windows::process::CommandExt;
     let mut cmd = Command::new(prep_path);
-    cmd.args(["--lookup-server", "--model", model])
+    // 参数名契约 (2026-08-13 实测修正): 打包入口是 cli.py, 它只认 --lookup-model,
+    // 不是 --model。旧代码传 --model → 侧车 argparse 秒退 (exit 2), ready 行永远等不到,
+    // recv_timeout 拿到 Disconnected 又被误标成"启动超时 (侧车未就绪)" —— 用户看到的
+    // 正是这句话。dict_server.py 自己的 argparse 才接受 --model (单测直连它, 所以一直没暴露)。
+    cmd.args(["--lookup-server", "--lookup-model", model])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        // 2026-08-13 实测修正: 原来 Stdio::null() 把侧车启动失败的原因整个吞掉 (秒退时
+        // 用户只看到"启动超时", 不知道 argparse 报了什么)。改 piped + 专用线程读尾部,
+        // 进程秒退时把最后几行 stderr 一起上屏, 失败原因人话可见。
+        .stderr(Stdio::piped())
         .creation_flags(0x08000000); // CREATE_NO_WINDOW
     let mut child = cmd.spawn().map_err(|e| format!("启动词典守护失败: {e}"))?;
     let stdin = child.stdin.take().ok_or("无法取得词典守护 stdin")?;
     let stdout = child.stdout.take().ok_or("无法取得词典守护 stdout")?;
+    let stderr = child.stderr.take().ok_or("无法取得词典守护 stderr")?;
 
     // K2: 专用 reader 线程持有 BufReader, 每行经 channel 推给主线程。
     // 查词侧用 recv_timeout 读, 侧车挂死也只会阻塞到 LOOKUP_TIMEOUT。
@@ -92,21 +103,59 @@ fn spawn(prep_path: &std::path::Path, model: &str) -> Result<DictDaemon, String>
         }
     });
 
+    // stderr 尾部缓冲 (2026-08-13): 进程秒退时把最后几行报错上屏。侧车挂死/慢启动时
+    // 这段缓冲也在, 启动成功后的运行期 stderr 不读 (留给查词超时排查用, 只留尾部)。
+    let stderr_tail: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+    {
+        let buf = stderr_tail.clone();
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(stderr);
+            loop {
+                let mut line = String::new();
+                match reader.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let mut b = buf.lock().unwrap();
+                        b.push_back(line.trim_end().to_string());
+                        if b.len() > 8 {
+                            b.pop_front();
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
     let d = DictDaemon {
         gen: DAEMON_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         child,
         stdin,
         rx,
+        stderr_tail: stderr_tail.clone(),
         model: model.to_string(),
         last_used: Instant::now(),
     };
     // 消费启动 ready 行 (dict_server.py 启动即写 {"ok":true,"ready":true})。
     // 不消费的话, 第一个查询响应会被 ready 行顶掉, 首查必失败 (实测级 bug)。
-    let ready =
-        d.rx.recv_timeout(START_TIMEOUT)
-            .map_err(|_| "词典守护启动超时 (侧车未就绪)".to_string())?;
-    if ready.trim().is_empty() {
-        return Err("词典守护启动失败 (进程提前退出)".to_string());
+    // 2026-08-13: 区分"超时"(进程还活着没 ready) 与"进程秒退/提前退出"—— 后者带 stderr
+    // 尾部上屏 (否则又是"启动超时"一句空话, 不知道侧车为什么没起来)。
+    match d.rx.recv_timeout(START_TIMEOUT) {
+        Ok(ready) => {
+            if ready.trim().is_empty() {
+                let tail = stderr_tail_string(&d);
+                return Err(format!("词典守护启动失败 (进程未输出就绪行){}", tail));
+            }
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            return Err(
+                "词典守护启动超时 (侧车未就绪, 可稍后重试; 仍失败请在设置·组件健康检查侧车)".into(),
+            );
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            let tail = stderr_tail_string(&d);
+            return Err(format!("词典守护启动失败 (侧车提前退出){}", tail));
+        }
     }
     // M7 R33: 主动空闲回收 —— 上次查询后 IDLE_TIMEOUT 内没人再查就杀掉, 释放显存。
     // 惰性(下次查词才重建)会让"查过一次就长时间不读"的模型一直占 2.4GB。
@@ -127,6 +176,16 @@ fn spawn(prep_path: &std::path::Path, model: &str) -> Result<DictDaemon, String>
         }
     });
     Ok(d)
+}
+
+/// 进程提前退出时, 把 stderr 尾部的报错拼进错误文案 (人话: 用户能看到侧车为什么没起来)。
+fn stderr_tail_string(d: &DictDaemon) -> String {
+    let lines: Vec<String> = d.stderr_tail.lock().unwrap().iter().cloned().collect();
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!(": {}", lines.join(" | "))
+    }
 }
 
 /// 查词: 懒启动/重建守护 → 写一行请求 → 带超时读一行响应。
@@ -271,6 +330,53 @@ mod tests {
         assert!(
             elapsed < Duration::from_secs(5),
             "应在短超时内返回, 实耗 {elapsed:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sidecar_exiting_early_surfaces_stderr_not_timeout() {
+        // 2026-08-13 实测根因回归: 打包入口 cli.py 只认 --lookup-model, Rust 传 --model
+        // 会让侧车 argparse 秒退 (exit 2)。旧代码把 stderr 设 null + Disconnected 误标
+        // "启动超时" → 用户只看到"侧车未就绪"一句空话。现在必须: ①报"启动失败 (侧车提前退出)"
+        // 而不是"超时"; ②把 stderr 尾部的真实报错带上屏。
+        // 假守护 = .bat 写一行 usage 报错到 stderr 后退出 (模拟 cli.py 拒 --model)。
+        let dir = std::env::temp_dir().join(format!(
+            "aidulc_dd_early_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("early_prep.bat");
+        std::fs::write(
+            &fake,
+            "@echo off\r\necho unrecognized arguments: --model 1>&2\r\n",
+        )
+        .unwrap();
+
+        let r = lookup_with_timeout(
+            &fake,
+            "fake-model",
+            "doorway",
+            "ctx",
+            Duration::from_secs(5),
+        );
+        stop();
+        let msg = r.expect_err("秒退的守护必须失败");
+        assert!(
+            msg.contains("启动失败") || msg.contains("提前退出"),
+            "应报启动失败而非超时: {msg}"
+        );
+        assert!(
+            !msg.contains("超时 (侧车未就绪)"),
+            "不应该是误导的启动超时文案: {msg}"
+        );
+        assert!(
+            msg.contains("unrecognized arguments"),
+            "stderr 报错应上屏: {msg}"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

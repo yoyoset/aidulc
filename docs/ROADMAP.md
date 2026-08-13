@@ -31,8 +31,8 @@
 **方法**: 每轮挑一个域, 先枚举现状(grep 代码, 机械, 可委派)、再判断(哪些是这个域
 "做成熟"必然需要的配套, 机械委派不了), 缺口写回本节, 标优先级(P0-P3, 同上面任务卡
 的口径), 不是空发现不落地。域列表按当前会话推进: 书库/封面(已审计) → 阅读器
-(已审计) → 生词与词典(已审计) → 摘录笔记 → 同步 → 模型中心 → 备料流程 → 设置 →
-多用户/账号。
+(已审计) → 生词与词典(已审计) → 摘录笔记(已审计) → 同步 → 模型中心 → 备料流程 →
+设置 → 多用户/账号。
 
 ### 书库/封面 (2026-08-14, 本轮新功能的顺带审计)
 
@@ -103,6 +103,38 @@
   但 `dictionary_panel.js`/`vocab_view.js` 两处 grep 都没有引用这个字段——用户看到
   一条释义时分不清"这是词典里查到的"还是"AI 现编的", 对英语学习场景这个区分不是
   锦上添花(AI 生成的释义偶尔会有错, 用户至少该知道该多留一个心眼)。
+
+### 摘录笔记 (2026-08-14, reader/highlights.js + highlights_repo.rs + 3 个 highlights_* 命令)
+
+现状枚举委派 flash 做的, 判断以下 4 条基于枚举结果, 逐条 grep 复核过。
+
+- **P1(推断待实测, 未实机验证)多用户切人后摘录面板可能静默空白**:
+  `reader/views/reader/highlights.js:29` 的 `load(bookKey)` 只传一个参数调
+  `AiduBridge.highlights.list(bookKey)`; 而 `reader/ipc/bridge.js:126` 的封装是
+  `list: (bookKey, userId) => invoke('highlights_list', { bookKey, userId })`——
+  这条调用链里 `userId` 恒为 `undefined`。`JSON.stringify` 会丢掉值为 `undefined`
+  的键, IPC payload 里根本不会有 `userId` 这个字段; 而后端
+  `commands.rs:89-91` 的 `highlights_list(db, book_key, user_id: String)` 里
+  `user_id` 是**必填 `String`**(没有 `Option`/`#[serde(default)]`), 按 serde
+  标准语义, 缺这个字段应当在反序列化阶段直接报错。`highlights.js:31` 的
+  `res.ok && Array.isArray(res.data)` 拿到失败结果后会静默把 `this.items` 置为
+  空数组——即摘录面板可能一直打得开但看不到任何东西, 没有任何错误提示。
+  **F29(命令参数门禁)catch 不住这个问题**: F29 校验的是 `bridge.js` 里那一条
+  `invoke(...)` 字面量的键名(`bookKey`/`userId` 两个键名都在), 不检查调用方
+  是否真的传了值——这正是静态门禁的盲区, 只有跑一次真实点击才能验证。**下一步
+  行动: 优先手测确认这条是否成立**(比 P2 的一般性缺口更急, 一旦成立就是核心
+  功能实质不可用)。
+- **P2 无跨书搜索/标签分类**: 摘录面板只加载当前书(`highlights.js:29-34`), 后端
+  `list_all()` 只在导出流程用, 没有暴露成可查询命令; `Highlight` 结构体
+  (`highlights_repo.rs:14-31`)没有 tag/category 字段。读过多本书后, 想找"我在
+  哪本书哪里记过这句话"做不到, 面板连按章筛选都没有。
+- **P2 无 Markdown/纯文本导出**: 全仓搜 `markdown`/`export_md` 零命中, 唯一导出
+  通道是 `.aidu-data`(`transfer_service.rs`, 自有 JSON 备份格式, 不是人可读笔记)。
+  对"精读"这个产品定位, 摘录笔记恰恰是最该能导出复习/分享的产出物, 现在只能
+  整本 JSON 搬家。
+- **P3 摘录与生词本没有关联**: `Highlight` 无 lemma 引用字段, 摘录的 `.hl-span`
+  渲染标记和生词的 `.saved` 标记是 `atomic_block.js` 里互不相干的两条通道——摘录
+  一句包含生词的句子后, 看不出"这句里有我正在学的词"。
 - **P3 封面与"原书 vs 译本"关系未理清**: 一本原书可以生成多个不同参数的译本
   (`docs/GOAL_2026-08-13_LIBRARY.md` K2-2 记录过: 原书借第一个译本的封面), 如果
   不同译本源自不同版本的 EPUB(理论上可能, 罕见), 封面可能不一致——目前没有

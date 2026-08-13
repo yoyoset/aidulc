@@ -340,6 +340,12 @@
       bookmarksBtn.textContent = '🔖';
       bookmarksBtn.title = '书签';
       bookmarksBtn.onclick = () => this.bookmarks.showPanel();
+      // UX7 #4: 顶栏「📕 笔记」入口(摘录面板)—— 不再只藏在 Ctrl+K 命令面板里
+      const notesBtn = document.createElement('button');
+      notesBtn.className = 'rd-gear rd-notes-btn';
+      notesBtn.textContent = '📕';
+      notesBtn.title = '笔记(摘录)';
+      notesBtn.onclick = () => this.highlights.togglePanel();
       const gear = document.createElement('button');
       gear.className = 'rd-gear';
       gear.textContent = '⚙';
@@ -355,7 +361,7 @@
         this.settingsOverlay.setSettings(this._settings);
         this.settingsOverlay.toggle();
       };
-      top.append(back, title, today, count, bookmarksBtn, gear);
+      top.append(back, title, today, count, bookmarksBtn, notesBtn, gear);
       wrap.appendChild(top);
 
       // 正文容器 (滚动条归窗口)

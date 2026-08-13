@@ -147,7 +147,7 @@
       list.className = 'hl-panel-list';
       if (!this.items.length) {
         list.appendChild(Object.assign(document.createElement('div'), {
-          className: 'hl-panel-empty', textContent: '还没有摘录。阅读时选中一段文字, 点"摘录"。',
+          className: 'hl-panel-empty', textContent: '这里列出全部笔记。阅读时选中一段文字, 点"摘录"保存, 会出现在这里。',
         }));
       }
       // 全书按 章/句序 排

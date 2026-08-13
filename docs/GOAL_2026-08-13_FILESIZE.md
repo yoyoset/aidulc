@@ -141,13 +141,29 @@
 
 ---
 
-## 四、下一阶段(不在本轮, 记录待办)
+## 四、下一阶段 —— 全部完成 (2026-08-13 同日收尾)
 
-1. `settings_view.js`/`library_view.js` 内部结构走读 + 拆分方案(需要单独一轮)。
-2. `job_orchestrator.rs`/`library.rs`/`reader_view.js` 等 🟡 类逐个人工判断"是否混域"。
-3. `file-size` 门禁正式接入 `check.ps1` + 基线 json。
-4. 把本文档二.4 的门槛数字(600 行)和封顶机制写回项目 `CLAUDE.md`, 补一条"文件规模"
-   强制规约(参照现有"存储所有权"表的写法)。
+1. ~~`settings_view.js`/`library_view.js` 内部结构走读 + 拆分方案~~ ✅ `settings_view.js`
+   巨型 `render()`(889 行塞 5 个 tab)已拆成 `reader/views/settings/{system,models,
+   profiles,sync,reading}_tab.js`, 主文件瘦到 103 行。`library_view.js` 复核后确认
+   方法数量正常、没混域, 记正当例外, 不拆。
+2. ~~`job_orchestrator.rs`/`library.rs`/`reader_view.js` 等 🟡 类逐个判断~~ ✅ 全部复核
+   完毕: `job_orchestrator.rs`/`commands/library.rs`(单一命令域)、`reader_view.js`/
+   `library_view.js`/`models_view.js`/`prep_view.js`(方法数量正常)均确认"长但没混域",
+   记入 `scripts/file_size_baseline.json` 正当例外, 不拆。
+3. ~~`file-size` 门禁正式接入 `check.ps1` + 基线 json~~ ✅ 已接入(`check.ps1` 新增
+   `file-size` 检查项, 117 个文件扫描), 过程中委派 flash-delegate skill 修了一个真实
+   PowerShell 5.1 编码坑(见下)。
+4. ~~门槛数字写回项目 `CLAUDE.md`~~ ✅ 补了"文件规模(强制)"一节, 顺带发现并修正了
+   CLAUDE.md 里 clippy 基线段落已经过时的文件分布描述(`reader.rs` 拆分后不再含相关
+   警告, 8→7 这个数字本身其实早改过、文档没跟上)。
+
+**过程中的真实坑(不是猜的)**: `scripts/file_size_baseline.json` 是 UTF-8 无 BOM 的
+JSON, `check.ps1` 里 `Get-Content` 没指定编码, PowerShell 5.1 下按系统代码页读, 中文
+注释乱码 + `ConvertFrom-Json` 直接报错——基线一条没读进去, 所有文件(含 `store_mod.rs`
+这种正当例外)都被错误地按默认 600 行阈值判定失败。改用
+`[System.IO.File]::ReadAllText(path, [System.Text.Encoding]::UTF8)` 显式解码修复,
+不依赖 `Get-Content` 编码参数在 PowerShell 5.1/7 之间不一致的行为。
 
 ---
 

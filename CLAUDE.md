@@ -67,11 +67,32 @@
   临时 DB 状态冲突会假失败(`memory/pipeline.md` 记录过, 2026-08-07 复核仍然如此)
 - 前端: `cd reader && npx vitest run`
 
-`scripts/check.ps1` 额外跑 `cargo fmt --check` 和 `cargo clippy`(clippy 用基线放行 8 处已知结构性警告
-——参数过多/类型复杂, 分布在 `job_orchestrator.rs`/`library_service.rs`/`library.rs`/`models.rs`/
-`sync_service.rs`/`reader.rs`。S2.1(2026-08-07)已把业务编排从命令层挪到 `application/`,但挪文件
-不会减少参数个数, 基线仍是 8——真正清零需要把多参数函数改成接收请求结构体, 是比挪文件更大的改动,
-留在 `docs/ROADMAP.md` P3。**不要为了让门禁变绿而调高基线数字,只能调低**)。
+`scripts/check.ps1` 额外跑 `cargo fmt --check` 和 `cargo clippy`(clippy 用基线放行 7 处已知结构性警告
+——参数过多/类型复杂, 分布在 `job_orchestrator.rs`/`library_service.rs`/`sync_service.rs`/
+`commands/library.rs`/`commands/models.rs`(2026-08-13 治理拆分 `commands/reader.rs` 后复核过一遍
+分布, 已从原来的 8 处降到 7, `reader.rs` 不再在名单里——原来那处警告是随文件一起被拆没的, 不是专门
+修的)。真正清零需要把多参数函数改成接收请求结构体, 是比挪文件更大的改动, 留在 `docs/ROADMAP.md` P3。
+**不要为了让门禁变绿而调高基线数字,只能调低**)。还额外跑一项文件规模基线(见下"文件规模"一节)。
+
+## 文件规模(强制)
+
+`scripts/check.ps1` 的 `file-size` 一项扫描 `src-tauri/src/`、`reader/`(排除 `node_modules`、
+`tests/`、`*.test.js`)下所有 `.rs`/`.js` 文件,**默认上限 600 行**,超过即门禁失败。不是任何超过
+600 行的文件都必须拆——判断标准是"是不是真的塞了多个不相关域",不是行数本身(2026-08-13
+`docs/GOAL_2026-08-13_FILESIZE.md` 审计确认过):
+
+- **该拆的例子**:原 `commands/reader.rs`(1710 行)实际注册了词典/生词本/背单词/同步后端管理/
+  日志五个不相关命令域,已拆成 `dictionary.rs`/`vocab.rs`/`srs.rs`/`sync_backend.rs`/`log.rs`/
+  `reader.rs`(瘦身);原 `settings_view.js`(1178 行)一个 `render()` 方法塞了 5 个设置页 tab,
+  已拆成 `reader/views/settings/{system,models,profiles,sync,reading}_tab.js`。
+- **正当例外(登记进 `scripts/file_size_baseline.json`,只能降不能加)**:`store_mod.rs`(v1→v26
+  顺序迁移链,顺序本身是文档)、`ipc/registry.rs`(F29 门禁校验用的注册表本身,`CommandInfo.path`
+  字段会被解析成文件路径去反查函数签名——**挪动任何命令的物理文件位置,必须同步改这里对应的
+  `path`,漏改不会报错,只会让 F29 校验静默去错的文件里找函数**)、`data_migration.rs`(单事务
+  级联删除)、`job_orchestrator.rs`/`commands/library.rs`(单一命令域,方法数量正常、没混域)、
+  `reader_view.js`/`library_view.js`/`models_view.js`/`prep_view.js`(方法数量正常, 没有
+  `settings_view.js` 那种巨型函数)等。新文件想加进这份基线,要能说清楚"拆了为什么更糟"
+  (通常是"拆分会破坏事务原子性/顺序可审计性/校验脚本的路径耦合"这三类理由之一),不是图省事。
 
 ## 前端(reader/)编码规约
 

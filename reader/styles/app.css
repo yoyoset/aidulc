@@ -412,6 +412,17 @@ body::before {
 .dict-phrases { margin: 6px 0; color: var(--md-sys-color-primary); font-size: 0.85rem; }
 .dict-source { font-size: 0.78rem; color: var(--md-sys-color-outline); margin: 8px 0; }
 .dict-loading, .dict-error { color: var(--md-sys-color-on-surface-variant); padding: 12px 0; }
+/* UX6 #4 (2026-08-13): 词典面板长内容治理 —— 释义/例句/用法/搭配分段 + 可折叠 */
+.dict-sec { border-top: 1px solid var(--md-sys-color-outline-variant); padding-top: 8px; margin-top: 10px; }
+.dict-sec-head {
+  display: block; width: 100%; text-align: left; border: 0; background: transparent;
+  color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-font-size-label-l);
+  font-weight: 650; cursor: pointer; padding: 4px 0; letter-spacing: 0.02em;
+}
+.dict-sec-head::before { content: '▾ '; color: var(--md-sys-color-primary); }
+.dict-sec-head.dict-sec-closed::before { content: '▸ '; }
+.dict-sec-head:hover { color: var(--md-sys-color-primary); }
+.dict-sec-body.dict-sec-collapsed { display: none; }
 
 /* ---- 鐢熻瘝鏈?(I-B) ---- */
 .vocab-toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; }

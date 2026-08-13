@@ -73,6 +73,8 @@ function makeElement(tag) {
     },
     querySelector: (sel) => queryAll(el, sel)[0] || null,
     querySelectorAll: (sel) => queryAll(el, sel),
+    contains(other) { let n = other; while (n) { if (n === el) return true; n = n.parentNode; } return false; },
+    closest(sel) { let n = el; while (n) { if (matches(n, sel)) return n; n = n.parentNode; } return null; },
     addEventListener() {}, removeEventListener() {}, focus() {},
     getBoundingClientRect: () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }),
   };
@@ -626,6 +628,64 @@ console.log('== 2d2. L8 (2026-08-11): 查词失败面板 —— 开关①开才�
   await new Promise((r) => setTimeout(r, 20));
   const sendHint = queryAll(p2.body, '.dict-online-send')[0];
   check('L8: 发前显示"将发送" (外发内容可见)', sendHint && String(sendHint.textContent).includes('将发送'), 'hint=' + (sendHint && sendHint.textContent));
+}
+
+console.log('== 2d3. UX6 #4 (2026-08-13): 词典面板治理 —— 点正文收起 / 长内容分段可折叠 / 底部非历史讲清楚 ==');
+{
+  load('components/dictionary_panel.js');
+  const lookupCalls = [];
+  globalThis.AiduDictionaryService.lookup = async (w) => {
+    lookupCalls.push(w);
+    return { ok: true, data: { word: w, pos: 'NOUN', phonetic: '/rɛtɪsnt/', meanings: ['含蓄的', '寡言的'], examples: ['He was reticent about his plans.'], example_zh: ['他对计划很含蓄。'], usage: '正式场合形容人不愿多谈', phrases: ['be reticent about'], in_vocab: false, source: 'llm' } };
+  };
+  const p4 = new globalThis.DictionaryPanel();
+  p4.el = makeElement('div');
+  p4.el.className = 'dict-panel';
+  p4.body = makeElement('div');
+  p4.el.appendChild(p4.body);
+  document.body.appendChild(p4.el);
+  p4.onVocabAdded = () => {};
+  p4._word = 'reticent';
+  p4._profileId = 'default';
+  p4._context = 'He was reticent.';
+  p4._render({ word: 'reticent', pos: 'NOUN', phonetic: '/rɛtɪsnt/', meanings: ['含蓄的', '寡言的'], examples: ['He was reticent about his plans.'], example_zh: ['他对计划很含蓄。'], usage: '正式场合形容人不愿多谈', phrases: ['be reticent about'], in_vocab: false, source: 'llm' });
+  // 面板结构: 分段标题 (释义/例句/用法/搭配) 都出现, 不再是没标题的长尾巴
+  const secHeads = queryAll(p4.body, '.dict-sec-head').map((h) => h.textContent);
+  check('UX6#4: 面板分段有标题 (释义/例句/用法/搭配)', ['释义', '例句', '用法', '搭配'].every((l) => secHeads.includes(l)), 'heads=' + secHeads.join(','));
+  check('UX6#4: 每段可折叠 (有 .dict-sec-head 点击切换)', queryAll(p4.body, '.dict-sec').length >= 4, 'secs=' + queryAll(p4.body, '.dict-sec').length);
+  const meaningsBody = queryAll(p4.body, '.dict-sec')[0].querySelector('.dict-sec-body');
+  const beforeHidden = meaningsBody.classList.contains('dict-sec-collapsed');
+  queryAll(p4.body, '.dict-sec-head')[0].onclick();
+  check('UX6#4: 点段头 → 该段折叠 (dict-sec-collapsed)', meaningsBody.classList.contains('dict-sec-collapsed'), 'before=' + beforeHidden);
+  queryAll(p4.body, '.dict-sec-head')[0].onclick();
+  check('UX6#4: 再点段头 → 展开', !meaningsBody.classList.contains('dict-sec-collapsed'));
+  // 底部不是查询历史 (讲清楚)
+  const srcText = queryAll(p4.body, '.dict-source').map((s) => s.textContent).join(' ');
+  check('UX6#4: 底部明确"不是查询历史"', srcText.includes('不是查询历史'), srcText);
+
+  // 点正文 (面板外) → 自动收起
+  p4._bindDocClick();
+  p4.el.classList.add('open');
+  const panelEl = p4.el;
+  const docClick = (target) => { if (p4._onDocClick) p4._onDocClick({ target }); };
+  const bodyEl = makeElement('div'); bodyEl.className = 'reader-content';
+  docClick(bodyEl);
+  check('UX6#4: 点正文空白 → 面板收起 (open 移除)', !panelEl.classList.contains('open'), 'open=' + panelEl.classList.contains('open'));
+  // 点面板内按钮 → 不收
+  panelEl.classList.add('open');
+  const panelBtn = makeElement('button'); panelBtn.className = 'btn-small';
+  panelBtn.textContent = '🔊 发音';
+  panelEl.appendChild(panelBtn);
+  docClick(panelBtn);
+  check('UX6#4: 点面板内按钮 → 不收', panelEl.classList.contains('open'));
+  // 点正文的词 (.bubble) → 不收 (那是查词入口, 由 _onWordClick 刷新面板)
+  panelEl.classList.add('open');
+  const bubble = makeElement('span'); bubble.className = 'bubble tok';
+  docClick(bubble);
+  check('UX6#4: 点正文的词 (.bubble) → 不收', panelEl.classList.contains('open'));
+  panelEl.remove();
+  if (p4._unbindDocClick) p4._unbindDocClick();
+  lookupCalls.length = 0;
 }
 
 console.log('== 2e. L7 (2026-08-11): 加载已有书库 —— 扫描→确认→登记, 不移动文件 ==');

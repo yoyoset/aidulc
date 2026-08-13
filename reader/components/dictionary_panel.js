@@ -21,6 +21,7 @@
       this._context = context;
       this._source = source || null; // V4: { editionId, chapterIndex, sentenceIndex }
       requestAnimationFrame(() => this.el.classList.add('open'));
+      this._bindDocClick();
       this._lookup();
     }
 
@@ -37,6 +38,33 @@
       if (this.el) {
         this.el.classList.remove('open');
         setTimeout(() => this.el.remove(), 200);
+      }
+      this._unbindDocClick();
+    }
+
+    /** UX6 #4 (2026-08-13): 点正文 (面板外) 自动收起 —— document 级 click 监听。
+     * 点 `dict-panel` 之内 (发音/加词/在线按钮) 不收起; 点正文的**词** (`.bubble`)
+     * 不收起 (那是查词入口, 由 `_onWordClick` 刷新面板内容); 点正文空白/非词处收起。
+     */
+    _bindDocClick() {
+      if (this._docClickBound) return;
+      this._docClickBound = true;
+      this._onDocClick = (e) => {
+        const t = e.target;
+        if (!this.el || !this.el.isConnected && !this.el.parentNode) return;
+        if (!this.el.classList.contains('open')) return;
+        if (this.el.contains(t)) return; // 面板内按钮/内容 → 不收起
+        // 点正文的词 → 是查词入口, 不收起 (面板已由 _onWordClick 刷新)
+        if (t && t.closest && t.closest('.bubble')) return;
+        this.hide();
+      };
+      document.addEventListener('click', this._onDocClick);
+    }
+
+    _unbindDocClick() {
+      if (this._docClickBound && this._onDocClick) {
+        document.removeEventListener('click', this._onDocClick);
+        this._docClickBound = false;
       }
     }
 
@@ -170,6 +198,27 @@
       pos.textContent = d.pos || '—';
       parts.push(pos);
 
+      // UX6 #4 (2026-08-13): 长面板治理 —— 释义/例句/用法/搭配分段, 每段带标题 + 可折叠。
+      // 段首给中文标签 (用户之前看到一长串不知道该是什么), 过长段落点击标题可收。
+      const sec = (label, contentEl) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'dict-sec';
+        const head = document.createElement('button');
+        head.className = 'dict-sec-head';
+        head.textContent = label;
+        head.setAttribute('aria-expanded', 'true');
+        const body = document.createElement('div');
+        body.className = 'dict-sec-body';
+        body.appendChild(contentEl);
+        head.onclick = () => {
+          const collapsed = body.classList.toggle('dict-sec-collapsed');
+          head.setAttribute('aria-expanded', String(!collapsed));
+          head.classList.toggle('dict-sec-closed', collapsed);
+        };
+        wrap.append(head, body);
+        return wrap;
+      };
+
       const meanings = document.createElement('ul');
       meanings.className = 'dict-meanings';
       (d.meanings || []).forEach(m => {
@@ -177,37 +226,40 @@
         li.textContent = m;
         meanings.appendChild(li);
       });
-      parts.push(meanings);
+      parts.push(sec('释义', meanings));
 
       // 详细解释 (本地 LLM): 例句 + 翻译 + 用法 + 搭配
       if (d.examples && d.examples.length) {
         const ex = document.createElement('div');
         ex.className = 'dict-examples';
-        ex.textContent = '例句: ' + d.examples[0];
+        ex.textContent = d.examples[0];
         if (d.example_zh && d.example_zh[0]) {
           const zh = document.createElement('div');
           zh.className = 'dict-example-zh';
           zh.textContent = d.example_zh[0];
           ex.appendChild(zh);
         }
-        parts.push(ex);
+        parts.push(sec('例句', ex));
       }
       if (d.usage) {
         const usage = document.createElement('div');
         usage.className = 'dict-usage';
-        usage.textContent = '用法: ' + d.usage;
-        parts.push(usage);
+        usage.textContent = d.usage;
+        parts.push(sec('用法', usage));
       }
       if (d.phrases && d.phrases.length) {
         const ph = document.createElement('div');
         ph.className = 'dict-phrases';
-        ph.textContent = '搭配: ' + d.phrases.join(' · ');
-        parts.push(ph);
+        ph.textContent = d.phrases.join(' · ');
+        parts.push(sec('搭配', ph));
       }
 
+      // UX6 #4: 底部讲清楚 —— 这不是查询历史, 是这个词的来源说明 + 加词动作。
       const src = document.createElement('div');
       src.className = 'dict-source';
-      src.textContent = d.source === 'llm' ? '本地 AI 解释 (已存入本地词典, 不会自动加入生词本)' : '本地词典';
+      src.textContent = d.source === 'llm'
+        ? '以上为本词详情: 释义/例句/用法/搭配 (不是查询历史)。已存入本地词典, 不会自动加入生词本。'
+        : '以上为本词详情: 释义/例句/用法/搭配 (不是查询历史)。来源: 本地词典。';
       parts.push(src);
 
       const addBtn = document.createElement('button');

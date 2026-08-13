@@ -12,12 +12,14 @@ mod application {
     pub mod wizard_service;
 }
 mod commands {
+    pub mod data_root;
     pub mod dictionary;
     pub mod jobs;
     pub mod library;
     pub mod log;
     pub mod misc;
     pub mod models;
+    pub mod online_config;
     pub mod reader;
     pub mod srs;
     pub mod sync_backend;
@@ -561,21 +563,21 @@ fn main() {
             commands::models::wizard_reset,
             commands::misc::runtime_config,
             commands::misc::components_health,
-            commands::misc::library_dir_get,
-            commands::misc::library_root_status,
-            commands::misc::library_out_consolidate,
-            commands::misc::data_root_recommended,
-            commands::misc::library_dir_pick,
-            commands::misc::library_dir_pick_and_set,
-            commands::misc::library_dir_scan,
-            commands::misc::library_dir_import,
-            commands::misc::data_migration_status,
-            commands::misc::data_migration_dry_run,
-            commands::misc::data_migration_run,
-            commands::misc::online_config_get,
-            commands::misc::online_config_set,
-            commands::misc::online_config_test,
-            commands::misc::online_config_clear_key,
+            commands::data_root::library_dir_get,
+            commands::data_root::library_root_status,
+            commands::data_root::library_out_consolidate,
+            commands::data_root::data_root_recommended,
+            commands::data_root::library_dir_pick,
+            commands::data_root::library_dir_pick_and_set,
+            commands::data_root::library_dir_scan,
+            commands::data_root::library_dir_import,
+            commands::data_root::data_migration_status,
+            commands::data_root::data_migration_dry_run,
+            commands::data_root::data_migration_run,
+            commands::online_config::online_config_get,
+            commands::online_config::online_config_set,
+            commands::online_config::online_config_test,
+            commands::online_config::online_config_clear_key,
             commands::misc::boot_ping,
             commands::misc::doc_parser_install,
             ipc::commands::profile_upsert,

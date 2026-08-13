@@ -12,12 +12,14 @@ mod application {
     pub mod wizard_service;
 }
 mod commands {
+    pub mod dictionary;
     pub mod jobs;
     pub mod library;
     pub mod log;
     pub mod misc;
     pub mod models;
     pub mod reader;
+    pub mod srs;
     pub mod sync_backend;
     pub mod vocab;
 }
@@ -486,13 +488,13 @@ fn main() {
             commands::library::library_preview,
             commands::library::book_export,
             commands::library::book_import,
-            commands::vocab::word_lookup,
-            commands::vocab::word_lookup_online,
+            commands::dictionary::word_lookup,
+            commands::dictionary::word_lookup_online,
             commands::reader::book_online_translate,
             commands::vocab::add_vocab,
-            commands::vocab::dict_list,
-            commands::vocab::dict_search,
-            commands::vocab::dict_remove,
+            commands::dictionary::dict_list,
+            commands::dictionary::dict_search,
+            commands::dictionary::dict_remove,
             commands::vocab::vocab_all,
             commands::vocab::vocab_search,
             commands::vocab::vocab_remove,
@@ -501,9 +503,9 @@ fn main() {
             commands::vocab::vocab_remove_common,
             commands::vocab::vocab_backlog_preview,
             commands::vocab::vocab_backlog_spread,
-            commands::vocab::srs_preview,
-            commands::vocab::srs_grade,
-            commands::vocab::vocab_restore,
+            commands::srs::srs_preview,
+            commands::srs::srs_grade,
+            commands::srs::vocab_restore,
             commands::sync_backend::sync_status,
             commands::sync_backend::sync_now,
             commands::sync_backend::sync_pull_now,

@@ -108,12 +108,12 @@ pub const COMMANDS: &[CommandInfo] = &[
     //      治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 原来全挤在 reader.rs 一个文件,
     //      path 字段驱动 F29 去对应 .rs 文件里找函数签名, 拆分后必须跟着改, 不只是改注释。
     CommandInfo {
-        path: "commands::vocab::word_lookup",
+        path: "commands::dictionary::word_lookup",
         domain: "生词",
         desc: "查词(本地优先 → LLM 补全, 异步)",
     },
     CommandInfo {
-        path: "commands::vocab::word_lookup_online",
+        path: "commands::dictionary::word_lookup_online",
         domain: "在线引擎",
         desc: "K3: 用在线 AI 查一次(本地失败后用户显式点击, 绝不自动回退)",
     },
@@ -128,17 +128,17 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "显式加入生词本",
     },
     CommandInfo {
-        path: "commands::vocab::dict_list",
+        path: "commands::dictionary::dict_list",
         domain: "词典",
         desc: "词典列表(某 profile)",
     },
     CommandInfo {
-        path: "commands::vocab::dict_search",
+        path: "commands::dictionary::dict_search",
         domain: "词典",
         desc: "词典搜索",
     },
     CommandInfo {
-        path: "commands::vocab::dict_remove",
+        path: "commands::dictionary::dict_remove",
         domain: "词典",
         desc: "词典删除",
     },
@@ -183,17 +183,17 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "H4: 存量打散 (备份+单事务把 next_review 摊到未来 N 天)",
     },
     CommandInfo {
-        path: "commands::vocab::srs_preview",
+        path: "commands::srs::srs_preview",
         domain: "复习",
         desc: "四档间隔预览 (调度器对当前词算出按钮时间, V2)",
     },
     CommandInfo {
-        path: "commands::vocab::srs_grade",
+        path: "commands::srs::srs_grade",
         domain: "复习",
         desc: "评分 1-4: 取→算→写 (唯一写者 vocab_repo), V2",
     },
     CommandInfo {
-        path: "commands::vocab::vocab_restore",
+        path: "commands::srs::vocab_restore",
         domain: "复习",
         desc: "撤销评分: 恢复词条评分前完整快照 (V3 三秒撤销后端支撑)",
     },

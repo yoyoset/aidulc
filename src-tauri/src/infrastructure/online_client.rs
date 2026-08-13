@@ -14,7 +14,7 @@ use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
-/// 查词元组 (与 commands::vocab::LookupTuple 同构; 避免重复引入命令层类型)。
+/// 查词元组 (与 commands::dictionary::LookupTuple 同构; 避免重复引入命令层类型)。
 pub(crate) type LookupTuple = (
     String,
     String,

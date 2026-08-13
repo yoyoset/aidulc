@@ -536,8 +536,11 @@ body::before {
 .settings-section button { margin-right: 6px; margin-top: 4px; }
 
 /* I-D: 涔﹀簱宸ュ叿鏉?*/
-.library-toolbar { display: flex; gap: 10px; margin-bottom: 14px; }
-.library-toolbar .prep-input { flex: 1; }
+/* K2-1 (2026-08-13): 窄屏工具条错位实测根因 —— 原来 nowrap, 搜索框+4 个状态分段挤
+   一行会把分段按钮推出视口。加 wrap + 搜索框弹性下限, 分段自身超窄时内部横滚不连累整页。 */
+.library-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.library-toolbar .prep-input { flex: 1 1 200px; min-width: 160px; }
+.library-toolbar .library-segmented { flex-shrink: 0; max-width: 100%; overflow-x: auto; }
 
 /* 涔﹀簱瀵煎叆鍗＄墖 (鍖洪殧: 瀵煎叆涓庝换鍔″鐞嗗垎寮€) */
 .import-card {

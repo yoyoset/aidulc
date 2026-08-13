@@ -189,11 +189,17 @@
   color: var(--md-sys-color-on-surface-variant);
   margin-top: -6px;
 }
-.book-card-progress {
+/* K2-4 (2026-08-13): 阅读状态统计块 —— 独立对齐的一排(是否读了/时长/笔记/书签),
+   不再拼进一整条 meta 字符串。数字用 tabular-nums 保证跨卡片竖排对齐。 */
+.book-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   font-size: var(--md-sys-font-size-label-m);
   color: var(--md-sys-color-primary);
-  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
 }
+.book-stat { white-space: nowrap; }
 /* G3: 译本列表默认折叠 */
 .edition-toggle {
   border: 0;

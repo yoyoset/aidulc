@@ -70,13 +70,22 @@ listing 里本来就带), 不需要新 Tauri 命令/DB 迁移, 纯粹是"多解�
 (`AiduLibraryCover`) 和 `views/library/status.js`(`AiduLibraryStatus`), 主文件回落到
 1030 行, 门禁基线数字不变(1063, 只降不加的约定没被打破)。
 
-### K2-4 卡片信息补全
-- 阅读时长: `time_spent_ms` 已有, 现在只在有 `reading_chapter` 时才显示——需要独立于
-  进度展示(哪怕没翻页也可能听了很久)。
-- 笔记数/书签数: `highlights`/`reading_state.bookmarks` 现在没有聚合到书卡层级的查询,
-  需要一个按 book_key 聚合计数的只读查询(遵守"跨表只读查询允许"的约定, 不新开写路径)。
-- 信息对齐: 章节数/句数/时长/进度/笔记数按统一的图标+数值网格布局, 不是现在这种
-  拼字符串堆一行(`metaBits.join(' · ')`) 的方式——数字对不齐, 弱视觉层级。
+### K2-4 卡片信息补全 ✅ 已完成
+- Rust: `library_list` 的 product/original 两分支都新增 `bookmarks_count`(从
+  `reading_state.bookmarks` 这个 `{章: [下标]}` map 各章求和, 复用已查出来的
+  `ReadingState`, 没有新查询)和 `notes_count`(`highlights_repo.list_by_book(uid,
+  edition_id).len()`, 跨表只读, 遵守"跨表只读查询允许"的约定)。
+- 前端: 阅读时长从"挂在 `reading_chapter != null` 才显示"的条件里解出来, 独立判断
+  `time_spent_ms > 60000`(听过音频但还没翻页也该看到"读过")。章节/句数/时长/
+  进度/笔记数/书签数不再拼进一整条 `metaBits.join(' · ')` 字符串, 拆成
+  `.book-card-stats` 里的独立 `.book-stat` 元素 + `font-variant-numeric:
+  tabular-nums`, 跨卡片数字竖排对齐。笔记/书签数为 0 时不显示对应项(不是"0 条笔记"
+  这种噪音)。
+
+**未做的小遗留**: `notes_count`/`bookmarks_count` 的聚合逻辑(纯 `.len()`/`.sum()`
+胶水代码)没有专门的 Rust 单测覆盖——`library_list` 本身此前也没有集成测试(需要
+`State<Db>` 构造, 这个函数至今靠手测/smoke 覆盖, 不是这次改动引入的缺口, 但记在这里
+不让它悄悄存在)。
 
 ## 不做什么(明确排除)
 

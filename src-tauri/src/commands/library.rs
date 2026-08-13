@@ -157,6 +157,7 @@ pub fn library_list(
     if kind.as_deref() == Some("product") {
         let editions = store::editions_repo::EditionsRepo::new(db.inner());
         let read_repo = store::reading_repo::ReadingRepo::new(db.inner());
+        let highlights_repo = store::highlights_repo::HighlightsRepo::new(db.inner());
         let out = editions
             .list()
             .into_iter()
@@ -166,7 +167,17 @@ pub fn library_list(
                     if let Some(obj) = v.as_object_mut() {
                         obj.insert("reading_chapter".into(), serde_json::json!(rs.chapter));
                         obj.insert("time_spent_ms".into(), serde_json::json!(rs.time_spent_ms));
+                        // K2-4 (2026-08-13): 书签数 —— bookmarks 是 {章: [下标]} 的 map, 各章求和
+                        let bookmarks_count: usize = rs.bookmarks.values().map(|v| v.len()).sum();
+                        obj.insert("bookmarks_count".into(), serde_json::json!(bookmarks_count));
                     }
+                }
+                // K2-4: 笔记数 (跨表只读 highlights, 同 M7 R18 的"展示性数据不阻断列表"惯例)
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert(
+                        "notes_count".into(),
+                        serde_json::json!(highlights_repo.list_by_book(uid, &e.id).len()),
+                    );
                 }
                 // K2-2 (2026-08-13): 封面 —— 同 original 分支一样从 bookpack.json 轻量解析
                 let bp = std::path::Path::new(&e.pack_dir).join("bookpack.json");
@@ -192,6 +203,7 @@ pub fn library_list(
     // M7 R18: 附阅读进度 (跨表只读 reading_state) —— 书架显示"已读至第几章/共读多久"。
     // N+1 查询, 但书量级小 (几十本), 可接受。
     let read_repo = store::reading_repo::ReadingRepo::new(db.inner());
+    let highlights_repo = store::highlights_repo::HighlightsRepo::new(db.inner());
     let mut out: Vec<serde_json::Value> = Vec::new();
     let editions = store::editions_repo::EditionsRepo::new(db.inner());
     for b in books {
@@ -204,7 +216,16 @@ pub fn library_list(
                 if let Some(o) = x.as_object_mut() {
                     o.insert("reading_chapter".into(), serde_json::json!(rs.chapter));
                     o.insert("time_spent_ms".into(), serde_json::json!(rs.time_spent_ms));
+                    let bookmarks_count: usize = rs.bookmarks.values().map(|v| v.len()).sum();
+                    o.insert("bookmarks_count".into(), serde_json::json!(bookmarks_count));
                 }
+            }
+            // K2-4 (2026-08-13): 笔记数 (跨表只读 highlights)
+            if let Some(o) = x.as_object_mut() {
+                o.insert(
+                    "notes_count".into(),
+                    serde_json::json!(highlights_repo.list_by_book(uid, &e.id).len()),
+                );
             }
             // G4 (2026-08-11): 书卡信息需要 句数/音频时长 (设计「12 章 · 3 480 句 · 6h12m」)。
             // 从 edition 的 bookpack.json 轻量解析 (失败给 0, 展示性数据不阻断列表)。

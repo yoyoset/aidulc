@@ -214,33 +214,42 @@
           ? { label: book.pack_state === 'missing' ? '成品文件缺失' : '成品文件不完整', cls: 'badge-err' }
           : st;
         const badge = el('span', 'book-badge ' + effSt.cls, effSt.label);
-        // G4 (2026-08-11): 章数从 edition 取 (原书登记时不填 chapter_count); 句数/时长/进度补齐。
-        // 书卡信息按设计: 书名 / 作者 / 状态徽章 / 「N 章 · M 句 · XhYm」/ 阅读进度。
+        // G4 (2026-08-11): 章数从 edition 取 (原书登记时不填 chapter_count); 句数/时长补齐。
         const editionsArr = Array.isArray(book.editions) ? book.editions : [];
         const chapterCount = editionsArr.length
           ? Math.max(...editionsArr.map((e) => e.chapter_count || 0))
           : (book.chapter_count || 0);
         const sentenceCount = editionsArr.reduce((s, e) => s + (e.sentence_count || 0), 0);
         const audioSec = editionsArr.reduce((s, e) => s + (e.audio_seconds || 0), 0);
-        const metaBits = [];
-        metaBits.push(`${chapterCount} 章`);
+        const metaBits = [`${chapterCount} 章`];
         if (sentenceCount) metaBits.push(`${sentenceCount} 句`);
         if (audioSec) {
           const h = Math.floor(audioSec / 3600), m = Math.floor((audioSec % 3600) / 60);
-          metaBits.push(h > 0 ? `${h}h${m}m` : `${m}m`);
+          metaBits.push(h > 0 ? `${h}h${m}m 音频` : `${m}m 音频`);
         }
         const meta = el('div', 'book-card-meta',
-          metaBits.join(' · ') + (metaBits.length ? ' · ' : '') + `${langLabel}→中文 · ${profileLabel}` +
+          metaBits.join(' · ') + ' · ' + `${langLabel}→中文 · ${profileLabel}` +
           (book.failed_count ? ` · ${book.failed_count} 句失败` : ''));
         meta.prepend(badge);
-        // 阅读进度: 「读到第 5 章 · 38%」
+        // K2-4 (2026-08-13): 阅读状态独立成一排对齐的统计块 (是否读了/读了多久/多少笔记/
+        // 多少书签), 不再拼进一整条字符串——数字对不齐、弱视觉层级是本期治理的问题之一。
+        // 阅读时长此前挂在"有 reading_chapter 才显示"的条件下, 现在独立判断 time_spent_ms
+        // (听过但还没翻页也该看到"读过")。
+        const stats = el('div', 'book-card-stats');
         if (book.reading_chapter != null && chapterCount > 0) {
           const pct = Math.round(((book.reading_chapter + 1) / chapterCount) * 100);
-          const prog = el('div', 'book-card-progress',
-            `读到第 ${book.reading_chapter + 1} 章 · ${pct}%` +
-            (book.time_spent_ms > 60000 ? ` · 已读 ${Math.round(book.time_spent_ms / 60000)} 分钟` : ''));
-          card.appendChild(prog);
+          stats.appendChild(el('span', 'book-stat', `读到第 ${book.reading_chapter + 1} 章 · ${pct}%`));
         }
+        if (book.time_spent_ms > 60000) {
+          stats.appendChild(el('span', 'book-stat', `已读 ${Math.round(book.time_spent_ms / 60000)} 分钟`));
+        }
+        if (book.notes_count) {
+          stats.appendChild(el('span', 'book-stat', `📝 ${book.notes_count} 条笔记`));
+        }
+        if (book.bookmarks_count) {
+          stats.appendChild(el('span', 'book-stat', `🔖 ${book.bookmarks_count} 个书签`));
+        }
+        if (stats.childElementCount) card.appendChild(stats);
         // R6 改进: 处理中的书显示实时进度 (来自 job_list 匹配)
         if (book.status === 'processing') {
           const job = (this._jobs || []).find(j => j.book_path && book.source_path &&

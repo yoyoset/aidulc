@@ -251,6 +251,11 @@
       }
       // 失败行: 重试失败句可见 (苹果级: 失败必有恢复路径)
       if (job.status === 'failed' || job.status === 'partial') {
+        // 手动重跑 (2026-08-13): 选错模型/想重做某阶段时, 重新选模型 + 指定重跑范围
+        const btnRerun = el('button', 'btn-small', '重跑…');
+        btnRerun.title = '重新选模型或指定重跑范围 (比如只重跑语音) —— 比「重试失败句」更细。';
+        btnRerun.onclick = () => this._showRetryDialog(job);
+        actions.appendChild(btnRerun);
         const btnRetry = el('button', 'btn-small', '重试失败句');
         btnRetry.onclick = () => {
           btnRetry.disabled = true;
@@ -397,6 +402,117 @@
         ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
         document.body.appendChild(ov);
       });
+    }
+
+    /** 手动重跑 (2026-08-13): 「重跑…」对话框 — 重新选模型 (3 下拉) + 重跑范围 (单选)。
+     * 点「开始重跑」→ AiduJobService.retryCustom(id, llmId, ttsId, nlpId, forceStages)。
+     * 模型下拉: 默认「保持当前」(书级绑定/推荐解析), 选项 = 已登记模型 (AiduModelService.list)。
+     * 重跑范围: 自动(只跑失败/未完成) / 从翻译 / 从讲解 / 从语音 / 全部, 语义与
+     * prep checkpoint.clear_stages 的 FORCE_STAGE_CASCADE 对齐 (翻译级联讲解, 语音级联对齐)。
+     */
+    _showRetryDialog(job) {
+      const famLabels = { llm: '翻译引擎', tts: '语音引擎', nlp: '分词' };
+      const ov = document.createElement('div');
+      ov.className = 'modal-overlay';
+      const box = document.createElement('div');
+      box.className = 'modal-box';
+      box.setAttribute('role', 'dialog');
+      box.setAttribute('aria-modal', 'true');
+      const title = el('h2', 'modal-title', `重跑 — ${job.book_path.split(/[\\/]/).pop()}`);
+      const body = el('div', 'book-settings-body');
+
+      body.appendChild(el('div', 'preview-meta', '重新选模型 (可选, 保持当前 = 沿用书级绑定/推荐), 并选择重跑范围。'));
+      // 模型下拉 (默认保持当前 = 空串)
+      const mkSelect = (fam) => {
+        const wrap = el('div', 'retry-field');
+        wrap.appendChild(el('label', null, famLabels[fam] || fam));
+        const sel = document.createElement('select');
+        sel.className = 'retry-select';
+        const keep = document.createElement('option');
+        keep.value = '';
+        keep.textContent = '保持当前 (书级绑定/推荐)';
+        sel.appendChild(keep);
+        (global.AiduModelService.list ? (global.AiduModelService.list() || Promise.resolve({ ok: true, data: [] })) : Promise.resolve({ ok: true, data: [] }))
+          .then((res) => {
+            const models = (res.ok && res.data) || [];
+            models.filter((m) => m.family === fam).forEach((m) => {
+              const opt = document.createElement('option');
+              opt.value = m.id;
+              opt.textContent = (m.model_id || m.id) + (m.active ? ' (推荐)' : '');
+              sel.appendChild(opt);
+            });
+          })
+          .catch(() => {});
+        wrap.appendChild(sel);
+        return { wrap, sel };
+      };
+      const llm = mkSelect('llm');
+      const tts = mkSelect('tts');
+      const nlp = mkSelect('nlp');
+      body.append(llm.wrap, tts.wrap, nlp.wrap);
+
+      // 重跑范围 (单选) — force_stages 语义与 FORCE_STAGE_CASCADE 对齐
+      const scopeWrap = el('div', 'retry-field');
+      scopeWrap.appendChild(el('label', null, '重跑范围'));
+      const scopes = [
+        { v: '', t: '自动', d: '只重跑失败/未完成的句子 (和「重试失败句」一致)' },
+        { v: 'translate', t: '从翻译', d: '重跑翻译+讲解' },
+        { v: 'explain', t: '从讲解', d: '重跑讲解' },
+        { v: 'tts', t: '从语音', d: '重跑语音+对齐' },
+        { v: 'all', t: '全部', d: '重跑翻译+讲解+语音+对齐' },
+      ];
+      const radios = scopes.map((s) => {
+        const row = el('label', 'retry-scope-row');
+        const r = document.createElement('input');
+        r.type = 'radio';
+        r.name = 'retry-scope';
+        r.value = s.v;
+        r.checked = s.v === '';
+        r.addEventListener('change', () => {
+          radios.forEach((x) => { x.checked = (x === r); });
+        });
+        row.appendChild(r);
+        row.appendChild(el('span', null, s.t + ' — ' + s.d));
+        scopeWrap.appendChild(row);
+        return r;
+      });
+      body.appendChild(scopeWrap);
+
+      const actions = el('div', 'modal-actions');
+      const startBtn = el('button', 'btn-small btn-primary', '开始重跑');
+      startBtn.onclick = () => {
+        const sel = radios.find((r) => r.checked);
+        // 重跑范围 → force_stages (与 checkpoint FORCE_STAGE_CASCADE 语义一致:
+        // 翻译级联讲解, 语音级联对齐; 空 = 自动只跑失败/未完成)
+        const FORCE_MAP = {
+          translate: ['translate'],
+          explain: ['explain'],
+          tts: ['tts'],
+          all: ['translate', 'explain', 'tts', 'align'],
+        };
+        const forceStages = (sel && FORCE_MAP[sel.value]) || null;
+        startBtn.disabled = true;
+        startBtn.textContent = '重排中…';
+        AiduJobService.retryCustom(
+          job.id,
+          llm.sel.value || null,
+          tts.sel.value || null,
+          nlp.sel.value || null,
+          forceStages,
+        ).then((r) => {
+          if (!r.ok) { startBtn.disabled = false; startBtn.textContent = '开始重跑'; AiduToast.show('重跑失败: ' + r.error, 'error'); return; }
+          ov.remove();
+          AiduToast.show('已重新排队', 'success');
+          this._refreshJobs();
+        });
+      };
+      const close = el('button', 'btn-small', '关闭');
+      close.onclick = () => ov.remove();
+      actions.append(startBtn, close);
+      box.append(title, body, actions);
+      ov.appendChild(box);
+      ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
     }
 
     /** R5: 7 阶段流水条 — 已完成✓ 当前高亮+进度 未到置灰 */

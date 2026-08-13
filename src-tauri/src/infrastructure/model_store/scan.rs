@@ -16,6 +16,26 @@ pub struct ScannedModel {
     pub layout: String,          // flat | hf
     pub repo_id: Option<String>, // hf 布局的 repo
     pub commit_sha: Option<String>,
+    /// 仅对 TTS (Kokoro `.pth`) 有意义: 同目录是否同时有 config.json + voices/。
+    /// Some(true)=完整, Some(false)=缺依赖 (平铺只拷了 .pth), None=非 TTS 模型。
+    pub complete: Option<bool>,
+}
+
+/// TTS (Kokoro) 完整性: `.pth` 同目录必须同时存在 config.json + voices/ 目录。
+/// 引擎 (prep/pipeline/tts/engine.py) 在构造时硬校验这两项, 缺一即报"模型不完整"。
+/// 平铺的 `F:/hf_cache/kokoro-v1_0.pth` (只有 .pth) 与 HF 快照
+/// `models--hexgrad--Kokoro-82M/snapshots/<sha>/kokoro-v1_0.pth` (带 config+voices) 都能被
+/// 扫到, 这里用 complete 区分, 前端据此标"⚠ 不完整"、不预勾、登记被拒。
+fn kokoro_complete(path: &std::path::Path) -> Option<bool> {
+    let ext = path
+        .extension()
+        .map(|x| x.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if ext != "pth" {
+        return None;
+    }
+    let dir = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    Some(dir.join("config.json").is_file() && dir.join("voices").is_dir())
 }
 
 /// 扫描模型目录, 返回所有候选模型文件
@@ -47,6 +67,7 @@ pub fn scan_model_dir(root: &str) -> Vec<ScannedModel> {
                             layout: "flat".into(),
                             repo_id: None,
                             commit_sha: None,
+                            complete: kokoro_complete(&p),
                         });
                     }
                 }
@@ -119,6 +140,7 @@ fn walk_hf_dir(dir: &std::path::Path, repo_id: &str, commit: &str, out: &mut Vec
                             layout: "hf".into(),
                             repo_id: Some(repo_id.to_string()),
                             commit_sha: Some(commit.to_string()),
+                            complete: kokoro_complete(&p),
                         });
                     }
                 }
@@ -189,5 +211,35 @@ mod tests {
         assert_eq!(h1, h2);
         assert_eq!(h1.len(), 64);
         std::fs::remove_file(&p).unwrap();
+    }
+
+    /// UX5: 平铺 .pth (缺 config.json/voices) 标 complete=false, 完整快照标 true,
+    /// 非 .pth (gguf/bin) 标 None。用户实测: 平铺 kokoro 被登记当推荐 → TTS 阶段才炸。
+    #[test]
+    fn scan_marks_kokoro_completeness() {
+        let dir = std::env::temp_dir().join(format!("aidulc_scan_cmp_{}", std::process::id()));
+        // 平铺: 只有 .pth, 没有 config.json/voices
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("kokoro-v1_0.pth"), vec![0u8; 10]).unwrap();
+        std::fs::write(dir.join("qwen.gguf"), vec![0u8; 10]).unwrap();
+        // 完整快照: .pth + config.json + voices/
+        let snap = dir.join("hub/models--hexgrad--Kokoro-82M/snapshots/abc123");
+        std::fs::create_dir_all(snap.join("voices")).unwrap();
+        std::fs::write(snap.join("kokoro-v1_0.pth"), vec![0u8; 10]).unwrap();
+        std::fs::write(snap.join("config.json"), b"{}").unwrap();
+        std::fs::write(snap.join("voices/af_heart.pt"), vec![0u8; 5]).unwrap();
+
+        let found = scan_model_dir(&dir.to_string_lossy());
+        let flat = found
+            .iter()
+            .find(|m| m.layout == "flat" && m.file_name == "kokoro-v1_0.pth");
+        let gguf = found.iter().find(|m| m.file_name == "qwen.gguf");
+        let snap_model = found
+            .iter()
+            .find(|m| m.layout == "hf" && m.file_name == "kokoro-v1_0.pth");
+        assert_eq!(flat.unwrap().complete, Some(false), "平铺 .pth 应标不完整");
+        assert_eq!(gguf.unwrap().complete, None, "非 .pth 无完整性概念");
+        assert_eq!(snap_model.unwrap().complete, Some(true), "完整快照应标完整");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

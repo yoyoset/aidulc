@@ -55,6 +55,16 @@ pub fn models_list(db: State<store::Db>) -> Result<serde_json::Value, String> {
                 }),
             );
             object.insert("bound_count".into(), serde_json::json!(bound));
+            // UX5: TTS 完整性透出给前端 (模型中心据此标"⚠ 不完整", 不把平铺 .pth 当可用)。
+            // 非 tts 家族没有多文件要求, 一律 true。
+            object.insert(
+                "complete".into(),
+                serde_json::json!(if model.family == "tts" {
+                    model_service::tts_complete(&model.path)
+                } else {
+                    true
+                }),
+            );
         }
         out.push(value);
     }

@@ -100,3 +100,36 @@
 }
 .prep-history-toggle:hover { text-decoration: underline; }
 
+/* 手动重跑 (2026-08-13): 「重跑…」对话框 —— 模型下拉 + 重跑范围单选 */
+.retry-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.retry-field > label {
+  font-size: var(--md-sys-font-size-label-l);
+  color: var(--md-sys-color-on-surface);
+  font-weight: 600;
+}
+.retry-select {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-sm);
+  padding: 8px 10px;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-sys-font-sans);
+}
+.retry-select:focus { outline: none; border-color: var(--md-sys-color-primary); }
+.retry-scope-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: var(--md-sys-font-size-body-s);
+  color: var(--md-sys-color-on-surface-variant);
+  line-height: 1.5;
+  cursor: pointer;
+}
+.retry-scope-row input[type="radio"] { margin-top: 2px; }
+

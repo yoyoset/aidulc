@@ -576,32 +576,64 @@ pub fn job_retry_failed(
     db: &store::Db,
     id: String,
 ) -> Result<(), String> {
+    // 旧入口 = 无任何 override 的自定义重跑 (模型按当前解析, 阶段自动)
+    job_retry_custom(app, state, cfg, db, id, None, None, None, None)
+}
+
+/// 自定义重跑 (2026-08-13): 用户选错模型 / 想重做某阶段时, 可手动重选模型 (llm_id/tts_id/
+/// nlp_id) + 指定重跑范围 (force_stages, 含下游级联)。缺省 = 模型按当前解析、阶段自动
+/// (只跑失败/未完成) —— 与 job_retry_failed 等价。前端"重跑…"对话框调用。
+#[allow(clippy::too_many_arguments)]
+pub fn job_retry_custom(
+    app: tauri::AppHandle,
+    state: &PrepState,
+    cfg: &PrepConfig,
+    db: &store::Db,
+    id: String,
+    llm_id: Option<String>,
+    tts_id: Option<String>,
+    nlp_id: Option<String>,
+    force_stages: Option<Vec<String>>,
+) -> Result<(), String> {
     let repo = store::jobs_repo::JobsRepo::new(db);
     let job = repo.get(&id).ok_or("任务不存在")?;
     if job.status != "done" && job.status != "failed" && job.status != "partial" {
-        return Err("只有已完成的任务能重试失败句".into());
+        return Err("只有已完成的任务能重跑".into());
     }
-    // 修复: 重试重建 job_request (用当前模型推荐, 旧快照可能指向已失效的模型路径)
-    // 否则侧车继续用旧 tts/llm 路径 → 失败永远复现
-    let orig_book_id = crate::commands::library::book_id_from_path(&job.book_path, &job.profile_id);
+    // 原书 id 用 job.source_id (真实原书 id, 不重算 path+profile, 见 job_retry_failed 历史注释)
+    let orig_book_id = job.source_id.clone().unwrap_or_else(|| {
+        crate::commands::library::book_id_from_path(&job.book_path, &job.profile_id)
+    });
     let (b_llm, b_tts, b_nlp) = crate::application::model_service::resolve_for_book(
         db,
         &orig_book_id,
         &job.source_language,
     );
+    // 显式 override 优先, 否则沿用书级绑定/全局推荐解析到的路径
+    let model_repo = store::model_repo::ModelRepo::new(db);
+    let llm = llm_id
+        .and_then(|mid| model_repo.get(&mid).map(|m| m.path))
+        .filter(|p| !p.is_empty())
+        .unwrap_or(b_llm);
+    let tts = tts_id
+        .and_then(|mid| model_repo.get(&mid).map(|m| m.path))
+        .filter(|p| !p.is_empty())
+        .unwrap_or(b_tts);
+    let nlp = nlp_id
+        .and_then(|mid| model_repo.get(&mid).map(|m| m.path))
+        .filter(|p| !p.is_empty())
+        .unwrap_or(b_nlp);
     let mut book_models = serde_json::json!({});
-    if !b_llm.is_empty() {
-        book_models["llm"] = serde_json::json!(b_llm);
+    if !llm.is_empty() {
+        book_models["llm"] = serde_json::json!(llm);
     }
-    if !b_tts.is_empty() {
-        book_models["tts"] = serde_json::json!(b_tts);
+    if !tts.is_empty() {
+        book_models["tts"] = serde_json::json!(tts);
     }
-    if !b_nlp.is_empty() {
-        book_models["spacy"] = serde_json::json!(b_nlp);
+    if !nlp.is_empty() {
+        book_models["spacy"] = serde_json::json!(nlp);
     }
-    // F13 (2026-08-08): 重试必须保留原始 profile —— 硬编码 brief/af_heart/1.0 会让
-    // kid(deep/0.9x/词级)重试后换成默认音色/策略/速度。正确来源 = job_dir/job_request.json
-    // 里的原始 profile 快照(job_dir 里仍保留), 从表里查也行, 但快照保留"这本书当年怎么配的"。
+    // F13 (2026-08-08): 重跑必须保留原始 profile (音色/策略/速度/粒度快照)
     let job_dir = std::path::PathBuf::from(&job.output_dir);
     let profile_obj = profile_from_snapshot(&job_dir, &job.profile_id);
     let mut job_req = jobs::spawn::build_job_request(
@@ -615,6 +647,11 @@ pub fn job_retry_failed(
     }
     job_req["source_language"] = serde_json::json!(job.source_language);
     job_req["target_language"] = serde_json::json!(job.target_language);
+    if let Some(fs) = &force_stages {
+        if !fs.is_empty() {
+            job_req["force_stages"] = serde_json::json!(fs);
+        }
+    }
     let req_path = job_dir.join("job_request.json");
     let _ = std::fs::write(&req_path, serde_json::to_string_pretty(&job_req).unwrap());
     {
@@ -625,7 +662,7 @@ pub fn job_retry_failed(
         let mut j = job.clone();
         j.status = "queued".into();
         j.stage = "retry_failed".into();
-        j.error = None; // 重试清除旧错误 (否则 UI 残留历史 os error 3)
+        j.error = None; // 重跑清除旧错误 (否则 UI 残留历史 os error 3)
         j.progress = 0.0;
         j.updated_at = now_ms();
         repo.upsert(&j)?;
@@ -664,6 +701,7 @@ pub fn job_pause(
                 let _ = child.wait();
             }
             *guard = None;
+            drop(guard); // Bug fix (2026-08-13): 释放 child 锁再锁 running_job, 避免 ABBA 死锁
             *state.running_job.lock().unwrap() = None;
             let mut j = job.clone();
             j.status = "paused".into();
@@ -750,7 +788,11 @@ pub fn pump_queue(
     }
     // R6: 任务 running → 关联书 status = processing (书库徽章"处理中")
     {
-        let book_id = crate::commands::library::book_id_from_path(&job.book_path, &job.profile_id);
+        // Bug fix (2026-08-13): 关联书用 job.source_id (真实原书 id), 不重算 path+profile
+        // (profile 是处理参数, 与 source 书登记时 profile 可能不一致 → 重算得到不存在的 id)。
+        let book_id = job.source_id.clone().unwrap_or_else(|| {
+            crate::commands::library::book_id_from_path(&job.book_path, &job.profile_id)
+        });
         let books_repo = store::books_repo::BooksRepo::new(db);
         if let Some(mut b) = books_repo.get(&book_id) {
             if b.status == "pending" || b.status == "failed" {
@@ -802,8 +844,10 @@ pub fn pump_queue(
     let job_src_lang = job.source_language.clone(); // Bug fix: 用真实语言登记书库 (审查确认)
     let job_tgt_lang = job.target_language.clone();
     // v8 资产模型: 本次处理用的模型 (job_request 里已解析) + 原书 id
-    let orig_book_id2 =
-        crate::commands::library::book_id_from_path(&job.book_path, &job.profile_id);
+    // Bug fix (2026-08-13): 原书 id 用 job.source_id, 不重算 path+profile (同上)。
+    let orig_book_id2 = job.source_id.clone().unwrap_or_else(|| {
+        crate::commands::library::book_id_from_path(&job.book_path, &job.profile_id)
+    });
     // 阶段4 (2026-08-09): 模型快照从 job_request.json 读 —— 不同模型组合要能生成不同 edition
     // (editions 表 asset key 含 llm_id/tts_id, 空串会让所有组合塌缩成一个键)。此前这里写死空串,
     // 注释自证"后续从 job_request 读"但没实现。
@@ -967,11 +1011,11 @@ pub fn pump_queue(
                                 .attach_edition(&job_id2, &edition.id);
                         }
                         // v7 架构分离: 原版书标 done (产物独立为 product)
-                        let orig_id =
-                            crate::commands::library::book_id_from_path(&book_path2, &profile_id);
+                        // Bug fix (2026-08-13): 用 orig_book_id2 (job.source_id) 而非重算
+                        // path+profile —— 否则 profile 错配时标错书、原书永远不显示 done。
                         crate::application::library_service::mark_original_done(
                             db.inner(),
-                            &orig_id,
+                            &orig_book_id2,
                         );
                         let _ = app_state.emit("library-changed", serde_json::json!({}));
                     }

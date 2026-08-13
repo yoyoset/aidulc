@@ -331,6 +331,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "重试失败句",
     },
     CommandInfo {
+        path: "commands::jobs::job_retry_custom",
+        domain: "任务",
+        desc: "自定义重跑 (重选模型 + 指定重跑阶段)",
+    },
+    CommandInfo {
         path: "commands::jobs::job_detail",
         domain: "任务",
         desc: "任务详情 (quality_report.json, 失败原因可读)",

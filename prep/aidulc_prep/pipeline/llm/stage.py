@@ -75,7 +75,9 @@ def translate_sentences(
     pending = []
     indices = []
     for i, s in enumerate(chapter.sentences):
-        if s.status == "failed" or "nlp" in s.failed_stages:
+        # 只跳过 nlp 失败的句 (分词失败 = 无 segments, 翻译无从谈起)。之前还跳过
+        # s.status == "failed", 导致翻译失败的句子重跑时永远跳过 —— 重试失败句失效 (审查确认)。
+        if "nlp" in s.failed_stages:
             continue
         if is_done_sentence(out_dir, chapter.index, i, "translation"):
             s.translation = load_translation(out_dir, chapter.index, i)
@@ -105,6 +107,7 @@ def translate_sentences(
             else:
                 s.translation = results[j]
                 save_stage_result(out_dir, chapter.index, i, "translation", results[j])
+                s.clear_failed_stage("translate")
                 quality.record("translate", ok=True)
         processed += len(chunk)
         if on_batch:
@@ -137,9 +140,9 @@ def explain_sentences(
     for i, s in enumerate(chapter.sentences):
         if cancel and cancel():
             raise EngineError("已取消", "explain")
-        if s.status == "failed":
+        if "nlp" in s.failed_stages or "translate" in s.failed_stages:
             continue
-        if not s.translation or "translate" in s.failed_stages:
+        if not s.translation:
             continue
         if is_done_sentence(out_dir, chapter.index, i, "explanation"):
             continue
@@ -157,6 +160,7 @@ def explain_sentences(
             if tr:
                 s.translation = tr
             save_stage_result(out_dir, chapter.index, i, "explanation", ex)
+            s.clear_failed_stage("explain")
             quality.record("explain", ok=True)
         except Exception as e:
             s.mark_failed("explain")

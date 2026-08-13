@@ -24,6 +24,8 @@ pub fn save_cf_token(token: &str) -> Result<(), String> {
         .map_err(|e| format!("保存 token 失败: {e}"))
 }
 
+// TODO(未接线): V6 起 token 按 user 分账 (get_cf_token_for); 旧单 token 入口仅测试用。
+#[allow(dead_code)]
 pub fn get_cf_token() -> Result<String, String> {
     let entry = Entry::new(SERVICE, TOKEN_ACCOUNT).map_err(|e| format!("创建凭据条目失败: {e}"))?;
     match entry.get_password() {

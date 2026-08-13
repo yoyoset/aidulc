@@ -213,6 +213,86 @@ impl<'a> VocabRepo<'a> {
         Ok(())
     }
 
+    /// H5 (2026-08-11): 词频批量剔除执行 —— 单事务删多个 lemma, 中途失败整体回滚。
+    /// 命令层 (reader.rs::vocab_remove_common) 之前在这里直写 SQL 绕过本 repo, 违反
+    /// "vocab 表唯一写者 = vocab_repo" 的所有权规约; 收敛到这里。
+    pub fn remove_many(
+        &self,
+        user_id: &str,
+        profile_id: &str,
+        lemmas: &[String],
+    ) -> Result<usize, String> {
+        let conn = self.db.conn.lock().unwrap();
+        conn.execute_batch("BEGIN IMMEDIATE;")
+            .map_err(|e| format!("删除事务开始失败: {e}"))?;
+        let result = (|| -> Result<usize, String> {
+            let mut stmt = conn
+                .prepare("DELETE FROM vocab WHERE user_id = ?1 AND profile_id = ?2 AND lemma = ?3")
+                .map_err(|e| e.to_string())?;
+            let mut n = 0usize;
+            for lemma in lemmas {
+                n += stmt
+                    .execute(params![user_id, profile_id, lemma])
+                    .map_err(|e| format!("删除 {lemma} 失败: {e}"))?;
+            }
+            Ok(n)
+        })();
+        match result {
+            Ok(n) => {
+                conn.execute_batch("COMMIT;")
+                    .map_err(|e| format!("删除事务提交失败: {e}"))?;
+                Ok(n)
+            }
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK;");
+                Err(e)
+            }
+        }
+    }
+
+    /// H4 (2026-08-11): 存量打散执行 —— 单事务更新 next_review。
+    /// 权威数据在 canonical payload JSON (list/get 读 payload), 必须同时 json_set payload 的
+    /// nextReview/updatedAt, 只改散列列会让 list 读到旧值 (单测锁住了这个坑)。命令层之前
+    /// 在这里直写 SQL 绕过本 repo, 收敛到这里。
+    pub fn spread_next_review(
+        &self,
+        user_id: &str,
+        profile_id: &str,
+        plan: &[(String, i64)],
+    ) -> Result<usize, String> {
+        let now = crate::store::now_ms_for_store();
+        let conn = self.db.conn.lock().unwrap();
+        conn.execute_batch("BEGIN IMMEDIATE;")
+            .map_err(|e| format!("打散事务开始失败: {e}"))?;
+        let result = (|| -> Result<usize, String> {
+            let mut stmt = conn
+                .prepare(
+                    "UPDATE vocab SET next_review = ?1, updated_at = ?2,
+                     payload = json_set(payload, '$.nextReview', ?1, '$.updatedAt', ?2)
+                     WHERE user_id = ?3 AND profile_id = ?4 AND lemma = ?5",
+                )
+                .map_err(|e| e.to_string())?;
+            let mut n = 0usize;
+            for (lemma, ts) in plan {
+                n += stmt
+                    .execute(params![ts, now, user_id, profile_id, lemma])
+                    .map_err(|e| format!("打散 {lemma} 失败: {e}"))?;
+            }
+            Ok(n)
+        })();
+        match result {
+            Ok(n) => {
+                conn.execute_batch("COMMIT;")
+                    .map_err(|e| format!("打散事务提交失败: {e}"))?;
+                Ok(n)
+            }
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK;");
+                Err(e)
+            }
+        }
+    }
+
     /// I-B: 统计
     pub fn stats(&self, user_id: &str, profile_id: &str) -> serde_json::Value {
         let all = self.list(user_id, profile_id);

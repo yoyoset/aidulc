@@ -6,6 +6,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from aidulc_prep.infra.checkpoint import (
+    clear_stages,
     is_done_sentence,
     load_sentence,
     overwrite_sentence,
@@ -22,7 +23,8 @@ class TestCheckpointFailureSemantics:
         assert not is_done_sentence(out, 0, 0, "translation"), "失败句不得判为完成"
         data = load_sentence(out, 0, 0)
         assert data["status"] == "failed"
-        assert "translation" in data["failedStages"]
+        # failedStages 统一存阶段名 "translate" (不是字段名 "translation"), 与 mark_failed 一致
+        assert "translate" in data["failedStages"]
 
     def test_failed_tts_not_done(self, tmp_path):
         out = str(tmp_path)
@@ -62,6 +64,60 @@ class TestCheckpointFailureSemantics:
             f.write("{corrupt json")
         assert load_sentence(out, 0, 0) is None
         assert not is_done_sentence(out, 0, 0, "translation")
+
+
+class TestRetryContract:
+    """重试失败句的契约 (2026-08-13 修复): 阶段失败可被后续成功恢复, 不粘死。"""
+
+    def test_translate_fail_then_success_recovers(self, tmp_path):
+        """翻译失败 → failed + failedStages=["translate"]; 重跑成功 → 清失败标记、恢复 ok。
+        之前成功不清 failedStages, 重跑成功仍粘 failed → explain/tts 继续跳过 (重试失效)。"""
+        out = str(tmp_path)
+        save_stage_result(out, 0, 0, "translation", None, status="failed")
+        assert load_sentence(out, 0, 0)["status"] == "failed"
+        assert load_sentence(out, 0, 0)["failedStages"] == ["translate"]
+        save_stage_result(out, 0, 0, "translation", "你好。", status="ok")
+        data = load_sentence(out, 0, 0)
+        assert data["status"] == "ok"
+        assert data["failedStages"] == []
+        assert data["translation"] == "你好。"
+
+    def test_tts_fail_then_success_keeps_other_failures(self, tmp_path):
+        """tts 失败后成功只清 tts, 不清其它仍未恢复的失败 (partial 语义保持)。"""
+        out = str(tmp_path)
+        save_stage_result(out, 0, 0, "explanation", None, status="failed")  # explain 失败
+        save_stage_result(out, 0, 0, "audio", None, status="failed")  # tts 失败
+        assert load_sentence(out, 0, 0)["failedStages"] == ["explain", "tts"]
+        save_stage_result(out, 0, 0, "audio", {"start_ms": 0, "end_ms": 1000}, status="ok")
+        data = load_sentence(out, 0, 0)
+        assert data["failedStages"] == ["explain"], "tts 恢复后 failedStages 只剩 explain"
+        assert data["status"] == "partial", "仍剩非 fatal 失败 → partial"
+
+
+class TestClearStages:
+    """手动重跑 (2026-08-13): force_stages 清 checkpoint 强制重跑, 含下游级联。"""
+
+    def test_clear_tts_cascades_to_align(self, tmp_path):
+        out = str(tmp_path)
+        save_stage_result(out, 0, 0, "translation", "你好。")
+        save_stage_result(out, 0, 0, "explanation", "讲解")
+        save_stage_result(out, 0, 0, "audio", {"start_ms": 0, "end_ms": 100})
+        save_stage_result(out, 0, 0, "words", [{"seg_idx": 0, "start_ms": 0, "end_ms": 100}])
+        clear_stages(out, ["tts"])
+        data = load_sentence(out, 0, 0)
+        assert "translation" in data, "translate 不应被清"
+        assert "explanation" in data, "explain 不应被清"
+        assert "audio" not in data, "tts 应被清"
+        assert "words" not in data, "align (下游) 应被清"
+
+    def test_clear_translate_cascades_to_explain(self, tmp_path):
+        out = str(tmp_path)
+        save_stage_result(out, 0, 0, "translation", "你好。")
+        save_stage_result(out, 0, 0, "explanation", "讲解")
+        clear_stages(out, ["translate"])
+        data = load_sentence(out, 0, 0)
+        assert "translation" not in data, "translate 应被清"
+        assert "explanation" not in data, "explain (下游) 应被清"
 
 
 class TestPositionReconciliation:

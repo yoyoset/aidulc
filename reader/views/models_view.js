@@ -471,17 +471,72 @@
           return new Promise((resolve) => setTimeout(() => resolve(this._pollDownload(token, btn, item, dest, customFamily)), 1000));
         }
         if (!d.ok) throw new Error(d.error || '未知错误');
-        // 完成 → 自动登记 (J4: 自定义模型 family 由用户选, custom=true)
-        return AiduModelService.register({
-          family: customFamily || item.family, language: 'en', model_id: item.name, version: item.version,
-          variant: item.version, path: dest, source_type: 'local',
-          source_ref: item.url, sha256: item.sha256, size_bytes: item.sizeBytes, custom: !!customFamily,
-        }).then((reg) => {
-          if (!reg.ok) throw new Error(reg.error);
-          AiduToast.show('已下载并登记: ' + item.name, 'success');
-          btn.textContent = '已安装';
-          this._reload();
-        });
+        // 完成 → 补全附加文件 (TTS) → 自动登记
+        return this._finishDownload(item, dest, btn, customFamily);
+      });
+    }
+
+    /**
+     * UX5 修正 (2026-08-13): TTS 下载补全 —— Kokoro 引擎硬校验 模型文件+config.json+voices/
+     * 同目录, 单下 kokoro-v1_0.pth 会缺依赖、任务跑到 TTS 阶段才炸。这里主文件下完后再
+     * 下 config.json + 前端音色表 (core/builtin_profiles) 里的全部 voice .pt, 才登记。
+     */
+    _finishDownload(item, dest, btn, customFamily) {
+      const extras = this._ttsExtras(item, customFamily);
+      const chain = extras.length
+        ? this._downloadExtras(extras, dest, btn)
+        : Promise.resolve();
+      return chain.then(() => AiduModelService.register({
+        family: customFamily || item.family, language: 'en', model_id: item.name, version: item.version,
+        variant: item.version, path: dest, source_type: 'local',
+        source_ref: item.url, sha256: item.sha256, size_bytes: item.sizeBytes, custom: !!customFamily,
+      }).then((reg) => {
+        if (!reg.ok) throw new Error(reg.error);
+        AiduToast.show('已下载并登记: ' + item.name, 'success');
+        btn.textContent = '已安装';
+        this._reload();
+      }));
+    }
+
+    /** 只有 tts (Kokoro) 需要附加文件; 其余返回空。音色表单一真相源 = core/builtin_profiles。
+     *  自定义模型也按 family 判 tts, 但只对 Kokoro 仓库链接补 config.json+voices (别的 .pth 不瞎补)。 */
+    _ttsExtras(item, customFamily) {
+      if ((customFamily || item.family) !== 'tts') return [];
+      if (!/Kokoro-82M/.test(String(item.url || ''))) return [];
+      const voices = (global.AiduBuiltinProfiles && global.AiduBuiltinProfiles.VOICES) || [];
+      const ids = voices.map((v) => (Array.isArray(v) ? v[0] : v)).filter(Boolean);
+      const base = 'https://huggingface.co/hexgrad/Kokoro-82M/resolve/main';
+      return [
+        { path: 'config.json', url: base + '/config.json' },
+        ...ids.map((v) => ({ path: 'voices/' + v + '.pt', url: base + '/voices/' + v + '.pt' })),
+      ];
+    }
+
+    /** 依次下载附加文件 (config.json + voices/*.pt), 更新按钮文案让进度可感知。 */
+    _downloadExtras(extras, modelFileDest, btn) {
+      const dir = modelFileDest.replace(/[\\/][^\\/]+$/, '');
+      return extras.reduce((chain, extra, i) => chain.then(() => {
+        btn.textContent = `下载附加文件… ${i + 1}/${extras.length}`;
+        return this._downloadOne(extra.url, dir + '/' + extra.path);
+      }), Promise.resolve());
+    }
+
+    /** 下载单文件并等它完成 (复用后台下载 + 轮询, 不新写同步下载流)。 */
+    _downloadOne(url, dest) {
+      return AiduModelService.download(url, dest, null, 600).then((r) => {
+        if (!r.ok) throw new Error(r.error);
+        return this._waitDownload(r.data.token, url, dest);
+      });
+    }
+
+    _waitDownload(token, url, dest) {
+      return AiduModelService.downloadStatus(token).then((res) => {
+        const d = (res.ok && res.data) || {};
+        if (!d.done) {
+          return new Promise((resolve) => setTimeout(() => resolve(this._waitDownload(token, url, dest)), 1000));
+        }
+        if (!d.ok) throw new Error(d.error || '未知错误');
+        return dest;
       });
     }
 
@@ -509,9 +564,11 @@
           const active = usable.find((m) => m.active);
           if (active) {
             // 已设推荐 → 当前模型名 + 换一个 (J2: 判据不看特定文件名)
+            // UX5 修正: 推荐 TTS 若不完整 (缺 config.json/voices) 标"⚠ 不完整"而非"可用"
+            const ttsIncomplete = active.family === 'tts' && active.complete === false;
             const row = el('div', 'model-row');
             const name = el('span', 'model-name', this._modelHumanName(active) + (active.custom ? ' (自定义)' : ''));
-            const badge = el('span', 'book-badge badge-ok', '可用');
+            const badge = el('span', 'book-badge ' + (ttsIncomplete ? 'badge-warn' : 'badge-ok'), ttsIncomplete ? '⚠ 不完整' : '可用');
             badge.style.marginLeft = '8px';
             name.appendChild(badge);
             const size = el('span', 'model-meta', `${Math.round(active.size_bytes / 1e6)} MB`);
@@ -525,6 +582,10 @@
             // UX5 修正: 推荐模型若是误登记的非本项目模型, 明说 (别让它默默当推荐)
             const hint = this._modelDetectedHint(active);
             if (hint) sec.appendChild(el('div', 'import-tip', '⚠ ' + hint));
+            // UX5 修正: 推荐 TTS 不完整 → 明确说怎么做 (处理时会失败)
+            if (ttsIncomplete) {
+              sec.appendChild(el('div', 'import-tip', '⚠ 该语音模型不完整 (同目录缺 config.json 或 voices/), 处理到语音阶段会失败。请「换一个」指向 HF 缓存里完整的 models--hexgrad--Kokoro-82M/snapshots/<sha>/kokoro-v1_0.pth。'));
+            }
           } else {
             // 有登记但没设推荐 → 处理时不会用 (与依赖组件"缺引擎"一致, 不再谎称可用)
             sec.appendChild(el('div', 'settings-hint settings-warn',
@@ -798,7 +859,11 @@
         const cb = el('input', 'scan-cb');
         cb.type = 'checkbox';
         cb.disabled = !!c.registered;
-        cb.checked = !c.registered;
+        // UX5 修正: 不完整的 TTS (平铺 .pth 缺 config.json/voices) 不预勾 —— 登记了也过不了
+        // 完整性校验, 且会让用户误以为"这个就是语音引擎"。完整候选与非 TTS 候选照常预勾。
+        const incomplete = c.complete === false;
+        const autoCheck = !c.registered && !incomplete;
+        cb.checked = autoCheck;
         const famSel = el('select', 'prep-select scan-fam');
         [['llm', '翻译/讲解'], ['tts', '语音合成'], ['nlp', '分词/NLP']].forEach(([v, l]) => {
           const o = el('option', null, l); o.value = v; famSel.appendChild(o);
@@ -822,6 +887,12 @@
         verCell.appendChild(el('span', 'book-badge ' + verInfo.cls, verInfo.text));
         row.append(cb, name, size, famCell, verCell);
         row.appendChild(path);
+        // UX5 修正: 不完整 TTS 明说缺什么 (非 .book-badge, 不干扰版本/家族徽章断言)
+        if (incomplete) {
+          const inc = el('div', 'scan-incomplete',
+            '⚠ 不完整: 同目录缺 config.json 或 voices/。Kokoro 需要三者同目录 —— 选 HF 缓存里完整的 models--hexgrad--Kokoro-82M/snapshots/<sha>/kokoro-v1_0.pth。');
+          row.appendChild(inc);
+        }
         cb.onchange = () => {
           row.classList.toggle('unchecked', !cb.checked);
           if (cb.checked) checked.set(c.path, { c, family: famSel.value });
@@ -831,7 +902,7 @@
         famSel.onchange = () => {
           if (checked.has(c.path)) checked.set(c.path, { c, family: famSel.value });
         };
-        if (!c.registered) checked.set(c.path, { c, family: famSel.value });
+        if (autoCheck) checked.set(c.path, { c, family: famSel.value });
         listEl.appendChild(row);
       });
       resultEl.appendChild(listEl);
@@ -853,7 +924,8 @@
         });
         Promise.all(jobs).then((rs) => {
           const okN = rs.filter((r) => r && r.ok).length;
-          AiduToast.show(`已登记 ${okN} 个模型` + (okN < jobs.length ? ` (${jobs.length - okN} 个失败)` : ''), okN === jobs.length ? 'success' : 'error');
+          const firstErr = (rs.find((r) => r && !r.ok && r.error) || {}).error || '';
+          AiduToast.show(`已登记 ${okN} 个模型` + (okN < jobs.length ? ` (${jobs.length - okN} 个失败${firstErr ? ': ' + firstErr : ''})` : ''), okN === jobs.length ? 'success' : 'error');
           this._reload();
           if (this._scanOv) this._scanOv.remove();
         }).catch((e) => {

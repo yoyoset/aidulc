@@ -292,6 +292,7 @@ globalThis.AiduJobService = {
   remove: async () => ({ ok: true }), pause: async () => ({ ok: true }), resume: async () => ({ ok: true }),
   pauseAll: async () => ({ ok: true }), resumeAll: async () => ({ ok: true }),
   retryFailed: async () => ({ ok: true }), detail: async () => ({ ok: true, data: { quality_report: { summary: 'ok' }, run_log_tail: 'log tail' } }),
+  retryCustom: async () => ({ ok: true }),
   listBatches: async () => ({ ok: true, data: [] }),
 };
 globalThis.AiduVocabStats = { dailyBuckets: () => [] };

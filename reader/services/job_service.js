@@ -9,6 +9,16 @@
     list() { return AiduBridge.invoke('job_list'); },
     remove(id) { return AiduBridge.invoke('job_remove', { id }); },
     retryFailed(id) { return AiduBridge.invoke('job_retry_failed', { id }); },
+    // 自定义重跑 (2026-08-13): 手动重选模型 + 指定重跑范围 (forceStages 为空 = 自动)
+    retryCustom(id, llmId, ttsId, nlpId, forceStages) {
+      return AiduBridge.invoke('job_retry_custom', {
+        id,
+        llmId: llmId || null,
+        ttsId: ttsId || null,
+        nlpId: nlpId || null,
+        forceStages: forceStages && forceStages.length ? forceStages : null,
+      });
+    },
     detail(id) { return AiduBridge.invoke('job_detail', { id }); }, // M7 R24
     cancel() { return AiduBridge.invoke('cancel_prep_job'); },
     // R3: 暂停/继续

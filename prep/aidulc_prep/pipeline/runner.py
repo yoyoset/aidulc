@@ -10,7 +10,7 @@ import logging
 import os
 import time
 
-from aidulc_prep.core.errors import EngineError, InputError, OutputError
+from aidulc_prep.core.errors import AidulcError, EngineError, InputError, OutputError
 from aidulc_prep.core.models import Book
 from aidulc_prep.core.quality import QualityReport
 from aidulc_prep.pipeline.loader import load_book
@@ -29,6 +29,10 @@ class Runner:
         self.emit = emit or (lambda e: None)
         self.cancel = cancel or (lambda: False)
         self.quality = QualityReport()
+        # Bug fix (2026-08-13, 审计): explain 的"首次运行欠账检测"用 `not exists(checkpoints)`
+        # 判 first_run, 但 nlp 阶段先跑、已建 checkpoints/ 目录 → 恒 False, 检测是死代码
+        # (历史上它抓过 2518 句漏跑的根因场景)。改成在 __init__ 阶段(任何 stage 落盘前)算好。
+        self._first_run = not os.path.exists(os.path.join(out_dir, "checkpoints"))
         self._setup_file_logging()
 
     def _setup_file_logging(self):
@@ -50,10 +54,14 @@ class Runner:
 
     def run(self) -> Book:
         t0 = time.time()
+        self._apply_force_stages()
         try:
             book = self._run_pipeline()
             self._tts_pack(book)
-        except EngineError as e:
+        except AidulcError as e:
+            # 覆盖 EngineError/ModelError/InputError/OutputError 全部领域错误 —— 之前只拦
+            # EngineError, 模型缺失(ModelError)/书坏(InputError)/ffmpeg 缺(OutputError) 会掉进
+            # 裸 Exception, 不写 quality_report → Rust 侧显示"无详情报告" (审查发现)。
             logging.getLogger("aidulc").exception("任务失败: %s", e.human)
             self.emit({"type": "error", "ts": int(time.time() * 1000), "message": e.human, "detail": e.detail})
             # I-C: 失败可读 —— 异常路径也落盘 quality_report (含 error 摘要),
@@ -68,6 +76,21 @@ class Runner:
         self._write_quality_report()
         self.emit({"type": "job_done", "ts": int(time.time() * 1000), "exit_code": 0, "message": f"完成, 耗时 {elapsed:.0f}s"})
         return book
+
+    def _apply_force_stages(self):
+        """手动重跑 (2026-08-13): job_request.force_stages 列出的阶段 → 清 checkpoint 强制重跑。
+        前端"重跑…"对话框选了重跑范围后写进 job_request, 这里在跑任何阶段前清掉对应字段,
+        使 is_done_sentence 判未完成 → 只重跑这些阶段 (含下游级联), 已完成的其它阶段不动。"""
+        stages = self.job.get("force_stages") or []
+        if not stages:
+            return
+        from aidulc_prep.infra.checkpoint import clear_stages
+        n = clear_stages(self.out_dir, [str(s) for s in stages])
+        if n:
+            logging.getLogger("aidulc").info(
+                "手动重跑: 清除 %d 句的 %s 阶段 checkpoint, 强制重跑",
+                n, ", ".join(str(s) for s in stages),
+            )
 
     def _write_quality_report(self, error: str | None = None, detail: str = ""):
         """把 QualityReport 写成 JSON (Rust 侧 jobs.error 摘要来源)。
@@ -170,7 +193,7 @@ class Runner:
         """把 checkpoint 里已有的 translation/explanation/audio/words 重新载入内存句子,
         保证断点续跑时 TTS/pack 阶段有完整数据 (审查确认: 旧实现只 hydrate translation)。"""
         from aidulc_prep.core.models import SentenceAudio, WordTiming
-        from aidulc_prep.infra.checkpoint import load_sentence
+        from aidulc_prep.infra.checkpoint import FIELD_TO_STAGE, load_sentence
         for ch in book.chapters:
             for i, s in enumerate(ch.sentences):
                 data = load_sentence(self.out_dir, ch.index, i)
@@ -181,7 +204,8 @@ class Runner:
                 if data.get("explanation"):
                     s.explanation = data["explanation"]
                 if data.get("failedStages"):
-                    s.failed_stages = list(data["failedStages"])
+                    # 归一化: 老 checkpoint 存字段名 ("translation"), 统一成阶段名 ("translate")
+                    s.failed_stages = [FIELD_TO_STAGE.get(x, x) for x in data["failedStages"]]
                 if data.get("status"):
                     s.status = data["status"]
                 audio = data.get("audio")
@@ -225,15 +249,16 @@ class Runner:
         from aidulc_prep.pipeline.llm.stage import explain_sentences
         server = get_server(self.job["models"]["llm"])
         done = 0
-        first_run = not os.path.exists(os.path.join(self.out_dir, "checkpoints"))
+        first_run = self._first_run
         processed_total = 0
         skipped_fatal = 0
         for ch in book.chapters:
             if self.cancel():
                 raise EngineError("已取消", "explain")
-            # 无翻译/fatal 失败的句子 explain 必然跳过 (没翻译无法讲解) — 完整性校验需排除
+            # 无翻译/fatal 失败的句子 explain 必然跳过 (没翻译无法讲解) — 完整性校验需排除。
+            # 判据与 explain_sentences 的跳过条件一致 (nlp/translate 失败或没译文)。
             skipped_fatal += sum(1 for s in ch.sentences
-                                 if s.status == "failed" or not s.translation or "translate" in s.failed_stages)
+                                 if "nlp" in s.failed_stages or "translate" in s.failed_stages or not s.translation)
             # 进度优化: 每 10 句回调一次 (UI 实时动)
             processed = explain_sentences(
                 ch, server.complete, self.out_dir, self.quality, strategy,

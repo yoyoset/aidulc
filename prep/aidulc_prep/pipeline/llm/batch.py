@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from collections import OrderedDict
 
+from aidulc_prep.core.errors import AidulcError
+
 BATCH_SIZE = 15  # 与 subgen 生产一致 (真实模型实测过 15 行内稳定)
 MAX_TOKENS_PER_LINE = 100
 MAX_TOKENS_CAP = 4096
@@ -72,6 +74,11 @@ def translate_batch_with_retry(
         if len(results) == len(texts):
             return _retry_untranslated(complete_fn, texts, results, system, temperature)
         raise ValueError("行数不匹配")
+    except AidulcError:
+        # 模型加载/推理致命失败 (EngineError/ModelError) —— 不能当"输出格式问题"对半重试,
+        # 否则每句都被吞成"失败"、任务却照常报成功 (后台失败但用户以为成功, P0 红线)。
+        # 只把 ValueError (解析错位) 与 guard 的输出可疑当可重试。
+        raise
     except Exception:
         if len(texts) == 1:
             return [texts[0]], [0]
@@ -110,6 +117,8 @@ def _retry_untranslated(complete_fn, texts, results, system, temperature):
                 results[i] = single[0]
             else:
                 still_failed.append(i)
+        except AidulcError:
+            raise  # 致命 (模型死了) 不吞
         except Exception:
             still_failed.append(i)
     return results, still_failed

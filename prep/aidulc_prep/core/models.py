@@ -49,7 +49,9 @@ class SentenceAudio:
 
 # M 系列: 失败语义单一事实源 (checkpoint.py 引用, 不再各自维护)
 # 翻译/分词失败 → 整句 failed; 其余 → partial (句子仍有译文可读, 可重试)
-FATAL_STAGES = frozenset({"translate", "nlp", "translation"})
+# 只含阶段名 (translate/nlp), 与 mark_failed 的 stage 参数一致; checkpoint 字段名
+# (translation/explanation/audio/words) 由 checkpoint.FIELD_TO_STAGE 映射回阶段名。
+FATAL_STAGES = frozenset({"translate", "nlp"})
 
 
 @dataclass
@@ -65,16 +67,31 @@ class Sentence:
     failed_stages: list[str] = field(default_factory=list)
 
     def mark_failed(self, stage: str):
-        """stage ∈ {nlp, translate, explain, tts, align}"""
+        """stage ∈ {nlp, translate, explain, tts, align}。fatal 阶段 → failed, 其余 → partial。"""
         if stage not in self.failed_stages:
             self.failed_stages.append(stage)
-        if self.status == "ok":
-            self.status = "partial"
-        if stage in ("translate", "nlp"):
-            # 翻译失败 = 整句无内容, 升为 failed; tts/align 失败句子仍有译文可读
+        if stage in FATAL_STAGES:
             self.status = "failed"
-        elif stage in ("explain", "tts", "align"):
-            self.status = "partial" if self.status != "failed" else self.status
+        elif self.status != "failed":
+            self.status = "partial"
+
+    def clear_failed_stage(self, stage: str):
+        """某阶段成功后从失败清单移除并重算状态 (重试失败句的核心: 失败可恢复)。
+
+        之前 save_stage_result 成功后从不清理 failedStages, 导致翻译失败的句子重跑成功后
+        仍粘着 status="failed"、failedStages=["translate"], explain/tts 继续跳过它 ——
+        这就是"重试失败句失效"的根因之一 (审查确认)。"""
+        if stage in self.failed_stages:
+            self.failed_stages.remove(stage)
+        self._recompute_status()
+
+    def _recompute_status(self):
+        if any(s in FATAL_STAGES for s in self.failed_stages):
+            self.status = "failed"
+        elif self.failed_stages:
+            self.status = "partial"
+        else:
+            self.status = "ok"
 
 
 @dataclass

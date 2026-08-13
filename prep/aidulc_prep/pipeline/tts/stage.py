@@ -64,12 +64,10 @@ def synth_chapter(
     from aidulc_prep.pipeline.tts.registry import create_engine
     engine = create_engine("kokoro", model_path, language=language)
     chapter_start_ms = 0
-    # 计算章节起点: 重跑时从已有 checkpoint 恢复累计时间
-    # Bug fix: 用 enumerate 而非 .index(s) (重复句会取错 checkpoint — 审查确认)
-    for i, s in enumerate(chapter.sentences):
-        data = _load_ckpt(out_dir, chapter.index, i)
-        if data and data.get("audio"):
-            chapter_start_ms = max(chapter_start_ms, data["audio"]["end_ms"])
+    # Bug fix (2026-08-13, 审计): 删掉原来的"重跑时从已有 checkpoint 恢复累计时间"预计算
+    # (max over 所有已合成句的 end_ms)。循环内已合成句会 `chapter_start_ms = end_ms` 重置,
+    # 预计算的 max 只对"句首失败/跳过的句重跑"有害: 没有前一个已合成句重置, 重跑句会拿
+    # 章节末尾的 max 当起点 → 时间轴错位。循环内按序累加已经覆盖全部情况。
 
     for i, s in enumerate(chapter.sentences):
         if cancel and cancel():
@@ -174,6 +172,10 @@ def synth_chapter(
                     s.segments[u].word for u in uncovered[:10]
                 ),
             )
+        # 重试契约 (2026-08-13): 合成/对齐成功后清掉失败标记 (否则重跑仍粘着 tts/align 失败)
+        s.clear_failed_stage("tts")
+        if not uncovered:
+            s.clear_failed_stage("align")
 
         # 存每句 wav (pack 阶段合并编码)
         import numpy as np

@@ -372,6 +372,8 @@ body::before {
 .model-dir-row .j0-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scan-ver-cell { margin-left: 8px; }
 .scan-ver-cell .book-badge { font-weight: 500; white-space: nowrap; }
+/* UX5 修正 (2026-08-13): 扫描候选里不完整 TTS 的说明 (平铺 .pth 缺 config.json/voices) */
+.scan-incomplete { color: var(--md-sys-color-error); font-size: 0.8rem; line-height: 1.4; margin: 4px 0 0 24px; }
 
 /* UX5 #4 (2026-08-13): 书库位置绿色生效徽章 (失效标红 + 原因) */
 .lib-badge {

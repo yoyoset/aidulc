@@ -37,6 +37,11 @@
         "temperature": { "type": "number" },
         "max_tokens": { "type": "integer" }
       }
+    },
+    "force_stages": {
+      "type": "array",
+      "description": "手动重跑: 列出要强制重跑的阶段 (含下游级联)。缺省/空 = 自动(只跑失败/未完成)。",
+      "items": { "type": "string", "enum": ["translate", "explain", "tts", "align"] }
     }
   }
 }

@@ -83,6 +83,22 @@ class TestSentenceStatus:
         s.mark_failed("align")
         assert s.status == "failed"
 
+    def test_clear_failed_stage_recovers(self):
+        """重试契约: 失败后成功清标记并重算状态 (translate 失败 → clear → ok)。"""
+        s = Sentence(original_text="Hello.")
+        s.mark_failed("translate")
+        assert s.status == "failed" and s.failed_stages == ["translate"]
+        s.clear_failed_stage("translate")
+        assert s.status == "ok" and s.failed_stages == []
+
+    def test_clear_failed_stage_keeps_other_failures(self):
+        s = Sentence(original_text="Hello.")
+        s.mark_failed("translate")
+        s.mark_failed("tts")
+        s.clear_failed_stage("tts")
+        assert s.status == "failed", "translate 仍失败 → failed"
+        assert s.failed_stages == ["translate"]
+
 
 class TestQualityReport:
     def test_success_rate(self):

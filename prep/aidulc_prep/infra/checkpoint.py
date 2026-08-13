@@ -13,25 +13,37 @@ import json
 import os
 import tempfile
 
+# checkpoint 字段名 → 阶段名 (failedStages/status 统一用阶段名, 与 core.models.mark_failed 一致)。
+# 老 checkpoint 可能存字段名 ("translation"), 读写时经这里归一化。
+FIELD_TO_STAGE = {
+    "translation": "translate",
+    "explanation": "explain",
+    "audio": "tts",
+    "words": "align",
+}
+
 
 def sentence_path(out_dir: str, chapter: int, index: int) -> str:
     return os.path.join(out_dir, "checkpoints", f"ch{chapter:03d}", f"s{index:05d}.json")
 
 
-def load_sentence(out_dir: str, chapter: int, index: int) -> dict | None:
-    p = sentence_path(out_dir, chapter, index)
+def load_sentence_file(p: str) -> dict | None:
+    """直接按路径读一个 checkpoint JSON; 损坏/不存在 → None (视为未完成, 重跑)。"""
     if not os.path.exists(p):
         return None
     try:
         with open(p, encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, OSError):
-        return None  # 损坏 checkpoint 视为未完成 (重跑)
+        return None
 
 
-def _atomic_write_json(out_dir: str, chapter: int, index: int, data: dict) -> None:
-    """把 data 原样(不合并)原子写入该句 checkpoint。save_sentence/overwrite_sentence 共用。"""
-    p = sentence_path(out_dir, chapter, index)
+def load_sentence(out_dir: str, chapter: int, index: int) -> dict | None:
+    return load_sentence_file(sentence_path(out_dir, chapter, index))
+
+
+def _atomic_write_file(p: str, data: dict) -> None:
+    """把 data 原子写入指定路径 (tmp + rename)。"""
     os.makedirs(os.path.dirname(p), exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(p), suffix=".tmp")
     try:
@@ -44,6 +56,11 @@ def _atomic_write_json(out_dir: str, chapter: int, index: int, data: dict) -> No
         except OSError:
             pass
         raise
+
+
+def _atomic_write_json(out_dir: str, chapter: int, index: int, data: dict) -> None:
+    """把 data 原样(不合并)原子写入该句 checkpoint。save_sentence/overwrite_sentence 共用。"""
+    _atomic_write_file(sentence_path(out_dir, chapter, index), data)
 
 
 def save_sentence(out_dir: str, chapter: int, index: int, data: dict) -> None:
@@ -98,22 +115,78 @@ def save_stage_result(out_dir: str, chapter: int, index: int, stage: str, value,
     - translate/nlp 失败 → status=failed (句子无可用内容)
     - explain/tts/align 失败 → status=partial (句子仍有译文可读), 可重试
     - 失败阶段字段写 None → is_done_sentence 判未完成 → 重跑不跳过
+
+    重试契约 (2026-08-13 修复): 成功时把该阶段从 failedStages 移除并重算 status —— 之前
+    成功不清 failedStages, 翻译失败的句子重跑成功后仍粘 failed → explain/tts 继续跳过。
+    failedStages 统一存阶段名 (translate/nlp/...), 老字段名经 FIELD_TO_STAGE 归一化。
     """
-    # M 系列: 规则来自 core.models.FATAL_STAGES (单一事实源)
     from aidulc_prep.core.models import FATAL_STAGES
+    stage_name = FIELD_TO_STAGE.get(stage, stage)
     data = load_sentence(out_dir, chapter, index) or {}
+    failed = [FIELD_TO_STAGE.get(x, x) for x in data.get("failedStages", [])]
     if status == "ok":
         data[stage] = value
-        # 只有 fatal 阶段失败才粘 failed; 其它失败后成功可恢复为 ok
-        if data.get("status") != "failed":
-            data["status"] = "ok"
+        if stage_name in failed:
+            failed.remove(stage_name)
     else:
         data[stage] = None
-        if stage in FATAL_STAGES:
-            data["status"] = "failed"
-        else:
-            data["status"] = "partial"
-        data.setdefault("failedStages", [])
-        if stage not in data["failedStages"]:
-            data["failedStages"].append(stage)
+        if stage_name not in failed:
+            failed.append(stage_name)
+    data["status"] = "failed" if any(s in FATAL_STAGES for s in failed) else ("partial" if failed else "ok")
+    data["failedStages"] = failed
     save_sentence(out_dir, chapter, index, data)
+
+
+# 手动重跑 (2026-08-13): 阶段 → (需清除的 checkpoint 字段, 需从 failedStages 移除的阶段名)。
+# 级联语义: 重跑翻译会连带清讲解 (译文变了讲解必失效); 重跑语音会连带清对齐 (音频变了
+# 词级时间轴必失效)。讲解/对齐只清自己。
+FORCE_STAGE_CASCADE = {
+    "translate": (["translation", "explanation"], ["translate", "explain"]),
+    "explain": (["explanation"], ["explain"]),
+    "tts": (["audio", "words"], ["tts", "align"]),
+    "align": (["words"], ["align"]),
+}
+
+
+def clear_stages(out_dir: str, stages: list[str]) -> int:
+    """清除指定阶段(含下游级联)的 checkpoint 字段, 强制这些阶段重跑。返回受影响的句数。
+
+    用于"手动重跑": 用户选错模型或想重做某阶段时, 前端传 force_stages → job_request →
+    Runner 启动时调这里清掉对应字段, 使 is_done_sentence 判未完成 → 只重跑这些阶段。
+    """
+    fields_to_clear: set[str] = set()
+    stages_to_clear: set[str] = set()
+    for s in stages:
+        if s in FORCE_STAGE_CASCADE:
+            f, st = FORCE_STAGE_CASCADE[s]
+            fields_to_clear.update(f)
+            stages_to_clear.update(st)
+    if not fields_to_clear:
+        return 0
+    root = os.path.join(out_dir, "checkpoints")
+    if not os.path.isdir(root):
+        return 0
+    count = 0
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for name in filenames:
+            if not name.endswith(".json"):
+                continue
+            p = os.path.join(dirpath, name)
+            data = load_sentence_file(p)
+            if not data:
+                continue
+            changed = False
+            for f in fields_to_clear:
+                if f in data:
+                    data.pop(f)
+                    changed = True
+            fs = data.get("failedStages")
+            if fs:
+                kept = [x for x in fs if x not in stages_to_clear]
+                if len(kept) != len(fs):
+                    data["failedStages"] = kept
+                    changed = True
+            if changed:
+                _atomic_write_file(p, data)
+                count += 1
+    return count

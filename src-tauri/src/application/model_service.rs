@@ -16,13 +16,12 @@ pub fn entry_id(family: &str, language: &str, model_id: &str, version: &str) -> 
     format!("{family}|{language}|{model_id}|{version}")
 }
 
-/// 推荐: 某语言某家族的 active 模型 (无 active 则第一个已装)
+/// 推荐: 某语言某家族的 active 模型 (无 active 则第一个已装)。
+/// 一次 list_by (不再查两遍: 旧实现 find(active) 落空后再 list_by 一次 = 双锁双查询)。
 pub fn recommend_for(db: &Db, family: &str, language: &str) -> Option<ModelEntry> {
-    let repo = ModelRepo::new(db);
-    let list = repo.list_by(family, language);
-    list.into_iter()
-        .find(|m| m.active)
-        .or_else(|| repo.list_by(family, language).into_iter().next())
+    let list = ModelRepo::new(db).list_by(family, language);
+    let first = list.first().cloned();
+    list.into_iter().find(|m| m.active).or(first)
 }
 
 /// 推荐整套组合 (llm/tts/nlp)
@@ -54,7 +53,15 @@ pub fn resolve_paths(db: &Db, language: &str) -> (String, String, String) {
 /// 文件家族可能误判 (whisper/silero/OCR 被当 tts), 自动推荐会让任务一路跑到 TTS 阶段才炸
 /// (用户实测: manga-ocr 的 pytorch_model 被扫成 tts 自动当上推荐 → voices 不存在)。只有
 /// 官方下载 (custom=false) 自动推荐; 扫描登记需用户显式「设为推荐」(模型页会标"未设推荐")。
+/// UX5 修正 (2026-08-13): **不完整的 TTS 直接拒绝登记** —— 平铺 kokoro-v1_0.pth (同目录
+/// 缺 config.json/voices) 登记进去之后任务跑到 TTS 阶段才炸, 不如登记时立刻给可操作错误。
 pub fn register(db: &Db, m: &mut ModelEntry) -> Result<(), String> {
+    if m.family == FAMILY_TTS && std::path::Path::new(&m.path).is_file() && !tts_complete(&m.path) {
+        return Err(format!(
+            "语音模型不完整: {} 同目录缺 config.json 或 voices/。Kokoro 需要 模型文件+config.json+voices/ 同目录 —— 请指向 HF 缓存里完整的 models--hexgrad--Kokoro-82M/snapshots/<sha>/ 目录内的 kokoro-v1_0.pth。",
+            m.path
+        ));
+    }
     let repo = ModelRepo::new(db);
     let has_active = repo
         .list_by(&m.family, &m.language)
@@ -64,6 +71,16 @@ pub fn register(db: &Db, m: &mut ModelEntry) -> Result<(), String> {
         m.active = true;
     }
     repo.upsert(m)
+}
+
+/// Kokoro TTS 完整性: 模型文件同目录必须有 config.json + voices/ 目录 (引擎硬校验, 见
+/// prep/pipeline/tts/engine.py)。与 preflight_check 的 TTS 完整性分支同判据, 登记时更早拦截。
+pub fn tts_complete(path: &str) -> bool {
+    let dir = std::path::Path::new(path)
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
+    dir.join("config.json").is_file() && dir.join("voices").is_dir()
 }
 
 /// UX5 修正 (2026-08-13): 模型完整性校验已内联进 preflight_check (每本书前置检查), 见
@@ -243,11 +260,7 @@ pub fn preflight_check(
     } else {
         // UX5 修正 (2026-08-13): TTS 完整性 —— Kokoro 需要 模型文件+config.json+voices/ 同目录,
         // 否则任务一路跑到 TTS 阶段才炸 (扫到的假 tts 只查"文件存在"也能通过, 用户实测撞见)。
-        let tts_dir = std::path::Path::new(&tts)
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_default();
-        if !tts_dir.join("config.json").is_file() || !tts_dir.join("voices").is_dir() {
+        if !tts_complete(&tts) {
             problems.push(format!(
                 "语音模型不完整: {} 同目录缺 config.json 或 voices/ (Kokoro 需要 模型+config.json+voices/ 同目录)。到模型中心把推荐 TTS 指向 HF 缓存里完整的 models--hexgrad--Kokoro-82M/snapshots/<sha>/kokoro-v1_0.pth, 或直接下载推荐引擎。",
                 tts
@@ -721,6 +734,33 @@ mod tests {
             !problems2.iter().any(|p| p.contains("模型不完整")),
             "补全后不应再报模型不完整: {problems2:?}"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// UX5 修正 (2026-08-13): register 拒绝不完整的 TTS (平铺 .pth 缺 config.json/voices),
+    /// 完整快照 (带 config.json+voices) 照常登记。用户实测: 平铺 kokoro 登记当推荐 → TTS 阶段才炸。
+    #[test]
+    fn register_rejects_incomplete_tts() {
+        let root = std::env::temp_dir().join(format!("aidulc_reg_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let flat = root.join("flat");
+        std::fs::create_dir_all(&flat).unwrap();
+        let flat_pth = flat.join("kokoro-v1_0.pth");
+        std::fs::write(&flat_pth, b"x").unwrap();
+
+        let db = temp_db();
+        let mut e = entry("tts", "en", "kokoro-v1_0", false);
+        e.path = flat_pth.to_string_lossy().to_string();
+        e.custom = true;
+        assert!(
+            register(&db, &mut e).is_err(),
+            "平铺 .pth 缺 config.json/voices 必须被拒"
+        );
+
+        // 补上 config.json + voices/ → 通过
+        std::fs::write(flat.join("config.json"), b"{}").unwrap();
+        std::fs::create_dir_all(flat.join("voices")).unwrap();
+        assert!(register(&db, &mut e).is_ok(), "完整快照应能登记");
         let _ = std::fs::remove_dir_all(&root);
     }
 

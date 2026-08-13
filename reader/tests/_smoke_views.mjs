@@ -136,13 +136,14 @@ function load(rel) { eval(readFileSync(join(root, rel), 'utf8')); }
 // ---- 服务 stub (视图只在调用时引用) ----
 globalThis.AiduToast = { show: () => {} };
 let confirmCaptured = null;
-const calls = { remove: [], pickFiles: [] };
+const calls = { remove: [], pickFiles: [], retryCustom: [] };
 globalThis.AiduJobService = {
   list: async () => ({ ok: true, data: [] }),
   remove: async (id) => { calls.remove.push(id); return { ok: true }; },
   pause: async () => ({ ok: true }), resume: async () => ({ ok: true }),
   pauseAll: async () => ({ ok: true }), resumeAll: async () => ({ ok: true }),
   retryFailed: async () => ({ ok: true }), detail: async () => ({ ok: true, data: {} }),
+  retryCustom: async (id, llmId, ttsId, nlpId, forceStages) => { calls.retryCustom.push({ id, llmId, ttsId, nlpId, forceStages }); return { ok: true }; },
   listBatches: async () => ({ ok: true, data: [] }),
 };
 globalThis.AiduBridge = {
@@ -256,6 +257,85 @@ console.log('== 1d. UX5 修正 (2026-08-13): 失败任务给「去修模型」�
   check('UX5修正: 非模型类失败不显示「去修模型」', !queryAll(rowN, 'button').some((b) => b.textContent === '去修模型'));
   // 有重试按钮 (恢复路径仍在)
   check('UX5修正: 失败行仍有「重试失败句」', !!queryAll(rowM, 'button').find((b) => b.textContent === '重试失败句'));
+}
+
+console.log('== 1e. 手动重跑 (2026-08-13): 「重跑…」按钮 + 对话框 (3 模型下拉 + 重跑范围单选) ==');
+{
+  const pv = new globalThis.PrepView(store);
+  pv._listEl = makeElement('div');
+  const mkErr = (error) => ({ id: 'job-rerun', status: 'failed', stage: 'tts', current: 3, total: 240, progress: 57, error, book_path: 'C:/Books/Alice.epub', profile_id: 'default', output_dir: 'C:/out/job-rerun', batch_id: null });
+  const row = pv._buildTaskRow(mkErr('TTS voices 目录不存在: F:/hf_cache/...'));
+  const btnRerun = queryAll(row, 'button').find((b) => b.textContent === '重跑…');
+  const btnRetry = queryAll(row, 'button').find((b) => b.textContent === '重试失败句');
+  check('手动重跑: 失败行有「重跑…」按钮', !!btnRerun);
+  const acts = queryAll(row, '.prep-task-actions')[0];
+  check('手动重跑: 「重跑…」紧挨「重试失败句」', !!(btnRerun && btnRetry && acts && acts._children.indexOf(btnRerun) === acts._children.indexOf(btnRetry) - 1));
+
+  // 覆盖模型 stub: 给对话框填充 llm/tts/nlp 各一个已登记模型 (对话框异步拉取)
+  const origModelsList = globalThis.AiduModelService.list;
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [
+    { id: 'llm|en|qwen3-4b|q4', family: 'llm', model_id: 'qwen3-4b', active: true },
+    { id: 'tts|en|kokoro|v1', family: 'tts', model_id: 'kokoro', active: true },
+    { id: 'nlp|en|spacy|v3', family: 'nlp', model_id: 'spacy', active: true },
+  ]});
+
+  btnRerun.onclick();
+  const ov = queryAll(globalThis.document.body, '.modal-overlay').at(-1);
+  await Promise.resolve(); // 等模型下拉异步填充
+  check('手动重跑: 点击后出现对话框 (.modal-overlay)', !!ov);
+  const selAll = queryAll(ov, 'select');
+  check('手动重跑: 对话框有 3 个模型下拉', selAll.length === 3, 'selects=' + selAll.length);
+  const optTexts = (sel) => queryAll(sel, 'option').map((o) => o.textContent);
+  check('手动重跑: 翻译下拉有「保持当前」+ qwen3-4b', optTexts(selAll[0]).includes('保持当前 (书级绑定/推荐)') && optTexts(selAll[0]).some((t) => t.includes('qwen3-4b')), JSON.stringify(optTexts(selAll[0])));
+  check('手动重跑: 语音下拉有 kokoro', optTexts(selAll[1]).some((t) => t.includes('kokoro')), JSON.stringify(optTexts(selAll[1])));
+  check('手动重跑: 分词下拉有 spacy', optTexts(selAll[2]).some((t) => t.includes('spacy')), JSON.stringify(optTexts(selAll[2])));
+  const radios = queryAll(ov, 'input').filter((i) => i.type === 'radio');
+  check('手动重跑: 重跑范围 5 个单选 (自动/从翻译/从讲解/从语音/全部)', radios.length === 5, 'radios=' + radios.length);
+  check('手动重跑: 单选默认「自动」(checked)', radios.length === 5 && radios[0].checked, JSON.stringify(radios.map((r) => ({ v: r.value, c: r.checked }))));
+  const startBtn = queryAll(ov, 'button').find((b) => b.textContent === '开始重跑');
+  check('手动重跑: 有「开始重跑」按钮', !!startBtn);
+
+  // 默认自动 + 不选模型 → retryCustom(id, null, null, null, null)
+  const before = calls.retryCustom.length;
+  startBtn.onclick();
+  await Promise.resolve();
+  const autoCall = calls.retryCustom.at(-1);
+  check('手动重跑: 点开始调 retryCustom (默认自动)', calls.retryCustom.length === before + 1 && !!autoCall, JSON.stringify(autoCall));
+  check('手动重跑: 默认传 job id', autoCall && autoCall.id === 'job-rerun', JSON.stringify(autoCall));
+  check('手动重跑: 默认模型为空 (null)', autoCall && autoCall.llmId === null && autoCall.ttsId === null && autoCall.nlpId === null, JSON.stringify(autoCall));
+  check('手动重跑: 自动范围 → forceStages null', autoCall && autoCall.forceStages === null, JSON.stringify(autoCall));
+
+  // 重开: 选模型 + 从语音 → retryCustom(id, llm, tts, nlp, ['tts'])
+  btnRerun.onclick();
+  const ov2 = queryAll(globalThis.document.body, '.modal-overlay').at(-1);
+  await Promise.resolve();
+  const s2 = queryAll(ov2, 'select');
+  s2[0].value = 'llm|en|qwen3-4b|q4';
+  s2[1].value = 'tts|en|kokoro|v1';
+  s2[2].value = 'nlp|en|spacy|v3';
+  const r2 = queryAll(ov2, 'input').filter((i) => i.type === 'radio');
+  r2.forEach((x) => { x.checked = (x.value === 'tts'); });
+  const before2 = calls.retryCustom.length;
+  queryAll(ov2, 'button').find((b) => b.textContent === '开始重跑').onclick();
+  await Promise.resolve();
+  const ttsCall = calls.retryCustom.at(-1);
+  check('手动重跑: 选模型后调 retryCustom 带模型 id', ttsCall && ttsCall.llmId === 'llm|en|qwen3-4b|q4' && ttsCall.ttsId === 'tts|en|kokoro|v1' && ttsCall.nlpId === 'nlp|en|spacy|v3', JSON.stringify(ttsCall));
+  check('手动重跑: 从语音 → forceStages ["tts"]', ttsCall && JSON.stringify(ttsCall.forceStages) === JSON.stringify(['tts']), JSON.stringify(ttsCall.forceStages));
+
+  // 重开: 全部 → forceStages 全列
+  btnRerun.onclick();
+  const ov3 = queryAll(globalThis.document.body, '.modal-overlay').at(-1);
+  await Promise.resolve();
+  const r3 = queryAll(ov3, 'input').filter((i) => i.type === 'radio');
+  r3.forEach((x) => { x.checked = (x.value === 'all'); });
+  const before3 = calls.retryCustom.length;
+  queryAll(ov3, 'button').find((b) => b.textContent === '开始重跑').onclick();
+  await Promise.resolve();
+  const allCall = calls.retryCustom.at(-1);
+  check('手动重跑: 全部 → forceStages 四阶段全列', allCall && JSON.stringify(allCall.forceStages) === JSON.stringify(['translate', 'explain', 'tts', 'align']), JSON.stringify(allCall.forceStages));
+
+  globalThis.AiduModelService.list = origModelsList;
+  calls.retryCustom.length = 0;
 }
 
 console.log('== 1. prep_view 移除确认 (running/queued/done 三态) ==');
@@ -1965,6 +2045,57 @@ console.log('== 9d. M4-2 (2026-08-12): 无更新渠道的本地模型给可操�
   const rows9 = queryAll(c9, '.component-row');
   const rowTexts9 = rows9.map(textOf);
   check('M4-2: 无更新渠道的模型组件给「添加自定义模型」可操作指引', rowTexts9.some((t) => t.includes('无更新渠道') && t.includes('添加自定义模型')), rowTexts9.join('|').slice(0, 120));
+}
+
+console.log('== 9h. UX5 修正 (2026-08-13): TTS 完整性 —— 扫描候选标不完整/不预勾 + 模型列表标不完整 ==');
+{
+  load('views/models_view.js');
+  globalThis.AiduMiscService.runtimeConfig = async () => ({ ok: true, data: {
+    llm_model: 'C:/models/qwen.gguf', tts_model: 'C:/models/kokoro-v1_0.pth',
+    default_model_dir: 'C:/models', hf_cache_dir: 'F:/hf_cache',
+  } });
+  // 平铺 .pth (complete=false) vs HF 快照 (complete=true)
+  globalThis.AiduModelService.scan = async () => ({ ok: true, data: [
+    { path: 'F:/hf_cache/kokoro-v1_0.pth', file_name: 'kokoro-v1_0.pth', size_bytes: 327212226, family_hint: 'tts', registered: false, complete: false },
+    { path: 'F:/hf_cache/hub/models--hexgrad--Kokoro-82M/snapshots/sha/kokoro-v1_0.pth', file_name: 'kokoro-v1_0.pth', size_bytes: 327212226, family_hint: 'tts', registered: false, complete: true },
+  ] });
+  const mvH = new globalThis.ModelsView(new globalThis.AiduStore());
+  const mcH = makeElement('div');
+  mvH.render(mcH);
+  await new Promise((r) => setTimeout(r, 60));
+  mvH._openScanModal();
+  await new Promise((r) => setTimeout(r, 60));
+  const ovH = document.body._children.filter((c) => c.className && String(c.className).includes('modal-overlay')).slice(-1)[0];
+  const scanBtnH = ovH && queryAll(ovH, 'button').find((b) => b.textContent === '扫描');
+  scanBtnH && scanBtnH.onclick();
+  await new Promise((r) => setTimeout(r, 80));
+  const candsH = ovH && queryAll(ovH, '.scan-candidate');
+  const incompleteRow = candsH && candsH.find((c) => c.querySelector('.scan-incomplete'));
+  const completeRow = candsH && candsH.find((c) => !c.querySelector('.scan-incomplete'));
+  check('UX5修正: 平铺 .pth (complete=false) 标「⚠ 不完整」', !!incompleteRow && textOf(incompleteRow).includes('不完整') && textOf(incompleteRow).includes('voices'), incompleteRow && textOf(incompleteRow).slice(0, 100));
+  const incCb = incompleteRow && incompleteRow.querySelector('.scan-cb');
+  check('UX5修正: 不完整候选不预勾', incCb && incCb.checked === false, 'checked=' + (incCb && incCb.checked));
+  check('UX5修正: 完整快照 (complete=true) 预勾', completeRow && completeRow.querySelector('.scan-cb').checked === true, 'completeRow=' + !!completeRow);
+  const regBtnH = ovH && queryAll(ovH, 'button').find((b) => b.textContent && String(b.textContent).startsWith('登记选中'));
+  check('UX5修正: 登记选中只计完整候选 (1 个)', regBtnH && String(regBtnH.textContent).includes('1 个'), regBtnH && regBtnH.textContent);
+
+  // 模型列表: 推荐 TTS 不完整 → 标「⚠ 不完整」不标「可用」
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [
+    { id: 'tts|en|kokoro|1', family: 'tts', language: 'en', model_id: 'kokoro-v1_0', version: 'v1.0', variant: 'v1.0', path: 'F:/hf_cache/kokoro-v1_0.pth', size_bytes: 327212226, active: true, custom: true, complete: false },
+  ] });
+  const mvH2 = new globalThis.ModelsView(new globalThis.AiduStore());
+  const mcH2 = makeElement('div');
+  mvH2.render(mcH2);
+  await new Promise((r) => setTimeout(r, 60));
+  const ttsSecH = queryAll(mcH2, '.model-group').find((g) => {
+    const h2 = (g._children || []).find((x) => x.tagName === 'H2');
+    return h2 && h2.textContent.includes('语音合成');
+  });
+  const ttsTextH = ttsSecH ? textOf(ttsSecH) : '';
+  check('UX5修正: 推荐 TTS 不完整 → 标「⚠ 不完整」不标「可用」', ttsTextH.includes('不完整') && !ttsTextH.includes('可用'), ttsTextH.slice(0, 120));
+  // 恢复 scan/register 默认, 不干扰其它段
+  globalThis.AiduModelService.scan = async () => ({ ok: true, data: [] });
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [] });
 }
 
 console.log('== 9b. L5 (2026-08-11): 页头动作按钮成组 (.page-toolbar + gap), 不再被 space-between 撑开 ==');

@@ -199,6 +199,12 @@
       router.navigate('library');
       return;
     }
+    // UX5 审计修复 (2026-08-13): 进阅读器前清掉其它视图的常驻资源 —— reviewView 的键盘
+    // 监听会在阅读时和阅读器键位同时生效 (按 s/空格/数字会静默给隐藏卡片打 SRS 分, 数据污染);
+    // libraryView 的 5s 任务轮询 + store 订阅会在整个阅读期间空转。其它路由都清, 唯独 reader 漏了。
+    libraryView.cleanup();
+    prepView.cleanup();
+    reviewView.cleanup();
     readerView.render(container);
     readerView.onBack = () => router.navigate(store.state.readerBackRoute || 'library');
     readerView.open(current.id).catch(err => shell.showError(String(err)));

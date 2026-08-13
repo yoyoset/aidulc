@@ -341,7 +341,6 @@ pub fn vocab_remove_common(
     profile_id: String,
     top_n: i64,
 ) -> Result<serde_json::Value, String> {
-    use rusqlite::params;
     let n = (top_n.clamp(100, 10000)) as usize;
     let common = crate::infrastructure::frequency::top_n(n);
 
@@ -373,31 +372,9 @@ pub fn vocab_remove_common(
         .map(|e| e.lemma.to_lowercase())
         .collect();
 
-    // 3. 单个事务删除, 中途失败整体回滚
-    {
-        let conn = db.conn.lock().unwrap();
-        conn.execute_batch("BEGIN IMMEDIATE;")
-            .map_err(|e| format!("删除事务开始失败: {e}"))?;
-        let result = (|| -> Result<(), String> {
-            let mut stmt = conn
-                .prepare("DELETE FROM vocab WHERE user_id = ?1 AND profile_id = ?2 AND lemma = ?3")
-                .map_err(|e| e.to_string())?;
-            for lemma in &hit {
-                stmt.execute(params![user_id, profile_id, lemma])
-                    .map_err(|e| format!("删除 {lemma} 失败: {e}"))?;
-            }
-            Ok(())
-        })();
-        match result {
-            Ok(()) => conn
-                .execute_batch("COMMIT;")
-                .map_err(|e| format!("删除事务提交失败: {e}"))?,
-            Err(e) => {
-                let _ = conn.execute_batch("ROLLBACK;");
-                return Err(format!("批量剔词失败, 已整体回滚: {e}"));
-            }
-        }
-    }
+    // 3. 单事务删除 (唯一写者 = vocab_repo), 中途失败整体回滚
+    repo.remove_many(&user_id, &profile_id, &hit)
+        .map_err(|e| format!("批量剔词失败, 已整体回滚: {e}"))?;
 
     Ok(serde_json::json!({
         "removed": hit.len(),
@@ -494,37 +471,10 @@ pub fn vocab_backlog_spread(
         0
     };
 
-    // 3. 单事务写 next_review, 中途失败整体回滚
-    //    注意: 权威数据在 canonical payload JSON (repo.list 读 payload), 必须 json_set
-    //    payload 的 nextReview, 只改散列列会让 list 读到旧值 (单测锁住了这个坑)。
-    {
-        let conn = db.conn.lock().unwrap();
-        conn.execute_batch("BEGIN IMMEDIATE;")
-            .map_err(|e| format!("打散事务开始失败: {e}"))?;
-        let result = (|| -> Result<(), String> {
-            let mut stmt = conn
-                .prepare(
-                    "UPDATE vocab SET next_review = ?1, updated_at = ?2,
-                     payload = json_set(payload, '$.nextReview', ?1, '$.updatedAt', ?2)
-                     WHERE user_id = ?3 AND profile_id = ?4 AND lemma = ?5",
-                )
-                .map_err(|e| e.to_string())?;
-            for (lemma, ts) in &spread {
-                stmt.execute(rusqlite::params![ts, now, user_id, profile_id, lemma])
-                    .map_err(|e| format!("打散 {lemma} 失败: {e}"))?;
-            }
-            Ok(())
-        })();
-        match result {
-            Ok(()) => conn
-                .execute_batch("COMMIT;")
-                .map_err(|e| format!("打散事务提交失败: {e}"))?,
-            Err(e) => {
-                let _ = conn.execute_batch("ROLLBACK;");
-                return Err(format!("存量打散失败, 已整体回滚: {e}"));
-            }
-        }
-    }
+    // 3. 单事务写 next_review, 中途失败整体回滚 (唯一写者 = vocab_repo)
+    let spread_plan: Vec<(String, i64)> = spread.iter().map(|(l, t)| (l.to_string(), *t)).collect();
+    repo.spread_next_review(&user_id, &profile_id, &spread_plan)
+        .map_err(|e| format!("存量打散失败, 已整体回滚: {e}"))?;
 
     Ok(serde_json::json!({
         "spread": spread.len(),
@@ -978,13 +928,12 @@ pub async fn sync_auth_device(
     let cfg_dir = paths.inner().data_dir.clone();
     let mut cfg = config::Config::load(&cfg_dir);
     cfg.cf_worker_url = worker_url.clone();
-    let _ = std::fs::write(
-        cfg_dir.join("config.toml"),
-        toml::to_string_pretty(&cfg).unwrap_or_default(),
-    );
+    // Bug fix (2026-08-13): 原来 `let _ = std::fs::write(...unwrap_or_default())` 吞掉序列化/写盘
+    // 失败 —— 序列化失败会写空文件、写盘失败静默, 配置悄悄丢。改走 Config::save 显式报错。
+    cfg.save(&cfg_dir)
+        .map_err(|e| format!("保存同步配置失败: {e}"))?;
     let svc = services.inner();
     *svc.cf_worker_url.lock().unwrap() = worker_url;
-    *svc.cf_token.lock().unwrap() = auth.token.clone();
     crate::infrastructure::log::info(
         "cmd",
         &format!(
@@ -1175,10 +1124,9 @@ pub fn sync_config_set(
     let cfg_dir = paths.inner().data_dir.clone();
     let mut cfg = config::Config::load(&cfg_dir);
     cfg.cf_worker_url = worker_url.clone();
-    let _ = std::fs::write(
-        cfg_dir.join("config.toml"),
-        toml::to_string_pretty(&cfg).unwrap_or_default(),
-    );
+    // Bug fix (2026-08-13): 同 sync_auth_device —— 吞掉写盘失败会让配置悄悄丢。
+    cfg.save(&cfg_dir)
+        .map_err(|e| format!("保存同步配置失败: {e}"))?;
     // token 存 Credential Manager (永不落明文); 兼容旧默认 user
     if !token.is_empty() {
         crate::services::credentials::save_cf_token_for(
@@ -1189,8 +1137,6 @@ pub fn sync_config_set(
     // 更新内存态 (即时生效)
     let svc = services.inner();
     *svc.cf_worker_url.lock().unwrap() = worker_url;
-    *svc.cf_token.lock().unwrap() =
-        crate::services::credentials::get_cf_token().unwrap_or_default();
     Ok(())
 }
 

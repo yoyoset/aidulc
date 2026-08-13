@@ -75,7 +75,6 @@ use tauri::Manager;
 /// 应用级服务 (跨命令共享; I-C: 配置可运行时更新)
 pub struct AppServices {
     pub cf_worker_url: Mutex<String>,
-    pub cf_token: Mutex<String>,
 }
 
 /// 备料台任务状态: 串行队列
@@ -395,11 +394,8 @@ fn main() {
             .collect()
     };
 
-    // 从 Windows Credential Manager 读 CF token
-    let cf_token = services::credentials::get_cf_token().unwrap_or_default();
     let svc = AppServices {
         cf_worker_url: Mutex::new(cfg.cf_worker_url.clone()),
-        cf_token: Mutex::new(cf_token),
     };
 
     let prep_cfg = PrepConfig {
@@ -532,6 +528,7 @@ fn main() {
             commands::jobs::job_list,
             commands::jobs::job_remove,
             commands::jobs::job_retry_failed,
+            commands::jobs::job_retry_custom,
             commands::jobs::job_detail,
             commands::jobs::cancel_prep_job,
             commands::jobs::job_pause,

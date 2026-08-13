@@ -291,3 +291,90 @@ v1-v17。覆盖: 设计语言(暖纸陶土)→主题(5 预设+自定义色)→�
 
 - Rust 128 全绿(`--test-threads=1`)、Python 158 全绿(test_dict_server +4)、
   vitest 57 全绿、DOM smoke 30 项全过。
+
+## UX5 收尾补丁 (2026-08-13): TTS 模型"不完整"整类根治的最后一环
+
+- **用户实测场景**: 手动选了 TTS 模型 → 任务跑到 TTS 阶段报
+  `TTS 模型不完整: F:/hf_cache\kokoro-v1_0.pth 同目录缺 config.json`。
+  平铺 `F:/hf_cache/kokoro-v1_0.pth` 只有 .pth, 完整模型在 HF 快照
+  `F:/hf_cache/models--hexgrad--Kokoro-82M/snapshots/<sha>/`(config.json+voices/af_heart.pt 都是
+  指向 blobs/ 的 symlink, `os.path.exists` 能穿透)。
+- **根因 (三个叠加)**:
+  1. TTS 下载目录只下 `kokoro-v1_0.pth` 单文件, 官方"去下载"永远产不出能跑的 TTS。
+  2. 扫描把平铺 .pth 与完整快照都当 tts 候选, 无完整性信号, 用户选错/登记平铺的也能过。
+  3. 登记/模型页没有完整性校验, 只有"设为推荐"一个动作 —— 用户以为选了模型, 实际选了个废的。
+- **修复 (三层拦截)**:
+  1. `scan.rs` 加 `complete: Option<bool>`(.pth 才查同目录 config.json+voices); 前端扫描候选
+     标"⚠ 不完整"且**不预勾**, 完整快照照常预勾。
+  2. `model_service::register` 对 `family=tts` 且文件真实存在却缺 config.json/voices 的**拒绝登记**
+     (可操作错误指向 HF 快照); `models_list` 透出 `complete` 字段 → 模型页推荐 TTS 不完整时标
+     "⚠ 不完整"而非"可用"。
+  3. TTS 下载补全: 主文件下完再下 `config.json` + `core/builtin_profiles.VOICES` 的 8 个 voice .pt
+     (URL 实测 HF API 确认真实存在; 只有 `Kokoro-82M` 链接才补, 别的 .pth 不瞎补)。
+  另: `recommend_for` 去掉了 find(active) 落空后二次 `list_by` 的双锁双查询; `preflight_check`
+  的 TTS 完整性内联判断改用同一 `tts_complete` 助手 (三处判据收敛)。
+- **重试链路已通**: `job_retry_failed` 重建 job_request 时用 `resolve_for_book` 按当前推荐重新解析
+  tts 路径 —— 用户修好推荐模型后点"重试失败句"即续跑 (TTS 阶段引擎起不来 = 零 checkpoint, 重试
+  整阶段重跑; translate/explain 已 checkpoint 自动跳过)。
+- **连带发现的真实 bug (审计, 2026-08-13)**: 原书 id 用 `book_id_from_path(book_path, profile_id)`
+  重算 —— 但 `job.profile_id` 是处理参数 (kid), source 书按导入时 profile (default) 登记,
+  两者不一致时重算得到不存在的 id → 书级绑定 (tts_id/llm_id) 被静默忽略、回落全局推荐, 且
+  `mark_original_done` 标错书。用户 DB 实测: books 表全是 `*_default`, jobs 表 profile 是 kid。
+  修法 = 一律用 `job.source_id` (创建时登记的真实原书 id, 权威真相源), 仅 source_id 缺失时
+  才回退 book_id_from_path。涉及 `job_retry_failed` + `pump_queue` 三处 (书标 processing /
+  完成登记原书 id / mark_original_done)。教训: **"重算 id" 永远不如"存下来用的 id"** ——
+  job 表已有 source_id 列, 重算就是埋雷。
+- 门禁 24 项全绿, clippy 基线仍 7 未升; 新增测试: Rust `register_rejects_incomplete_tts` +
+  `scan_marks_kokoro_completeness`; smoke `_smoke_views.mjs` 9h (不完整候选不预勾/模型列表标不完整)。
+
+## 全项目审计补丁 (2026-08-13): 三端各一处 P0/P1 修复 + 遗留登记
+
+三个并行 explore agent 全量扫 Python 侧车 / Rust 壳 / reader 前端后落地的高价值修复:
+
+- **P0 静默成功 (Python)**: `llm/batch.py::translate_batch_with_retry` 裸 `except Exception` 把
+  模型致命失败 (EngineError/ModelError) 也当"输出格式问题"对半重试, 最终每句被吞成"失败"、
+  `Runner.run` 却照常 `job_done` 报成功 —— "后台失败但用户以为成功"的 P0 红线。修法 = 异常类型
+  分流: `guard_batch` 从抛 `EngineError` 改为 `ValueError` (与 `parse_numbered_response` 同语义
+  "可重试的输出问题"); `translate_batch_with_retry`/`_retry_untranslated` 加 `except AidulcError:
+  raise`。**教训: 可重试的格式问题与致命的模型问题必须用不同异常类型, 混用会让重试逻辑两头错。**
+- **P1 领域错误丢报告 (Python)**: `runner.run()` 只 `except EngineError` → ModelError(模型缺)/
+  InputError(书坏)/OutputError(ffmpeg 缺) 掉进裸 Exception, 不写 quality_report, Rust 显示
+  "无详情报告"。改 `except AidulcError`。
+- **P1 键盘泄漏静默打 SRS 分 (前端)**: `review_view` 的 keydown 监听 (空格/1-4/s/e) 在"阅读器中
+  打开"后不注销, 与阅读器键位同时生效 → 阅读时按 s/数字会静默给隐藏卡片打 SRS 分 (数据污染);
+  `library_view` 5s 任务轮询 + store 订阅在整个阅读期间空转。修法 = `main.js` reader 路由补
+  `libraryView.cleanup()/prepView.cleanup()/reviewView.cleanup()` (其它路由都清, 唯独 reader 漏了)。
+- **P1 ABBA 死锁 (Rust)**: `job_remove` 持 `running_job` 再锁 `child`; `job_pause`/`cancel_prep_job`
+  持 `child` 再锁 `running_job` → 锁序反转。修法 = 两把锁绝不嵌套 (drop 前一锁再锁下一把)。
+- **P1-3 explain 欠账检测复活 (Python)**: `first_run = not exists(checkpoints)` 在 nlp 之后算恒 False
+  → 检测死代码。改在 `Runner.__init__`(任何 stage 落盘前)算 `self._first_run`。
+- **P1-5 opus 字节率 (Python)**: `_chapter_opus_ok`/`_encode_chapter` 按 16-bit(48000B/s) 算, 但 wav
+  是 float32(96000B/s) → "已编码可跳过复用"永不成立、重试总是全量重编码; `total_sec` 偏大 2×。
+  改 `/24` 与 `/96000.0`。新增 `tests/test_pack.py` 2 例。
+- **P1-6 TTS 时间轴 (Python)**: 删掉 `synth_chapter` 里 `chapter_start_ms = max(已合成句 end_ms)`
+  预计算 —— 循环内已合成句会重置, 预计算的 max 只对"句首失败/跳过句重跑"有害 (拿章节末尾当起点)。
+- **P1-1/P1-2 翻译重试契约 (Python)**: 根因 = checkpoint 的 `failedStages` 存字段名 ("translation")
+  而内存 `mark_failed` 用阶段名 ("translate"), 双命名 + `save_stage_result` 成功后不清 failedStages +
+  `translate_sentences` 跳 `s.status == "failed"` → 翻译失败的句子重跑永远跳过、重跑成功仍粘 failed。
+  修法 = 统一命名: `checkpoint.FIELD_TO_STAGE` 映射 (translation→translate / explanation→explain /
+  audio→tts / words→align), `save_stage_result` 归一化 + 成功后清该阶段并重算 status; `Sentence` 加
+  `clear_failed_stage`/`_recompute_status`; `translate/explain/tts` 成功分支清失败标记; `FATAL_STAGES`
+  收敛为 {"translate","nlp"}; `_hydrate_book` 归一化 failedStages。新增 test_g2_checkpoint::TestRetryContract
+  + test_core::clear_failed_stage 4 例。**教训: 阶段名与字段名两套命名并存是重试失效的根因, 单一真相源要连命名一起收。**
+
+**遗留登记 (未修, 有理由)**:
+- Rust 存储所有权: `library_asset_service.rs` 级联删除 (`cleanup_orphans`/`delete_edition`/
+  `delete_source`/`cleanup_orphan_batches`) 绕过 owner repo 直写 reading_state/reading_daily/
+  highlights/jobs/editions/batches 多表。**判定为第二处刻意例外** (已写入 CLAUDE.md): 跨表级联删
+  必须在单事务原子完成, 各 repo 写方法各自锁 db.conn (std Mutex 不可重入), 在已持锁事务里调 repo
+  会死锁; 改成 "repo 收 &Connection" 是更大重构。删除路径有 6 个单测锁定行为。
+  **vocab 侧已修**: 新增 `VocabRepo::remove_many`/`spread_next_review` (单事务内), `vocab_remove_common`/
+  `vocab_backlog_spread` 命令改走 repo (此前绕过 vocab_repo 直写 SQL, 含"改列 + json_set payload"的
+  脆弱双写)。
+- P2 一批 (2026-08-13 已修): `reader.rs` 两处 `let _ = std::fs::write(config.toml)` 吞掉序列化/写盘失败
+  → 改 `Config::save` 显式报错; `AppServices.cf_token` 死字段 (只写不读, 且存旧单 token) 移除 +
+  `get_cf_token` 标 `#[allow(dead_code)]` (仅测试用) 并更新 CLAUDE.md 未接线清单 (hf_resolve_url 已接线,
+  从清单移除)。
+- P2 仍存 (低优先): `model_repo.list_all_with_bound` N+1、`sync_service::pending_count` 读错误吞成
+  "0 已同步"、`reader_view` 模式切换丢滚动位置、`_onWordClick` O(N) 扫描取错上下文、`job_retry_failed`
+  的 `"partial"` 分支 (job 无此状态, 死分支)。

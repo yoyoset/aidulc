@@ -16,7 +16,9 @@ from aidulc_prep.pipeline.llm.guard import (
     check_batch_length_ratios,
     check_explain_echo,
     check_length_ratio,
+    guard_batch,
 )
+from aidulc_prep.core.errors import EngineError
 
 
 class TestParseNumbered:
@@ -121,6 +123,28 @@ class TestRetry:
         results, failed = translate_batch_with_retry(lambda m: "", [])
         assert results == [] and failed == []
 
+    def test_fatal_model_error_propagates(self):
+        """P0 修复 (2026-08-13): 模型推理致命失败 (EngineError) 必须往上抛, 不能被吞成
+        '每行失败' —— 否则任务一路跑到 pack 还报成功 (后台失败但用户以为成功)。"""
+        def dead(messages):
+            raise EngineError("LLM 推理失败", "CUDA OOM")
+
+        with pytest.raises(EngineError):
+            translate_batch_with_retry(dead, ["A", "B", "C"])
+
+    def test_fatal_error_in_echo_retry_propagates(self):
+        """echo 单独重试途中模型死掉也要往上抛, 不能吞成 still_failed。"""
+        calls = {"n": 0}
+
+        def flaky(messages):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return "1. Hello world."  # 整批回显 → 触发单独重试
+            raise EngineError("LLM 推理失败", "CUDA OOM")
+
+        with pytest.raises(EngineError):
+            translate_batch_with_retry(flaky, ["Hello world."])
+
 
 class TestGuard:
     def test_length_ratio_normal(self):
@@ -146,3 +170,10 @@ class TestGuard:
     def test_explain_echo(self):
         assert check_explain_echo("Hello world.", "Hello world.")
         assert not check_explain_echo("Hello world.", "hello 表示你好, world 表示世界。")
+
+    def test_guard_batch_raises_value_error_not_engine_error(self):
+        """P0 修复 (2026-08-13): guard 的输出可疑必须是 ValueError (可重试), 不是 EngineError
+        (致命) —— 二者在 batch.translate_batch_with_retry 里用异常类型区分, 混用会把可重试的
+        错位当致命错误往上抛、或把致命错误当可重试吞掉。"""
+        with pytest.raises(ValueError):
+            guard_batch(["Hello world", "Second line"], ["Hello world", "Second line"])

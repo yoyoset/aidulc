@@ -6,8 +6,6 @@ pipeline/llm/guard.py —— echo 检测 + 整段错位检测 (3.5 静默失败�
 """
 from __future__ import annotations
 
-from aidulc_prep.core.errors import EngineError
-
 # 译文/原文 字符比正常区间 (中文翻译通常比英文原文短或相近; 异常偏长/偏短可疑)
 RATIO_MIN = 0.2
 RATIO_MAX = 3.0
@@ -43,8 +41,11 @@ def check_explain_echo(sentence: str, explanation: str) -> bool:
 
 
 def guard_batch(originals: list[str], translations: list[str]) -> None:
-    """批次防线: 错位检测 + echo 检测, 任一可疑抛 EngineError (触发对半重试)。
-    单行不触发 (单行 echo 走 _retry_untranslated 的重试流, 避免双重处理)。"""
+    """批次防线: 错位检测 + echo 检测, 任一可疑抛 ValueError (触发对半重试)。
+    单行不触发 (单行 echo 走 _retry_untranslated 的重试流, 避免双重处理)。
+    ValueError 与 parse_numbered_response 同语义 = "输出格式问题可重试"; 而模型加载/推理
+    失败是 AidulcError (EngineError/ModelError), 由 batch.translate_batch_with_retry 直接
+    往上抛、不重试 —— 二者必须用不同异常类型区分 (P0: 否则模型死了每句被吞成"失败"还报成功)。"""
     from aidulc_prep.pipeline.llm.batch import looks_untranslated
     if len(originals) < 2:
         return
@@ -53,4 +54,5 @@ def guard_batch(originals: list[str], translations: list[str]) -> None:
         if looks_untranslated(o, t):
             problems.append(f"第 {i + 1} 行是原文回显 (echo)")
     if problems:
-        raise EngineError("批量输出可疑: " + "; ".join(problems[:5]), detail="\n".join(problems))
+        raise ValueError("批量输出可疑: " + "; ".join(problems[:5]))
+

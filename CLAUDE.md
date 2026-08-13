@@ -31,6 +31,14 @@
 跨表只读查询允许(如 `transfer_service.rs` 为导出功能 `SELECT DISTINCT profile_id FROM vocab UNION ...`),
 禁止的是跨 repo **写**同一张表。
 
+**第二处例外(2026-08-13 审计确认)**:`application/library_asset_service.rs` 的级联删除
+(`cleanup_orphans`/`delete_edition`/`delete_source`/`cleanup_orphan_batches`)直接发 SQL 删
+`reading_state`/`reading_daily`/`highlights`/`jobs`/`editions`/`batches` 多张表。这是刻意的:
+跨表级联删必须在**单个事务**里原子完成,而各 repo 的写方法各自锁 `db.conn`(std Mutex 不可
+重入),在 service 已持锁的事务里调 repo 会死锁。改成"repo 收 `&Connection` 参数"是更大的
+重构。这处是删除路径(数据丢失敏感),有 6 个单测锁定其行为——改它前先补 repo 级 bulk 方法,
+不要直接叠直连 SQL。
+
 ## contracts/(强制)
 
 `contracts/*.schema.json` 是 Rust/Python/前端三端唯一共享的契约来源,`prep/aidulc_prep/schemas/` 是随
@@ -89,10 +97,12 @@
 ## 已知未接线的功能(写了测试但没有 command/前端调用)
 
 `#[allow(dead_code)]` + `TODO(未接线)` 标注在源码里,2026-08-09 复核后剩余:
-CF 同步断开连接(`credentials.rs::delete_cf_token`)、首次下载 URL 构造
-(`infrastructure/downloader/mod.rs::github_release_asset_url`/`hf_resolve_url`)、
+CF 同步断开连接(`credentials.rs::delete_cf_token`)、旧单 token 读取(`credentials.rs::get_cf_token`,
+2026-08-13 移除其生产调用后仅测试用)、首次下载 URL 构造
+(`infrastructure/downloader/mod.rs::github_release_asset_url`)、
 profile 单条查询(`store/profile_repo.rs::get`)。改这几处附近代码前先看 `TODO(未接线)` 注释,
-别假设它们已经在跑。
+别假设它们已经在跑。(`hf_resolve_url` 已接线——2026-08-13 审计确认 `normalize_hf_url` 用到了它,
+早先把它列进未接线清单已过时。)
 
 历史清单里另两项——model bundle 完整性检查(`model_service.rs::bundle_complete`/`book_bundle_complete`)
 和首次运行向导完成状态判断(`wizard_service.rs::is_done`)——已按 R2-2 作为"仅测试引用的死代码"删除

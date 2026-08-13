@@ -198,7 +198,9 @@ def _copy_chapter_images(ch, images_dir: str, source_book: str) -> None:
 
 
 def _chapter_opus_ok(out_dir: str, audio_dir: str, ch_index: int) -> bool:
-    """该章 opus 是否已存在且完整。opus(32kbps) ≈ wav 总大小/12 (24000Hz×2B/s 单声道)"""
+    """该章 opus 是否已存在且完整。opus(32kbps=4000B/s) ≈ wav 总量/24 —— wav 是 float32
+    (24000Hz×4B/s 单声道, tts/stage 用 sf.write float32), 不是 16-bit(48000B/s)。之前按
+    /12 (16-bit 口径) 算期望值恒偏大 2× → "已编码可跳过"永远不成立, 重试总是全量重编码。"""
     out_path = os.path.join(audio_dir, f"ch_{ch_index:03d}.opus")
     if not os.path.exists(out_path):
         return False
@@ -211,7 +213,7 @@ def _chapter_opus_ok(out_dir: str, audio_dir: str, ch_index: int) -> bool:
             total_wav += os.path.getsize(os.path.join(wav_dir, name))
     if total_wav == 0:
         return False
-    expected = total_wav / 12
+    expected = total_wav / 24
     return os.path.getsize(out_path) >= expected * 0.9
 
 
@@ -279,7 +281,10 @@ def _encode_chapter(ff, ch, out_dir, audio_dir, bookpack_dir, emit, total_chapte
     # → 超时按输入规模动态: 编码速率 ~55x 实时 (4000B/s opus vs 48000B/s pcm), 余量 120s
     # → 临时文件 + rename (失败不留部分产物, 保证"存在即完整"供跳过复用)
     total_wav_bytes = sum(os.path.getsize(w) for w in wavs)
-    total_sec = total_wav_bytes / 48000.0  # 24000Hz × 2B × 1ch
+    # Bug fix (2026-08-13, 审计): wav 是 float32 (24000Hz×4B×1ch=96000B/s), 不是 16-bit
+    # (48000B/s)。之前按 /48000 算 total_sec 偏大 2× → encode_timeout 也偏大 2× (安全方向,
+    # 但口径错误)。按真实字节率算。
+    total_sec = total_wav_bytes / 96000.0  # 24000Hz × 4B × 1ch
     encode_timeout = max(300, int(total_sec / 55) + 120)
     tmp_path = out_path[:-5] + ".tmp.opus"
     if len(mid_parts) == 1:

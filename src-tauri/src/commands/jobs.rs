@@ -143,17 +143,20 @@ pub fn job_list(db: State<store::Db>) -> Result<serde_json::Value, String> {
 ///   书还在书库里。只有失败/排队/取消等无产物的任务目录在此清理。
 #[tauri::command]
 pub fn job_remove(state: State<PrepState>, db: State<store::Db>, id: String) -> Result<(), String> {
-    let mut running = state.running_job.lock().unwrap();
-    if running.as_deref() == Some(&id) {
+    // Bug fix (2026-08-13): 原来 holding running_job 再锁 child (嵌套), 与 job_pause/
+    // cancel_prep_job 的 child→running_job 顺序相反 → ABBA 死锁隐患。改成两把锁绝不嵌套:
+    // 先判是否在跑, 再单独锁 child 杀进程, 再单独锁 running_job 清空。
+    let is_running = state.running_job.lock().unwrap().as_deref() == Some(&id);
+    if is_running {
         let mut guard = state.child.lock().unwrap();
         if let Some(child) = guard.as_mut() {
             let _ = child.kill();
             let _ = child.wait();
         }
         *guard = None;
-        *running = None;
+        drop(guard);
+        *state.running_job.lock().unwrap() = None;
     }
-    drop(running);
     {
         let mut q = state.queue.lock().unwrap();
         q.retain(|x| x != &id);
@@ -218,6 +221,34 @@ pub fn job_retry_failed(
     orch::job_retry_failed(app, state.inner(), cfg.inner(), db.inner(), id)
 }
 
+/// 自定义重跑 (2026-08-13): 手动重选模型 + 指定重跑范围。
+// 薄壳镜像 orchestrator 的参数 (那边已 allow, 这里只压重复噪音), 计数与 orchestrator 一致。
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub fn job_retry_custom(
+    app: tauri::AppHandle,
+    state: State<PrepState>,
+    cfg: State<PrepConfig>,
+    db: State<store::Db>,
+    id: String,
+    llm_id: Option<String>,
+    tts_id: Option<String>,
+    nlp_id: Option<String>,
+    force_stages: Option<Vec<String>>,
+) -> Result<(), String> {
+    orch::job_retry_custom(
+        app,
+        state.inner(),
+        cfg.inner(),
+        db.inner(),
+        id,
+        llm_id,
+        tts_id,
+        nlp_id,
+        force_stages,
+    )
+}
+
 #[tauri::command]
 pub fn cancel_prep_job(state: State<PrepState>) -> Result<(), String> {
     let mut guard = state.child.lock().unwrap();
@@ -226,6 +257,7 @@ pub fn cancel_prep_job(state: State<PrepState>) -> Result<(), String> {
         let _ = child.wait();
     }
     *guard = None;
+    drop(guard); // Bug fix (2026-08-13): 释放 child 锁再锁 running_job, 避免与 job_remove 嵌套锁死锁
     *state.running_job.lock().unwrap() = None;
     Ok(())
 }

@@ -190,7 +190,13 @@ fn daemon_result_to_tuple(v: &serde_json::Value) -> Result<LookupTuple, String> 
 /// 显式加入生词本
 /// V4 (2026-08-09): source 内含 edition_id/chapter_index/sentence_index 来源定位。
 /// 打包成请求结构体是为了不新增命令参数 (clippy 参数过多警告, 基线只降不升)。
+/// UX7 #1 (2026-08-13, 真机实测确认): 前端 dictionary_service.js 的 addToVocab() 打的是
+/// camelCase 键(userId/profileId/editionId/chapterIndex/sentenceIndex) —— Tauri 只自动把
+/// *顶层* invoke 参数名 camelCase→snake_case, `req` 这种打包进请求体的嵌套字段不在这个转换
+/// 范围内, serde 按字面量找不到 user_id 直接报 "missing field `user_id`"。全仓库唯一一个
+/// "打包成请求结构体"的命令, 之前没人踩过这个坑。
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AddVocabRequest {
     pub word: String,
     pub user_id: String,
@@ -218,6 +224,30 @@ pub fn add_vocab(db: State<store::Db>, req: AddVocabRequest) -> Result<serde_jso
             sentence_index: req.sentence_index,
         },
     )
+}
+
+#[cfg(test)]
+mod add_vocab_request_tests {
+    //! UX7 #1 (2026-08-13, 真机实测确认): 前端 addToVocab() 发的是 camelCase
+    //! (userId/profileId/editionId/...), AddVocabRequest 没标 rename_all 时 serde
+    //! 按字面量找 user_id 找不到, 报 "missing field `user_id`"——用户真机点"加入生词本"
+    //! 复现的原始报错。锁定这条 JSON 契约, 防止 rename_all 被误删回归。
+    use super::AddVocabRequest;
+
+    #[test]
+    fn accepts_camel_case_json_from_frontend() {
+        let json = r#"{
+            "word": "either", "userId": "me", "profileId": "default",
+            "context": "He likes either one.", "editionId": null,
+            "chapterIndex": 2, "sentenceIndex": 5
+        }"#;
+        let req: AddVocabRequest =
+            serde_json::from_str(json).expect("camelCase JSON 应能反序列化为 AddVocabRequest");
+        assert_eq!(req.user_id, "me");
+        assert_eq!(req.profile_id, "default");
+        assert_eq!(req.chapter_index, Some(2));
+        assert_eq!(req.sentence_index, Some(5));
+    }
 }
 
 /// 词典列表 (某 user 某 profile)

@@ -640,12 +640,22 @@
       section('tts',
         '需要 Kokoro 语音模型 (kokoro-v1_0.pth + config.json + voices/ 同一目录, 如 HF 缓存 models--hexgrad--Kokoro-82M/snapshots/<sha>/)。没有语音不影响文字阅读。',
         '未配置 —— 没有语音合成不影响文字阅读, 需要跟读/听读时再下载。');
-      // UX5 #5 (2026-08-13): nlp 段无已登记 nlp 模型时整段隐藏 —— 分词是内置 spaCy
-      // 兜底, 不是用户要配置的东西; 有已登记的自定义 NLP 模型才显示 (让用户看到它的状态)。
+      // UX5 #5 (2026-08-13) 起初整段隐藏(内置 spaCy 兜底已覆盖多数场景, 无需展示)。
+      // K24 (2026-08-14, 用户拍板"需要引导下载"): llm/tts 都有「去下载」引导, 唯独 nlp
+      // 没有——不是缺一条 DOWNLOAD_CATALOG 目录项就能解决的(spaCy 模型是 pip 包, 不是
+      // 单文件直链, 现有下载器是"URL→文件"模型, 机制不同, 见 docs/ROADMAP.md 对应记录)。
+      // 折中: 段落改成始终显示, 没有已登记模型时给静态引导文案(装什么包/去哪扫描),
+      // 不新建一整套"跑 pip install"式下载器。
       if (all.some((m) => m.family === 'nlp')) {
         section('nlp', '分词 / NLP: 分句、词形还原 (lemma)、短语识别, 备料时自动用。未配置时用内置兜底, 不影响阅读。',
           '未配置 —— 用内置兜底分词, 不影响阅读; 需要精确分词时再添加。',
           '当前方案: 内置 spaCy en_core_web_sm (en)。未添加自定义 NLP 模型时就是这个兜底, 无需下载。');
+      } else {
+        const sec = el('div', 'model-group');
+        sec.appendChild(el('h2', null, FAM_LABEL.nlp));
+        sec.appendChild(el('div', 'import-tip',
+          '内置 spaCy en_core_web_sm 分词已覆盖多数场景, 无需配置。需要更精确的分词、或其它语言支持时: 在终端跑 pip install spacy 加对应语言包(如 python -m spacy download en_core_web_trf), 装好后回这里点上方「扫描复用」登记模型目录。'));
+        listEl.appendChild(sec);
       }
 
       // 其余已登记模型收进"全部模型"折叠区 (J1: 不再两套并列, 这里是次要的登记清单)

@@ -243,20 +243,17 @@ flash 的判断), 是确认级别不是推断。
   改跳有 `_showDownloadSheet` 一键下载单能力的模型中心)都从报错文本猜家族
   (llm/tts)带上 `focus`;`models_view.js` 收到 `focus` 且该 family 没有可用
   模型时直接弹下载单, 不用用户自己找。
-- **P3 nlp 模型没有引导式下载入口**: `DOWNLOAD_CATALOG`(`models_view.js:18-31`)
+- **P3 ✅ 已修复(2026-08-14, K24, 用户拍板: 需要引导)nlp 模型没有引导式下载入口**: `DOWNLOAD_CATALOG`(`models_view.js:18-31`)
   只覆盖 llm 和 tts 两个家族, nlp 家族没有目录项——`_renderGrouped`
   (`models_view.js:632`)里 nlp 段仅在已经通过"扫描"或"自定义模型"手动登记过
   才会显示。llm/tts 有"选磁盘已有 or 一键下载"的引导式弹窗, nlp 全靠用户自己
   知道去哪找模型文件再手动扫描登记, 三个模型家族里唯独这个没有新手友好路径。
-  ⏸ 需要产品决策, 见下(不是简单补一条 `DOWNLOAD_CATALOG` 目录项就能解决——llm/tts
-  是单文件直链下载, nlp/spaCy 模型是 pip 包, `models_view.js` 现有的
-  `_downloadModel`/`_downloadOne` 下载器是"URL→文件"模型, 不是"跑 pip install"
-  模型, 两者机制不同): 可选方向① 沿用现状, 因为内置 spaCy en_core_web_sm 兜底
-  已覆盖绝大多数场景("未添加自定义 NLP 模型时就是这个兜底, 无需下载", 见
-  `models_view.js:640`)——需要自定义 nlp 模型本身就是进阶操作, 用户能自己找到
-  ② 给 nlp 段加一段静态引导文案+外链(不下载, 只告诉用户去哪找、命令是什么)
-  ③ 扩展下载器支持"执行 pip install/spacy download"这类命令式安装(工作量最大,
-  涉及子进程执行+权限/依赖问题, 是新的一类基础设施而不是复用现有下载器)。
+  **修复**(⏸ 方向②, 最小可行方案——不是简单补一条 `DOWNLOAD_CATALOG` 目录项能
+  解决的: llm/tts 是单文件直链下载, nlp/spaCy 模型是 pip 包, 现有下载器是
+  "URL→文件"模型, 机制不同, 没有扩建"跑 pip install"式下载器这类新基础设施):
+  nlp 段从"无登记就整段隐藏"(UX5 #5 原设计)改成始终显示, 没有已登记模型时给
+  静态引导文案(装什么 pip 包/跑什么命令/回来点「扫描复用」登记), 不做真下载器。
+  2 处历史测试(UX5#5 断言"整段隐藏")按新行为更新为"仍显示引导文案"。
 
 ### 备料流程 (2026-08-14, prep/pipeline/*.py 7 阶段 + job_orchestrator.rs + jobs/batches_repo.rs + prep_view.js)
 

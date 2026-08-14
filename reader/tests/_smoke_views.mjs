@@ -1837,7 +1837,9 @@ console.log('== 9. J1/J2: 模型按功能分组, 判据=该功能有无可用模
   const groupTitle = (g) => { const h2 = (g._children || []).find((x) => x.tagName === 'H2'); return h2 ? h2.textContent : ''; };
   const groupTexts = groups.map(groupTitle);
   check('功能段标题: 翻译/讲解 + 语音合成', groupTexts.some((t) => t.includes('翻译')) && groupTexts.some((t) => t.includes('语音合成')), JSON.stringify(groupTexts));
-  check('UX5#5: 无已登记 nlp 模型 → 分词/NLP 段隐藏', !groupTexts.some((t) => t.includes('分词')), JSON.stringify(groupTexts));
+  // K24 (2026-08-14): UX5#5 曾经整段隐藏, 现在改成显示静态引导文案(装 spaCy 语言包+扫描登记),
+  // 不是"没有配置就不存在"了——用户拍板"nlp 需要引导下载入口"。
+  check('K24: 无已登记 nlp 模型 → 分词/NLP 段仍显示引导文案', groupTexts.some((t) => t.includes('分词')), JSON.stringify(groupTexts));
   check('UX5#5: 模型目录段在最上 (第一个 .model-group)', groupTitle(groups[0]).includes('模型目录'), JSON.stringify(groupTexts));
   check('L4: 界面不再出现「语音识别」', !groupTexts.some((t) => t.includes('语音识别')), JSON.stringify(groupTexts));
   const mcText = (mc.textContent || '').replace(/\s+/g, '');
@@ -1880,8 +1882,8 @@ console.log('== 9c. M4 (2026-08-12): 分词/NLP 无空下载按钮 + 扫描候�
   const groups9 = queryAll(mc9, '.model-group');
   const gtitle = (g) => { const h2 = (g._children || []).find((x) => x.tagName === 'H2'); return h2 ? h2.textContent : ''; };
   const nlpSec9 = groups9.find((g) => gtitle(g).includes('分词'));
-  // UX5 #5 (2026-08-13): nlp 段无已登记 nlp 模型 → 整段隐藏 (不是用户要配置的东西)
-  check('UX5#5: 无已登记 nlp 模型 → 分词/NLP 段整段不渲染', !nlpSec9, 'groups=' + groups9.map(gtitle).join(','));
+  // K24 (2026-08-14): 曾经整段隐藏(UX5 #5), 现在改成显示静态引导文案。
+  check('K24: 无已登记 nlp 模型 → 分词/NLP 段仍渲染引导文案', !!nlpSec9, 'groups=' + groups9.map(gtitle).join(','));
   // M4-1: llm/tts 有目录项 → 仍有「去下载」(有源才有按钮)
   const llmSec9 = groups9.find((g) => gtitle(g).includes('翻译'));
   const ttsSec9 = groups9.find((g) => gtitle(g).includes('语音合成'));

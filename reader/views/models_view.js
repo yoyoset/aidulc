@@ -293,8 +293,13 @@
     }
 
     /** UX5 #5 (2026-08-13): 版本/更新判定 —— 候选文件 vs DOWNLOAD_CATALOG 已知版本。
-     *  无已登记 → 「可下载/可登记」; 已登记且文件在 → 版本 + 「已是最新」/「有新版」;
-     *  目录里没有该文件 → 老实说「版本未知, 无法判断」。 */
+     *  无已登记 → 「可下载/可登记」; 已登记且文件在 → 版本 + 「有新版」/版本号;
+     *  目录里没有该文件 → 老实说「版本未知, 无法判断」。
+     *  K10 (2026-08-14): 原文案"已是最新"暗示做过在线版本检查, 实际比对的是这份
+     *  写死在本文件里的 DOWNLOAD_CATALOG(全仓 grep 确认没有任何在线版本接口)——
+     *  是"看起来在检查、实际没检查"的误导性 UI, 不是"暂不支持在线检查"的中性
+     *  缺失, 同 K6(同步页那条自动推送文案)是一类问题。改成如实描述: 只说清楚
+     *  "这是内置目录里登记的版本号", 不再暗示"已经跟上游比对过、确认最新"。 */
     _versionStatus(candidate) {
       const family = candidate.family_hint || 'unknown';
       const base = String(candidate.file_name || '');
@@ -310,7 +315,7 @@
       if (newer.length) {
         return { text: `v${cat.version} · 有新版 v${newer[0].version}, 可更新`, cls: 'badge-warn' };
       }
-      return { text: `v${cat.version} · 已是最新`, cls: 'badge-ok' };
+      return { text: `v${cat.version}(内置目录版本, 未做在线检查)`, cls: 'badge-ok' };
     }
 
     /** 该 family 是否有"已登记且文件存在"的模型 (与 _renderGrouped 的 usableOf 同判据)。 */

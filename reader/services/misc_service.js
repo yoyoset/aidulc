@@ -9,6 +9,8 @@
     logPath() { return AiduBridge.invoke('log_path'); },
     componentsHealth() { return AiduBridge.invoke('components_health'); },
     runtimeConfig() { return AiduBridge.invoke('runtime_config'); },
+    // K11 (2026-08-14): 应用本体版本号——之前界面完全没有出口显示
+    appVersion() { return AiduBridge.invoke('app_version'); },
     openPath(path) { return AiduBridge.openPath(path); },
     // P1.2: 书库位置("...存放在哪"的产品化入口, 见 docs/ROADMAP.md P1)
     libraryDirGet() { return AiduBridge.invoke('library_dir_get'); },

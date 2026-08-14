@@ -1949,9 +1949,9 @@ console.log('== 9c. M4 (2026-08-12): 分词/NLP 无空下载按钮 + 扫描候�
     return true;
   });
   check('UX5#5: 未识别候选版本标「版本未知」', unrecVerOk, verTexts9.join(','));
-  // UX5 #5: 已登记且文件在 → 「已是最新」
+  // K10 (2026-08-14): "已是最新"改成如实描述——只说是内置目录版本, 不再暗示做过在线检查
   const mkVer = (c, reg) => mv9._versionStatus(Object.assign({}, c, { registered: reg }));
-  check('UX5#5: 已登记 Qwen → vQ4_K_M · 已是最新', mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Q4_K_M.gguf' }, true).text.includes('已是最新'),
+  check('K10: 已登记 Qwen → 内置目录版本(不暗示已做在线检查)', mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Q4_K_M.gguf' }, true).text.includes('内置目录版本'),
     mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Q4_K_M.gguf' }, true).text);
   check('UX5#5: 未登记 Qwen → 可下载/可登记', mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Q4_K_M.gguf' }, false).text.includes('可下载'),
     mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Q4_K_M.gguf' }, false).text);

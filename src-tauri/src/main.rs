@@ -561,6 +561,7 @@ fn main() {
             commands::models::wizard_finish,
             commands::models::wizard_reset,
             commands::misc::runtime_config,
+            commands::misc::app_version,
             commands::misc::components_health,
             commands::data_root::library_dir_get,
             commands::data_root::library_root_status,

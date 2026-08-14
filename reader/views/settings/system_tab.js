@@ -39,7 +39,22 @@
             logRow.append(logInfo, openLogBtn);
             logSec.appendChild(logRow);
              pane.appendChild(logSec);
-      
+
+            // K11 (2026-08-14): 应用本体版本号——之前模型/依赖组件都有各自的"检查更新",
+            // 唯独应用本体没有任何 UI 出口显示版本, 报 bug 时说不清。只加版本号展示,
+            // 不做整页"关于"/许可证/在线更新检查(是否要联网检查本体更新是产品决策,
+            // 见 docs/ROADMAP.md 成熟度审计"设置"域那条记录)。
+            const aboutSec = el('div', 'settings-section');
+            aboutSec.appendChild(el('h2', null, '关于'));
+            const versionInfo = el('span', 'log-info', '版本号加载中…');
+            aboutSec.appendChild(versionInfo);
+            pane.appendChild(aboutSec);
+            if (global.AiduMiscService && AiduMiscService.appVersion) {
+              AiduMiscService.appVersion().then((r) => {
+                versionInfo.textContent = r.ok ? ('aidulc v' + r.data) : '版本号读取失败';
+              });
+            }
+
             // N1 (2026-08-12): 向导可重入 —— 走完的向导换机器/换数据目录时能再进一次
             const wizardSec = el('div', 'settings-section');
             wizardSec.appendChild(el('h2', null, '首次设置向导'));

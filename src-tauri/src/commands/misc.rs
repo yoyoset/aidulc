@@ -71,6 +71,15 @@ pub async fn components_health(
     serde_json::to_value(checks).map_err(|e| e.to_string())
 }
 
+/// K11 (2026-08-14): 应用本体版本号——之前模型/依赖组件都有各自的"检查更新",
+/// 唯独应用本体没有任何 UI 出口显示自己是哪个版本, 报 bug 时说不清。只加版本号
+/// 展示(读 Cargo.toml 编译期常量), 不做"关于"整页/许可证/在线更新检查(那是
+/// 更大的一件事, 且是否要联网检查应用本体更新本身也是产品决策)。
+#[tauri::command]
+pub fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 /// boot 探针 (开发用: 验证进程活着)
 #[tauri::command]
 pub fn boot_ping(message: String) -> String {

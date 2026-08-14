@@ -466,6 +466,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "模型路径从 model_registry 解析(单一真相源)",
     },
     CommandInfo {
+        path: "commands::misc::app_version",
+        domain: "运行时",
+        desc: "应用本体版本号(K11: 之前界面完全没有出口显示)",
+    },
+    CommandInfo {
         path: "commands::misc::components_health",
         domain: "运行时",
         desc: "组件健康检查(prep/ffmpeg/模型是否可用)",

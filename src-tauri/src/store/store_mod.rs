@@ -903,6 +903,79 @@ impl Db {
                 }
             }
         }
+        // v29 (K26, 2026-08-14, 用户拍板"带日期时间的书签"): reading_state.bookmarks 每章
+        // 数组的元素从纯句下标 number 升级成 {i, at}(创建时间 ms)——v26 只解决了"按章分组
+        // 不互相覆盖", 没有记录"这条书签是什么时候标的", 面板列多条书签时分不清先后。老行
+        // 没有单条书签级别的时间戳, at 用该行的 updated_at 兜底(不是真实创建时间, 是"至少
+        // 不是 0/未知"的最佳近似); 已经是 {i,at} 对象的行原样跳过 (幂等, 防止迁移重跑二次包裹)。
+        if version < 29 {
+            conn.execute_batch("BEGIN IMMEDIATE;")
+                .map_err(|e| format!("迁移 v29 开始失败: {e}"))?;
+            let result = (|| -> Result<(), String> {
+                let rows: Vec<(String, String, String, i64)> = {
+                    let mut stmt = conn
+                        .prepare(
+                            "SELECT user_id, book_key, bookmarks, updated_at FROM reading_state",
+                        )
+                        .map_err(|e| format!("迁移 v29 读取失败: {e}"))?;
+                    let mapped = stmt
+                        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+                        .map_err(|e| format!("迁移 v29 读取失败: {e}"))?;
+                    mapped
+                        .collect::<Result<Vec<_>, rusqlite::Error>>()
+                        .map_err(|e| format!("迁移 v29 读取失败: {e}"))?
+                };
+                for (user_id, book_key, bm_text, updated_at) in rows {
+                    let parsed: serde_json::Value = serde_json::from_str(&bm_text)
+                        .unwrap_or(serde_json::Value::Object(Default::default()));
+                    if let serde_json::Value::Object(chapters) = parsed {
+                        let mut changed = false;
+                        let mut new_obj = serde_json::Map::new();
+                        for (chapter, arr_val) in chapters {
+                            if let serde_json::Value::Array(arr) = arr_val {
+                                let new_arr: Vec<serde_json::Value> = arr
+                                    .iter()
+                                    .map(|v| {
+                                        if let Some(n) = v.as_i64() {
+                                            changed = true;
+                                            serde_json::json!({"i": n, "at": updated_at})
+                                        } else {
+                                            v.clone() // 已是 {i,at} 对象 → 原样保留 (幂等)
+                                        }
+                                    })
+                                    .collect();
+                                new_obj.insert(chapter, serde_json::Value::Array(new_arr));
+                            } else {
+                                new_obj.insert(chapter, arr_val);
+                            }
+                        }
+                        if changed {
+                            let new_text = serde_json::Value::Object(new_obj).to_string();
+                            conn.execute(
+                                "UPDATE reading_state SET bookmarks = ?1 WHERE user_id = ?2 AND book_key = ?3",
+                                params![new_text, user_id, book_key],
+                            )
+                            .map_err(|e| format!("迁移 v29 写入失败: {e}"))?;
+                        }
+                    }
+                }
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, applied_at) VALUES (29, strftime('%s','now')*1000)",
+                    [],
+                )
+                .map_err(|e| format!("迁移 v29 失败: {e}"))?;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => conn
+                    .execute_batch("COMMIT;")
+                    .map_err(|e| format!("迁移 v29 提交失败: {e}"))?,
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK;");
+                    return Err(format!("迁移 v29 失败: {e}"));
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -1156,12 +1229,14 @@ mod tests {
                     VALUES ('me', 'already-migrated', 1, 0, '{\"1\":[9]}', 100);
                  DELETE FROM schema_migrations WHERE version=26;
                  DELETE FROM schema_migrations WHERE version=27;
-                 DELETE FROM schema_migrations WHERE version=28;",
+                 DELETE FROM schema_migrations WHERE version=28;
+                 DELETE FROM schema_migrations WHERE version=29;",
             )
             .unwrap();
             drop(conn);
         }
-        // 重开触发迁移
+        // 重开触发迁移。K26(v29)在 v26 之后接着跑, 把每条书签从纯数字升级成 {i,at}
+        // (at 用该行 updated_at=100 兜底), 两条断言都按 v29 之后的最终形态更新。
         let db = Db::open(&path).unwrap();
         let conn = db.conn.lock().unwrap();
         let bm: String = conn
@@ -1171,7 +1246,10 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(bm, "{\"2\":[3,7]}", "老数组应按 chapter=2 归位成对象");
+        assert_eq!(
+            bm, "{\"2\":[{\"at\":100,\"i\":3},{\"at\":100,\"i\":7}]}",
+            "老数组应按 chapter=2 归位成对象, 且每条升级成带创建时间的 {{i,at}}"
+        );
         let bm2: String = conn
             .query_row(
                 "SELECT bookmarks FROM reading_state WHERE book_key='already-migrated'",
@@ -1179,7 +1257,10 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(bm2, "{\"1\":[9]}", "已是对象的行应幂等跳过, 不被二次包裹");
+        assert_eq!(
+            bm2, "{\"1\":[{\"at\":100,\"i\":9}]}",
+            "已按章分组的行应幂等跳过 v26, 但 v29 仍会把里面的纯数字升级成 {{i,at}}"
+        );
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}-wal"));
@@ -1220,7 +1301,9 @@ mod tests {
                  -- 撤 v27 (reader_settings 复合主键), 让迁移从 v23 状态完整重跑
                  DELETE FROM schema_migrations WHERE version=27;
                  -- 撤 v28 (vocab 归并回 default 档案), 让迁移从 v23 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=28;",
+                 DELETE FROM schema_migrations WHERE version=28;
+                 -- 撤 v29 (书签升级带创建时间), 让迁移从 v23 状态完整重跑
+                 DELETE FROM schema_migrations WHERE version=29;",
             )
             .unwrap();
             drop(conn);
@@ -1298,7 +1381,8 @@ mod tests {
                     font_family, theme, highlight_granularity, child_mode, updated_at)
                     VALUES ('default', 22.0, 1.9, 700, 'sans', 'dark', 'word', 1, 500);
                  DELETE FROM schema_migrations WHERE version=27;
-                 DELETE FROM schema_migrations WHERE version=28;",
+                 DELETE FROM schema_migrations WHERE version=28;
+                 DELETE FROM schema_migrations WHERE version=29;",
             )
             .unwrap();
             drop(conn);
@@ -1344,7 +1428,8 @@ mod tests {
                     ('me:default:bank', 'bank', 'bank', 'NOUN', '银行', 100, 200, 'default', 'me', '{\"word\":\"bank\",\"lemma\":\"bank\",\"stage\":\"review\"}'),
                     ('me:kid:bank', 'bank', 'bank', 'NOUN', '河岸', 300, 300, 'kid', 'me', '{\"word\":\"bank\",\"lemma\":\"bank\",\"stage\":\"new\"}'),
                     ('me:kid:orange', 'orange', 'orange', 'NOUN', '橙子', 400, 400, 'kid', 'me', '{\"word\":\"orange\",\"lemma\":\"orange\",\"stage\":\"new\"}');
-                 DELETE FROM schema_migrations WHERE version=28;",
+                 DELETE FROM schema_migrations WHERE version=28;
+                 DELETE FROM schema_migrations WHERE version=29;",
             )
             .unwrap();
             drop(conn);
@@ -1384,6 +1469,56 @@ mod tests {
             )
             .unwrap();
         assert_eq!(kid_rows, 0, "不应再有任何 profile_id='kid' 的生词行");
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-wal"));
+        let _ = std::fs::remove_file(format!("{path}-shm"));
+    }
+
+    #[test]
+    fn v29_upgrades_bookmarks_to_entries_with_created_at() {
+        // K26 (2026-08-14, 用户拍板"带日期时间的书签"): 每章数组元素从纯句下标升级成
+        // {i,at}。老行(v26 已按章分组, 但里面还是纯数字)用该行 updated_at 兜底 at;
+        // 已经是 {i,at} 对象的行幂等跳过, 不二次包裹。
+        let path = temp_path("v29");
+        let _ = std::fs::remove_file(&path);
+        {
+            let db = Db::open(&path).unwrap();
+            let conn = db.conn.lock().unwrap();
+            conn.execute_batch(
+                "INSERT INTO reading_state (user_id, book_key, chapter, position_ms, bookmarks, updated_at)
+                    VALUES ('me', 'plain-numbers', 0, 0, '{\"0\":[3,7]}', 555);
+                 INSERT INTO reading_state (user_id, book_key, chapter, position_ms, bookmarks, updated_at)
+                    VALUES ('me', 'already-entries', 0, 0, '{\"0\":[{\"i\":9,\"at\":42}]}', 999);
+                 DELETE FROM schema_migrations WHERE version=29;",
+            )
+            .unwrap();
+            drop(conn);
+        }
+        let db = Db::open(&path).expect("v29 迁移应成功");
+        let conn = db.conn.lock().unwrap();
+        let bm1: String = conn
+            .query_row(
+                "SELECT bookmarks FROM reading_state WHERE book_key='plain-numbers'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            bm1, "{\"0\":[{\"at\":555,\"i\":3},{\"at\":555,\"i\":7}]}",
+            "纯数字应升级成 {{i,at}}, at 用该行 updated_at=555 兜底"
+        );
+        let bm2: String = conn
+            .query_row(
+                "SELECT bookmarks FROM reading_state WHERE book_key='already-entries'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            bm2, "{\"0\":[{\"i\":9,\"at\":42}]}",
+            "已是 {{i,at}} 的行应幂等跳过, 保留原有的 at=42 不被 updated_at 覆盖"
+        );
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}-wal"));
@@ -1458,7 +1593,7 @@ mod tests {
                  DROP TABLE highlights;
                  ALTER TABLE highlights_v17 RENAME TO highlights;
                  DROP TABLE sync_state;
-                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28);
+                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29);
                  -- 撤 v25 列, 让 v25 迁移能重跑
                  ALTER TABLE model_registry DROP COLUMN detected_family;
                  INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,source_book_id,
@@ -1567,6 +1702,8 @@ mod tests {
                  DELETE FROM schema_migrations WHERE version=27;
                  -- 撤 v28 (vocab 归并回 default 档案), 让迁移从 v19 状态完整重跑
                  DELETE FROM schema_migrations WHERE version=28;
+                 -- 撤 v29 (书签升级带创建时间), 让迁移从 v19 状态完整重跑
+                 DELETE FROM schema_migrations WHERE version=29;
                  -- vocab key 还原为 v19 的 {profile}:{lemma} 形式
                  UPDATE vocab SET key = substr(key, 4) WHERE key LIKE 'me:%';
                  UPDATE dictionary SET key = substr(key, 4) WHERE key LIKE 'me:%';",

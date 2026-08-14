@@ -4,6 +4,16 @@ use crate::store::Db;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
+/// K26 (2026-08-14, 用户拍板"带日期时间的书签"): 单条书签 = 句下标 + 创建时间(ms)。
+/// 迁移 v29 前是纯 i64 数组, 没有创建时间——旧行迁移时 at 用该行 updated_at 兜底
+/// (不是真实创建时间, 是"至少不是 0/未知"的最佳近似)。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BookmarkEntry {
+    pub i: i64,
+    #[serde(default)]
+    pub at: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ReadingState {
     /// V1 (2026-08-09): 属于哪个 user。旧数据迁移回填 'me'。
@@ -12,10 +22,10 @@ pub struct ReadingState {
     pub book_key: String,
     pub chapter: i64,
     pub position_ms: i64,
-    // UX7 #3 (2026-08-13, 迁移 v26): 按章分组 {章下标(字符串): [句下标,...]}, 和 verified
-    // 字段同一惯例。老格式是不分章的单一 number[], 切章互相覆盖导致"书签没了"——不能再犯。
+    // UX7 #3 (2026-08-13, 迁移 v26): 按章分组 {章下标(字符串): [...]}, 和 verified 字段
+    // 同一惯例。K26 (迁移 v29): 条目从纯句下标 i64 升级成 BookmarkEntry(带创建时间)。
     #[serde(default)]
-    pub bookmarks: std::collections::HashMap<String, Vec<i64>>,
+    pub bookmarks: std::collections::HashMap<String, Vec<BookmarkEntry>>,
     // S5 (2026-08-08): 每章"已核对"句下标。JSON 对象 {章下标: [句下标,...]}。
     // 按章隔离(书签 Set 跨章串位 R4-1 是前车之鉴)。旧前端无此字段时反序列化容错为空对象。
     #[serde(default)]
@@ -167,7 +177,13 @@ mod tests {
             book_key: "alice_self".into(),
             chapter: 0,
             position_ms: 12345,
-            bookmarks: std::collections::HashMap::from([("0".to_string(), vec![3, 7])]),
+            bookmarks: std::collections::HashMap::from([(
+                "0".to_string(),
+                vec![
+                    BookmarkEntry { i: 3, at: 1000 },
+                    BookmarkEntry { i: 7, at: 2000 },
+                ],
+            )]),
             verified: Default::default(),
             time_spent_ms: 90000,
         };
@@ -194,7 +210,10 @@ mod tests {
             book_key: "k".into(),
             chapter: 1,
             position_ms: 500,
-            bookmarks: std::collections::HashMap::from([("1".to_string(), vec![1])]),
+            bookmarks: std::collections::HashMap::from([(
+                "1".to_string(),
+                vec![BookmarkEntry { i: 1, at: 500 }],
+            )]),
             verified: Default::default(),
             time_spent_ms: 60000,
         })
@@ -204,8 +223,8 @@ mod tests {
         assert_eq!(got.position_ms, 500);
         assert_eq!(
             got.bookmarks.get("1"),
-            Some(&vec![1]),
-            "按章存, 第 1 章书签应可读回"
+            Some(&vec![BookmarkEntry { i: 1, at: 500 }]),
+            "按章存, 第 1 章书签(带创建时间)应可读回"
         );
         assert_eq!(got.time_spent_ms, 60000, "阅读时长应持久化");
     }
@@ -230,7 +249,10 @@ mod tests {
             book_key: "b".into(),
             chapter: 2,
             position_ms: 500,
-            bookmarks: std::collections::HashMap::from([("2".to_string(), vec![9])]),
+            bookmarks: std::collections::HashMap::from([(
+                "2".to_string(),
+                vec![BookmarkEntry { i: 9, at: 300 }],
+            )]),
             verified: Default::default(),
             time_spent_ms: 0,
         })
@@ -239,7 +261,7 @@ mod tests {
         assert_eq!(repo.get("u-kid", "b").unwrap().chapter, 2);
         assert_eq!(
             repo.get("u-kid", "b").unwrap().bookmarks.get("2"),
-            Some(&vec![9])
+            Some(&vec![BookmarkEntry { i: 9, at: 300 }])
         );
     }
 

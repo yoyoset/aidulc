@@ -579,11 +579,13 @@
       else this.player.audio = null;
       if (this.globalStop) this.globalStop.setVisible(!!ch.audioFile);
       this.rd.restoreVerified((this._verifiedMap && this._verifiedMap[this.chapterIndex]) || []);
-      // UX7 #3: 本章书签从按章分组的 map 里读回 (不再是切章就清空不回填)
+      // UX7 #3: 本章书签从按章分组的 map 里读回 (不再是切章就清空不回填)。
+      // K26: 条目现在是 [{i, at}, ...](带创建时间); restore() 内部处理新旧两种形状。
       const chapterBm = this._bookmarksByChapter[String(this.chapterIndex)] || [];
       this.bookmarks.restore(chapterBm);
-      if (chapterBm.length && this.renderer) await this.renderer.ensureRendered(Math.max(...chapterBm));
-      chapterBm.forEach((i) => {
+      const chapterBmIdxs = chapterBm.map((e) => (typeof e === 'number' ? e : e.i));
+      if (chapterBmIdxs.length && this.renderer) await this.renderer.ensureRendered(Math.max(...chapterBmIdxs));
+      chapterBmIdxs.forEach((i) => {
         const block = document.querySelector(`.atomic-block[data-index="${i}"]`);
         if (block) block.classList.add('bookmark-active');
       });
@@ -1136,9 +1138,10 @@
 
     _saveProgress() {
       if (!this.bookId) return;
-      // UX7 #3: 当前章的书签集合写回按章分组的 map, 再整个 map 落盘——不会覆盖其它章
+      // UX7 #3: 当前章的书签集合写回按章分组的 map, 再整个 map 落盘——不会覆盖其它章。
+      // K26: bookmarks 现在是 Map<句下标, 创建时间ms>, 序列化成 [{i, at}, ...]。
       const currentIdx = String(this.chapterIndex);
-      const currentBm = Array.from(this.bookmarks.bookmarks);
+      const currentBm = Array.from(this.bookmarks.bookmarks.entries()).map(([i, at]) => ({ i, at }));
       if (currentBm.length) this._bookmarksByChapter[currentIdx] = currentBm;
       else delete this._bookmarksByChapter[currentIdx];
       const state = {

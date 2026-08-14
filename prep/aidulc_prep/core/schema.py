@@ -95,6 +95,17 @@ def _walk(obj: Any, schema: dict, path: str, errors: list[str], root: dict | Non
 
     if "type" in schema:
         t = schema["type"]
+        # K3 (2026-08-14): 可空字段 (如 audio: [object, null] —— TTS 失败句没有音频区间
+        # 是合法状态, 见 pack.py 的 `None if not s.audio else {...}`)。draft-07 允许
+        # "type" 是数组; 这个极简校验器目前只需要支持"某类型或 null"这一种形状, 不
+        # 铺开成通用多类型联合(当前没有第二个真实用例, 铺开是过度设计)。
+        if isinstance(t, list):
+            if len(t) != 2 or "null" not in t:
+                errors.append(f"{path}: schema 里不支持的 type 联合形状 {t} (只支持 [X, null])")
+                return
+            if obj is None:
+                return
+            t = next(x for x in t if x != "null")
         if t == "object":
             if not isinstance(obj, dict):
                 errors.append(f"{path}: 期望 object, 实得 {type(obj).__name__}")

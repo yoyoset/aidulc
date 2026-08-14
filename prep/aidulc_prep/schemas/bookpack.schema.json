@@ -247,8 +247,8 @@
           }
         },
         "audio": {
-          "type": "object",
-          "description": "aidulc 新增: 整章一条流的区间",
+          "type": ["object", "null"],
+          "description": "aidulc 新增: 整章一条流的区间。K3 (2026-08-14): 允许 null —— 该句 TTS/对齐失败时 pack.py 写 null(见 pack.py 的 `None if not s.audio else {...}`), 之前 schema 只许 object 导致任何一句失败就整本 pack 校验失败、拖垮全书(实测 Frindle 1461 句处报的就是这个)。",
           "required": [
             "chapter",
             "start_ms",

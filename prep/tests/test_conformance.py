@@ -92,6 +92,23 @@ class TestBookpackConformance:
         errors = validate_bookpack(bp)
         assert any("status" in e for e in errors)
 
+    def test_null_audio_for_failed_sentence_valid(self):
+        """K3 (2026-08-14): TTS/对齐失败句的 audio 是 None (pack.py 的
+        `None if not s.audio else {...}`) —— 之前 schema 只许 object, 任何一句
+        TTS 失败就整本 pack 校验失败 (实测: Frindle 1461 句处报"期望 object, 实得
+        NoneType")。这条锁定 null 现在是合法状态。"""
+        bp = _load_fixture("sample_bookpack/bookpack.json")
+        bp["chapters"][0]["sentences"][0]["audio"] = None
+        errors = validate_bookpack(bp)
+        assert errors == [], errors
+
+    def test_wrong_type_still_rejected_after_null_allowed(self):
+        """确认放开 null 没有连带放松成"什么都行"——非 null 非 object 仍要报错。"""
+        bp = _load_fixture("sample_bookpack/bookpack.json")
+        bp["chapters"][0]["sentences"][0]["audio"] = "not an object"
+        errors = validate_bookpack(bp)
+        assert any("audio" in e for e in errors), errors
+
     def test_images_field_optional_and_valid(self):
         # R4 (2026-08-08): chapter.images 可选 (老书包无此字段仍合法); 有则须 {file, at}
         bp = _load_fixture("sample_bookpack/bookpack.json")

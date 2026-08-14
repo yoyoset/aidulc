@@ -3,8 +3,12 @@
 //! AIDU 备份格式 v3:
 //! { version: 3, timestamp, data: { vocab: {"vocab_<profile>": {...}}, dictionaries: {"dictionary_<profile>": {...}}, ... } }
 //!
-//! aidulc 导入: 只读取 vocab/dictionaries (不导入 drafts/settings/expertPrompts/dictCache 等隐私/本地数据)。
-//! aidulc 导出: 只写 vocab/dictionaries, 绝不导出 token/设置/阅读状态/书包路径。
+//! aidulc 导入: 只读取 vocab/dictionaries/highlights/bookmarks/reading_state
+//! (不导入 drafts/settings/expertPrompts/dictCache 等隐私/本地数据、也不导入 token)。
+//! aidulc 导出: 默认写 vocab/dictionaries/highlights/bookmarks/reading_state 全部,
+//! `export_aidu_data_scoped` 支持用户在导出前勾选只要哪几类(K27, 2026-08-14, 用户
+//! 拍板"可勾选, 各是个独立边界, 可以全选")。绝不导出 token/设置/书包路径——那些不是
+//! "阅读留下的痕迹"这类数据, 是配置/凭据, 见 CLAUDE.md 对配置导入导出的另一条决策。
 
 use crate::store::vocab_repo::VocabRepo;
 use crate::store::Db;
@@ -71,6 +75,51 @@ pub fn export_aidu_data(db: &Db) -> Result<serde_json::Value, String> {
         }
     }
 
+    // K27 (2026-08-14): 书签 + 阅读进度(此前完全不导出, 是"备份导出边界不一致"那条
+    // 审计发现的根因)。按 book_key 分组, 与 highlights 同一惯例; 只导出默认 user
+    // (.aidu-data 格式本身是单人设备迁移场景, 和 vocab/dictionary 的既有惯例一致)。
+    let mut bookmarks_data = serde_json::Map::new();
+    let mut reading_state_data = serde_json::Map::new();
+    {
+        let uid = crate::store::users_repo::DEFAULT_USER_ID;
+        let conn = db.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT book_key, chapter, position_ms, bookmarks, verified, time_spent_ms FROM reading_state WHERE user_id = ?1")
+            .map_err(|e| format!("查阅读进度失败: {e}"))?;
+        let rows: Vec<(String, i64, i64, String, String, i64)> = stmt
+            .query_map(params![uid], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            })
+            .map_err(|e| format!("查阅读进度失败: {e}"))?
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(stmt);
+        drop(conn);
+        for (book_key, chapter, position_ms, bm_text, verified_text, time_spent_ms) in rows {
+            let bm_val: serde_json::Value =
+                serde_json::from_str(&bm_text).unwrap_or(serde_json::json!({}));
+            bookmarks_data.insert(format!("bookmarks_{book_key}"), bm_val);
+            let verified_val: serde_json::Value =
+                serde_json::from_str(&verified_text).unwrap_or(serde_json::json!({}));
+            reading_state_data.insert(
+                format!("reading_state_{book_key}"),
+                serde_json::json!({
+                    "chapter": chapter,
+                    "position_ms": position_ms,
+                    "verified": verified_val,
+                    "time_spent_ms": time_spent_ms,
+                }),
+            );
+        }
+    }
+
     Ok(serde_json::json!({
         "version": 3,
         "timestamp": crate::store::now_ms_for_store(),
@@ -78,7 +127,40 @@ pub fn export_aidu_data(db: &Db) -> Result<serde_json::Value, String> {
             "vocab": vocab,
             "dictionaries": dictionaries,
             "highlights": highlights,
+            "bookmarks": bookmarks_data,
+            "reading_state": reading_state_data,
         }
+    }))
+}
+
+/// K27 (2026-08-14, 用户拍板"可勾选, 各是个独立边界, 可以全选"): 导出前按用户勾选的
+/// 类别过滤。`scope` 是要保留的顶层 data 键名子集(如 ["vocab","highlights"]); 空/None
+/// 视为全选(向后兼容, 也是自动安全备份该走的路径——见 export_aidu_data 的其它调用点,
+/// 那些必须永远全量, 不受这个用户手动导出入口的勾选影响)。
+pub fn export_aidu_data_scoped(
+    db: &Db,
+    scope: Option<&[String]>,
+) -> Result<serde_json::Value, String> {
+    let full = export_aidu_data(db)?;
+    let scope = match scope {
+        Some(s) if !s.is_empty() => s,
+        _ => return Ok(full),
+    };
+    let data = full
+        .get("data")
+        .and_then(|d| d.as_object())
+        .cloned()
+        .unwrap_or_default();
+    let mut filtered = serde_json::Map::new();
+    for key in scope {
+        if let Some(v) = data.get(key) {
+            filtered.insert(key.clone(), v.clone());
+        }
+    }
+    Ok(serde_json::json!({
+        "version": full.get("version").cloned().unwrap_or(serde_json::json!(3)),
+        "timestamp": full.get("timestamp").cloned().unwrap_or(serde_json::json!(0)),
+        "data": filtered,
     }))
 }
 
@@ -159,10 +241,76 @@ pub fn import_aidu_data(db: &Db, backup: &serde_json::Value) -> Result<serde_jso
         }
     }
 
+    // K27 (2026-08-14): 书签(data.bookmarks["bookmarks_<book_key>"])+ 阅读进度
+    // (data.reading_state["reading_state_<book_key>"])。ReadingState 结构体没有
+    // updated_at 字段暴露给应用层(表里有列, struct 没带), 做不了 vocab 那种
+    // "按更新时间谁新谁赢"的合并——这里就是"备份恢复"最朴素的语义: 备份里有就覆盖本地,
+    // 缺的那一半(比如只导出了书签, 没导出阅读进度)从本地已有行补, 没有本地行就补 0。
+    let mut imported_reading = 0usize;
+    {
+        let uid = crate::store::users_repo::DEFAULT_USER_ID;
+        let repo = crate::store::reading_repo::ReadingRepo::new(db);
+        let bm_map = data.get("bookmarks").and_then(|v| v.as_object());
+        let rs_map = data.get("reading_state").and_then(|v| v.as_object());
+        if bm_map.is_some() || rs_map.is_some() {
+            let mut book_keys = std::collections::HashSet::new();
+            if let Some(m) = bm_map {
+                book_keys.extend(m.keys().filter_map(|k| k.strip_prefix("bookmarks_")));
+            }
+            if let Some(m) = rs_map {
+                book_keys.extend(m.keys().filter_map(|k| k.strip_prefix("reading_state_")));
+            }
+            for book_key in book_keys {
+                let local = repo.get(uid, book_key);
+                let bm_val = bm_map.and_then(|m| m.get(&format!("bookmarks_{book_key}")));
+                let rs_val = rs_map.and_then(|m| m.get(&format!("reading_state_{book_key}")));
+                let bookmarks = match bm_val {
+                    Some(v) => serde_json::from_value(v.clone()).unwrap_or_default(),
+                    None => local
+                        .as_ref()
+                        .map(|l| l.bookmarks.clone())
+                        .unwrap_or_default(),
+                };
+                let (chapter, position_ms, verified, time_spent_ms) = match rs_val {
+                    Some(v) => (
+                        v.get("chapter").and_then(|x| x.as_i64()).unwrap_or(0),
+                        v.get("position_ms").and_then(|x| x.as_i64()).unwrap_or(0),
+                        v.get("verified")
+                            .and_then(|x| serde_json::from_value(x.clone()).ok())
+                            .unwrap_or_default(),
+                        v.get("time_spent_ms").and_then(|x| x.as_i64()).unwrap_or(0),
+                    ),
+                    None => match &local {
+                        Some(l) => (
+                            l.chapter,
+                            l.position_ms,
+                            l.verified.clone(),
+                            l.time_spent_ms,
+                        ),
+                        None => (0, 0, Default::default(), 0),
+                    },
+                };
+                let state = crate::store::reading_repo::ReadingState {
+                    user_id: uid.to_string(),
+                    book_key: book_key.to_string(),
+                    chapter,
+                    position_ms,
+                    bookmarks,
+                    verified,
+                    time_spent_ms,
+                };
+                if repo.upsert(&state).is_ok() {
+                    imported_reading += 1;
+                }
+            }
+        }
+    }
+
     Ok(serde_json::json!({
         "imported_vocab": imported_vocab,
         "imported_dictionary": imported_dict,
         "imported_highlights": imported_hl,
+        "imported_reading_state": imported_reading,
     }))
 }
 
@@ -275,6 +423,81 @@ mod tests {
             "default 应有 bank"
         );
         assert!(repo2.get("me", "kid", "bank").is_some(), "kid 应有 bank");
+    }
+
+    #[test]
+    fn k27_bookmarks_and_reading_state_export_import_roundtrip() {
+        // K27 (2026-08-14): 之前 export_aidu_data 完全不含书签/阅读进度(备份导出边界
+        // 不一致的根因), 现在两类都要能导出+导回。
+        let db = temp_db();
+        let repo = crate::store::reading_repo::ReadingRepo::new(&db);
+        repo.upsert(&crate::store::reading_repo::ReadingState {
+            user_id: "me".into(),
+            book_key: "book-a".into(),
+            chapter: 2,
+            position_ms: 1500,
+            bookmarks: std::collections::HashMap::from([(
+                "2".to_string(),
+                vec![crate::store::reading_repo::BookmarkEntry { i: 3, at: 999 }],
+            )]),
+            verified: std::collections::HashMap::from([("2".to_string(), vec![0, 1])]),
+            time_spent_ms: 60000,
+        })
+        .unwrap();
+
+        let backup = export_aidu_data(&db).unwrap();
+        assert!(
+            backup["data"]["bookmarks"]
+                .get("bookmarks_book-a")
+                .is_some(),
+            "书签应导出: {backup}"
+        );
+        assert!(
+            backup["data"]["reading_state"]
+                .get("reading_state_book-a")
+                .is_some(),
+            "阅读进度应导出: {backup}"
+        );
+
+        let db2 = temp_db();
+        let report = import_aidu_data(&db2, &backup).unwrap();
+        assert_eq!(report["imported_reading_state"], 1, "report: {report}");
+        let repo2 = crate::store::reading_repo::ReadingRepo::new(&db2);
+        let got = repo2.get("me", "book-a").expect("阅读进度应导入");
+        assert_eq!(got.chapter, 2);
+        assert_eq!(got.position_ms, 1500);
+        assert_eq!(got.time_spent_ms, 60000);
+        assert_eq!(
+            got.bookmarks.get("2"),
+            Some(&vec![crate::store::reading_repo::BookmarkEntry {
+                i: 3,
+                at: 999
+            }])
+        );
+    }
+
+    #[test]
+    fn k27_scoped_export_only_includes_selected_categories() {
+        // K27 (用户拍板"可勾选, 各是个独立边界, 可以全选"): scope 过滤 data 顶层键。
+        let db = temp_db();
+        let repo = VocabRepo::new(&db);
+        repo.upsert_sync(vocab_entry("bank", 100), "me", "default")
+            .unwrap();
+
+        let full = export_aidu_data_scoped(&db, None).unwrap();
+        assert!(full["data"]["vocab"].is_object());
+        assert!(full["data"]["dictionaries"].is_object());
+        assert!(full["data"]["highlights"].is_object());
+        assert!(full["data"]["bookmarks"].is_object());
+        assert!(full["data"]["reading_state"].is_object());
+
+        let scoped = export_aidu_data_scoped(&db, Some(&["vocab".to_string()])).unwrap();
+        assert!(scoped["data"]["vocab"].is_object(), "选中的类别应保留");
+        assert!(
+            scoped["data"].get("dictionaries").is_none(),
+            "没选的类别不应出现在结果里: {scoped}"
+        );
+        assert!(scoped["data"].get("bookmarks").is_none());
     }
 
     #[test]

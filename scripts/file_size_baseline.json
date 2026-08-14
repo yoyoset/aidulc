@@ -16,7 +16,7 @@
   "reader/views/models_view.js": 955,
   "reader/views/prep_view.js": 648,
   "reader/views/review_view.js": 514,
-  "reader/views/vocab_view.js": 513,
+  "reader/views/vocab_view.js": 528,
   "prep/aidulc_prep/pipeline/loader/epub.py": 534,
   "cloud/mobile/app.js": 543
 }

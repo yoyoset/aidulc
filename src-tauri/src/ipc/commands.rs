@@ -175,9 +175,15 @@ pub fn reading_get(
 
 // ---- .aidu-data 导入/导出 (M1) ----
 
+/// K27 (2026-08-14, 用户拍板"可勾选, 各是个独立边界, 可以全选"): scope 缺省/空
+/// = 全选(向后兼容老调用点, 比如自动安全备份走的是 export_aidu_data 本身, 不经过
+/// 这个命令, 不受此参数影响)。
 #[tauri::command]
-pub fn transfer_export(db: State<Db>) -> Result<serde_json::Value, String> {
-    crate::application::transfer_service::export_aidu_data(db.inner())
+pub fn transfer_export(
+    db: State<Db>,
+    scope: Option<Vec<String>>,
+) -> Result<serde_json::Value, String> {
+    crate::application::transfer_service::export_aidu_data_scoped(db.inner(), scope.as_deref())
 }
 
 #[tauri::command]

@@ -639,7 +639,7 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         path: "ipc::commands::transfer_export",
         domain: "数据迁移",
-        desc: "导出 .aidu-data(与 AIDU v3 备份兼容)",
+        desc: "导出 .aidu-data(与 AIDU v3 备份兼容; scope 可选, 只导出勾选的类别)",
     },
     CommandInfo {
         path: "ipc::commands::transfer_import",

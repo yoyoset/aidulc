@@ -118,7 +118,8 @@
 
   // ---- .aidu-data 备份/恢复 (F27, 2026-08-08 接 UI) ----
   const transfer = {
-    exportData: () => invoke('transfer_export'),
+    // K27 (2026-08-14): scope 可选(类别名数组), 缺省/空 = 全选
+    exportData: (scope) => invoke('transfer_export', { scope: scope && scope.length ? scope : null }),
     importData: (backup) => invoke('transfer_import', { backup }),
   };
 

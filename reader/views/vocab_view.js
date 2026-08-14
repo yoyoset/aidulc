@@ -488,19 +488,55 @@
       AiduToast.show(`已导出 ${this.entries.length} 个生词为 CSV`, 'success');
     }
 
-    /** F27: 备份为 .aidu-data (词典+生词, 跨设备迁移格式) */
+    /** K27 (2026-08-14, 用户拍板"可勾选, 各是个独立边界, 可以全选"): 备份前选类别。
+     *  之前固定导出 vocab/dictionary/highlights, 不含书签/阅读进度(边界不一致,
+     *  见 ROADMAP)——现在五类都能导出, 由用户自己勾选要哪些, 默认全选。 */
     _backup() {
-      AiduBridge.transfer.exportData().then((r) => {
-        if (!r.ok) { AiduToast.show('备份失败: ' + r.error, 'error'); return; }
-        const blob = new Blob([JSON.stringify(r.data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'aidulc-aidu-data.json';
-        a.click();
-        URL.revokeObjectURL(url);
-        AiduToast.show('已备份为 aidulc-aidu-data.json', 'success');
+      const CATEGORIES = [
+        ['vocab', '生词'], ['dictionaries', '词典'], ['highlights', '摘录'],
+        ['bookmarks', '书签'], ['reading_state', '阅读进度'],
+      ];
+      const ov = el('div', 'modal-overlay');
+      const box = el('div', 'modal-box');
+      box.setAttribute('role', 'dialog');
+      box.setAttribute('aria-modal', 'true');
+      box.appendChild(el('h2', 'modal-title', '备份哪些内容?'));
+      box.appendChild(el('p', 'modal-message', '各类别互相独立, 默认全选; 只想备份某几类就取消勾选其它的。'));
+      const checks = CATEGORIES.map(([key, label]) => {
+        const row = el('label', 'settings-row');
+        const cb = el('input');
+        cb.type = 'checkbox';
+        cb.checked = true;
+        cb.dataset.key = key;
+        row.append(cb, el('span', null, label));
+        box.appendChild(row);
+        return cb;
       });
+      const actions = el('div', 'modal-actions');
+      const cancel = el('button', 'btn-small', '取消');
+      cancel.onclick = () => ov.remove();
+      const confirm = el('button', 'btn-small btn-primary', '备份');
+      confirm.onclick = () => {
+        const scope = checks.filter((c) => c.checked).map((c) => c.dataset.key);
+        if (!scope.length) { AiduToast.show('至少选一类', 'error'); return; }
+        ov.remove();
+        AiduBridge.transfer.exportData(scope).then((r) => {
+          if (!r.ok) { AiduToast.show('备份失败: ' + r.error, 'error'); return; }
+          const blob = new Blob([JSON.stringify(r.data, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'aidulc-aidu-data.json';
+          a.click();
+          URL.revokeObjectURL(url);
+          AiduToast.show('已备份为 aidulc-aidu-data.json', 'success');
+        });
+      };
+      actions.append(cancel, confirm);
+      box.appendChild(actions);
+      ov.appendChild(box);
+      ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
     }
 
     /** F27: 从 .aidu-data 恢复 (按 updatedAt 合并, 新的覆盖旧的) */

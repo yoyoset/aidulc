@@ -78,12 +78,39 @@
       if (shelfEl) wrap.append(shelfEl);
 
       const listEl = el('div', 'book-list');
+      if (this._cardCompact) listEl.classList.add('book-list--compact');
       wrap.append(listEl);
 
       // I-D: 搜索 + 筛选工具条 (设计交付 §01: 状态分段控件是筛选不是导航, 带计数)
       const toolbar = el('div', 'library-toolbar');
       const searchInput = el('input', 'prep-input');
       searchInput.placeholder = '搜索书名…';
+      // F46 (2026-08-15): 排序下拉 —— 纯内存状态 (this._sortMode), 不持久化, 默认 recent
+      const sortSel = el('select', 'prep-select');
+      [
+        { key: 'recent', label: '最近打开' },
+        { key: 'title', label: '书名 A-Z' },
+        { key: 'progress', label: '阅读进度' },
+        { key: 'added', label: '添加时间' },
+      ].forEach((o) => {
+        const opt = el('option', null, o.label);
+        opt.value = o.key;
+        sortSel.appendChild(opt);
+      });
+      sortSel.value = this._sortMode || 'recent';
+      sortSel.addEventListener('change', () => {
+        this._sortMode = sortSel.value;
+        this._renderBooks(listEl, this.store.state.books || [], searchInput, segBar, shelfEl);
+      });
+      // F46: 卡片大小切换 —— 紧凑/大图二态按钮, 纯内存状态 (this._cardCompact), 默认大图
+      const sizeBtn = el('button', 'btn-small', this._cardCompact ? '大图' : '紧凑');
+      sizeBtn.title = this._cardCompact ? '切换为大图卡片' : '切换为紧凑卡片';
+      sizeBtn.addEventListener('click', () => {
+        this._cardCompact = !this._cardCompact;
+        sizeBtn.textContent = this._cardCompact ? '大图' : '紧凑';
+        sizeBtn.title = this._cardCompact ? '切换为大图卡片' : '切换为紧凑卡片';
+        listEl.classList.toggle('book-list--compact', this._cardCompact);
+      });
       const segBar = el('div', 'library-segmented');
       // 状态分段: 全部 / 已就绪 / 处理中 / 未处理 (映射见 _inStatusBucket)
       const buckets = [
@@ -106,7 +133,7 @@
         });
         segBar.appendChild(seg);
       });
-      toolbar.append(searchInput, segBar);
+      toolbar.append(searchInput, sortSel, sizeBtn, segBar);
       wrap.insertBefore(toolbar, listEl);
 
       // Bug fix (审查确认): 注销旧监听 (每次 render 叠加导致 listener 累积)
@@ -164,13 +191,8 @@
       // I-D: 搜索 + 筛选 (分段状态映射见 _statusBuckets)
       const q = (searchInput && searchInput.value || '').toLowerCase();
       const filter = this._statusFilter || 'all';
-      // F30: "最近阅读"排序 —— 打开过的书在前 (last_opened_at 降序), 未打开过按标题
-      const sorted = books.slice().sort((a, b) => {
-        const la = a.last_opened_at || 0;
-        const lb = b.last_opened_at || 0;
-        if (la !== lb) return lb - la;
-        return (a.title || a.id).localeCompare(b.title || b.id);
-      });
+      // F30/F46: 排序由 this._sortMode 决定 (默认 recent, 规则与历史完全一致)
+      const sorted = this._sortBooks(books);
       const filtered = sorted.filter(b => {
         if (q && !(b.title || b.id).toLowerCase().includes(q)) return false;
         if (filter !== 'all' && !global.AiduLibraryStatus.inStatusBucket(b, filter)) return false;
@@ -216,9 +238,7 @@
         const badge = el('span', 'book-badge ' + effSt.cls, effSt.label);
         // G4 (2026-08-11): 章数从 edition 取 (原书登记时不填 chapter_count); 句数/时长补齐。
         const editionsArr = Array.isArray(book.editions) ? book.editions : [];
-        const chapterCount = editionsArr.length
-          ? Math.max(...editionsArr.map((e) => e.chapter_count || 0))
-          : (book.chapter_count || 0);
+        const chapterCount = this._chapterCount(book);
         const sentenceCount = editionsArr.reduce((s, e) => s + (e.sentence_count || 0), 0);
         const audioSec = editionsArr.reduce((s, e) => s + (e.audio_seconds || 0), 0);
         const metaBits = [`${chapterCount} 章`];
@@ -377,8 +397,51 @@
            editions.appendChild(body);
            card.appendChild(editions);
          }
-         listEl.appendChild(card);
+          listEl.appendChild(card);
       });
+    }
+
+    /** F46 (2026-08-15): 排序比较 —— recent(默认, 与历史一致)/title/progress/added */
+    _sortBooks(books) {
+      const mode = this._sortMode || 'recent';
+      const arr = books.slice();
+      const titleKey = (b) => (b.title || b.id);
+      const cmp = {
+        recent: (a, b) => {
+          const la = a.last_opened_at || 0;
+          const lb = b.last_opened_at || 0;
+          if (la !== lb) return lb - la;
+          return titleKey(a).localeCompare(titleKey(b));
+        },
+        title: (a, b) => titleKey(a).localeCompare(titleKey(b)),
+        progress: (a, b) => {
+          const ra = this._readingProgress(a);
+          const rb = this._readingProgress(b);
+          if (rb !== ra) return rb - ra;
+          return titleKey(a).localeCompare(titleKey(b));
+        },
+        added: (a, b) => {
+          const va = a.created_at != null ? a.created_at : a.id;
+          const vb = b.created_at != null ? b.created_at : b.id;
+          if (va === vb) return 0;
+          return va > vb ? -1 : 1;
+        },
+      }[mode];
+      return cmp ? arr.sort(cmp) : arr;
+    }
+
+    /** F46: 阅读进度比例 (0~1), 未开始读/无章数按 0 (进度排序时沉底) */
+    _readingProgress(book) {
+      const cc = this._chapterCount(book);
+      if (!cc || book.reading_chapter == null) return 0;
+      return (book.reading_chapter + 1) / cc;
+    }
+
+    /** G4/F46: 章数从 edition 取 (原书登记时不填 chapter_count), 无 edition 退回书级 */
+    _chapterCount(book) {
+      const editionsArr = Array.isArray(book.editions) ? book.editions : [];
+      if (editionsArr.length) return Math.max(...editionsArr.map((e) => e.chapter_count || 0));
+      return book.chapter_count || 0;
     }
 
     /** UX5 #1 (2026-08-13): 轮巡增量更新 —— 只刷对应卡片进度条, 不整列重建。

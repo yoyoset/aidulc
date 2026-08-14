@@ -249,17 +249,19 @@ pub fn job_retry_custom(
     )
 }
 
+/// K14 (2026-08-14): 之前只杀进程清内存态, 从不写 DB——任务永远卡在"running"
+/// 状态、没有任何 UI 能看出它已经不在跑了。改走 orch::job_cancel: 落 failed +
+/// error="用户取消"(复用现有的历史列表/重跑 UI, 跟"暂停"(落 paused, 可继续)
+/// 是不同的终态)。
 #[tauri::command]
-pub fn cancel_prep_job(state: State<PrepState>) -> Result<(), String> {
-    let mut guard = state.child.lock().unwrap();
-    if let Some(child) = guard.as_mut() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    *guard = None;
-    drop(guard); // Bug fix (2026-08-13): 释放 child 锁再锁 running_job, 避免与 job_remove 嵌套锁死锁
-    *state.running_job.lock().unwrap() = None;
-    Ok(())
+pub fn cancel_prep_job(
+    app: tauri::AppHandle,
+    state: State<PrepState>,
+    cfg: State<PrepConfig>,
+    db: State<store::Db>,
+    id: String,
+) -> Result<(), String> {
+    orch::job_cancel(app, cfg.inner(), state.inner(), db.inner(), id)
 }
 
 /// R3: 暂停任务 (运行中 → kill 子进程, checkpoint 保留; 排队 → 移出队列)

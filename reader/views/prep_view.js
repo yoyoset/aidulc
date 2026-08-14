@@ -237,6 +237,23 @@
           });
         };
         actions.appendChild(btnPause);
+        // K14 (2026-08-14): "取消"跟"暂停"是不同的终态——暂停可继续, 取消落 failed
+        // 不可续跑(但保留在历史里能看/能整个重跑, 不是"移除"那种直接从列表删掉)。
+        const btnCancel = el('button', 'btn-small', '取消');
+        btnCancel.title = '停止这个任务, 不可继续(区别于"暂停"); 记录仍保留, 可以整个重跑。';
+        btnCancel.onclick = () => {
+          AiduModal.confirm({
+            title: `取消任务《${job.book_path ? job.book_path.split(/[\\/]/).pop() : job.id}》?`,
+            message: '取消后不能像"暂停"那样继续, 但记录保留在列表里, 之后可以整个重跑。',
+            confirmText: '取消任务', danger: true,
+            onConfirm: () => AiduJobService.cancel(job.id).then((r) => {
+              if (!r.ok) { AiduToast.show('取消失败: ' + r.error, 'error'); return; }
+              AiduToast.show('已取消', 'info');
+              this._refreshJobs();
+            }),
+          });
+        };
+        actions.appendChild(btnCancel);
       }
       if (job.status === 'paused') {
         const btnResume = el('button', 'btn-small btn-primary', '继续');

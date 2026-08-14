@@ -20,7 +20,9 @@
       });
     },
     detail(id) { return AiduBridge.invoke('job_detail', { id }); }, // M7 R24
-    cancel() { return AiduBridge.invoke('cancel_prep_job'); },
+    // K14 (2026-08-14): cancel_prep_job 改成按 id 落 failed(用户取消), 不再是
+    // 只杀当前进程、不写 DB 的无参版本(那个版本会留一条永远卡在 running 的幽灵任务)。
+    cancel(id) { return AiduBridge.invoke('cancel_prep_job', { id }); },
     // R3: 暂停/继续
     pause(id) { return AiduBridge.invoke('job_pause', { id }); },
     resume(id) { return AiduBridge.invoke('job_resume', { id }); },

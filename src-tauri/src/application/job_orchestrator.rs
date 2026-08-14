@@ -719,6 +719,61 @@ pub fn job_pause(
     Ok(())
 }
 
+/// K14 (2026-08-14): 取消任务(排队中/运行中 → 落 failed, error="用户取消")。
+/// 之前 `commands::jobs::cancel_prep_job` 只杀进程清内存态, 从不写 DB——任务行
+/// 永远卡在"running", pump_queue 收尾也不会碰它(它只在子进程真正退出时触发),
+/// 造成一个既不在跑也标不出来的幽灵任务。跟"暂停"(落 paused, 可继续)是不同的
+/// 终态: 取消落 failed(复用现有的"今天完成"历史 + 重跑/移除 UI, 不新造一套
+/// 状态展示), 明确不可续跑。
+pub fn job_cancel(
+    app: tauri::AppHandle,
+    cfg: &PrepConfig,
+    state: &PrepState,
+    db: &store::Db,
+    id: String,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    let repo = store::jobs_repo::JobsRepo::new(db);
+    let job = repo.get(&id).ok_or("任务不存在")?;
+    match job.status.as_str() {
+        "queued" => {
+            let mut q = state.queue.lock().unwrap();
+            q.retain(|x| x != &id);
+            drop(q);
+            let mut j = job.clone();
+            j.status = "failed".into();
+            j.error = Some("用户取消".into());
+            j.updated_at = now_ms();
+            repo.upsert(&j)?;
+        }
+        "running" => {
+            let mut guard = state.child.lock().unwrap();
+            if let Some(child) = guard.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            *guard = None;
+            drop(guard);
+            *state.running_job.lock().unwrap() = None;
+            let mut j = job.clone();
+            j.status = "failed".into();
+            j.error = Some("用户取消".into());
+            j.updated_at = now_ms();
+            repo.upsert(&j)?;
+            // 队列里还有别的任务时接着跑, 不是取消一个就把整条队列停了
+            let _ = pump_queue(app.clone(), cfg, state, db);
+        }
+        _ => {
+            return Err(format!(
+                "只有排队中或处理中的任务能取消 (当前 {})",
+                job.status
+            ))
+        }
+    }
+    let _ = app.emit("job-list-changed", serde_json::json!({}));
+    Ok(())
+}
+
 /// R3: 继续任务 (paused → queued, 重新入队; checkpoint 续跑)
 pub fn job_resume(
     app: tauri::AppHandle,

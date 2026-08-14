@@ -224,7 +224,7 @@ flash 的判断), 是确认级别不是推断。
 
 现状枚举委派 flash 做的, 判断以下 4 条基于枚举结果, 逐条 grep 复核过。
 
-- **P2"取消"语义不完整, 声明的状态值和已注册命令没有真正被用上**:
+- **P2 ✅ 已修复(2026-08-14)"取消"语义不完整, 声明的状态值和已注册命令没有真正被用上**:
   `jobs_repo.rs:21` 声明 `Job.status` 可取 `canceled`, `batches_repo.rs:16` 同样
   声明 `Batch.status` 可取 `canceled`——但 grep 全部写入路径确认 Rust 代码从未把
   这两张表的状态写成 `canceled`(`job_orchestrator.rs:600` 的判断分支和

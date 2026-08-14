@@ -346,7 +346,7 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         path: "commands::jobs::cancel_prep_job",
         domain: "任务",
-        desc: "取消当前运行中的任务",
+        desc: "K14: 按 id 取消(落 failed, error=用户取消), 不再是无参杀进程不写库",
     },
     CommandInfo {
         path: "commands::jobs::job_pause",

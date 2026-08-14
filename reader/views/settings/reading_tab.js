@@ -33,6 +33,17 @@
         // 主题 (浅色/深色/跟随系统) —— M6 (2026-08-12): 主题在上, 主题色紧随其下,
         // 标签紧贴各自控件 (此前"主题色"标签被先 append, 实际顺序变成 主题色→主题→色点,
         // 用户指出"标签与控件错位")。
+        // K25 (2026-08-14, 用户拍板"单项reset"): 每个控件旁加"↺默认"按钮, 只重置这
+        // 一项(不是整页向导重跑)。默认值取 settings_repo.rs::Default(theme='light',
+        // palette='clay', child_mode=false), 跟后端 schema 默认值保持同一份真相。
+        const DEFAULTS = { theme: 'light', palette: 'clay', child_mode: false };
+        const resetBtn = (onReset) => {
+          const b = el('button', 'btn-small', '↺ 默认');
+          b.title = '恢复这一项的默认值';
+          b.onclick = onReset;
+          return b;
+        };
+
         const themeLabel = el('div', 'settings-hint', '主题');
         const themeRow = el('div', 'prep-row');
         const themeSel = el('select', 'prep-select');
@@ -43,7 +54,10 @@
         });
         themeSel.value = ['light', 'dark', 'system'].includes(s.theme) ? s.theme : 'light';
         themeSel.onchange = () => this._saveReadingSettings(Object.assign({}, s, { theme: themeSel.value, updated_at: Date.now() }), themeSel);
-        themeRow.appendChild(themeSel);
+        themeRow.append(themeSel, resetBtn(() => {
+          themeSel.value = DEFAULTS.theme;
+          this._saveReadingSettings(Object.assign({}, s, { theme: DEFAULTS.theme, updated_at: Date.now() }));
+        }));
         form.appendChild(themeLabel);
         form.appendChild(themeRow);
         // 主题色 (色块 chips, 与阅读器浮层同一套 PALETTES) —— 标签紧随主题之下
@@ -64,6 +78,10 @@
           };
           chipsRow.appendChild(c);
         });
+        chipsRow.appendChild(resetBtn(() => {
+          chipsRow.querySelectorAll('.rd-theme-chip').forEach((b) => b.classList.toggle('active', b.dataset.palette === DEFAULTS.palette));
+          this._saveReadingSettings(Object.assign({}, s, { palette: DEFAULTS.palette, updated_at: Date.now() }));
+        }));
         form.appendChild(chipsRow);
         // 儿童模式: 勾选框 + 必须说明它到底改了什么 (L9 要求写明)
         const kidRow = el('label', 'settings-row');
@@ -73,6 +91,11 @@
         kidCheck.onchange = () => this._saveReadingSettings(Object.assign({}, s, { child_mode: kidCheck.checked, updated_at: Date.now() }), kidCheck);
         kidRow.appendChild(kidCheck);
         kidRow.appendChild(el('span', null, '儿童模式'));
+        kidRow.appendChild(resetBtn((e) => {
+          e.preventDefault();
+          kidCheck.checked = DEFAULTS.child_mode;
+          this._saveReadingSettings(Object.assign({}, s, { child_mode: DEFAULTS.child_mode, updated_at: Date.now() }));
+        }));
         const kidExplain = el('div', 'settings-hint',
           '儿童模式改的是显示: 字号更大、对比度更高、默认词级高亮 (更适合跟读)。只影响显示, 不影响生成的内容。');
 

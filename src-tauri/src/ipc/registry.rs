@@ -94,6 +94,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "预览原书章节/句子(不需要已处理书包)",
     },
     CommandInfo {
+        path: "commands::library::backfill_cover",
+        domain: "书库",
+        desc: "K12: 老 edition 补封面(只重跑封面抽取, 不碰其它已生成资产)",
+    },
+    CommandInfo {
         path: "commands::library::book_export",
         domain: "书库",
         desc: "书包导出为 zip(成品资产, 跨设备迁移)",

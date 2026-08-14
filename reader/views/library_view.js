@@ -293,7 +293,8 @@
             openBtn.onclick = () => this.onOpenBook && this.onOpenBook(book);
             actions.append(openBtn);
           const menuBtn = el('button', 'btn-small', '⋯');
-          menuBtn.onclick = () => this._openBookMenu(book, { export: true, delete: true, online: true });
+          // K12 (2026-08-14): 只在没封面时提供"补封面"入口, 有封面的书不需要
+          menuBtn.onclick = () => this._openBookMenu(book, { export: true, delete: true, online: true, backfillCover: !book.cover_file });
           actions.appendChild(menuBtn);
           }
         } else {
@@ -458,6 +459,8 @@
       if (opts && opts.export) items.push(['导出 (zip)', () => this._exportBookZip(book)]);
       // UX5 #6 (2026-08-13): L8② 整本外发入口 —— 开启时每本确认外发量后再发
       if (opts && opts.online) items.push(['整本翻译/讲解(在线)', () => this._onlineWholeBook(book)]);
+      // K12 (2026-08-14): 补封面——只重跑封面抽取这一步(几秒钟), 不是重新备料整本书
+      if (opts && opts.backfillCover) items.push(['补封面', () => this._backfillCover(book)]);
       if (opts && opts.delete) {
         items.push(['删除' + (opts.editionChild ? '译本' : ''), () => {
           const isChild = !!opts.editionChild;
@@ -480,6 +483,24 @@
       ov.appendChild(box);
       ov.addEventListener('click', (ev) => { if (ev.target === ov) ov.remove(); });
       document.body.appendChild(ov);
+    }
+
+    /** K12 (2026-08-14): 补封面——K2-2 封面管线上线前跑完的老 edition 没有封面,
+     *  只重跑"从源 EPUB 抽封面拷进书包根"这一步(几秒钟), 不碰已生成的译文/音频。 */
+    _backfillCover(book) {
+      AiduToast.show('正在抽取封面…', 'info');
+      AiduLibraryService.backfillCover(book.id).then((r) => {
+        if (!r.ok) { AiduToast.show('补封面失败: ' + r.error, 'error'); return; }
+        if (!r.data || !r.data.cover) {
+          AiduToast.show('这本源书本身没有封面, 补不出来', 'info');
+          return;
+        }
+        AiduToast.show('封面已补上', 'success');
+        this.store.emit('change', this.store.state);
+        AiduLibraryService.list(this.kind).then((lr) => {
+          if (lr.ok) this.store.set({ books: lr.data });
+        });
+      });
     }
 
     /** L1-d/L2 (2026-08-11): 成品文件缺失 → 重新生成译本 (复用创建译本流程, 源 EPUB 路径在 books.source_path)。 */

@@ -488,6 +488,7 @@ fn main() {
             commands::library::read_image,
             commands::library::pick_files,
             commands::library::library_preview,
+            commands::library::backfill_cover,
             commands::library::book_export,
             commands::library::book_import,
             commands::dictionary::word_lookup,

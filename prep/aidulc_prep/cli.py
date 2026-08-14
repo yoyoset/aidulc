@@ -46,6 +46,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--preview-book", help="原版书路径 (EPUB/TXT/PDF → 纯文本预览)")
     # 组件健康探测 (R3.4): 输出 PyMuPDF 版本号或 "none", Rust components_health 解析
     parser.add_argument("--pymupdf-version", action="store_true", help="探测 PyMuPDF 是否可用")
+    # K12 (2026-08-14): 只补封面, 不重跑整条流水线 (老 edition 没有封面时的轻量入口,
+    # 见 docs/ROADMAP.md 成熟度审计"书库/封面"域记录的缺口)。
+    parser.add_argument("--backfill-cover-book", help="源书路径 (EPUB), 配合 --backfill-cover-pack 用")
+    parser.add_argument("--backfill-cover-pack", help="已存在的书包目录 (含 bookpack.json)")
     args = parser.parse_args(argv)
 
     # 词典补全模式 (M 系列: 实现归位 application/dict_lookup)
@@ -115,6 +119,33 @@ def main(argv: list[str] | None = None) -> int:
             ],
         }
         sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\n")
+        return 0
+
+    # K12 (2026-08-14): 补封面模式——只跑"从源 EPUB 抽封面 → 拷进已有书包根 →
+    # 回写 bookpack.json 顶层 cover 字段", 不碰其它已生成资产(译文/音频/讲解)。
+    if args.backfill_cover_book and args.backfill_cover_pack:
+        from aidulc_prep.pipeline.loader.epub import load_epub
+        from aidulc_prep.pipeline.pack import _copy_cover
+        bp_path = os.path.join(args.backfill_cover_pack, "bookpack.json")
+        try:
+            with open(bp_path, encoding="utf-8") as f:
+                bp = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            sys.stderr.write(f"读书包失败: {e}\n")
+            return 1
+        try:
+            book = load_epub(args.backfill_cover_book)
+        except Exception as e:
+            sys.stderr.write(f"解析源书失败: {e}\n")
+            return 1
+        cover_file = _copy_cover(book, args.backfill_cover_pack, args.backfill_cover_book)
+        if not cover_file:
+            sys.stdout.write(json.dumps({"cover": None}, ensure_ascii=False) + "\n")
+            return 0
+        bp["cover"] = cover_file
+        from aidulc_prep.pipeline.pack import _atomic_write_json
+        _atomic_write_json(bp_path, bp)
+        sys.stdout.write(json.dumps({"cover": cover_file}, ensure_ascii=False) + "\n")
         return 0
 
     if not args.job or not args.out:

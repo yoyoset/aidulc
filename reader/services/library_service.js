@@ -17,6 +17,8 @@
         : AiduBridge.invoke('library_list', { kind: kind || null, userId: currentUser() });
     },
     open(id) { return AiduBridge.library.open(id); },
+    // K12 (2026-08-14): 老 edition 补封面 (只重跑封面抽取, 不重新备料整本书)
+    backfillCover(editionId) { return AiduBridge.invoke('backfill_cover', { editionId }); },
     editionLookup(editionId) { return AiduBridge.library.editionLookup(editionId); },
     remove(id, deleteFiles) { return AiduBridge.library.remove(id, deleteFiles); },
     loadBookpack(bookId) { return AiduBridge.bookpack.load(bookId); },

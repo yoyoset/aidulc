@@ -1130,6 +1130,66 @@ pub async fn library_preview(
     Ok(v)
 }
 
+/// K12 (2026-08-14): 补封面——只重跑"从源 EPUB 抽封面拷进书包根"这一步, 不碰
+/// 已生成的译文/音频/讲解。老 edition(K2-2 封面管线上线前跑完的)专用轻量入口,
+/// 免去"要么重新跑一次完整备料(很贵), 要么永远没有封面"这个二选一。
+#[tauri::command]
+pub async fn backfill_cover(
+    cfg: State<'_, crate::PrepConfig>,
+    db: State<'_, store::Db>,
+    cache: State<'_, crate::infrastructure::bookpack_cache::BookpackCache>,
+    edition_id: String,
+) -> Result<serde_json::Value, String> {
+    let prep_path = cfg.prep_path.clone();
+    let (source_path, pack_dir) = {
+        let editions = store::editions_repo::EditionsRepo::new(db.inner());
+        let edition = editions.get(&edition_id).ok_or("译本不存在")?;
+        let books = store::books_repo::BooksRepo::new(db.inner());
+        let book = books.get(&edition.source_id).ok_or("原书不存在")?;
+        if !std::path::Path::new(&book.source_path).exists() {
+            return Err("原书文件不存在, 请重新导入".into());
+        }
+        (book.source_path.clone(), edition.pack_dir.clone())
+    };
+    let pack_dir_for_blocking = pack_dir.clone();
+    let v = tauri::async_runtime::spawn_blocking(move || {
+        backfill_cover_blocking(&prep_path, &source_path, &pack_dir_for_blocking)
+    })
+    .await
+    .map_err(|e| format!("补封面执行失败: {e}"))??;
+    cache.invalidate(&pack_dir);
+    Ok(v)
+}
+
+fn backfill_cover_blocking(
+    prep_path: &std::path::Path,
+    source_path: &str,
+    pack_dir: &str,
+) -> Result<serde_json::Value, String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    let mut cmd = Command::new(prep_path);
+    cmd.arg("--backfill-cover-book")
+        .arg(source_path)
+        .arg("--backfill-cover-pack")
+        .arg(pack_dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .creation_flags(0x08000000);
+    let child = cmd.spawn().map_err(|e| format!("启动补封面失败: {e}"))?;
+    let out = crate::services::components::read_stdout_with_timeout(
+        child,
+        std::time::Duration::from_secs(60),
+    )
+    .map_err(|e| format!("读补封面输出失败: {e}"))?;
+    let line = out
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .ok_or("补封面无输出")?;
+    serde_json::from_str(line).map_err(|e| format!("补封面输出非法: {e}"))
+}
+
 fn preview_book_blocking(
     prep_path: &std::path::Path,
     source_path: &str,

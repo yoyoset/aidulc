@@ -67,6 +67,10 @@
         const userSel = el('select', 'app-nav-link nav-user-select');
         userSel.title = '切换用户';
         const NEW_USER_VALUE = '__new__';
+        // 删除当前用户按钮: 只有"空用户"(名下无任何数据)才能删, 后端会校验;
+        // 用户列表只剩 1 个时隐藏, 避免删到 0 个。
+        const delUserBtn = el('button', 'app-nav-link', '🗑');
+        delUserBtn.title = '删除当前用户(仅空用户可删)';
         const renderUsers = (users) => {
           userSel.innerHTML = '';
           users.forEach((u) => {
@@ -78,6 +82,7 @@
           newOpt.value = NEW_USER_VALUE;
           userSel.appendChild(newOpt);
           userSel.value = AiduUserService.currentId();
+          delUserBtn.style.display = (users.length > 1) ? '' : 'none';
         };
         const usersRefresh = () => {
           AiduUserService.list().then((res) => {
@@ -119,7 +124,34 @@
             this.router.navigate(hash);
           }
         };
+        delUserBtn.onclick = () => {
+          const id = userSel.value;
+          AiduModal.confirm({
+            title: '删除当前用户?',
+            message: '只有完全没有任何数据的用户才能删除。',
+            confirmText: '删除',
+            danger: true,
+            onConfirm: () => AiduUserService.delete(id).then((r) => {
+              if (!r.ok) {
+                if (typeof AiduToast !== 'undefined') AiduToast.show('删除失败: ' + r.error, 'error');
+                return;
+              }
+              if (typeof AiduToast !== 'undefined') AiduToast.show('已删除用户', 'info');
+              // 切到删除后剩下的第一个用户, 再刷新下拉 + 刷新页面 (同新建成员成功的写法)
+              AiduUserService.list().then((lr) => {
+                const remaining = lr.data || [];
+                if (remaining.length) AiduUserService.setCurrent(remaining[0].id);
+                usersRefresh();
+                if (this.router) {
+                  const hash = (window.location.hash || '#/library').replace('#/', '');
+                  this.router.navigate(hash);
+                }
+              });
+            }),
+          });
+        };
         this.navEl.appendChild(userSel);
+        this.navEl.appendChild(delUserBtn);
         if (typeof window.addEventListener === 'function') {
           window.addEventListener('aidulc:user-changed', () => {
             if (global.AiduUserService) userSel.value = AiduUserService.currentId();

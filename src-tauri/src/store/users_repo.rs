@@ -87,6 +87,16 @@ impl<'a> UsersRepo<'a> {
         drop(conn);
         Ok(())
     }
+
+    // users_delete 命令接线 (2026-08-14): 只在 users_service::delete_if_empty
+    // 确认该 user 名下 7 张数据表都无行后才调用; 本方法不做任何业务校验。
+    pub fn delete(&self, id: &str) -> Result<(), String> {
+        let conn = self.db.conn.lock().unwrap();
+        conn.execute("DELETE FROM users WHERE id = ?1", params![id])
+            .map_err(|e| format!("删 users 失败: {e}"))?;
+        drop(conn);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

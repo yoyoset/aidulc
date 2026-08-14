@@ -592,6 +592,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "新建本地成员 (S4: 顶栏下拉'＋ 新建成员'; 新成员无 token, 同步显示未连接)",
     },
     CommandInfo {
+        path: "ipc::commands::users_delete",
+        domain: "身份",
+        desc: "删除当前用户 (仅空用户可删: 名下 7 张数据表无行, 且至少保留一个)",
+    },
+    CommandInfo {
         path: "ipc::commands::highlights_list",
         domain: "摘录",
         desc: "某本书的全部摘录 (按 章/句序 排)",

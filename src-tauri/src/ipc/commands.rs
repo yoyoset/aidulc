@@ -70,6 +70,13 @@ pub fn users_create(db: State<Db>, name: String) -> Result<serde_json::Value, St
     serde_json::to_value(&user).map_err(|e| e.to_string())
 }
 
+/// 删除当前用户 (2026-08-14): 只允许删"空用户"——名下 7 张数据表都没有行,
+/// 且至少保留一个用户。业务校验在 users_service::delete_if_empty。
+#[tauri::command]
+pub fn users_delete(db: State<Db>, id: String) -> Result<(), String> {
+    crate::application::users_service::delete_if_empty(db.inner(), &id)
+}
+
 #[tauri::command]
 pub fn profile_upsert(db: State<Db>, profile: Profile) -> Result<(), String> {
     let repo = crate::store::profile_repo::ProfileRepo::new(db.inner());

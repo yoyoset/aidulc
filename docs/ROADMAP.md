@@ -395,18 +395,20 @@ reading_state/reading_daily/sync_state 五张表实测 WHERE 子句确认真按 
   `user_id + book_key` 过滤的(能读到的东西都是自己的), 删除路径却没有对齐
   同样的隔离粒度——虽然是本地单机应用、不构成严格意义的安全边界, 但和"每张
   表读写都要按 user 隔离"这个项目自己声明的模型不一致。
-- **P2 没有 `users_delete` 命令, 新建成员是单向操作**: `UsersRepo`
+- **P2 ✅ 已修复(2026-08-14, 用户拍板方向①: 只删空用户)没有 `users_delete` 命令, 新建成员是单向操作**: `UsersRepo`
   (`users_repo.rs:28-89`)只有 `new`/`list`/`get`/`upsert`, 没有 `delete` 方法;
   顶栏"我"下拉(`shell_view.js:66-128`)也只有"切换"和"＋ 新建成员"两个选项。
   手滑点错新建、建了个不想要的临时成员, 没有任何路径能撤销——会一直留在顶栏
-  下拉列表里。
-  ⏸ 需要产品决策, 见下: 删用户比删档案更重——一个 user 名下挂着 vocab/
-  dictionary/highlights/reading_state/reader_settings/sync_state 六张表的数据。
-  可选方向① 只允许删"零数据"的空 user(误建但还没用过的场景, 覆盖"手滑点错"
-  这个最常见诉求, 改动小, 不用处理级联)② 允许删有数据的 user, 但要二次确认
-  +明确列出"将删除 N 条生词/M 条摘录…"(完整方案, 改动大, 且是真正的破坏性
-  操作需要非常谨慎的确认 UI)③ 不删, 改成"归档/隐藏"(数据保留但不出现在
-  切换下拉里, 避免误删风险, 但库会持续积累不用的 user)。
+  下拉列表里。**修复**: 新增 `application/users_service.rs::delete_if_empty`——
+  该 user_id 在 vocab/dictionary/highlights/reading_state/reading_daily/
+  reader_settings/sync_state 七张表都没有行、且删完还剩至少一个用户, 才真正
+  执行 `UsersRepo::delete`; 命中哪张表就用人话报哪张(不暴露英文表名)。顶栏
+  "我"下拉旁加 🗑 删除按钮(仅剩 1 个用户时隐藏), `AiduModal.confirm` 二次确认。
+  3 个新 Rust 测试(空用户能删/有生词数据的用户被拒/仅剩一个用户不能删)。
+  **本条用 flash-delegate 实现**(先用 progate/deepseek-v4-pro 派了一次, 中途
+  发现 opencode 的 session 在本地进程被中断后仍在其后端继续跑、需要
+  `opencode session delete <id>` 才能真正停掉, 之后切到更轻量的 flash 重新做;
+  实际两次调用的代码都落地了, 复核后内容一致, 用 flash 那次的验证结果为准)。
 
 **阶段性小结**(9 个域全部审完, 共 34 条记录缺口): 逐域看是一堆分散的具体问题,
 但横着看有三个模式反复出现, 比单条缺口本身更值得优先处理:

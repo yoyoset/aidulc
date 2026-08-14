@@ -9,6 +9,7 @@ mod application {
     pub mod model_service;
     pub mod sync_service;
     pub mod transfer_service;
+    pub mod users_service;
     pub mod wizard_service;
 }
 mod commands {
@@ -586,6 +587,7 @@ fn main() {
             ipc::commands::profile_delete,
             ipc::commands::users_list,
             ipc::commands::users_create,
+            ipc::commands::users_delete,
             ipc::commands::highlights_list,
             ipc::commands::highlights_save,
             ipc::commands::highlights_remove,

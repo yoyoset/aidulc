@@ -12,6 +12,8 @@
     list() { return AiduBridge.users.list(); },
     // S4 (2026-08-10): 新建本地成员 → users_repo (顶栏下拉"＋ 新建成员")
     create(name) { return AiduBridge.users.create(name); },
+    // 删除当前用户 (2026-08-14): 后端只允许删"空用户", 非空会返回中文错误
+    delete(id) { return AiduBridge.users.delete(id); },
     currentId() {
       try {
         return localStorage.getItem(KEY) || 'me';

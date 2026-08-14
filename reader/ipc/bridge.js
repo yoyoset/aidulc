@@ -95,6 +95,7 @@
   const users = {
     list: () => invoke('users_list'),
     create: (name) => invoke('users_create', { name }),
+    delete: (id) => invoke('users_delete', { id }),
   };
   const settings = {
     get: (profileId, userId) => invoke('settings_get', { profileId, userId }),

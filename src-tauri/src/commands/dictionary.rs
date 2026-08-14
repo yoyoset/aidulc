@@ -278,12 +278,103 @@ pub async fn tts_prewarm(
     Ok(())
 }
 
+// ---- K30 (2026-08-15): 生词发音缓存 —— 加词时后台预生成音频落盘, 播放优先读缓存,
+// 现场合成降级为兜底。用"文件是否存在"标记"是否已生成": 不新增数据库列/不改 vocab
+// 表结构/不跑迁移(缓存天然幂等, 文件在就是已生成, 不存在就是没生成)。
+
+/// 缓存文件名 slug: 只保留 ASCII 字母数字, 其余字符(路径分隔符/控制字符/非 ASCII)
+/// 一律替换成下划线, 禁止越界路径混入文件名。纯函数便于单测。
+fn tts_cache_slug(word: &str) -> String {
+    word.trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect()
+}
+
+/// 缓存文件绝对路径: {data_dir}/tts_cache/{slug}.wav
+fn tts_cache_path(data_dir: &std::path::Path, word: &str) -> std::path::PathBuf {
+    data_dir.join("tts_cache").join(format!("{}.wav", tts_cache_slug(word)))
+}
+
+/// K30: 预生成某词的发音缓存(幂等)。生词加入生词本时后台异步调; 文件已存在就直接
+/// 返回(不重复合成、不 spawn_blocking); 未配置语音模型时静默跳过(同 tts_prewarm 的
+/// 降级——缓存是锦上添花, 不该因为没配语音就打断加词流程)。
+#[tauri::command]
+pub async fn tts_cache_word(
+    paths: State<'_, crate::DataPaths>,
+    cfg: State<'_, crate::PrepConfig>,
+    db: State<'_, store::Db>,
+    word: String,
+) -> Result<(), String> {
+    let key = word.trim().to_string();
+    if key.is_empty() {
+        return Ok(());
+    }
+    let target = tts_cache_path(&paths.inner().data_dir, &key);
+    if target.is_file() {
+        return Ok(()); // 已缓存, 幂等跳过
+    }
+    let prep_path = cfg.inner().prep_path.clone();
+    let (_llm, tts_model, _spacy) =
+        crate::application::model_service::resolve_paths(db.inner(), "en");
+    if tts_model.is_empty() || !std::path::Path::new(&tts_model).exists() {
+        return Ok(()); // 没配置语音模型 → 静默跳过(同 tts_prewarm 的降级)
+    }
+    let target_dir = paths.inner().data_dir.join("tts_cache");
+    tauri::async_runtime::spawn_blocking(move || {
+        let b64 = crate::infrastructure::tts_daemon::synth(
+            &prep_path, &tts_model, "en", &key, "af_heart", 1.0,
+        )?;
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&b64)
+            .map_err(|e| format!("解码语音 base64 失败: {e}"))?;
+        std::fs::create_dir_all(&target_dir)
+            .map_err(|e| format!("创建语音缓存目录失败: {e}"))?;
+        std::fs::write(&target, bytes).map_err(|e| format!("写语音缓存失败: {e}"))
+    })
+    .await
+    .map_err(|e| format!("语音缓存任务失败: {e}"))?
+}
+
+/// K30: 读生词发音缓存。命中返回 base64 WAV(前端拼 data: URL 播放), 未命中返回
+/// None(不是错误, 是"还没预生成", 前端据此降级到现场合成)。
+#[tauri::command]
+pub fn vocab_read_cached_audio(
+    paths: State<'_, crate::DataPaths>,
+    word: String,
+) -> Result<Option<String>, String> {
+    let key = word.trim().to_string();
+    if key.is_empty() {
+        return Ok(None);
+    }
+    let target = tts_cache_path(&paths.inner().data_dir, &key);
+    if !target.is_file() {
+        return Ok(None);
+    }
+    let data = std::fs::read(&target).map_err(|e| format!("读语音缓存失败: {e}"))?;
+    use base64::Engine;
+    Ok(Some(base64::engine::general_purpose::STANDARD.encode(&data)))
+}
+
 #[cfg(test)]
 mod k1_tests {
     //! K1 (2026-08-11): 查词失败的真实原因必须上屏 —— 四种失败给四种不同文案,
     //! 没有一种说成"未返回结果"。daemon_outcome_to_tuple 是纯函数, 逐类锁住。
-    use super::{daemon_outcome_to_tuple, daemon_result_to_tuple};
+    use super::{daemon_outcome_to_tuple, daemon_result_to_tuple, tts_cache_slug};
     use serde_json::json;
+
+    #[test]
+    fn cache_slug_strips_path_and_control_chars() {
+        // K30: slug 只允许 ASCII 字母数字, 路径分隔符/控制字符/非 ASCII 一律变下划线,
+        // 防止越界路径混入缓存文件名。
+        assert_eq!(tts_cache_slug("Hello World"), "hello_world");
+        assert_eq!(tts_cache_slug("..\\..\\secret"), "______secret");
+        assert_eq!(tts_cache_slug("bank/tmp\x00x"), "bank_tmp_x");
+        assert_eq!(tts_cache_slug("naïve"), "na_ve");
+        assert_eq!(tts_cache_slug("  padded  "), "padded");
+    }
 
     #[test]
     fn ok_result_passes_through() {

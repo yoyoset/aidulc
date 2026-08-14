@@ -46,13 +46,17 @@
       const csvBtn = el('button', 'btn-small', '导出 CSV (Anki)');
       csvBtn.title = 'Front/Back/Example 三列 CSV, 可直接用 Anki「文件→导入」读取';
       csvBtn.onclick = () => this._exportCsv();
+      // K30 (2026-08-15): 存量补齐发音 —— 遍历当前列表所有词后台预生成缓存(幂等, 已有缓存自动跳过)
+      const pregenBtn = el('button', 'btn-small', '补全发音');
+      pregenBtn.title = '为生词本所有词后台预生成发音缓存 (幂等, 已有缓存的词自动跳过)';
+      pregenBtn.onclick = () => this._backfillPronunciations();
       // L5 (2026-08-11): 页头工具条 —— 按钮成组靠右、组内间距固定, 不再被 space-between 撑开。
       const header = global.AiduPageToolbar
-        ? global.AiduPageToolbar.build('生词本', [backupBtn, restoreBtn, exportBtn, csvBtn])
+        ? global.AiduPageToolbar.build('生词本', [backupBtn, restoreBtn, exportBtn, csvBtn, pregenBtn])
         : (() => {
             const h = el('div', 'page-header');
             h.appendChild(el('h1', null, '生词本'));
-            h.append(backupBtn, restoreBtn, exportBtn, csvBtn);
+            h.append(backupBtn, restoreBtn, exportBtn, csvBtn, pregenBtn);
             return h;
           })();
       wrap.appendChild(header);
@@ -403,10 +407,17 @@
      *  (契约: ui:no-silent-action, 点了不能没反应)。 */
     _playPronunciation(word) {
       AiduToast.show('正在合成发音…', 'info');
-      AiduDictionaryService.ttsSynthWord(word).then((r) => {
-        if (!r.ok) { AiduToast.show('发音失败: ' + r.error, 'error'); return; }
-        const audio = new Audio('data:audio/wav;base64,' + r.data);
+      const play = (b64) => {
+        const audio = new Audio('data:audio/wav;base64,' + b64);
         audio.play().catch((e) => AiduToast.show('播放失败: ' + e.message, 'error'));
+      };
+      // K30 (2026-08-15): 优先读本地预生成缓存, 命中直接播放; 未命中(null)降级到现场合成(原 K29 路径)。
+      AiduDictionaryService.vocabReadCachedAudio(word).then((r) => {
+        if (r.ok && r.data) { play(r.data); return; }
+        AiduDictionaryService.ttsSynthWord(word).then((r2) => {
+          if (!r2.ok) { AiduToast.show('发音失败: ' + r2.error, 'error'); return; }
+          play(r2.data);
+        });
       });
     }
 
@@ -502,6 +513,18 @@
       a.click();
       URL.revokeObjectURL(url);
       AiduToast.show(`已导出 ${this.entries.length} 个生词为 CSV`, 'success');
+    }
+
+    /** K30 (2026-08-15): 存量补齐发音 —— 遍历当前列表所有词依次预生成缓存(幂等,
+     *  后端见文件已存在就直接跳过)。顺序执行, 不并发堆满语音守护(单进程串行)。 */
+    async _backfillPronunciations() {
+      const words = this.entries.map((e) => e.word);
+      if (!words.length) { AiduToast.show('生词本为空, 无需补全', 'info'); return; }
+      AiduToast.show(`开始为 ${words.length} 个词补全发音…`, 'info');
+      for (const w of words) {
+        await AiduDictionaryService.ttsCacheWord(w).catch(() => null);
+      }
+      AiduToast.show('发音补全完成', 'success');
     }
 
     /** K27 (2026-08-14, 用户拍板"可勾选, 各是个独立边界, 可以全选"): 备份前选类别。

@@ -502,6 +502,8 @@ fn main() {
             commands::dictionary::dict_remove,
             commands::dictionary::tts_synth_word,
             commands::dictionary::tts_prewarm,
+            commands::dictionary::tts_cache_word,
+            commands::dictionary::vocab_read_cached_audio,
             commands::vocab::vocab_all,
             commands::vocab::vocab_search,
             commands::vocab::vocab_remove,

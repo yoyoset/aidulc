@@ -263,6 +263,7 @@ globalThis.AiduDictionaryService = {
   vocabRemoveCommon: async () => ({ ok: true, data: { removed: 0, backup_path: '' } }),
   vocabBacklogPreview: async () => ({ ok: true, data: { backlog_count: 0, daily_cap: 40, days: 0, today_after: 0, today_before: 0 } }),
   vocabBacklogSpread: async () => ({ ok: true, data: { spread: 0, days: 0, backup_path: '' } }),
+  ttsCacheWord: async () => ({ ok: true }), vocabReadCachedAudio: async () => ({ ok: true, data: null }),
 };
 globalThis.AiduReadingService = { get: async () => ({ ok: true, data: null }), save: async () => ({ ok: true }), stats: async () => ({ ok: true, data: {} }) };
 globalThis.AiduMiscService = {

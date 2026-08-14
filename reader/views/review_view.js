@@ -297,21 +297,32 @@
         btn.classList.remove('playing');
         if (this._playingBtn === btn) this._playingBtn = null;
       };
-      if (global.AiduDictionaryService && AiduDictionaryService.ttsSynthWord) {
-        AiduDictionaryService.ttsSynthWord(word).then((r) => {
-          if (r.ok) {
-            const audio = new Audio('data:audio/wav;base64,' + r.data);
-            audio.playbackRate = rate;
-            audio.onended = done;
-            audio.onerror = () => this._speakWordFallback(word, rate, done);
-            audio.play().catch(() => this._speakWordFallback(word, rate, done));
-          } else {
-            this._speakWordFallback(word, rate, done);
-          }
+      const playB64 = (b64) => {
+        const audio = new Audio('data:audio/wav;base64,' + b64);
+        audio.playbackRate = rate;
+        audio.onended = done;
+        audio.onerror = () => this._speakWordFallback(word, rate, done);
+        audio.play().catch(() => this._speakWordFallback(word, rate, done));
+      };
+      const trySynth = () => {
+        if (global.AiduDictionaryService && AiduDictionaryService.ttsSynthWord) {
+          AiduDictionaryService.ttsSynthWord(word).then((r) => {
+            if (r.ok) playB64(r.data);
+            else this._speakWordFallback(word, rate, done);
+          });
+        } else {
+          this._speakWordFallback(word, rate, done);
+        }
+      };
+      // K30 (2026-08-15): 来源句原声(更上层已优先) → 本地预生成缓存 → 现场合成 → 系统机械音。
+      if (global.AiduDictionaryService && AiduDictionaryService.vocabReadCachedAudio) {
+        AiduDictionaryService.vocabReadCachedAudio(word).then((r) => {
+          if (r.ok && r.data) { playB64(r.data); return; }
+          trySynth();
         });
         return;
       }
-      this._speakWordFallback(word, rate, done);
+      trySynth();
     }
 
     /** 系统级 speechSynthesis, 只在本地 TTS 不可用时才走这里(手机/无 Tauri 环境)。 */

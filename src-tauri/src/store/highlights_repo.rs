@@ -118,10 +118,16 @@ impl<'a> HighlightsRepo<'a> {
         .collect()
     }
 
-    pub fn remove(&self, id: &str) -> Result<(), String> {
+    /// K4 (2026-08-14): 按 user_id 归属校验后删 —— 之前只按 id 删, 没有对齐
+    /// list_by_book 已有的 user_id 隔离粒度(这是本地单机应用, 不构成安全边界,
+    /// 但和"每张表读写都按 user 隔离"这个项目自己声明的模型不一致, 补齐)。
+    pub fn remove(&self, user_id: &str, id: &str) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
-        conn.execute("DELETE FROM highlights WHERE id = ?1", [id])
-            .map_err(|e| format!("删摘录失败: {e}"))?;
+        conn.execute(
+            "DELETE FROM highlights WHERE id = ?1 AND user_id = ?2",
+            params![id, user_id],
+        )
+        .map_err(|e| format!("删摘录失败: {e}"))?;
         Ok(())
     }
 }
@@ -178,8 +184,27 @@ mod tests {
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].sentence_index, 3);
         assert!(list.iter().all(|x| x.book_key == "book_a"), "按书隔离");
-        repo.remove("2").unwrap();
+        repo.remove("me", "2").unwrap();
         assert_eq!(repo.list_by_book("me", "book_a").len(), 1);
+    }
+
+    #[test]
+    fn remove_checks_user_ownership() {
+        // K4 (2026-08-14): 传错 user_id 删不掉别人的摘录 (之前只按 id 删, 任何
+        // user 都能删任意一条)。
+        let db = temp_db();
+        let repo = HighlightsRepo::new(&db);
+        let mut kids = h("1", "book_a", 0, 3, "kids");
+        kids.user_id = "u-kid".into();
+        repo.upsert(&kids).unwrap();
+        repo.remove("me", "1").unwrap(); // 用别人的身份删, 应无效
+        assert_eq!(
+            repo.list_by_book("u-kid", "book_a").len(),
+            1,
+            "不属于 me, 删不掉"
+        );
+        repo.remove("u-kid", "1").unwrap(); // 用自己的身份删, 应生效
+        assert_eq!(repo.list_by_book("u-kid", "book_a").len(), 0);
     }
 
     #[test]

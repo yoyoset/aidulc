@@ -106,11 +106,11 @@ pub fn highlights_save(
     repo.upsert(&highlight)
 }
 
-/// 删除摘录
+/// 删除摘录 (K4: 按 user_id 归属校验, 不再是"传对 id 就能删任何人的摘录")
 #[tauri::command]
-pub fn highlights_remove(db: State<Db>, id: String) -> Result<(), String> {
+pub fn highlights_remove(db: State<Db>, id: String, user_id: String) -> Result<(), String> {
     let repo = crate::store::highlights_repo::HighlightsRepo::new(db.inner());
-    repo.remove(&id)
+    repo.remove(&user_id, &id)
 }
 
 // ---- 阅读状态 ----

@@ -8,6 +8,14 @@
 (function (global) {
   'use strict';
 
+  /** K4 (2026-08-14): 之前 load()/_save()/remove() 全都没传 userId, IPC 里这个键
+   *  值恒为 undefined、JSON.stringify 会丢掉——后端 user_id 是必填非 Option 字段,
+   *  缺字段应报错, load() 拿到失败结果后静默把 items 置空, 面板打得开却看不到
+   *  任何东西。镜像 reading_service.js 已有的 currentUser() 写法接上。 */
+  function currentUser() {
+    return global.AiduUserService ? AiduUserService.currentId() : 'me';
+  }
+
   class ReaderHighlights {
     /**
      * @param {object} deps
@@ -28,7 +36,7 @@
 
     async load(bookKey) {
       this.bookKey = bookKey;
-      const res = await AiduBridge.highlights.list(bookKey);
+      const res = await AiduBridge.highlights.list(bookKey, currentUser());
       this.items = (res.ok && Array.isArray(res.data)) ? res.data : [];
       return this.items;
     }
@@ -98,6 +106,7 @@
       const now = Date.now();
       const h = {
         id: 'hl-' + now + '-' + Math.random().toString(36).slice(2, 6),
+        user_id: currentUser(),
         book_key: this.deps.bookKey(),
         chapter: this.deps.getChapterIndex(),
         sentence_index: index,
@@ -191,7 +200,7 @@
         del.textContent = '删除';
         del.onclick = (e) => {
           e.stopPropagation();
-          AiduBridge.highlights.remove(h.id).then((r) => {
+          AiduBridge.highlights.remove(h.id, currentUser()).then((r) => {
             if (!r.ok) { AiduToast.show('删除失败: ' + r.error, 'error'); return; }
             this.items = this.items.filter((x) => x.id !== h.id);
             panel.remove();

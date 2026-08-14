@@ -146,14 +146,20 @@ pub fn book_id_from_path(path: &str, profile: &str) -> String {
 }
 
 /// 书库列表 (kind: original=原版管理 | product=AI 成品 | 空=全部)
+/// K5 (2026-08-14): user_id 缺省时补默认 user, 不再无条件写死——V1 那条注释说
+/// "顶栏切人后前端会在新会话按 user 拉", 但命令签名本来就没有这个入参, 前端根本
+/// 传不进来。实测确认(成熟度审计"多用户"域): 切到"孩子"这个用户, 书架页显示的
+/// 阅读进度/笔记数/书签数此前恒是 default 用户的, 不会跟着切换的用户变。
 #[tauri::command]
 pub fn library_list(
     db: State<store::Db>,
     kind: Option<String>,
+    user_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let repo = store::books_repo::BooksRepo::new(db.inner());
-    // V1 (2026-08-09): 书架阅读进度按默认 user 读 (顶栏切人后前端会在新会话按 user 拉).
-    let uid = crate::store::users_repo::DEFAULT_USER_ID;
+    let uid = user_id
+        .as_deref()
+        .unwrap_or(crate::store::users_repo::DEFAULT_USER_ID);
     if kind.as_deref() == Some("product") {
         let editions = store::editions_repo::EditionsRepo::new(db.inner());
         let read_repo = store::reading_repo::ReadingRepo::new(db.inner());

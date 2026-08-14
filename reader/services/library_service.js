@@ -4,8 +4,18 @@
 (function (global) {
   'use strict';
 
+  /** K5 (2026-08-14): 书架阅读进度/笔记数/书签数要跟着当前切换的用户走
+   *  (同 reading_service.js 已有的 currentUser() 写法)。 */
+  function currentUser() {
+    return global.AiduUserService ? AiduUserService.currentId() : 'me';
+  }
+
   const LibraryService = {
-    list(kind) { return AiduBridge.library.list ? AiduBridge.library.list(kind) : AiduBridge.invoke('library_list', { kind: kind || null }); },
+    list(kind) {
+      return AiduBridge.library.list
+        ? AiduBridge.library.list(kind, currentUser())
+        : AiduBridge.invoke('library_list', { kind: kind || null, userId: currentUser() });
+    },
     open(id) { return AiduBridge.library.open(id); },
     editionLookup(editionId) { return AiduBridge.library.editionLookup(editionId); },
     remove(id, deleteFiles) { return AiduBridge.library.remove(id, deleteFiles); },

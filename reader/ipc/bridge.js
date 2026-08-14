@@ -64,7 +64,7 @@
 
   // ---- 书库 ----
   const library = {
-    list: (kind) => invoke('library_list', { kind: kind || null }),
+    list: (kind, userId) => invoke('library_list', { kind: kind || null, userId: userId || null }),
     register: (b) => invoke('library_register', {
       id: b.id, title: b.title, sourcePath: b.sourcePath,
       packDir: b.packDir, profileId: b.profileId,
@@ -125,7 +125,7 @@
   const highlights = {
     list: (bookKey, userId) => invoke('highlights_list', { bookKey, userId }),
     save: (h) => invoke('highlights_save', { highlight: h }),
-    remove: (id) => invoke('highlights_remove', { id }),
+    remove: (id, userId) => invoke('highlights_remove', { id, userId }),
   };
 
   // ---- 背单词调度器 (V2) ----

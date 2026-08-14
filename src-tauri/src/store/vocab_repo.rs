@@ -293,22 +293,6 @@ impl<'a> VocabRepo<'a> {
         }
     }
 
-    /// I-B: 统计
-    pub fn stats(&self, user_id: &str, profile_id: &str) -> serde_json::Value {
-        let all = self.list(user_id, profile_id);
-        let by_stage = {
-            let mut m = std::collections::HashMap::new();
-            for e in &all {
-                *m.entry(e.stage.clone()).or_insert(0usize) += 1;
-            }
-            m
-        };
-        serde_json::json!({
-            "total": all.len(),
-            "by_stage": by_stage,
-        })
-    }
-
     /// V6: 某 user 全部词条 (跨 profile; 同步按 user 分账, 不看讲解策略)。
     pub fn list_all_for_user(&self, user_id: &str) -> Vec<VocabEntry> {
         let conn = self.db.conn.lock().unwrap();

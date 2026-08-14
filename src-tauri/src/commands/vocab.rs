@@ -107,17 +107,6 @@ pub fn vocab_remove(
     repo.remove(&user_id, &profile_id, &lemma)
 }
 
-/// 生词统计
-#[tauri::command]
-pub fn vocab_stats(
-    db: State<store::Db>,
-    user_id: String,
-    profile_id: String,
-) -> Result<serde_json::Value, String> {
-    let repo = store::vocab_repo::VocabRepo::new(db.inner());
-    Ok(repo.stats(&user_id, &profile_id))
-}
-
 /// H5 (2026-08-11): 词频批量剔除 —— dry-run 预览: 词表里落在最常见 top_n 词的条目
 /// 有多少条、分别是谁 (不实际删除)。用户确认后才调 vocab_remove_common 执行。
 #[tauri::command]

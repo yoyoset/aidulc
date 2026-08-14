@@ -133,12 +133,33 @@
         ['library', '我的书'],
         ['vocab', '生词本'],
       ];
+      let vocabDueBadge = null;
       items.forEach(([route, label]) => {
         const a = el('button', 'app-nav-link', label);
         a.dataset.route = route;
         a.onclick = () => this.router.navigate(route);
+        if (route === 'vocab') {
+          vocabDueBadge = el('span', 'nav-count', '0');
+          a.appendChild(vocabDueBadge);
+        }
         left.appendChild(a);
       });
+      // K9 (2026-08-14): 生词到期数此前只在生词本页内"今日队列"卡片可见, 不主动点进去
+      // 完全看不到——SRS 效果依赖按时复习, 镜像"处理中(n)"已有的顶栏角标机制补上。
+      if (global.AiduDictionaryService && global.AiduReviewCore) {
+        const refreshVocabDue = () => AiduDictionaryService.vocabAll('default').then((res) => {
+          if (!res.ok || !vocabDueBadge) return;
+          const entries = res.data || [];
+          const q = AiduReviewCore.buildQueue(entries, Date.now());
+          const due = q ? (q.counts.review || 0) + (q.counts.learning || 0) + (q.counts.new || 0) : 0;
+          vocabDueBadge.textContent = String(due);
+        });
+        refreshVocabDue();
+        setInterval(refreshVocabDue, 60000).unref?.();
+        if (typeof window.addEventListener === 'function') {
+          window.addEventListener('aidulc:user-changed', () => setTimeout(refreshVocabDue, 50));
+        }
+      }
       // 右侧: 统一定宽图标 (处理中带角标 / 同步状态 / 设置齿轮)
       const right = el('div', 'app-nav-links app-nav-right');
       // 处理中(n): 图标 + 角标常驻 (无任务显示 0)

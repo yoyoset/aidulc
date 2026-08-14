@@ -158,11 +158,6 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "删除生词",
     },
     CommandInfo {
-        path: "commands::vocab::vocab_stats",
-        domain: "生词",
-        desc: "生词统计",
-    },
-    CommandInfo {
         path: "commands::vocab::vocab_common_preview",
         domain: "生词",
         desc: "H5: 词频批量剔除 dry-run (最常见 top_n 词将影响多少条)",

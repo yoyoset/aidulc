@@ -1361,11 +1361,15 @@ console.log('== 5b. H1/L6 (2026-08-11): 顶栏两个每日目的地, 无「背�
   sh.setRouter({ navigate: () => {} });
   sh.render();
   const links = queryAll(navEl, '.app-nav-link');
+  // K9 (2026-08-14): "生词本"链接现在挂了到期数角标(.nav-count 子节点), textContent
+  // 会变成"生词本0"这种——用 startsWith 而不是精确相等。
   const labels = links.map((b) => b.textContent);
   check('顶栏有 我的书', labels.includes('我的书'), labels.join(','));
-  check('顶栏有 生词本', labels.includes('生词本'), labels.join(','));
-  check('顶栏没有 背单词 (已并入生词本)', !labels.includes('背单词'), labels.join(','));
-  check('L6: 顶栏没有 导入 (书库已有导入格)', !labels.includes('导入'), labels.join(','));
+  check('顶栏有 生词本', labels.some((l) => l.startsWith('生词本')), labels.join(','));
+  check('顶栏没有 背单词 (已并入生词本)', !labels.some((l) => l.startsWith('背单词')), labels.join(','));
+  check('L6: 顶栏没有 导入 (书库已有导入格)', !labels.some((l) => l.startsWith('导入')), labels.join(','));
+  const vocabLink = links.find((b) => b.dataset && b.dataset.route === 'vocab');
+  check('K9: 生词本链接带到期数角标', vocabLink && vocabLink.querySelector && vocabLink.querySelector('.nav-count') && vocabLink.querySelector('.nav-count').textContent === '0', 'badge=' + (vocabLink && vocabLink.querySelector && vocabLink.querySelector('.nav-count') && vocabLink.querySelector('.nav-count').textContent));
   // L6: 右侧是定宽图标按钮 (处理中/同步/设置), 不混用文字按钮
   const icons = queryAll(navEl, '.app-nav-icon');
   const iconNames = icons.map((b) => b.querySelector && b.querySelector('.icon-msr') && b.querySelector('.icon-msr').textContent);

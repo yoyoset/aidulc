@@ -165,6 +165,22 @@ body::before {
   transition: color 0.15s ease;
 }
 .app-nav-link:hover { color: var(--md-sys-color-on-surface); }
+/* K9 (2026-08-14): 生词到期角标 —— 挂在文字导航链接里(不像右侧图标按钮那样定宽,
+   跟着文字后面用行内小胶囊, 不用绝对定位)。0 条时不特别隐藏(同"处理中"角标惯例:
+   常驻可见, 0 不是"没有这个功能"而是"现在没有")。 */
+.app-nav-link .nav-count {
+  margin-left: 6px;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 4px;
+  border-radius: var(--md-sys-radius-pill);
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  font-size: var(--md-sys-font-size-label-s);
+  text-align: center;
+  display: inline-block;
+}
 .app-nav-link.active {
   color: var(--md-sys-color-primary);
   font-weight: 600;

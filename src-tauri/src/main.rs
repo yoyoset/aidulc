@@ -500,7 +500,6 @@ fn main() {
             commands::vocab::vocab_all,
             commands::vocab::vocab_search,
             commands::vocab::vocab_remove,
-            commands::vocab::vocab_stats,
             commands::vocab::vocab_common_preview,
             commands::vocab::vocab_remove_common,
             commands::vocab::vocab_backlog_preview,

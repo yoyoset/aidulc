@@ -97,7 +97,7 @@
     create: (name) => invoke('users_create', { name }),
   };
   const settings = {
-    get: (profileId) => invoke('settings_get', { profileId }),
+    get: (profileId, userId) => invoke('settings_get', { profileId, userId }),
     upsert: (settings) => invoke('settings_upsert', { settings }),
   };
 

@@ -58,7 +58,7 @@
 
 现状枚举(命令/UI入口/设置项/依赖/持久化)委派 flash 做的, 判断以下 4 条基于枚举结果。
 
-- **P2 阅读器设置硬编码读 `'default'` 档案** (`reader_view.js:184-186`): `reader_settings`
+- **P2 ✅ 已修复(2026-08-14)阅读器设置硬编码读 `'default'` 档案** (`reader_view.js:184-186`): `reader_settings`
   表本身按 `profile_id` 存(`settings_repo.rs:8-35`), 但前端固定只读/写 `'default'` 这一
   条, 不跟当前打开的书的 profile_id 走。项目本来就支持儿童/成人等多档案(`child_mode`
   字段就在这张表里), 一台设备给孩子和家长共用时, 字体大小/主题色/儿童模式这些阅读

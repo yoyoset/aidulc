@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ReaderSettings {
+    /// K8 (2026-08-14): 主键从单 profile_id 改复合 (user_id, profile_id) ——
+    /// 旧数据没有 user 概念, serde default 回填 'me' 兼容存量前端请求体。
+    #[serde(default = "default_user_id")]
+    pub user_id: String,
     pub profile_id: String,
     pub font_size: f64,
     pub line_height: f64,
@@ -38,6 +42,10 @@ fn default_palette() -> String {
     "clay".into()
 }
 
+fn default_user_id() -> String {
+    crate::store::users_repo::DEFAULT_USER_ID.to_string()
+}
+
 fn default_speed() -> f64 {
     1.0
 }
@@ -57,6 +65,7 @@ fn default_preset() -> String {
 impl Default for ReaderSettings {
     fn default() -> Self {
         Self {
+            user_id: default_user_id(),
             profile_id: "default".into(),
             font_size: 18.0,
             line_height: 1.7,
@@ -88,11 +97,11 @@ impl<'a> SettingsRepo<'a> {
     pub fn upsert(&self, s: &ReaderSettings) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO reader_settings (profile_id, font_size, line_height, content_width,
+            "INSERT INTO reader_settings (user_id, profile_id, font_size, line_height, content_width,
                                           font_family, theme, highlight_granularity, child_mode,
                                           display_mode, pace, preset, speed, palette, custom_color, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
-             ON CONFLICT(profile_id) DO UPDATE SET
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+             ON CONFLICT(user_id, profile_id) DO UPDATE SET
                 font_size = excluded.font_size, line_height = excluded.line_height,
                 content_width = excluded.content_width, font_family = excluded.font_family,
                 theme = excluded.theme, highlight_granularity = excluded.highlight_granularity,
@@ -102,6 +111,7 @@ impl<'a> SettingsRepo<'a> {
                 palette = excluded.palette, custom_color = excluded.custom_color,
                 updated_at = excluded.updated_at",
             params![
+                s.user_id,
                 s.profile_id,
                 s.font_size,
                 s.line_height,
@@ -123,31 +133,34 @@ impl<'a> SettingsRepo<'a> {
         Ok(())
     }
 
-    pub fn get(&self, profile_id: &str) -> ReaderSettings {
+    /// K8 (2026-08-14): 按 (user_id, profile_id) 取——之前只按 profile_id, 多用户
+    /// 共享一台设备时阅读显示设置会互相覆盖。
+    pub fn get(&self, user_id: &str, profile_id: &str) -> ReaderSettings {
         let conn = self.db.conn.lock().unwrap();
         conn.query_row(
-            "SELECT profile_id, font_size, line_height, content_width, font_family,
+            "SELECT user_id, profile_id, font_size, line_height, content_width, font_family,
                     theme, highlight_granularity, child_mode,
                     display_mode, pace, preset, speed, palette, custom_color, updated_at
-             FROM reader_settings WHERE profile_id = ?1",
-            [profile_id],
+             FROM reader_settings WHERE user_id = ?1 AND profile_id = ?2",
+            params![user_id, profile_id],
             |r| {
                 Ok(ReaderSettings {
-                    profile_id: r.get(0)?,
-                    font_size: r.get(1)?,
-                    line_height: r.get(2)?,
-                    content_width: r.get(3)?,
-                    font_family: r.get(4)?,
-                    theme: r.get(5)?,
-                    highlight_granularity: r.get(6)?,
-                    child_mode: r.get::<_, i64>(7)? != 0,
-                    display_mode: r.get(8)?,
-                    pace: r.get(9)?,
-                    preset: r.get(10)?,
-                    speed: r.get(11)?,
-                    palette: r.get(12)?,
-                    custom_color: r.get(13)?,
-                    updated_at: r.get(14)?,
+                    user_id: r.get(0)?,
+                    profile_id: r.get(1)?,
+                    font_size: r.get(2)?,
+                    line_height: r.get(3)?,
+                    content_width: r.get(4)?,
+                    font_family: r.get(5)?,
+                    theme: r.get(6)?,
+                    highlight_granularity: r.get(7)?,
+                    child_mode: r.get::<_, i64>(8)? != 0,
+                    display_mode: r.get(9)?,
+                    pace: r.get(10)?,
+                    preset: r.get(11)?,
+                    speed: r.get(12)?,
+                    palette: r.get(13)?,
+                    custom_color: r.get(14)?,
+                    updated_at: r.get(15)?,
                 })
             },
         )
@@ -170,7 +183,7 @@ mod tests {
     fn default_when_missing() {
         let db = temp_db();
         let repo = SettingsRepo::new(&db);
-        let s = repo.get("nobody");
+        let s = repo.get("me", "nobody");
         assert_eq!(s.font_size, 18.0);
         assert!(!s.child_mode);
     }
@@ -180,6 +193,7 @@ mod tests {
         let db = temp_db();
         let repo = SettingsRepo::new(&db);
         let s = ReaderSettings {
+            user_id: "me".into(),
             profile_id: "kid".into(),
             font_size: 24.0,
             line_height: 2.0,
@@ -197,7 +211,30 @@ mod tests {
             updated_at: 100,
         };
         repo.upsert(&s).unwrap();
-        assert_eq!(repo.get("kid"), s);
+        assert_eq!(repo.get("me", "kid"), s);
+    }
+
+    #[test]
+    fn user_isolation_same_profile() {
+        // K8 (2026-08-14): 不同 user 用同一个 profile_id(如都用默认 profile),
+        // 阅读显示设置互不覆盖——修复前的核心 bug。
+        let db = temp_db();
+        let repo = SettingsRepo::new(&db);
+        let mut mine = ReaderSettings::default();
+        mine.user_id = "me".into();
+        mine.profile_id = "default".into();
+        mine.font_size = 18.0;
+        let mut kids = ReaderSettings::default();
+        kids.user_id = "u-kid".into();
+        kids.profile_id = "default".into();
+        kids.font_size = 27.0;
+        kids.child_mode = true;
+        repo.upsert(&mine).unwrap();
+        repo.upsert(&kids).unwrap();
+        assert_eq!(repo.get("me", "default").font_size, 18.0);
+        assert!(!repo.get("me", "default").child_mode);
+        assert_eq!(repo.get("u-kid", "default").font_size, 27.0);
+        assert!(repo.get("u-kid", "default").child_mode);
     }
 
     #[test]
@@ -215,6 +252,7 @@ mod tests {
             "updated_at": 0
         });
         let parsed: ReaderSettings = serde_json::from_value(raw).unwrap();
+        assert_eq!(parsed.user_id, "me", "旧前端无 user_id, 应回填 'me' (K8)");
         assert_eq!(parsed.display_mode, "guess");
         assert_eq!(parsed.pace, "flow");
         assert_eq!(parsed.preset, "shadow");

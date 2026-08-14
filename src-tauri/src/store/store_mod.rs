@@ -773,6 +773,61 @@ impl Db {
                 }
             }
         }
+        // v27 (K8, 2026-08-14): reader_settings 主键 profile_id → 复合主键
+        // (user_id, profile_id)。实测确认(成熟度审计"阅读器"域): 前端固定只读/写
+        // 'default' 这一条, 多档案共享一台设备(如儿童/成人)时字体/主题/儿童模式
+        // 会互相覆盖——根因是这张表压根没有 user_id 列, 跟 vocab/dictionary/
+        // reading_state 等表当初 v20 就做过的隔离脱节了。老行(没有 user 概念时存的)
+        // 回填 'me', 同 v20 的口径。
+        if version < 27 {
+            conn.execute_batch("BEGIN IMMEDIATE;")
+                .map_err(|e| format!("迁移 v27 开始失败: {e}"))?;
+            let result = (|| -> Result<(), String> {
+                conn.execute_batch(
+                    "CREATE TABLE reader_settings_new (
+                        user_id TEXT NOT NULL DEFAULT 'me',
+                        profile_id TEXT NOT NULL,
+                        font_size REAL NOT NULL,
+                        line_height REAL NOT NULL,
+                        content_width INTEGER NOT NULL,
+                        font_family TEXT NOT NULL,
+                        theme TEXT NOT NULL,
+                        highlight_granularity TEXT NOT NULL,
+                        child_mode INTEGER NOT NULL,
+                        display_mode TEXT NOT NULL DEFAULT 'guess',
+                        pace TEXT NOT NULL DEFAULT 'flow',
+                        preset TEXT NOT NULL DEFAULT 'shadow',
+                        speed REAL NOT NULL DEFAULT 1.0,
+                        palette TEXT NOT NULL DEFAULT 'clay',
+                        custom_color TEXT NOT NULL DEFAULT '',
+                        updated_at INTEGER NOT NULL,
+                        PRIMARY KEY (user_id, profile_id)
+                     );
+                     INSERT INTO reader_settings_new (user_id, profile_id, font_size, line_height,
+                        content_width, font_family, theme, highlight_granularity, child_mode,
+                        display_mode, pace, preset, speed, palette, custom_color, updated_at)
+                        SELECT 'me', profile_id, font_size, line_height, content_width, font_family,
+                               theme, highlight_granularity, child_mode, display_mode, pace, preset,
+                               speed, palette, custom_color, updated_at
+                        FROM reader_settings;
+                     DROP TABLE reader_settings;
+                     ALTER TABLE reader_settings_new RENAME TO reader_settings;
+                     INSERT INTO schema_migrations (version, applied_at) VALUES (27, strftime('%s','now')*1000);
+                     ",
+                )
+                .map_err(|e| format!("迁移 v27 失败: {e}"))?;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => conn
+                    .execute_batch("COMMIT;")
+                    .map_err(|e| format!("迁移 v27 提交失败: {e}"))?,
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK;");
+                    return Err(format!("迁移 v27 失败: {e}"));
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -1024,7 +1079,8 @@ mod tests {
                     VALUES ('me', 'legacy-book', 2, 500, '[3,7]', 100);
                  INSERT INTO reading_state (user_id, book_key, chapter, position_ms, bookmarks, updated_at)
                     VALUES ('me', 'already-migrated', 1, 0, '{\"1\":[9]}', 100);
-                 DELETE FROM schema_migrations WHERE version=26;",
+                 DELETE FROM schema_migrations WHERE version=26;
+                 DELETE FROM schema_migrations WHERE version=27;",
             )
             .unwrap();
             drop(conn);
@@ -1084,7 +1140,9 @@ mod tests {
                  ALTER TABLE model_registry DROP COLUMN detected_family;
                  DELETE FROM schema_migrations WHERE version=25;
                  -- 撤 v26 (reading_state.bookmarks 按章分组), 让迁移从 v23 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=26;",
+                 DELETE FROM schema_migrations WHERE version=26;
+                 -- 撤 v27 (reader_settings 复合主键), 让迁移从 v23 状态完整重跑
+                 DELETE FROM schema_migrations WHERE version=27;",
             )
             .unwrap();
             drop(conn);
@@ -1123,6 +1181,69 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM sync_state", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n2, 2, "两个非空 endpoint_key 行各保留一行");
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-wal"));
+        let _ = std::fs::remove_file(format!("{path}-shm"));
+    }
+
+    #[test]
+    fn v27_migrates_reader_settings_to_composite_key_without_loss() {
+        // K8 (2026-08-14): 老 reader_settings (单主键 profile_id) → v27 复合主键
+        // (user_id, profile_id)。老行没有 user 概念, 回填 'me', 数据不丢。
+        let path = temp_path("v27");
+        let _ = std::fs::remove_file(&path);
+        {
+            let db = Db::open(&path).unwrap();
+            let conn = db.conn.lock().unwrap();
+            // 撤 v27: 还原 reader_settings 到单主键形态, 塞一条 v26 状态的老数据
+            conn.execute_batch(
+                "DROP TABLE reader_settings;
+                 CREATE TABLE reader_settings (
+                    profile_id TEXT PRIMARY KEY,
+                    font_size REAL NOT NULL,
+                    line_height REAL NOT NULL,
+                    content_width INTEGER NOT NULL,
+                    font_family TEXT NOT NULL,
+                    theme TEXT NOT NULL,
+                    highlight_granularity TEXT NOT NULL,
+                    child_mode INTEGER NOT NULL,
+                    display_mode TEXT NOT NULL DEFAULT 'guess',
+                    pace TEXT NOT NULL DEFAULT 'flow',
+                    preset TEXT NOT NULL DEFAULT 'shadow',
+                    speed REAL NOT NULL DEFAULT 1.0,
+                    palette TEXT NOT NULL DEFAULT 'clay',
+                    custom_color TEXT NOT NULL DEFAULT '',
+                    updated_at INTEGER NOT NULL
+                 );
+                 INSERT INTO reader_settings (profile_id, font_size, line_height, content_width,
+                    font_family, theme, highlight_granularity, child_mode, updated_at)
+                    VALUES ('default', 22.0, 1.9, 700, 'sans', 'dark', 'word', 1, 500);
+                 DELETE FROM schema_migrations WHERE version=27;",
+            )
+            .unwrap();
+            drop(conn);
+        }
+        let db = Db::open(&path).unwrap();
+        let conn = db.conn.lock().unwrap();
+        let pk: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('reader_settings') WHERE pk>0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(pk, 2, "v27 后主键应为复合 (user_id, profile_id)");
+        let (uid, fs, cm): (String, f64, i64) = conn
+            .query_row(
+                "SELECT user_id, font_size, child_mode FROM reader_settings WHERE profile_id='default'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(uid, "me", "老行应回填 user_id='me'");
+        assert_eq!(fs, 22.0, "老数据不丢");
+        assert_eq!(cm, 1);
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}-wal"));
@@ -1197,7 +1318,7 @@ mod tests {
                  DROP TABLE highlights;
                  ALTER TABLE highlights_v17 RENAME TO highlights;
                  DROP TABLE sync_state;
-                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23, 24, 25, 26);
+                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23, 24, 25, 26, 27);
                  -- 撤 v25 列, 让 v25 迁移能重跑
                  ALTER TABLE model_registry DROP COLUMN detected_family;
                  INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,source_book_id,
@@ -1302,6 +1423,8 @@ mod tests {
                  DELETE FROM schema_migrations WHERE version=25;
                  -- 撤 v26 (reading_state.bookmarks 按章分组), 让迁移从 v19 状态完整重跑
                  DELETE FROM schema_migrations WHERE version=26;
+                 -- 撤 v27 (reader_settings 复合主键), 让迁移从 v19 状态完整重跑
+                 DELETE FROM schema_migrations WHERE version=27;
                  -- vocab key 还原为 v19 的 {profile}:{lemma} 形式
                  UPDATE vocab SET key = substr(key, 4) WHERE key LIKE 'me:%';
                  UPDATE dictionary SET key = substr(key, 4) WHERE key LIKE 'me:%';",

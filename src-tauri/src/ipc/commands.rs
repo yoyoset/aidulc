@@ -15,11 +15,20 @@ pub fn settings_upsert(db: State<Db>, settings: ReaderSettings) -> Result<(), St
     repo.upsert(&settings)
 }
 
+/// K8 (2026-08-14): 加 user_id——之前只按 profile_id 取, 多档案共享一台设备
+/// (如儿童/成人)时阅读显示设置会互相覆盖。
 #[tauri::command]
-pub fn settings_get(db: State<Db>, profile_id: String) -> Result<ReaderSettings, String> {
-    crate::infrastructure::log::info("cmd", &format!("enter: settings_get profile={profile_id}"));
+pub fn settings_get(
+    db: State<Db>,
+    profile_id: String,
+    user_id: String,
+) -> Result<ReaderSettings, String> {
+    crate::infrastructure::log::info(
+        "cmd",
+        &format!("enter: settings_get user={user_id} profile={profile_id}"),
+    );
     let repo = crate::store::settings_repo::SettingsRepo::new(db.inner());
-    Ok(repo.get(&profile_id))
+    Ok(repo.get(&user_id, &profile_id))
 }
 
 // ---- Profile ----

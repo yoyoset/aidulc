@@ -101,10 +101,33 @@ pub fn set_recommended(db: &Db, id: &str) -> Result<(), String> {
     repo.upsert(&t)
 }
 
-/// 移除 (不被任何书绑定时可删)
-pub fn remove(db: &Db, id: &str) -> Result<(), String> {
+/// K15 (2026-08-14): 移除 + 可选顺带删磁盘文件——之前 remove() 只删注册表那一行,
+/// LLM/TTS 模型几 GB 级, 换一次模型/升一次版本磁盘只涨不消。`delete_files=true`
+/// 时先查绑定数, 仍被书绑定就拒绝(不能删还在用的文件); 磁盘删除失败会如实报错,
+/// 不静默吞掉(不然用户以为清理成功、下次还是发现磁盘没变化)。
+pub fn remove_with_files(db: &Db, id: &str, delete_files: bool) -> Result<(), String> {
     let repo = ModelRepo::new(db);
-    repo.remove(id)
+    let model = repo
+        .list_all_with_bound()
+        .into_iter()
+        .find(|(m, _)| m.id == id);
+    let Some((entry, bound)) = model else {
+        return Err("模型不存在".into());
+    };
+    if delete_files && bound > 0 {
+        return Err(format!(
+            "这个模型仍被 {bound} 本书绑定, 不能删磁盘文件(可以先解绑或只删注册表记录)"
+        ));
+    }
+    repo.remove(id)?;
+    if delete_files && !entry.path.trim().is_empty() {
+        let path = std::path::Path::new(&entry.path);
+        if path.exists() {
+            std::fs::remove_file(path)
+                .map_err(|e| format!("注册表已移除, 但删磁盘文件失败: {e}"))?;
+        }
+    }
+    Ok(())
 }
 
 /// 绑定书到模型组合 (书级: 语言/模型跟随书)
@@ -813,5 +836,78 @@ mod tests {
             .unwrap()
             .iter()
             .any(|r| r.as_str().unwrap().contains("翻译引擎")));
+    }
+
+    #[test]
+    fn k15_remove_with_files_deletes_disk_file_when_unbound() {
+        let db = temp_db();
+        let repo = ModelRepo::new(&db);
+        let path = std::env::temp_dir().join(format!("aidulc_k15_{}.bin", std::process::id()));
+        std::fs::write(&path, b"fake model bytes").unwrap();
+        let mut e = entry("llm", "en", "test-model", true);
+        e.path = path.to_string_lossy().to_string();
+        repo.upsert(&e).unwrap();
+        remove_with_files(&db, &e.id, true).unwrap();
+        assert!(repo.get(&e.id).is_none(), "注册表行应删除");
+        assert!(!path.exists(), "磁盘文件应删除");
+    }
+
+    #[test]
+    fn k15_remove_with_files_false_keeps_disk_file() {
+        let db = temp_db();
+        let repo = ModelRepo::new(&db);
+        let path = std::env::temp_dir().join(format!("aidulc_k15b_{}.bin", std::process::id()));
+        std::fs::write(&path, b"fake model bytes").unwrap();
+        let mut e = entry("llm", "en", "test-model2", true);
+        e.path = path.to_string_lossy().to_string();
+        repo.upsert(&e).unwrap();
+        remove_with_files(&db, &e.id, false).unwrap();
+        assert!(repo.get(&e.id).is_none(), "注册表行应删除");
+        assert!(path.exists(), "delete_files=false 不应碰磁盘文件");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn k15_remove_with_files_blocked_when_bound() {
+        // 还被书绑定时, delete_files=true 应该拒绝(不能删还在用的文件),
+        // 且不删注册表行(整体失败, 不是"删了库但没删文件"的半吊子状态)。
+        let db = temp_db();
+        let repo = ModelRepo::new(&db);
+        let path = std::env::temp_dir().join(format!("aidulc_k15c_{}.bin", std::process::id()));
+        std::fs::write(&path, b"fake model bytes").unwrap();
+        let mut e = entry("llm", "en", "test-model3", true);
+        e.path = path.to_string_lossy().to_string();
+        repo.upsert(&e).unwrap();
+        {
+            use crate::store::books_repo::{Book, BooksRepo};
+            let books = BooksRepo::new(&db);
+            books
+                .upsert(&Book {
+                    id: "b1".into(),
+                    title: "T".into(),
+                    source_path: String::new(),
+                    pack_dir: String::new(),
+                    profile_id: "default".into(),
+                    status: "ready".into(),
+                    kind: "original".into(),
+                    source_book_id: None,
+                    chapter_count: 0,
+                    failed_count: 0,
+                    last_opened_at: None,
+                    source_language: "en".into(),
+                    target_language: "zh-CN".into(),
+                    llm_id: Some(e.id.clone()),
+                    tts_id: None,
+                    nlp_id: None,
+                    created_at: 0,
+                    updated_at: 0,
+                })
+                .unwrap();
+        }
+        let err = remove_with_files(&db, &e.id, true).unwrap_err();
+        assert!(err.contains("绑定"), "应报绑定中不能删: {err}");
+        assert!(repo.get(&e.id).is_some(), "拒绝时注册表行不应被删");
+        assert!(path.exists(), "拒绝时磁盘文件不应被删");
+        let _ = std::fs::remove_file(&path);
     }
 }

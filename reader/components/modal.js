@@ -42,7 +42,19 @@
     confirmBtn.className = opts.danger ? 'btn-small btn-danger' : 'btn-small btn-primary';
     confirmBtn.textContent = opts.confirmText || '确定';
 
-    box.append(title, msg, actions);
+    box.append(title, msg);
+    // K15 (2026-08-14): 可选附加勾选项 (如"同时删除磁盘文件"), onConfirm 通过闭包读取勾选状态
+    if (opts.checkboxLabel) {
+      const row = document.createElement('label');
+      row.className = 'modal-checkbox-row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!opts.checkboxDefault;
+      row.append(cb, document.createTextNode(' ' + opts.checkboxLabel));
+      box.append(row);
+      opts.checkboxRef = cb;
+    }
+    box.append(actions);
     actions.append(cancelBtn, confirmBtn);
 
     function close() {

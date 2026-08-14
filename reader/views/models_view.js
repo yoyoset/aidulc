@@ -665,12 +665,16 @@
             }
             const del = el('button', 'btn-small btn-danger', '移除');
             del.onclick = () => {
-              AiduModal.confirm({
+              const modalOpts = {
                 title: `移除模型 ${m.model_id}?`,
                 message: '移除后处理书籍时将不再可用。',
                 confirmText: '移除', danger: true,
-                onConfirm: () => AiduModelService.remove(m.id).then(() => { this._reload(); AiduToast.show('已移除', 'info'); }),
-              });
+                // K15 (2026-08-14): LLM/TTS 模型几 GB, 默认只删注册表; 勾选后连磁盘文件一起删
+                checkboxLabel: `同时删除磁盘文件 (${Math.round(m.size_bytes / 1e6)} MB)`,
+                onConfirm: () => AiduModelService.remove(m.id, modalOpts.checkboxRef && modalOpts.checkboxRef.checked)
+                  .then(() => { this._reload(); AiduToast.show('已移除', 'info'); }),
+              };
+              AiduModal.confirm(modalOpts);
             };
             actions.appendChild(del);
             // M4-3③: 存量误登记改家族 (whisper/silero 曾被二元判定塞进"语音合成")

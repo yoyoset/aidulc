@@ -619,6 +619,7 @@ body::before {
 }
 .modal-title { margin: 0 0 8px; font-size: 1.15rem; }
 .modal-message { margin: 0 0 18px; color: var(--md-sys-color-on-surface-variant); font-size: 0.92rem; line-height: 1.6; }
+.modal-checkbox-row { display: flex; align-items: center; gap: 6px; margin: -8px 0 18px; font-size: 0.88rem; color: var(--md-sys-color-on-surface-variant); cursor: pointer; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
 /* ---- 涔﹀崱寰界珷 (鑻规灉绾х姸鎬佸彲瑙? ---- */

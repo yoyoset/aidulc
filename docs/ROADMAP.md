@@ -195,7 +195,7 @@ flash 的判断), 是确认级别不是推断。
 
 现状枚举委派 flash 做的, 判断以下 4 条基于枚举结果, 逐条 grep 复核过。
 
-- **P2 移除/换版本模型不清理磁盘文件**: `models_remove`(`application/model_service.rs`
+- **P2 ✅ 已修复(2026-08-14, K15)移除/换版本模型不清理磁盘文件**: `models_remove`(`application/model_service.rs`
   调 `model_repo.rs::remove`)只删注册表那一行, 不碰磁盘上的模型文件; 换新版本时
   id 内含 version, 新版本是新的一行(`model_repo.rs` 的 `upsert` 按 id
   `ON CONFLICT` 各自独立), 旧版本文件原地不动。全仓 grep 确认模型文件路径下
@@ -203,6 +203,11 @@ flash 的判断), 是确认级别不是推断。
   备份场景, 不覆盖模型文件)。LLM/TTS 模型动辄几 GB, 用户换一次模型或升一次版本
   磁盘只涨不消, 界面上倒是有"模型目录"展示(`models_view.js:102-150`), 但没有
   从"移除这个模型"按钮联动到"顺便删磁盘文件"的选项。
+  **修复**: 新增 `model_service::remove_with_files(db, id, delete_files)`——`delete_files=true`
+  时先查绑定数, 仍被书绑定就拒绝(报错文案说明原因, 不静默), 磁盘删除失败也如实报错;
+  `models_remove` command 加 `delete_files: Option<bool>`(缺省 false, 老调用点行为不变)。
+  前端 `AiduModal.confirm` 新增可选 `checkboxLabel`(通用能力, 不是模型专用), 移除模型的
+  确认框里勾"同时删除磁盘文件 (N MB)"。3 条 Rust 测试(未绑定删成功/不勾选不删/绑定中拒绑)。
 - **P2 ✅ 已修复(2026-08-14)版本号对比是写死在前端代码里的目录, 不是真的在线检查**:
   `models_view.js:298-314` 的 `_versionStatus`(判定"已是最新/有新版/版本未知")
   比对的是同文件里硬编码的 `DOWNLOAD_CATALOG`(`models_view.js:18-31`, 目前只有

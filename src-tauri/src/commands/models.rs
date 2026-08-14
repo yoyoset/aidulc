@@ -156,9 +156,15 @@ pub fn models_set_family(db: State<store::Db>, id: String, family: String) -> Re
 }
 
 /// 移除
+/// K15 (2026-08-14): 加 delete_files——之前只删注册表行, 磁盘文件只涨不消。
+/// 缺省 false, 老调用点(没传这个参数)行为不变。
 #[tauri::command]
-pub fn models_remove(db: State<store::Db>, id: String) -> Result<(), String> {
-    model_service::remove(db.inner(), &id)
+pub fn models_remove(
+    db: State<store::Db>,
+    id: String,
+    delete_files: Option<bool>,
+) -> Result<(), String> {
+    model_service::remove_with_files(db.inner(), &id, delete_files.unwrap_or(false))
 }
 
 /// 扫描模型目录 → 可复用候选

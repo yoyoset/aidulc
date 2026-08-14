@@ -91,7 +91,9 @@
   带来的行数,不为图省事随手加大)、`ipc/registry.rs`(F29 门禁校验用的注册表本身,`CommandInfo.path`
   字段会被解析成文件路径去反查函数签名——**挪动任何命令的物理文件位置,必须同步改这里对应的
   `path`,漏改不会报错,只会让 F29 校验静默去错的文件里找函数**)、`data_migration.rs`(单事务
-  级联删除)、`job_orchestrator.rs`/`commands/library.rs`(单一命令域,方法数量正常、没混域)、
+  级联删除)、`job_orchestrator.rs`/`commands/library.rs`/`application/model_service.rs`(单一
+  命令域,方法数量正常、没混域——`model_service.rs` 此前只在基线 JSON 里、没写进这份说明,
+  2026-08-14 加 K15 磁盘清理安全检查+3 条测试后从 817 涨到 910,顺带补上文字说明)、
   `reader_view.js`/`library_view.js`/`models_view.js`/`prep_view.js`(方法数量正常, 没有
   `settings_view.js` 那种巨型函数)等。新文件想加进这份基线,要能说清楚"拆了为什么更糟"
   (通常是"拆分会破坏事务原子性/顺序可审计性/校验脚本的路径耦合"这三类理由之一),不是图省事。

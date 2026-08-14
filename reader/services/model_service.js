@@ -21,7 +21,8 @@
     },
     setRecommended(id) { return AiduBridge.invoke('models_set_recommended', { id }); },
     setFamily(id, family) { return AiduBridge.invoke('models_set_family', { id, family }); },
-    remove(id) { return AiduBridge.invoke('models_remove', { id }); },
+    // K15 (2026-08-14): deleteFiles 缺省 false, 老调用点行为不变
+    remove(id, deleteFiles) { return AiduBridge.invoke('models_remove', { id, deleteFiles: !!deleteFiles }); },
     scan(dir) { return AiduBridge.invoke('models_scan', { modelDir: dir }); },
     // D (2026-08-11): 探测磁盘是否已有模型文件 (present/healthy/size_bytes)
     fileCheck(path, minBytes) { return AiduBridge.invoke('model_file_check', { path, minBytes }); },

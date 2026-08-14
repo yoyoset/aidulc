@@ -118,7 +118,7 @@
   走的是另一条路径(`vocab_all` 返回全量再前端算), `vocab_stats` 这条后端聚合路径
   完全没被用上, 是重复实现还是准备给别处(比如仪表盘)用的, 需要人工确认再决定
   接上还是删掉。
-- **P3 词典释义置信度数据存了但不给用户看**: `dictionary` 表的 `confidence` 字段
+- **P3 ✅ 已修复(2026-08-14)词典释义置信度数据存了但不给用户看**: `dictionary` 表的 `confidence` 字段
   区分本地词典命中(0.8)和 LLM 生成兜底(0.7)(`application/dictionary_service.rs`),
   但 `dictionary_panel.js`/`vocab_view.js` 两处 grep 都没有引用这个字段——用户看到
   一条释义时分不清"这是词典里查到的"还是"AI 现编的", 对英语学习场景这个区分不是

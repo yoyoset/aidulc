@@ -420,6 +420,15 @@ body::before {
 .dict-body { padding: 16px; overflow-y: auto; flex: 1; }
 .dict-word { font-size: 1.5rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
 .dict-phonetic { font-size: 0.95rem; color: var(--md-sys-color-on-surface-variant); font-weight: 400; }
+/* K13 (2026-08-14): 释义来源徽章——词典查到的 vs AI 生成的, 视觉上要分得开但不抢戏 */
+.dict-source {
+  font-size: var(--md-sys-font-size-label-s);
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: var(--md-sys-radius-pill);
+}
+.dict-source-local { background: var(--md-sys-color-success); color: var(--md-sys-color-on-success); }
+.dict-source-llm, .dict-source-online { background: var(--md-sys-color-info); color: var(--md-sys-color-on-info); }
 .dict-pos { color: var(--md-sys-color-primary); margin: 6px 0; font-size: 0.9rem; }
 .dict-meanings { margin: 8px 0; padding-left: 18px; }
 .dict-examples { font-style: italic; color: var(--md-sys-color-on-surface-variant); margin: 8px 0; }

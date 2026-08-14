@@ -131,7 +131,8 @@
           this.body.innerHTML = `<div class="dict-word">${this._word}</div><div class="dict-loading">在线查词中…</div>`;
           AiduDictionaryService.lookupOnline(this._word, this._context).then((r) => {
             if (!r.ok) { this._setOnlineError(r.error); return; }
-            this._render({ word: this._word, pos: r.data[0], phonetic: r.data[1], meanings: r.data[2], examples: r.data[3], example_zh: r.data[4], usage: r.data[5], phrases: r.data[6] });
+            // K13 (2026-08-14): source='online' 让 _render 里的置信度徽章显示"在线 AI 生成"
+            this._render({ word: this._word, pos: r.data[0], phonetic: r.data[1], meanings: r.data[2], examples: r.data[3], example_zh: r.data[4], usage: r.data[5], phrases: r.data[6], source: 'online' });
           });
         };
         if (before) before.remove();
@@ -177,6 +178,17 @@
       const wordRow = document.createElement('div');
       wordRow.className = 'dict-word';
       wordRow.textContent = d.word;
+      // K13 (2026-08-14): 释义来源徽章——之前 confidence/source 字段后端存了、传了,
+      // 前端就是没渲染。用户看一条释义分不清是词典查到的还是 AI 现编的, 对英语学习
+      // 场景这个区分不是锦上添花(AI 生成偶尔会有错, 该多留一个心眼)。
+      const SOURCE_LABEL = { local: '词典', llm: 'AI 生成', online: '在线 AI 生成' };
+      if (d.source && SOURCE_LABEL[d.source]) {
+        const src = document.createElement('span');
+        src.className = 'dict-source dict-source-' + d.source;
+        src.textContent = SOURCE_LABEL[d.source];
+        src.title = d.source === 'local' ? '本地词典查到的释义' : '本地/在线 AI 生成的释义, 偶尔可能有误';
+        wordRow.appendChild(src);
+      }
       if (d.phonetic) {
         const ph = document.createElement('span');
         ph.className = 'dict-phonetic';

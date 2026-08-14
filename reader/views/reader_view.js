@@ -159,6 +159,11 @@
       this.bookId = bookId;
       this._generation++;
       const gen = this._generation;
+      // K28 (2026-08-14, 用户拍板): 打开阅读器前检查后台有没有备料任务在跑——跑着的话
+      // 显存/CPU 被占用会拖慢查词等交互, 弹提示让用户选"暂停后台再读"还是"仍然阅读"。
+      // 正常情况下后台任务应该只在不阅读时跑, 这里只是把这个隐含期望变成显式选择。
+      await this._maybeWarnBackgroundTasks();
+      if (gen !== this._generation) return;
       // 阶段3 (F46): 打开即显示加载态, 后端失败不再落到空白页
       this._showReaderState('loading', '正在加载书包…');
       const res = await AiduLibraryService.loadBookpack(bookId);
@@ -229,6 +234,34 @@
         this._setSentenceVisible(jump.sentence);
         this._setAnchor(jump.sentence, { scroll: true });
       }
+    }
+
+    /** K28 (2026-08-14, 用户拍板): 有备料任务在跑时, 打开阅读器前提示"暂停后台再读"
+     *  还是"仍然阅读"。查不到任务列表/没有 running 任务时直接放行, 不阻断阅读——
+     *  这是体验优化, 不是安全校验, 查询失败不该拦住正常打开书的路径。 */
+    async _maybeWarnBackgroundTasks() {
+      if (typeof AiduJobService === 'undefined') return;
+      let running = [];
+      try {
+        const res = await AiduJobService.list();
+        if (res.ok && Array.isArray(res.data)) {
+          running = res.data.filter((j) => j.status === 'running');
+        }
+      } catch (e) { return; }
+      if (!running.length) return;
+      return new Promise((resolve) => {
+        AiduModal.confirm({
+          title: '后台正在处理书籍',
+          message: `有 ${running.length} 个备料任务正在跑, 占用显存/算力可能拖慢查词等交互。要不要先暂停后台, 读完再继续处理?`,
+          confirmText: '暂停后台, 开始阅读',
+          cancelText: '仍然阅读',
+          // 无论暂停成功与否都要 resolve——用户已经明确表达"要开始阅读"这个意图,
+          // 暂停失败(比如没有任何可暂停的任务)不该拦住阅读器打开, modal 自己会
+          // 弹 toast 说明暂停失败, 这里不重复报错。
+          onConfirm: () => AiduJobService.pauseAll().catch(() => {}).then(() => resolve()),
+          onCancel: () => resolve(),
+        });
+      });
     }
 
     /** M7 R37: 顶栏显示"今日已读 X 分钟" */

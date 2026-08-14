@@ -63,10 +63,12 @@
     }
 
     function onKey(e) {
-      if (e.key === 'Escape') close();
+      if (e.key === 'Escape') { close(); if (opts.onCancel) opts.onCancel(); }
     }
 
-    cancelBtn.onclick = close;
+    // K28 (2026-08-14): 可选 onCancel——之前取消只关窗口, 调用方拿不到"用户选了取消"
+    // 这个信号(比如"暂停后台/仍然继续"这类两个都是有效选择、不是单纯的"算了"的场景)。
+    cancelBtn.onclick = () => { close(); if (opts.onCancel) opts.onCancel(); };
     confirmBtn.onclick = () => {
       const r = opts.onConfirm ? opts.onConfirm() : null;
       if (r && typeof r.then === 'function') {
@@ -84,7 +86,7 @@
         close();
       }
     };
-    ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+    ov.addEventListener('click', (e) => { if (e.target === ov) { close(); if (opts.onCancel) opts.onCancel(); } });
     document.addEventListener('keydown', onKey);
     // 焦点: 进弹窗聚焦取消钮 (苹果式, 避免误触确认)
     cancelBtn.focus();

@@ -828,6 +828,81 @@ impl Db {
                 }
             }
         }
+        // v28 (K21, 2026-08-14): 生词本(vocab)不再跟着阅读档案(profile_id)分区——之前加词时
+        // profile_id 用的是"这本书挂的讲解档案"(kid/default, 决定讲解深浅的风格设置), 但生词本/
+        // 复习页固定只读 'default' 这一档(K9 早前发现的现状)。换一本挂着别的档案的书学的词
+        // 从此在生词本/复习页里消失——不是数据丢失, 是变成看不见也删不掉的死数据。应用层写路径
+        // 已经改成一律用固定的 VOCAB_PROFILE_ID(见 dictionary_service.rs::add_to_vocab), 这条
+        // 迁移把存量的非 default 生词行归并过去: 同一个 (user_id, lemma) 如果 default 下已经有
+        // 一行, 保留 updated_at 更晚的那行(SRS 进度更新更可信); 没有的话直接把这行的
+        // key/profile_id 改到 default 下 (数据不丢, 只是换了个桶)。
+        if version < 28 {
+            conn.execute_batch("BEGIN IMMEDIATE;")
+                .map_err(|e| format!("迁移 v28 开始失败: {e}"))?;
+            let result = (|| -> Result<(), String> {
+                let rows: Vec<(String, String, String, i64)> = {
+                    let mut stmt = conn
+                        .prepare("SELECT key, user_id, lemma, updated_at FROM vocab WHERE profile_id != 'default'")
+                        .map_err(|e| format!("迁移 v28 读取失败: {e}"))?;
+                    let mapped = stmt
+                        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+                        .map_err(|e| format!("迁移 v28 读取失败: {e}"))?;
+                    mapped
+                        .collect::<Result<Vec<_>, rusqlite::Error>>()
+                        .map_err(|e| format!("迁移 v28 读取失败: {e}"))?
+                };
+                for (old_key, user_id, lemma, updated_at) in rows {
+                    let new_key = format!("{}:default:{}", user_id, lemma.to_lowercase());
+                    let existing_default_updated_at: Option<i64> = conn
+                        .query_row(
+                            "SELECT updated_at FROM vocab WHERE key = ?1",
+                            params![new_key],
+                            |r| r.get(0),
+                        )
+                        .ok();
+                    match existing_default_updated_at {
+                        Some(default_updated_at) if default_updated_at >= updated_at => {
+                            // default 那行更新更近(或一样新), 保留它, 丢弃这行重复数据
+                            conn.execute("DELETE FROM vocab WHERE key = ?1", params![old_key])
+                                .map_err(|e| format!("迁移 v28 删除失败: {e}"))?;
+                        }
+                        Some(_) => {
+                            // 这行(非 default)比 default 那行更新, 让这行取代 default 那行
+                            conn.execute("DELETE FROM vocab WHERE key = ?1", params![new_key])
+                                .map_err(|e| format!("迁移 v28 删除失败: {e}"))?;
+                            conn.execute(
+                                "UPDATE vocab SET key = ?1, profile_id = 'default' WHERE key = ?2",
+                                params![new_key, old_key],
+                            )
+                            .map_err(|e| format!("迁移 v28 归并失败: {e}"))?;
+                        }
+                        None => {
+                            // default 下没有这个词, 直接把这行搬过去
+                            conn.execute(
+                                "UPDATE vocab SET key = ?1, profile_id = 'default' WHERE key = ?2",
+                                params![new_key, old_key],
+                            )
+                            .map_err(|e| format!("迁移 v28 归并失败: {e}"))?;
+                        }
+                    }
+                }
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, applied_at) VALUES (28, strftime('%s','now')*1000)",
+                    [],
+                )
+                .map_err(|e| format!("迁移 v28 失败: {e}"))?;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => conn
+                    .execute_batch("COMMIT;")
+                    .map_err(|e| format!("迁移 v28 提交失败: {e}"))?,
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK;");
+                    return Err(format!("迁移 v28 失败: {e}"));
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -1080,7 +1155,8 @@ mod tests {
                  INSERT INTO reading_state (user_id, book_key, chapter, position_ms, bookmarks, updated_at)
                     VALUES ('me', 'already-migrated', 1, 0, '{\"1\":[9]}', 100);
                  DELETE FROM schema_migrations WHERE version=26;
-                 DELETE FROM schema_migrations WHERE version=27;",
+                 DELETE FROM schema_migrations WHERE version=27;
+                 DELETE FROM schema_migrations WHERE version=28;",
             )
             .unwrap();
             drop(conn);
@@ -1142,7 +1218,9 @@ mod tests {
                  -- 撤 v26 (reading_state.bookmarks 按章分组), 让迁移从 v23 状态完整重跑
                  DELETE FROM schema_migrations WHERE version=26;
                  -- 撤 v27 (reader_settings 复合主键), 让迁移从 v23 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=27;",
+                 DELETE FROM schema_migrations WHERE version=27;
+                 -- 撤 v28 (vocab 归并回 default 档案), 让迁移从 v23 状态完整重跑
+                 DELETE FROM schema_migrations WHERE version=28;",
             )
             .unwrap();
             drop(conn);
@@ -1219,7 +1297,8 @@ mod tests {
                  INSERT INTO reader_settings (profile_id, font_size, line_height, content_width,
                     font_family, theme, highlight_granularity, child_mode, updated_at)
                     VALUES ('default', 22.0, 1.9, 700, 'sans', 'dark', 'word', 1, 500);
-                 DELETE FROM schema_migrations WHERE version=27;",
+                 DELETE FROM schema_migrations WHERE version=27;
+                 DELETE FROM schema_migrations WHERE version=28;",
             )
             .unwrap();
             drop(conn);
@@ -1244,6 +1323,67 @@ mod tests {
         assert_eq!(uid, "me", "老行应回填 user_id='me'");
         assert_eq!(fs, 22.0, "老数据不丢");
         assert_eq!(cm, 1);
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-wal"));
+        let _ = std::fs::remove_file(format!("{path}-shm"));
+    }
+
+    #[test]
+    fn v28_merges_vocab_into_default_profile_without_loss() {
+        // K21 (2026-08-14): 生词本不再跟着阅读档案分区。两种情况都要覆盖:
+        // ① 'kid' 有一个 default 没有的词(orange) → 直接搬进 default, 数据不丢
+        // ② 'kid' 和 'default' 都有同一个词(bank), 保留 updated_at 更晚的那份内容
+        let path = temp_path("v28");
+        let _ = std::fs::remove_file(&path);
+        {
+            let db = Db::open(&path).unwrap();
+            let conn = db.conn.lock().unwrap();
+            conn.execute_batch(
+                "INSERT INTO vocab (key, word, lemma, pos, meaning, added_at, updated_at, profile_id, user_id, payload) VALUES
+                    ('me:default:bank', 'bank', 'bank', 'NOUN', '银行', 100, 200, 'default', 'me', '{\"word\":\"bank\",\"lemma\":\"bank\",\"stage\":\"review\"}'),
+                    ('me:kid:bank', 'bank', 'bank', 'NOUN', '河岸', 300, 300, 'kid', 'me', '{\"word\":\"bank\",\"lemma\":\"bank\",\"stage\":\"new\"}'),
+                    ('me:kid:orange', 'orange', 'orange', 'NOUN', '橙子', 400, 400, 'kid', 'me', '{\"word\":\"orange\",\"lemma\":\"orange\",\"stage\":\"new\"}');
+                 DELETE FROM schema_migrations WHERE version=28;",
+            )
+            .unwrap();
+            drop(conn);
+        }
+        let db = Db::open(&path).expect("v28 迁移应成功");
+        let conn = db.conn.lock().unwrap();
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM vocab", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 2, "bank 归并成 1 行, orange 搬到 default, 共 2 行");
+        let (bank_key, bank_meaning): (String, String) = conn
+            .query_row(
+                "SELECT key, meaning FROM vocab WHERE lemma='bank'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(bank_key, "me:default:bank");
+        assert_eq!(
+            bank_meaning, "河岸",
+            "updated_at 更晚(300>200)的 kid 内容应保留"
+        );
+        let orange_key: String = conn
+            .query_row("SELECT key FROM vocab WHERE lemma='orange'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            orange_key, "me:default:orange",
+            "default 下没有的词直接搬过去"
+        );
+        let kid_rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM vocab WHERE profile_id='kid'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kid_rows, 0, "不应再有任何 profile_id='kid' 的生词行");
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}-wal"));
@@ -1318,7 +1458,7 @@ mod tests {
                  DROP TABLE highlights;
                  ALTER TABLE highlights_v17 RENAME TO highlights;
                  DROP TABLE sync_state;
-                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23, 24, 25, 26, 27);
+                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28);
                  -- 撤 v25 列, 让 v25 迁移能重跑
                  ALTER TABLE model_registry DROP COLUMN detected_family;
                  INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,source_book_id,
@@ -1425,6 +1565,8 @@ mod tests {
                  DELETE FROM schema_migrations WHERE version=26;
                  -- 撤 v27 (reader_settings 复合主键), 让迁移从 v19 状态完整重跑
                  DELETE FROM schema_migrations WHERE version=27;
+                 -- 撤 v28 (vocab 归并回 default 档案), 让迁移从 v19 状态完整重跑
+                 DELETE FROM schema_migrations WHERE version=28;
                  -- vocab key 还原为 v19 的 {profile}:{lemma} 形式
                  UPDATE vocab SET key = substr(key, 4) WHERE key LIKE 'me:%';
                  UPDATE dictionary SET key = substr(key, 4) WHERE key LIKE 'me:%';",
@@ -1455,23 +1597,37 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM users WHERE id='me'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(user_count, 1, "应 seed 默认用户 me");
-        // 词条零丢失 + 归到 me
+        // 词条零丢失 + 归到 me; K21 (2026-08-14, v28): 生词本不再跟着 profile 分区,
+        // 'default:bank'(updated_at=200) 和 'kid:bank'(updated_at=300) 归并成 1 行——
+        // 更新更晚的 kid 内容("河岸"/new)覆盖 default 那行, 数据没丢, 只是合到一个桶。
         let vocab_rows: i64 = conn
             .query_row("SELECT COUNT(*) FROM vocab", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(vocab_rows, 2, "两个 profile 的生词都应保留");
+        assert_eq!(
+            vocab_rows, 1,
+            "两个 profile 的生词归并成 1 行 (v28 不再按 profile 分区)"
+        );
         let me_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM vocab WHERE user_id='me'", [], |r| {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(me_count, 2, "所有生词都应回填 user_id='me'");
-        let kid_key: String = conn
-            .query_row("SELECT key FROM vocab WHERE profile_id='kid'", [], |r| {
-                r.get(0)
-            })
+        assert_eq!(me_count, 1, "归并后的生词行应回填 user_id='me'");
+        let (merged_key, merged_meaning): (String, String) = conn
+            .query_row(
+                "SELECT key, meaning FROM vocab WHERE profile_id='default'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .unwrap();
-        assert_eq!(kid_key, "me:kid:bank", "key 应重写为 me:kid:bank");
+        assert_eq!(
+            merged_key, "me:default:bank",
+            "key 应归并到 me:default:bank"
+        );
+        assert_eq!(
+            merged_meaning, "河岸",
+            "updated_at 更晚的 kid 内容应该是保留下来的那份"
+        );
         // 词典零丢失
         let dict_count: i64 = conn
             .query_row(

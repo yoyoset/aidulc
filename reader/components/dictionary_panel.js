@@ -291,6 +291,10 @@
       addBtn.onclick = () => {
         // 阶段6 设计交付 §04: 记录来源句上下文 (this._context = 原文句)
         // V4: 带来源定位 (edition/chapter/sentence)
+        // K21 (2026-08-14): profileId 这里仍传"这本书挂的讲解档案"(add_to_vocab 后端要用它
+        // 查词典缓存, 不同档案讲解深浅不同); 生词本本身该不该跟着档案分裂是后端内部关注点,
+        // dictionary_service.rs::add_to_vocab 已经改成只对 VocabRepo 调用强制用固定的
+        // VOCAB_PROFILE_ID, 这层不用管。
         AiduDictionaryService.addToVocab(d.word, this._profileId, this._context, this._source).then((r) => {
           if (r.ok) {
             addBtn.textContent = '✓ 已加入生词本';

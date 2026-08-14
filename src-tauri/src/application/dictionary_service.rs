@@ -95,8 +95,12 @@ pub fn lookup_local(
                     .map(|m| vec![m.to_string()])
                     .unwrap_or_default()
             });
+        // K21 (2026-08-14): 查生词本要看固定的 VOCAB_PROFILE_ID, 不是当前阅读档案的 profile_id
+        // (否则同一个词, 用不同档案读的书查词时会显示"未加入生词本", 其实已经存过)。
         let vocab_repo = VocabRepo::new(db);
-        let in_vocab = vocab_repo.get(user_id, profile_id, key).is_some();
+        let in_vocab = vocab_repo
+            .get(user_id, crate::domain::vocab::VOCAB_PROFILE_ID, key)
+            .is_some();
         return Ok(Some(WordLookup {
             word: key.to_string(),
             pos: payload
@@ -214,9 +218,11 @@ pub fn add_to_vocab(
     let payload = repo
         .get(&key, user_id, profile_id)
         .unwrap_or_else(|| serde_json::json!({"word": key, "lemma": key}));
-    // 阶段6: 旧 context 从已有生词条目读 (重加不覆盖旧上下文), 不从词典 payload 读
+    // K21 (2026-08-14): 生词本(VocabRepo)不再跟着 profile_id(阅读时挂的讲解档案)分区——
+    // 一律用固定的 VOCAB_PROFILE_ID, 换书换档案不会让已存的生词"看不见"。dictionary 表
+    // (上面 payload)缓存的是释义文本, 不同档案讲解深浅确实该分开存, 继续用 profile_id。
     let old_context = VocabRepo::new(db)
-        .get(user_id, profile_id, &key)
+        .get(user_id, crate::domain::vocab::VOCAB_PROFILE_ID, &key)
         .map(|e| e.context)
         .unwrap_or_default();
     let entry = crate::domain::vocab::VocabEntry {
@@ -272,7 +278,7 @@ pub fn add_to_vocab(
         sentence_index: source.sentence_index,
     };
     let vocab = VocabRepo::new(db);
-    vocab.upsert_content(entry, user_id, profile_id)?;
+    vocab.upsert_content(entry, user_id, crate::domain::vocab::VOCAB_PROFILE_ID)?;
     // H5 (2026-08-11): 入库侧词频门槛 —— **默认不拦、只提示**。词在档案对应阈值内
     // (成人 top3000 / 儿童 top2000) → common_word: true, 前端 toast 提示"这词很常见, 确定
     // 要背吗", 但不阻断加入 (避免把用户真想学的词悄悄吃掉; 孩子更需要基础词, 阈值更严)。

@@ -85,10 +85,11 @@
   日志五个不相关命令域,已拆成 `dictionary.rs`/`vocab.rs`/`srs.rs`/`sync_backend.rs`/`log.rs`/
   `reader.rs`(瘦身);原 `settings_view.js`(1178 行)一个 `render()` 方法塞了 5 个设置页 tab,
   已拆成 `reader/views/settings/{system,models,profiles,sync,reading}_tab.js`。
-- **正当例外(登记进 `scripts/file_size_baseline.json`,只能降不能加)**:`store_mod.rs`(v1→v27
+- **正当例外(登记进 `scripts/file_size_baseline.json`,只能降不能加)**:`store_mod.rs`(v1→v28
   顺序迁移链,顺序本身是文档——这份"只能降不能加"对这一个文件天然会随新迁移持续走高,
-  2026-08-14 加 v27 时已把基线从 1395 提到 1518,原则不变: 只登记"确实新增了一条真实迁移"
-  带来的行数,不为图省事随手加大)、`ipc/registry.rs`(F29 门禁校验用的注册表本身,`CommandInfo.path`
+  2026-08-14 加 v27 时已把基线从 1395 提到 1518,加 v28(K21, 生词本归并回 default 档案)时
+  再提到 1674,原则不变: 只登记"确实新增了一条真实迁移"带来的行数,不为图省事随手加大)、
+  `ipc/registry.rs`(F29 门禁校验用的注册表本身,`CommandInfo.path`
   字段会被解析成文件路径去反查函数签名——**挪动任何命令的物理文件位置,必须同步改这里对应的
   `path`,漏改不会报错,只会让 F29 校验静默去错的文件里找函数**)、`data_migration.rs`(单事务
   级联删除)、`job_orchestrator.rs`/`commands/library.rs`/`application/model_service.rs`(单一

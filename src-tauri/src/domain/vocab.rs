@@ -16,6 +16,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const VALID_STAGES: [&str; 4] = ["new", "learning", "review", "mastered"];
 
+/// K21 (2026-08-14): 生词本是"个人词典", 不该跟着阅读时的讲解档案(kid/default, 决定讲解
+/// 深浅的风格设置)分裂——vocab 表 schema 仍保留 profile_id 列(改 PK 是更大的迁移), 但
+/// 应用层一律固定用这个值读写, 不再把"当前书挂的讲解档案"当成生词分区键。dictionary 表
+/// (缓存的释义文本, 不同档案讲解深浅确实该分开存)不受影响。
+pub const VOCAB_PROFILE_ID: &str = "default";
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VocabEntry {
     pub word: String,

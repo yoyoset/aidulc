@@ -176,7 +176,14 @@
           activeSec.appendChild(el('div', 'prep-section-title', '进行中'));
           groupByBatch(running).forEach((n) => activeSec.appendChild(n));
           if (queued.length) {
-            activeSec.appendChild(el('div', 'prep-section-title', '排队中'));
+            const qTitle = el('div', 'prep-section-title', '排队中');
+            // K16 (2026-08-14): 严格顺序执行是显存安全的刻意设计 (LLM+TTS 同驻会撑爆
+            // 12GB 显存, 见 pipeline/runner.py:124-127), 之前没有任何文案说明, 用户
+            // 体验上等同于一个没解释的限制。
+            const hint = el('span', 'prep-queue-hint', ' ⓘ 一次只跑一本');
+            hint.title = '同时运行多本书会让翻译模型和语音模型同时占用显存, 容易爆显存, 所以任务严格排队顺序执行。';
+            qTitle.appendChild(hint);
+            activeSec.appendChild(qTitle);
             groupByBatch(queued).forEach((n) => activeSec.appendChild(n));
           }
           listEl.appendChild(activeSec);

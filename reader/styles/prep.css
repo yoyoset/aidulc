@@ -85,6 +85,8 @@
   color: var(--md-sys-color-on-surface);
 }
 .prep-section-title:first-child { margin-top: 4px; }
+/* K16 (2026-08-14): 排队原因说明 —— 显存安全的刻意设计, 之前无文案 */
+.prep-queue-hint { font-weight: 400; font-size: var(--md-sys-font-size-body-s); color: var(--md-sys-color-on-surface-variant); cursor: help; }
 .prep-section { margin-bottom: 8px; }
 /* I2: 查看历史 (折叠, 完成满一天的批次收进来) */
 .prep-history-toggle {

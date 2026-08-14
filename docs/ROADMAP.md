@@ -148,10 +148,14 @@
   `list_all()` 只在导出流程用, 没有暴露成可查询命令; `Highlight` 结构体
   (`highlights_repo.rs:14-31`)没有 tag/category 字段。读过多本书后, 想找"我在
   哪本书哪里记过这句话"做不到, 面板连按章筛选都没有。
-- **P2 无 Markdown/纯文本导出**: 全仓搜 `markdown`/`export_md` 零命中, 唯一导出
+- **P2 ✅ 已修复(2026-08-14, K18)无 Markdown/纯文本导出**: 全仓搜 `markdown`/`export_md` 零命中, 唯一导出
   通道是 `.aidu-data`(`transfer_service.rs`, 自有 JSON 备份格式, 不是人可读笔记)。
   对"精读"这个产品定位, 摘录笔记恰恰是最该能导出复习/分享的产出物, 现在只能
   整本 JSON 搬家。
+  **修复**: 摘录面板(`reader/views/reader/highlights.js`)加"导出 Markdown"按钮,
+  当前书全部摘录按 章/句序 排, 每条渲成引用块+备注, 与 `vocab_view.js::_export`
+  同一套 Blob+`<a download>` 客户端下载模式, 不新起后端命令(数据已经在
+  `this.items` 里, 纯前端格式转换)。
 - **P3 摘录与生词本没有关联**: `Highlight` 无 lemma 引用字段, 摘录的 `.hl-span`
   渲染标记和生词的 `.saved` 标记是 `atomic_block.js` 里互不相干的两条通道——摘录
   一句包含生词的句子后, 看不出"这句里有我正在学的词"。

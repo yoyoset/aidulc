@@ -147,11 +147,18 @@
       head.className = 'hl-panel-head';
       const title = document.createElement('span');
       title.textContent = '摘录 (' + this.items.length + ')';
+      // K18 (2026-08-14): 唯一导出通道之前是整本 .aidu-data JSON 备份, 不是人可读笔记——
+      // "精读"这个产品定位下摘录笔记恰恰是最该能导出复习/分享的产出物。
+      const exportBtn = document.createElement('button');
+      exportBtn.className = 'btn-small';
+      exportBtn.textContent = '导出 Markdown';
+      exportBtn.title = '把当前书的全部摘录+备注导出成一份 Markdown 文件';
+      exportBtn.onclick = (e) => { e.stopPropagation(); this._exportMarkdown(); };
       const close = document.createElement('button');
       close.className = 'btn-small';
       close.textContent = '✕';
       close.onclick = () => panel.remove();
-      head.append(title, close);
+      head.append(title, exportBtn, close);
       const list = document.createElement('div');
       list.className = 'hl-panel-list';
       if (!this.items.length) {
@@ -215,6 +222,32 @@
       document.body.appendChild(panel);
       this._panel = panel;
 
+    }
+
+    /** K18 (2026-08-14): 全书摘录导出成 Markdown —— 按 章/句序 排, 每条带引用块+备注,
+     *  与 vocab_view.js::_export 同一套 Blob+<a download> 客户端下载模式, 不新起后端命令。 */
+    _exportMarkdown() {
+      const bookKey = this.deps.bookKey();
+      const sorted = this.items.slice().sort((a, b) => (a.chapter - b.chapter) || (a.sentence_index - b.sentence_index));
+      const lines = [`# ${bookKey} —— 摘录笔记`, ''];
+      let lastChapter = null;
+      sorted.forEach((h) => {
+        if (h.chapter !== lastChapter) {
+          lines.push(`## 第 ${h.chapter + 1} 章`, '');
+          lastChapter = h.chapter;
+        }
+        lines.push(`> ${h.selected_text}`);
+        if (h.note) lines.push('', h.note);
+        lines.push('');
+      });
+      const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${bookKey}-摘录.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+      AiduToast.show(`已导出 ${sorted.length} 条摘录`, 'success');
     }
 
     /** R22: 备注编辑 (内联 textarea, 保存即 upsert) */

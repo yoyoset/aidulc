@@ -44,6 +44,11 @@
     srsPreview(profileId, lemma) { return AiduBridge.srs.preview(currentUser(), profileId, lemma); },
     srsGrade(profileId, lemma, grade) { return AiduBridge.srs.grade(currentUser(), profileId, lemma, grade); },
     srsRestore(profileId, entry) { return AiduBridge.srs.restore(currentUser(), profileId, entry); },
+    // K29 (2026-08-14): 生词本发音走本地 TTS 常驻守护(与正文朗读同一引擎), 不再是
+    // 浏览器系统机械音。ttsSynthWord 返回 base64 WAV; ttsPrewarm 在进入阅读器时调,
+    // 让守护提前把模型加载好, 减少生词本首次点发音的等待。
+    ttsSynthWord(word) { return AiduBridge.invoke('tts_synth_word', { word }); },
+    ttsPrewarm() { return AiduBridge.invoke('tts_prewarm'); },
   };
 
   global.AiduDictionaryService = DictionaryService;

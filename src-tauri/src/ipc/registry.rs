@@ -148,6 +148,16 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "词典删除",
     },
     CommandInfo {
+        path: "commands::dictionary::tts_synth_word",
+        domain: "词典",
+        desc: "K29: 生词发音, 走本地 TTS 常驻守护(与正文朗读同一引擎), 返回 base64 WAV",
+    },
+    CommandInfo {
+        path: "commands::dictionary::tts_prewarm",
+        domain: "词典",
+        desc: "K29: 进入阅读器时预热语音守护, 减少生词本首次发音的等待",
+    },
+    CommandInfo {
         path: "commands::vocab::vocab_all",
         domain: "生词",
         desc: "生词列表",

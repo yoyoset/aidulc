@@ -335,6 +335,10 @@
       box.className = 'vocab-menu';
       box.setAttribute('role', 'menu');
       const items = [
+        // K29 (2026-08-14, 用户拍板): 生词本发音走本地 TTS 常驻守护(与正文朗读同一
+        // 引擎), 不是浏览器系统机械音。异步合成(可能要等守护冷启动), 按钮禁用+文案
+        // 变化给出反馈, 不是点了没反应。
+        ['🔊 发音', () => this._playPronunciation(e.word)],
         ['移出生词本', () => {
           AiduModal.confirm({
             title: `删除生词 ${e.word}?`,
@@ -392,6 +396,18 @@
       ov.addEventListener('click', (ev) => { if (ev.target === ov) ov.remove(); });
       document.body.appendChild(ov);
       if (row) row.classList.add('menu-open');
+    }
+
+    /** K29 (2026-08-14): 生词发音——走本地 TTS 常驻守护(与正文朗读同一引擎), 不是
+     *  浏览器系统机械音。合成是异步 IPC(可能要等守护冷启动), 全程 toast 反馈
+     *  (契约: ui:no-silent-action, 点了不能没反应)。 */
+    _playPronunciation(word) {
+      AiduToast.show('正在合成发音…', 'info');
+      AiduDictionaryService.ttsSynthWord(word).then((r) => {
+        if (!r.ok) { AiduToast.show('发音失败: ' + r.error, 'error'); return; }
+        const audio = new Audio('data:audio/wav;base64,' + r.data);
+        audio.play().catch((e) => AiduToast.show('播放失败: ' + e.message, 'error'));
+      });
     }
 
     /** H5 (2026-08-11): 词频批量剔除 —— dry-run 先给数字, 用户确认后执行 */

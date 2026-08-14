@@ -224,6 +224,60 @@ pub fn dict_remove(
     repo.remove(&key, &user_id, &profile_id)
 }
 
+// ---- K29 (2026-08-14): 生词本发音 —— 跟正文朗读同一套本地 TTS 引擎, 不再走浏览器
+// SpeechSynthesisUtterance(系统机械音)。异步 + spawn_blocking, 跟 word_lookup 同一
+// 理由: tts_daemon 是 spawn 子进程 + 阻塞读, 同步命令跑主线程会让整窗假死。
+
+/// 生词发音: 合成一个词, 返回 base64 WAV(前端拼 data: URL 直接播放)。
+#[tauri::command]
+pub async fn tts_synth_word(
+    cfg: State<'_, crate::PrepConfig>,
+    db: State<'_, store::Db>,
+    word: String,
+) -> Result<String, String> {
+    let key = word.trim().to_string();
+    if key.is_empty() {
+        return Err("空词".into());
+    }
+    let prep_path = cfg.inner().prep_path.clone();
+    let (_llm, tts_model, _spacy) =
+        crate::application::model_service::resolve_paths(db.inner(), "en");
+    if tts_model.is_empty() || !std::path::Path::new(&tts_model).exists() {
+        return Err("未配置语音模型, 去模型中心下载/选择后再试".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::infrastructure::tts_daemon::synth(
+            &prep_path, &tts_model, "en", &key, "af_heart", 1.0,
+        )
+    })
+    .await
+    .map_err(|e| format!("语音合成任务失败: {e}"))?
+}
+
+/// K29: 进入阅读器时预热——提前把 Kokoro 模型加载进常驻守护, 后续生词本点发音不用
+/// 再等冷启动。用一个短中性词触发真实合成(懒加载在 Python 侧的第一次请求才发生,
+/// 光启动进程不够), 结果直接丢弃, 前端不用等这个返回、也不播放这次合成的音频。
+#[tauri::command]
+pub async fn tts_prewarm(
+    cfg: State<'_, crate::PrepConfig>,
+    db: State<'_, store::Db>,
+) -> Result<(), String> {
+    let prep_path = cfg.inner().prep_path.clone();
+    let (_llm, tts_model, _spacy) =
+        crate::application::model_service::resolve_paths(db.inner(), "en");
+    if tts_model.is_empty() || !std::path::Path::new(&tts_model).exists() {
+        return Ok(()); // 没配置语音模型 → 静默跳过, 不是错误(阅读本身不需要它)
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let _ = crate::infrastructure::tts_daemon::synth(
+            &prep_path, &tts_model, "en", "ok", "af_heart", 1.0,
+        );
+    })
+    .await
+    .map_err(|e| format!("语音预热任务失败: {e}"))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod k1_tests {
     //! K1 (2026-08-11): 查词失败的真实原因必须上屏 —— 四种失败给四种不同文案,

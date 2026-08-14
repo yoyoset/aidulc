@@ -287,23 +287,44 @@
       return { audio, url };
     }
 
-    /** 手机/降级: speechSynthesis 读单词 (系统级)。 */
+    /** K29 (2026-08-14, 用户拍板): 没有来源句音频时的降级路径, 三级: ① 本地 TTS 常驻
+     *  守护(与正文朗读同一引擎, 之前这里直接跳到③浏览器机械音)② 失败/未配置时退到
+     *  speechSynthesis(手机/无 Tauri 环境的降级, 保留原样)。 */
     _speakWord(word, rate, btn) {
-      if (!('speechSynthesis' in window) || !window.speechSynthesis) return;
+      btn.classList.add('playing');
+      this._playingBtn = btn;
+      const done = () => {
+        btn.classList.remove('playing');
+        if (this._playingBtn === btn) this._playingBtn = null;
+      };
+      if (global.AiduDictionaryService && AiduDictionaryService.ttsSynthWord) {
+        AiduDictionaryService.ttsSynthWord(word).then((r) => {
+          if (r.ok) {
+            const audio = new Audio('data:audio/wav;base64,' + r.data);
+            audio.playbackRate = rate;
+            audio.onended = done;
+            audio.onerror = () => this._speakWordFallback(word, rate, done);
+            audio.play().catch(() => this._speakWordFallback(word, rate, done));
+          } else {
+            this._speakWordFallback(word, rate, done);
+          }
+        });
+        return;
+      }
+      this._speakWordFallback(word, rate, done);
+    }
+
+    /** 系统级 speechSynthesis, 只在本地 TTS 不可用时才走这里(手机/无 Tauri 环境)。 */
+    _speakWordFallback(word, rate, done) {
+      if (!('speechSynthesis' in window) || !window.speechSynthesis) { done(); return; }
       try {
         const u = new SpeechSynthesisUtterance(word);
         u.lang = 'en-US';
         u.rate = rate;
-        btn.classList.add('playing');
-        this._playingBtn = btn;
-        const done = () => {
-          btn.classList.remove('playing');
-          if (this._playingBtn === btn) this._playingBtn = null;
-        };
         u.onend = done;
         u.onerror = done;
         window.speechSynthesis.speak(u);
-      } catch (e) { /* 无语音引擎静默 */ }
+      } catch (e) { done(); /* 无语音引擎静默 */ }
     }
 
     _stopVoice() {

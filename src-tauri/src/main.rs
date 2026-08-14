@@ -71,6 +71,7 @@ mod infrastructure {
         pub mod scan;
     }
     pub mod sync_v1_client;
+    pub mod tts_daemon;
 }
 mod ipc {
     pub mod commands;
@@ -499,6 +500,8 @@ fn main() {
             commands::dictionary::dict_list,
             commands::dictionary::dict_search,
             commands::dictionary::dict_remove,
+            commands::dictionary::tts_synth_word,
+            commands::dictionary::tts_prewarm,
             commands::vocab::vocab_all,
             commands::vocab::vocab_search,
             commands::vocab::vocab_remove,
@@ -605,6 +608,7 @@ fn main() {
             // M7 R29: 应用退出时主动杀掉常驻词典守护, 不留 2.4GB 模型的后台进程
             if let tauri::RunEvent::Exit = event {
                 crate::infrastructure::dict_daemon::stop();
+                crate::infrastructure::tts_daemon::stop(); // K29: 语音守护同理
             }
         });
 }

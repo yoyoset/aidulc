@@ -10,13 +10,13 @@
   "src-tauri/src/store/vocab_repo.rs": 506,
   "src-tauri/src/application/dictionary_service.rs": 503,
   "src-tauri/src/application/library_asset_service.rs": 662,
-  "src-tauri/src/main.rs": 607,
-  "reader/views/reader_view.js": 1191,
+  "src-tauri/src/main.rs": 614,
+  "reader/views/reader_view.js": 1230,
   "reader/views/library_view.js": 1063,
   "reader/views/models_view.js": 955,
   "reader/views/prep_view.js": 648,
-  "reader/views/review_view.js": 514,
-  "reader/views/vocab_view.js": 528,
+  "reader/views/review_view.js": 535,
+  "reader/views/vocab_view.js": 589,
   "prep/aidulc_prep/pipeline/loader/epub.py": 534,
   "cloud/mobile/app.js": 543
 }

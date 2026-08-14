@@ -42,6 +42,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lookup-context", default="", help="句子上下文 (词典补全, 可选)")
     # 常驻词典守护 (F21, 2026-08-08): 加载模型一次, stdin/stdout 服务多次查词
     parser.add_argument("--lookup-server", action="store_true", help="常驻词典守护模式")
+    # 常驻语音守护 (K29, 2026-08-14): 生词本发音跟正文朗读同一引擎 + 预热, 不再每次冷启动
+    parser.add_argument("--tts-server", action="store_true", help="常驻语音合成守护模式")
+    parser.add_argument("--tts-model", help="TTS 模型路径 (配合 --tts-server)")
+    parser.add_argument("--tts-language", default="en", help="TTS 语言 (配合 --tts-server)")
     # 原版书预览模式 (书库"查看原文")
     parser.add_argument("--preview-book", help="原版书路径 (EPUB/TXT/PDF → 纯文本预览)")
     # 组件健康探测 (R3.4): 输出 PyMuPDF 版本号或 "none", Rust components_health 解析
@@ -61,6 +65,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.lookup_server:
         from aidulc_prep.application.dict_server import main as dict_server_main
         return dict_server_main(["--model", args.lookup_model or ""])
+
+    # 常驻语音守护 (K29, 2026-08-14): 一次加载, stdin/stdout 多次合成
+    if args.tts_server:
+        from aidulc_prep.application.tts_server import main as tts_server_main
+        return tts_server_main(["--model", args.tts_model or "", "--language", args.tts_language])
 
     # PyMuPDF 探测 (R3.4): 只输出版本号或 "none", 供 Rust 组件健康检查
     if args.pymupdf_version:

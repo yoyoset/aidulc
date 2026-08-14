@@ -164,6 +164,12 @@
       // 正常情况下后台任务应该只在不阅读时跑, 这里只是把这个隐含期望变成显式选择。
       await this._maybeWarnBackgroundTasks();
       if (gen !== this._generation) return;
+      // K29 (2026-08-14, 用户拍板): 进入阅读器就预热语音守护, 不等它、不阻塞加载——
+      // 纯粹是"提前把模型加载进后台", 生词本点发音时才受益。失败静默(没配置语音模型
+      // 时后端直接 Ok(()), 真失败也不该打断阅读)。
+      if (global.AiduDictionaryService && AiduDictionaryService.ttsPrewarm) {
+        AiduDictionaryService.ttsPrewarm().catch(() => {});
+      }
       // 阶段3 (F46): 打开即显示加载态, 后端失败不再落到空白页
       this._showReaderState('loading', '正在加载书包…');
       const res = await AiduLibraryService.loadBookpack(bookId);

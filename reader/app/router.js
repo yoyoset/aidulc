@@ -30,7 +30,10 @@
     }
 
     _dispatch(forceRoute) {
-      const route = (forceRoute || (window.location.hash || '#/library')).replace('#/', '');
+      const raw = (forceRoute || (window.location.hash || '#/library')).replace('#/', '');
+      // K17 (2026-08-14): hash 允许带 query (如 #/models?focus=tts), 路由匹配只看 ? 前的部分,
+      // 视图自己按需从 window.location.hash 里解析 query。
+      const route = raw.split('?')[0];
       const target = ROUTES.includes(route) ? route : 'library';
       if (target === this.current && !forceRoute) {
         // hashchange 相同路由 (如重复点击) → 不重复渲染

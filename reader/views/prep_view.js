@@ -297,9 +297,12 @@
         if (/(模型|TTS|voices|config|引擎|缺少|模型文件)/.test(errText)) {
           const btnFix = el('button', 'btn-small btn-primary', '去修模型');
           btnFix.title = '这个失败和模型有关。去模型中心检查/更换推荐模型后, 再回来点「重试失败句」。';
+          // K17 (2026-08-14): 之前跳去"设置→依赖组件"tab, 那里只有版本检查、没有下载能力。
+          // 改跳"模型中心"(#/models), 有 catalog 一键下载单; 能从报错文本猜出是哪个家族
+          // (llm/tts) 就带上 focus, 直接弹下载单。
+          const family = /TTS|voices|语音/.test(errText) ? 'tts' : (/翻译|LLM/.test(errText) ? 'llm' : '');
           btnFix.onclick = () => {
-            if (this.store) this.store.set({ settingsTab: 'models' });
-            window.location.hash = '#/settings';
+            window.location.hash = '#/models' + (family ? '?focus=' + family : '');
           };
           actions.appendChild(btnFix);
         }

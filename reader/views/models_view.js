@@ -82,6 +82,14 @@
         const models = res.data || [];
         this._models = models;
         this._renderGrouped(listEl, models);
+        // K17 (2026-08-14): 从完整性检测报错跳转过来 (#/models?focus=llm|tts) 时,
+        // 该 family 没有可用模型就直接弹出下载单——检测能力和修复动作之前是两件没接上的事,
+        // 用户报错后要自己记住是哪个家族再手动找。只在"没有可用模型"时自动弹, 已有可用模型
+        // 只是不完整的情况不强行打断(避免误伤已配置好、只是想看一眼的用户)。
+        const m = /[?&]focus=(llm|tts|nlp)\b/.exec(window.location.hash || '');
+        if (m && !this._familyUsable(m[1]) && DOWNLOAD_CATALOG.some((c) => c.family === m[1])) {
+          this._showDownloadSheet(m[1]);
+        }
       }).catch((err) => {
         listEl.innerHTML = '';
         const error = el('div', 'global-error', '读模型列表失败: ' + String(err));

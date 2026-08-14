@@ -709,7 +709,11 @@
               result.className = 'prep-preflight-result prep-failure';
               result.textContent = '暂时无法开始: ' + reasons.join('; ');
               const goModels = el('button', 'btn-small btn-primary', '去模型中心');
-              goModels.onclick = () => { close(); window.location.hash = '#/models'; };
+              // K17 (2026-08-14): 报错里带具体是哪个引擎缺失时, 直接跳转+弹出对应家族的
+              // 下载单, 不用用户自己在模型中心里找。
+              const joined = reasons.join('; ');
+              const family = /翻译引擎|LLM/.test(joined) ? 'llm' : (/语音引擎|语音模型|TTS/.test(joined) ? 'tts' : '');
+              goModels.onclick = () => { close(); window.location.hash = '#/models' + (family ? '?focus=' + family : ''); };
               result.appendChild(goModels);
             },
             onStarted: () => {

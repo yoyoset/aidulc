@@ -256,10 +256,10 @@ console.log('== 1d. UX5 修正 (2026-08-13): 失败任务给「去修模型」�
   const fixBtn = queryAll(rowM, 'button').find((b) => b.textContent === '去修模型');
   check('UX5修正: TTS 类失败 → 有「去修模型」按钮', !!fixBtn);
   const hashBefore = location.hash;
-  store.state.settingsTab = null;
   fixBtn && fixBtn.onclick();
-  check('UX5修正: 点「去修模型」→ settingsTab=models 意图', store.state.settingsTab === 'models', 'tab=' + store.state.settingsTab);
-  check('UX5修正: 点「去修模型」→ 跳 #/settings', location.hash === '#/settings', 'hash=' + location.hash);
+  // K17 (2026-08-14): 改跳"模型中心"(#/models, 有下载能力) 而非"设置→依赖组件"(只有版本检查);
+  // TTS 类错误文本能猜出家族时带 focus=tts, 到那边直接弹下载单。
+  check('K17: 点「去修模型」→ 跳 #/models?focus=tts', location.hash === '#/models?focus=tts', 'hash=' + location.hash);
   location.hash = hashBefore;
   // 非模型类错误 → 没有「去修模型」(不该误导)
   const rowN = pv1d._buildTaskRow(mkErr('文件格式不支持: .djvu'));

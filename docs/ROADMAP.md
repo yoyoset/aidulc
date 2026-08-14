@@ -108,7 +108,7 @@
 
 现状枚举委派 flash 做的, 判断以下 4 条基于枚举结果, 逐条 grep 复核过。
 
-- **P1(推断待实测, 未实机验证)多用户切人后摘录面板可能静默空白**:
+- **P1 ✅ 已修复(2026-08-14, commit 4c2656b)多用户切人后摘录面板可能静默空白**:
   `reader/views/reader/highlights.js:29` 的 `load(bookKey)` 只传一个参数调
   `AiduBridge.highlights.list(bookKey)`; 而 `reader/ipc/bridge.js:126` 的封装是
   `list: (bookKey, userId) => invoke('highlights_list', { bookKey, userId })`——
@@ -262,7 +262,7 @@ reading_state/reading_daily/sync_state 五张表实测 WHERE 子句确认真按 
 这次审计里唯一一次系统性验证"字段存在"和"查询真的用了这个字段"两件事都成立的域,
 一并记在这里作为对照——不是所有表都这样干净, 见下面第一条。
 
-- **P1(确认, 直接读代码验证过, 且是本会话自己刚写的代码)`library_list` 硬编码
+- **P1 ✅ 已修复(2026-08-14, commit 4c2656b)`library_list` 硬编码
   `DEFAULT_USER_ID`, 切换用户不影响书架页的阅读进度/笔记数/书签数**:
   `commands/library.rs:155-156`(`let uid = crate::store::users_repo::
   DEFAULT_USER_ID;`)不接收任何 user 参数, 注释声称"前端会按 user 拉"但命令
@@ -272,7 +272,8 @@ reading_state/reading_daily/sync_state 五张表实测 WHERE 子句确认真按 
   更广: 那条只影响字体/主题这些展示设置, 这条影响整个书架页(书库/我的书两个
   视图)的阅读进度显示——顶栏切到"孩子"这个用户, 书卡上看到的还是 default
   用户的阅读进度/笔记数, 不会跟着切换的用户变。
-- **P2 `highlights_remove` 命令不做 user_id 归属校验**: `highlights_repo.rs:
+- **P2 ✅ 已修复(2026-08-14, commit 4c2656b, 与上面 P1 顺手一起改的)
+  `highlights_remove` 命令不做 user_id 归属校验**: `highlights_repo.rs:
   121-123` 的 `remove` 只按 `id` 删(`DELETE FROM highlights WHERE id = ?1`),
   `ipc/commands.rs:111-114` 的 `highlights_remove` 命令签名也只传 `id`, 没有
   user 维度参与判断"这条摘录是不是当前用户的"。对照 `list_by_book` 是真按

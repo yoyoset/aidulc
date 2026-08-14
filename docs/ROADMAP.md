@@ -244,6 +244,15 @@ flash 的判断), 是确认级别不是推断。
   (`models_view.js:632`)里 nlp 段仅在已经通过"扫描"或"自定义模型"手动登记过
   才会显示。llm/tts 有"选磁盘已有 or 一键下载"的引导式弹窗, nlp 全靠用户自己
   知道去哪找模型文件再手动扫描登记, 三个模型家族里唯独这个没有新手友好路径。
+  ⏸ 需要产品决策, 见下(不是简单补一条 `DOWNLOAD_CATALOG` 目录项就能解决——llm/tts
+  是单文件直链下载, nlp/spaCy 模型是 pip 包, `models_view.js` 现有的
+  `_downloadModel`/`_downloadOne` 下载器是"URL→文件"模型, 不是"跑 pip install"
+  模型, 两者机制不同): 可选方向① 沿用现状, 因为内置 spaCy en_core_web_sm 兜底
+  已覆盖绝大多数场景("未添加自定义 NLP 模型时就是这个兜底, 无需下载", 见
+  `models_view.js:640`)——需要自定义 nlp 模型本身就是进阶操作, 用户能自己找到
+  ② 给 nlp 段加一段静态引导文案+外链(不下载, 只告诉用户去哪找、命令是什么)
+  ③ 扩展下载器支持"执行 pip install/spacy download"这类命令式安装(工作量最大,
+  涉及子进程执行+权限/依赖问题, 是新的一类基础设施而不是复用现有下载器)。
 
 ### 备料流程 (2026-08-14, prep/pipeline/*.py 7 阶段 + job_orchestrator.rs + jobs/batches_repo.rs + prep_view.js)
 

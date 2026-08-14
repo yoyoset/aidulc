@@ -18,6 +18,11 @@
             // I-C: 同步配置与状态 (V6 按当前 user 分账, 协议 v1)
             const syncSec = el('div', 'settings-section');
             syncSec.appendChild(el('h2', null, '同步 (背单词状态跨设备)'));
+            // K22 (2026-08-14, 用户拍板): 同步范围就是只同步生词表, 不含摘录/书签/阅读进度/
+            // 设置——之前只有标题隐含这个意思, 没有显式文案。用户确认这就是想要的边界(不是
+            // 遗漏), 只是要让边界看得见, 不是隐含行为。
+            const scopeNote = el('div', 'log-info', '同步范围: 只同步生词/背单词进度, 不含摘录、书签、阅读进度和阅读器设置——这些留在本机。');
+            syncSec.appendChild(scopeNote);
             const syncStatus = el('div', 'sync-status', '读取中…');
             // L11 (2026-08-11): 后端列表 —— "谁的库选谁的"。每项 = 名称 + URL + 状态,
             // 当前生效高亮; 可切换 / 新增 / 删除。

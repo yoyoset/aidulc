@@ -186,11 +186,20 @@
       const speak = document.createElement('button');
       speak.className = 'btn-small';
       speak.textContent = '🔊 发音';
-      speak.onclick = () => {
-        const u = new SpeechSynthesisUtterance(d.word);
-        u.lang = 'en-US';
-        speechSynthesis.speak(u);
-      };
+      // K7 (2026-08-14): 之前直接调 speechSynthesis.speak() 没做可用性检测, 也没监听
+      // error 事件——系统没装英文语音包或运行环境不支持时点击静默无反应, 用户分不清
+      // 是没配置好还是点击没生效(CLAUDE.md 明确要优先排除的"后台失败但用户以为成功")。
+      if (!global.speechSynthesis) {
+        speak.disabled = true;
+        speak.title = '当前环境不支持语音朗读';
+      } else {
+        speak.onclick = () => {
+          const u = new SpeechSynthesisUtterance(d.word);
+          u.lang = 'en-US';
+          u.onerror = () => AiduToast.show('发音失败: 系统可能没有安装英文语音包', 'error');
+          speechSynthesis.speak(u);
+        };
+      }
       wordRow.appendChild(speak);
       parts.push(wordRow);
 

@@ -67,7 +67,7 @@
   TTS(高质量, 音色可选), 但词典面板单词发音(`dictionary_panel.js:190-192`)走浏览器
   自带的 `SpeechSynthesisUtterance`——系统装了什么语音包就是什么音色, 跟正文朗读的
   音色完全对不上, 用户体验是"两个不同的人在读"。
-- **P2 词典发音没有可用性检测/错误反馈** (`dictionary_panel.js:189-193`): 直接调
+- **P2 ✅ 已修复(2026-08-14)词典发音没有可用性检测/错误反馈** (`dictionary_panel.js:189-193`): 直接调
   `speechSynthesis.speak()`, 没有判断 `window.speechSynthesis` 是否存在, 也没监听
   `SpeechSynthesisUtterance` 的 `error` 事件。系统没装对应语音包或运行环境不支持时,
   点击"🔊 发音"静默无反应——用户分不清是没配置好还是点击没生效, 正是 CLAUDE.md 里

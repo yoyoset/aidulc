@@ -355,6 +355,11 @@
       bar.appendChild(fill);
       // 任务行百分比文本 (苹果级: 进度可见)
       const pctLabel = el('span', 'prep-pct', `${pct}%`);
+      // K20 (2026-08-14): 长任务(翻译/讲解一本长篇小说可能要跑数小时)之前只有百分比,
+      // 用户只能猜"还要 5 分钟"还是"还要 5 小时"。用已耗时/已完成度线性外推(不是精确
+      // 预测, 各阶段耗时本来就不均匀, 只给量级参考); 刚开始(<5%)样本太少估不准, 不显示。
+      const eta = this._formatEta(job, pct);
+      if (eta) pctLabel.textContent += ` · ${eta}`;
       bar.appendChild(pctLabel);
       row.append(header, bar);
       // R5: 阶段流水条 (识别→分词→翻译→讲解→语音→对齐→排版)
@@ -540,6 +545,21 @@
       ov.appendChild(box);
       ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
       document.body.appendChild(ov);
+    }
+
+    /** K20 (2026-08-14): 已耗时/已完成度线性外推剩余时间。只对 running 且进度落在
+     *  [5%, 95%) 时显示——太早样本不够, 接近完成时线性外推容易因收尾阶段变慢而报错。 */
+    _formatEta(job, pct) {
+      if (job.status !== 'running' || pct < 5 || pct >= 95 || !job.created_at) return '';
+      const elapsedMs = Date.now() - job.created_at;
+      if (elapsedMs <= 0) return '';
+      const totalMs = elapsedMs / (pct / 100);
+      const remainMs = totalMs - elapsedMs;
+      if (remainMs <= 0) return '';
+      const mins = Math.round(remainMs / 60000);
+      if (mins < 1) return '约剩 <1 分钟';
+      if (mins < 60) return `约剩 ${mins} 分钟`;
+      return `约剩 ${Math.floor(mins / 60)} 小时 ${mins % 60} 分钟`;
     }
 
     /** R5: 7 阶段流水条 — 已完成✓ 当前高亮+进度 未到置灰 */

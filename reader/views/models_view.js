@@ -259,9 +259,12 @@
       go.onclick = () => {
         const raw = input.value.trim();
         if (!raw) { status.textContent = '先粘一个 HF 链接'; input.focus(); return; }
-        go.disabled = true;
-        status.textContent = '解析链接…';
-        AiduModelService.hfNormalize(raw).then((r) => {
+        // K30: 有备料任务在跑时下载模型, 先提示一下(同 _downloadModel 的检查)
+        this._maybeWarnJobRunning().then((proceed) => {
+          if (!proceed) return;
+          go.disabled = true;
+          status.textContent = '解析链接…';
+          AiduModelService.hfNormalize(raw).then((r) => {
           if (!r.ok) { status.textContent = '无法解析: ' + r.error + ' (请贴 …/resolve/… 直链)'; go.disabled = false; return; }
           const d = r.data || {};
           famSel.value = d.family_hint || famSel.value;
@@ -281,6 +284,7 @@
           }).catch((e) => {
             status.textContent = '下载失败: ' + (e && e.message || e);
             go.disabled = false;
+          });
           });
         });
       };
@@ -453,7 +457,39 @@
     }
 
     /** 后台下载 + 轮询状态 (不冻结 UI) → 完成自动登记 */
+    /** K30 (2026-08-14, 用户拍板"判断一下然后提示"): 有备料任务在跑时下载模型, 理论上
+     *  可能撞上"任务切到需要这个模型的阶段时文件还没下完"(低概率边界情况, 不是真正
+     *  互斥锁——那个工程量最大, 见 docs/ROADMAP.md 对应记录)。只做最小提示: 有 running
+     *  任务时弹一下, 用户自己判断要不要等。查不到任务列表/没有 running 任务直接放行,
+     *  这是体验提示不是安全校验, 不该拦住正常下载。 */
+    async _maybeWarnJobRunning() {
+      if (typeof AiduJobService === 'undefined') return true;
+      let running = [];
+      try {
+        const res = await AiduJobService.list();
+        if (res.ok && Array.isArray(res.data)) {
+          running = res.data.filter((j) => j.status === 'running');
+        }
+      } catch (e) { return true; }
+      if (!running.length) return true;
+      return new Promise((resolve) => {
+        AiduModal.confirm({
+          title: '有备料任务正在跑',
+          message: `有 ${running.length} 个备料任务正在处理书籍。如果这个模型正好是它接下来要用的, 任务切到那个阶段时文件可能还没下完(会报错, 但可以事后去模型中心重新下载补上)。要不要等任务完成再下载?`,
+          confirmText: '仍然下载', cancelText: '先不下',
+          onConfirm: () => resolve(true),
+          onCancel: () => resolve(false),
+        });
+      });
+    }
+
     _downloadModel(item, btn) {
+      this._maybeWarnJobRunning().then((proceed) => {
+        if (proceed) this._doDownloadModel(item, btn);
+      });
+    }
+
+    _doDownloadModel(item, btn) {
       btn.disabled = true;
       btn.textContent = '下载中…';
       this._modelDir().then((dir) => {

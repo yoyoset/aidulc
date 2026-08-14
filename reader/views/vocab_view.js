@@ -46,7 +46,7 @@
       const csvBtn = el('button', 'btn-small', '导出 CSV (Anki)');
       csvBtn.title = 'Front/Back/Example 三列 CSV, 可直接用 Anki「文件→导入」读取';
       csvBtn.onclick = () => this._exportCsv();
-      // K30 (2026-08-15): 存量补齐发音 —— 遍历当前列表所有词后台预生成缓存(幂等, 已有缓存自动跳过)
+      // K32 (2026-08-15): 存量补齐发音 —— 遍历当前列表所有词后台预生成缓存(幂等, 已有缓存自动跳过)
       const pregenBtn = el('button', 'btn-small', '补全发音');
       pregenBtn.title = '为生词本所有词后台预生成发音缓存 (幂等, 已有缓存的词自动跳过)';
       pregenBtn.onclick = () => this._backfillPronunciations();
@@ -411,7 +411,7 @@
         const audio = new Audio('data:audio/wav;base64,' + b64);
         audio.play().catch((e) => AiduToast.show('播放失败: ' + e.message, 'error'));
       };
-      // K30 (2026-08-15): 优先读本地预生成缓存, 命中直接播放; 未命中(null)降级到现场合成(原 K29 路径)。
+      // K32 (2026-08-15): 优先读本地预生成缓存, 命中直接播放; 未命中(null)降级到现场合成(原 K29 路径)。
       AiduDictionaryService.vocabReadCachedAudio(word).then((r) => {
         if (r.ok && r.data) { play(r.data); return; }
         AiduDictionaryService.ttsSynthWord(word).then((r2) => {
@@ -515,7 +515,7 @@
       AiduToast.show(`已导出 ${this.entries.length} 个生词为 CSV`, 'success');
     }
 
-    /** K30 (2026-08-15): 存量补齐发音 —— 遍历当前列表所有词依次预生成缓存(幂等,
+    /** K32 (2026-08-15): 存量补齐发音 —— 遍历当前列表所有词依次预生成缓存(幂等,
      *  后端见文件已存在就直接跳过)。顺序执行, 不并发堆满语音守护(单进程串行)。 */
     async _backfillPronunciations() {
       const words = this.entries.map((e) => e.word);

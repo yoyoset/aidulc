@@ -314,7 +314,7 @@
           this._speakWordFallback(word, rate, done);
         }
       };
-      // K30 (2026-08-15): 来源句原声(更上层已优先) → 本地预生成缓存 → 现场合成 → 系统机械音。
+      // K32 (2026-08-15): 来源句原声(更上层已优先) → 本地预生成缓存 → 现场合成 → 系统机械音。
       if (global.AiduDictionaryService && AiduDictionaryService.vocabReadCachedAudio) {
         AiduDictionaryService.vocabReadCachedAudio(word).then((r) => {
           if (r.ok && r.data) { playB64(r.data); return; }

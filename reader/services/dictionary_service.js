@@ -49,7 +49,7 @@
     // 让守护提前把模型加载好, 减少生词本首次点发音的等待。
     ttsSynthWord(word) { return AiduBridge.invoke('tts_synth_word', { word }); },
     ttsPrewarm() { return AiduBridge.invoke('tts_prewarm'); },
-    // K30 (2026-08-15): 生词发音缓存 —— ttsCacheWord 后台预生成音频落盘(幂等, 加词时
+    // K32 (2026-08-15): 生词发音缓存 —— ttsCacheWord 后台预生成音频落盘(幂等, 加词时
     // fire-and-forget); vocabReadCachedAudio 读缓存 base64(未命中返回 null, 前端降级合成)。
     ttsCacheWord(word) { return AiduBridge.invoke('tts_cache_word', { word }); },
     vocabReadCachedAudio(word) { return AiduBridge.invoke('vocab_read_cached_audio', { word }); },

@@ -85,7 +85,7 @@
       const toolbar = el('div', 'library-toolbar');
       const searchInput = el('input', 'prep-input');
       searchInput.placeholder = '搜索书名…';
-      // F46 (2026-08-15): 排序下拉 —— 纯内存状态 (this._sortMode), 不持久化, 默认 recent
+      // K31 (2026-08-15): 排序下拉 —— 纯内存状态 (this._sortMode), 不持久化, 默认 recent
       const sortSel = el('select', 'prep-select');
       [
         { key: 'recent', label: '最近打开' },
@@ -102,7 +102,7 @@
         this._sortMode = sortSel.value;
         this._renderBooks(listEl, this.store.state.books || [], searchInput, segBar, shelfEl);
       });
-      // F46: 卡片大小切换 —— 紧凑/大图二态按钮, 纯内存状态 (this._cardCompact), 默认大图
+      // K31: 卡片大小切换 —— 紧凑/大图二态按钮, 纯内存状态 (this._cardCompact), 默认大图
       const sizeBtn = el('button', 'btn-small', this._cardCompact ? '大图' : '紧凑');
       sizeBtn.title = this._cardCompact ? '切换为大图卡片' : '切换为紧凑卡片';
       sizeBtn.addEventListener('click', () => {
@@ -191,7 +191,7 @@
       // I-D: 搜索 + 筛选 (分段状态映射见 _statusBuckets)
       const q = (searchInput && searchInput.value || '').toLowerCase();
       const filter = this._statusFilter || 'all';
-      // F30/F46: 排序由 this._sortMode 决定 (默认 recent, 规则与历史完全一致)
+      // F30/K31: 排序由 this._sortMode 决定 (默认 recent, 规则与历史完全一致)
       const sorted = this._sortBooks(books);
       const filtered = sorted.filter(b => {
         if (q && !(b.title || b.id).toLowerCase().includes(q)) return false;
@@ -401,7 +401,7 @@
       });
     }
 
-    /** F46 (2026-08-15): 排序比较 —— recent(默认, 与历史一致)/title/progress/added */
+    /** K31 (2026-08-15): 排序比较 —— recent(默认, 与历史一致)/title/progress/added */
     _sortBooks(books) {
       const mode = this._sortMode || 'recent';
       const arr = books.slice();
@@ -430,14 +430,14 @@
       return cmp ? arr.sort(cmp) : arr;
     }
 
-    /** F46: 阅读进度比例 (0~1), 未开始读/无章数按 0 (进度排序时沉底) */
+    /** K31: 阅读进度比例 (0~1), 未开始读/无章数按 0 (进度排序时沉底) */
     _readingProgress(book) {
       const cc = this._chapterCount(book);
       if (!cc || book.reading_chapter == null) return 0;
       return (book.reading_chapter + 1) / cc;
     }
 
-    /** G4/F46: 章数从 edition 取 (原书登记时不填 chapter_count), 无 edition 退回书级 */
+    /** G4/K31: 章数从 edition 取 (原书登记时不填 chapter_count), 无 edition 退回书级 */
     _chapterCount(book) {
       const editionsArr = Array.isArray(book.editions) ? book.editions : [];
       if (editionsArr.length) return Math.max(...editionsArr.map((e) => e.chapter_count || 0));

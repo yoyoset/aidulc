@@ -214,10 +214,10 @@
 .edition-body { margin-top: 6px; }
 .edition-body.collapsed { display: none; }
 
-/* F46 (2026-08-15): 工具条排序下拉 —— 复用 prep-select, 窄屏不被挤压 */
+/* K31 (2026-08-15): 工具条排序下拉 —— 复用 prep-select, 窄屏不被挤压 */
 .library-toolbar .prep-select { flex-shrink: 0; }
 
-/* F46 (2026-08-15): 卡片大小切换 —— 紧凑模式缩小卡片/封面/meta, 复用令牌, 无裸值 */
+/* K31 (2026-08-15): 卡片大小切换 —— 紧凑模式缩小卡片/封面/meta, 复用令牌, 无裸值 */
 .book-list--compact {
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: var(--md-sys-space-3);

@@ -278,7 +278,7 @@ pub async fn tts_prewarm(
     Ok(())
 }
 
-// ---- K30 (2026-08-15): 生词发音缓存 —— 加词时后台预生成音频落盘, 播放优先读缓存,
+// ---- K32 (2026-08-15): 生词发音缓存 —— 加词时后台预生成音频落盘, 播放优先读缓存,
 // 现场合成降级为兜底。用"文件是否存在"标记"是否已生成": 不新增数据库列/不改 vocab
 // 表结构/不跑迁移(缓存天然幂等, 文件在就是已生成, 不存在就是没生成)。
 
@@ -297,7 +297,7 @@ fn tts_cache_path(data_dir: &std::path::Path, word: &str) -> std::path::PathBuf 
     data_dir.join("tts_cache").join(format!("{}.wav", tts_cache_slug(word)))
 }
 
-/// K30: 预生成某词的发音缓存(幂等)。生词加入生词本时后台异步调; 文件已存在就直接
+/// K32: 预生成某词的发音缓存(幂等)。生词加入生词本时后台异步调; 文件已存在就直接
 /// 返回(不重复合成、不 spawn_blocking); 未配置语音模型时静默跳过(同 tts_prewarm 的
 /// 降级——缓存是锦上添花, 不该因为没配语音就打断加词流程)。
 #[tauri::command]
@@ -338,7 +338,7 @@ pub async fn tts_cache_word(
     .map_err(|e| format!("语音缓存任务失败: {e}"))?
 }
 
-/// K30: 读生词发音缓存。命中返回 base64 WAV(前端拼 data: URL 播放), 未命中返回
+/// K32: 读生词发音缓存。命中返回 base64 WAV(前端拼 data: URL 播放), 未命中返回
 /// None(不是错误, 是"还没预生成", 前端据此降级到现场合成)。
 #[tauri::command]
 pub fn vocab_read_cached_audio(
@@ -367,7 +367,7 @@ mod k1_tests {
 
     #[test]
     fn cache_slug_strips_path_and_control_chars() {
-        // K30: slug 只允许 ASCII 字母数字, 路径分隔符/控制字符/非 ASCII 一律变下划线,
+        // K32: slug 只允许 ASCII 字母数字, 路径分隔符/控制字符/非 ASCII 一律变下划线,
         // 防止越界路径混入缓存文件名。
         assert_eq!(tts_cache_slug("Hello World"), "hello_world");
         assert_eq!(tts_cache_slug("..\\..\\secret"), "______secret");

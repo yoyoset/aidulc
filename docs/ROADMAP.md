@@ -106,10 +106,14 @@
   ——`shell_view.js:153-154` 给备料任务数用了 nav-count badge, 但没复用到生词到期数
   这个更需要"习惯提醒"的场景(SRS 效果依赖按时复习, 用户不主动点进生词本就完全看
   不到"今天有 N 个词到期")。
-- **P2 无 Anki/CSV 等外部格式导出**: 全仓 grep `anki|csv` 零命中, 现有导出只有
+- **P2 ✅ 已修复(2026-08-14, K19)无 Anki/CSV 等外部格式导出**: 全仓 grep `anki|csv` 零命中, 现有导出只有
   `.aidu-data`(AIDU 自有备份格式)和一份纯前端 JSON(`vocab_view.js:454-465`)。
   项目自己实现了完整的 SM-2 变体 SRS(`domain/srs.rs`), 但生词本数据出不去这个
   软件——想用 Anki 桌面/手机 app 复习, 或者单纯想要一份人可读的表格, 都做不到。
+  **修复**: 生词本页加"导出 CSV (Anki)"按钮, Front/Back/Example 三列(RFC4180
+  引号转义, 带 BOM 兼容中文)——Anki「文件→导入」原生识别这个格式, 不用额外写
+  .apkg 打包逻辑。纯前端格式转换(数据已在 `this.entries` 里), 复用已有的
+  Blob+`<a download>` 模式, 不新起后端命令。
 - **P2 ✅ 已修复(2026-08-14): 确认是重复实现, 已删除**(不是"接上"而是"删掉"——
   见下)`vocab_stats` 命令已接线但零调用: `commands/vocab.rs:112` 的 `vocab_stats`
   命令、前端 `dictionary_service.js:37` 的 `vocabStats` 包装都在, grep 确认没有任何

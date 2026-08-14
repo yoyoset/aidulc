@@ -40,13 +40,19 @@
       restoreBtn.onclick = () => this._restore();
       const exportBtn = el('button', 'btn-small', '导出 JSON');
       exportBtn.onclick = () => this._export();
+      // K19 (2026-08-14): 项目自己实现了完整的 SM-2 变体 SRS, 但生词本数据出不去这个软件——
+      // 想用 Anki 桌面/手机 app 复习, 或者单纯想要一份人可读的表格, 都做不到。CSV(Front/
+      // Back/Example 三列)是 Anki 导入向导原生支持的格式, 不用额外写 .apkg 打包逻辑。
+      const csvBtn = el('button', 'btn-small', '导出 CSV (Anki)');
+      csvBtn.title = 'Front/Back/Example 三列 CSV, 可直接用 Anki「文件→导入」读取';
+      csvBtn.onclick = () => this._exportCsv();
       // L5 (2026-08-11): 页头工具条 —— 按钮成组靠右、组内间距固定, 不再被 space-between 撑开。
       const header = global.AiduPageToolbar
-        ? global.AiduPageToolbar.build('生词本', [backupBtn, restoreBtn, exportBtn])
+        ? global.AiduPageToolbar.build('生词本', [backupBtn, restoreBtn, exportBtn, csvBtn])
         : (() => {
             const h = el('div', 'page-header');
             h.appendChild(el('h1', null, '生词本'));
-            h.append(backupBtn, restoreBtn, exportBtn);
+            h.append(backupBtn, restoreBtn, exportBtn, csvBtn);
             return h;
           })();
       wrap.appendChild(header);
@@ -462,6 +468,24 @@
       a.click();
       URL.revokeObjectURL(url);
       AiduToast.show(`已导出 ${n} 个生词`, 'success');
+    }
+
+    /** K19 (2026-08-14): CSV 导出 —— Front/Back/Example 三列, Anki「文件→导入」原生识别。
+     *  RFC4180 引号转义(含逗号/换行/引号的字段本身), 不依赖任何第三方 CSV 库。 */
+    _exportCsv() {
+      const q = (s) => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+      const rows = [['Front', 'Back', 'Example'].map(q).join(',')];
+      this.entries.forEach((e) => {
+        rows.push([e.word, e.meaning || '', e.context || ''].map(q).join(','));
+      });
+      const blob = new Blob(['﻿' + rows.join('\r\n')], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `aidulc-vocab-${this.profileId}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      AiduToast.show(`已导出 ${this.entries.length} 个生词为 CSV`, 'success');
     }
 
     /** F27: 备份为 .aidu-data (词典+生词, 跨设备迁移格式) */

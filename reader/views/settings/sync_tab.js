@@ -141,9 +141,13 @@
               text += (d.user_id ? ' · ' + d.user_id : '') +
                 (d.worker_url ? ' · ' + d.worker_url : '') +
                 (d.last_sync_at ? ' · 上次 ' + new Date(d.last_sync_at).toLocaleTimeString() : '');
-              // J8 (2026-08-11): 「N 条待推」要解释为什么没推 (自动推送只在启动/完成时触发)
+              // J8 (2026-08-11): 「N 条待推」要解释为什么没推。
+              // K6 (2026-08-14): 原文案称"自动推送只在启动时和任务完成后触发", 但成熟度审计
+              // 独立复核两遍(Rust sync_now 调用点 + 前端 AiduSyncService.now() 调用点)确认
+              // 全仓没有任何自动触发——唯一调用点是本文件下面手动点「立即同步」。改成如实描述,
+              // 不写"会自动"这种不存在的行为(要做真的自动同步是另一件更大的事, 不在这里顺手加)。
               if (d.pending_count > 0) {
-                text += '\n' + d.pending_count + ' 条待推 —— 自动推送只在启动时和任务完成后触发; 想立刻发点「立即同步」。';
+                text += '\n' + d.pending_count + ' 条待推 —— 不会自动推送, 点「立即同步」才会发。';
               }
               if (afterSync && (d.last_wrote !== 0 || d.last_pulled !== 0)) {
                 text += '\n本次推 ' + d.last_wrote + ' 条 / 拉 ' + d.last_pulled + ' 条';

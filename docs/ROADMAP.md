@@ -141,7 +141,7 @@
 现状枚举委派 flash 做的, 判断以下 3 条基于枚举结果; 第一条自己独立复核过(不是转述
 flash 的判断), 是确认级别不是推断。
 
-- **P2(已确认)UI 文案与实际行为不符**: `reader/views/settings/sync_tab.js:146` 的
+- **P2 ✅ 已修复(2026-08-14)UI 文案与实际行为不符**: `reader/views/settings/sync_tab.js:146` 的
   "待推 N 条"提示文案称"自动推送只在启动时和任务完成后触发", 但独立 grep 全仓
   (Rust `sync_now` 调用点 + 前端 `AiduSyncService.now()` 调用点)确认: 除了命令
   注册本身, 唯一调用点是 `sync_tab.js:191` 手动点"立即同步"按钮——没有任何启动

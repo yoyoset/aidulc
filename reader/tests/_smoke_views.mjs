@@ -1612,10 +1612,14 @@ console.log('== 6f. UX5 #2 (2026-08-13): 单卡双语音按钮 —— 正常速�
   const gNormal = gVoiceBtns.find((b) => b.textContent === '正常速度');
   const gSlow = gVoiceBtns.find((b) => b.textContent === '慢速');
   gNormal.onclick();
+  // K32 (2026-08-15): _speakWord 先 await vocabReadCachedAudio 才决定降级路径, 比原来
+  // 多一次微任务跳转, 点击后不能再同步断言, 补一次 tick 等 .then() 链跑完。
+  await Promise.resolve().then(() => {});
   check('UX5#2: 无来源词条 → speechSynthesis 读单词 (rate 1.0)', spoken.some((u) => u.text === 'bank' && u.rate === 1), JSON.stringify(spoken));
   rvG._stopVoice();
   spoken.length = 0;
   gSlow.onclick();
+  await Promise.resolve().then(() => {});
   check('UX5#2: 慢速降级 rate 0.6 (系统级)', spoken.some((u) => u.text === 'bank' && u.rate === 0.6), JSON.stringify(spoken));
   rvG.cleanup();
   // 还原

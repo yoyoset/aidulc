@@ -294,7 +294,9 @@ fn tts_cache_slug(word: &str) -> String {
 
 /// 缓存文件绝对路径: {data_dir}/tts_cache/{slug}.wav
 fn tts_cache_path(data_dir: &std::path::Path, word: &str) -> std::path::PathBuf {
-    data_dir.join("tts_cache").join(format!("{}.wav", tts_cache_slug(word)))
+    data_dir
+        .join("tts_cache")
+        .join(format!("{}.wav", tts_cache_slug(word)))
 }
 
 /// K32: 预生成某词的发音缓存(幂等)。生词加入生词本时后台异步调; 文件已存在就直接
@@ -330,8 +332,7 @@ pub async fn tts_cache_word(
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(&b64)
             .map_err(|e| format!("解码语音 base64 失败: {e}"))?;
-        std::fs::create_dir_all(&target_dir)
-            .map_err(|e| format!("创建语音缓存目录失败: {e}"))?;
+        std::fs::create_dir_all(&target_dir).map_err(|e| format!("创建语音缓存目录失败: {e}"))?;
         std::fs::write(&target, bytes).map_err(|e| format!("写语音缓存失败: {e}"))
     })
     .await
@@ -355,7 +356,9 @@ pub fn vocab_read_cached_audio(
     }
     let data = std::fs::read(&target).map_err(|e| format!("读语音缓存失败: {e}"))?;
     use base64::Engine;
-    Ok(Some(base64::engine::general_purpose::STANDARD.encode(&data)))
+    Ok(Some(
+        base64::engine::general_purpose::STANDARD.encode(&data),
+    ))
 }
 
 #[cfg(test)]

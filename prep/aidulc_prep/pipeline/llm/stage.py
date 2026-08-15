@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 
-from aidulc_prep.core.errors import EngineError
+from aidulc_prep.core.errors import AidulcError, EngineError
 from aidulc_prep.core.models import Chapter, Sentence
 from aidulc_prep.core.quality import QualityReport
 from aidulc_prep.infra.checkpoint import is_done_sentence, save_stage_result
@@ -120,6 +120,31 @@ def load_translation(out_dir: str, chapter: int, index: int) -> str:
     return data.get("translation", "")
 
 
+# K3-explain (2026-08-15, 实测复现: Wonder 一书 2983/7357 句 explain 全部报
+# "讲解 JSON 解析失败"): deep 策略提示词明确要求"讲得啰嗦一点没关系, 多用打比方"
+# (prompt.py EXPLAIN_DEEP), 但 complete_fn 默认 max_tokens=400 —— 长讲解在 JSON
+# 右花括号写完前被截断, 输出永远不是合法 JSON。旧代码单次调用不重试, 一次截断
+# 就永久判失败。EXPLAIN_MAX_TOKENS 给首次调用更宽的默认预算; 首次仍失败时,
+# EXPLAIN_RETRY_MAX_TOKENS 用更大预算重试一次(只针对"这句话本身"重试, 不是
+# translate 那种对半拆批, 因为 explain 本来就是逐句调用, 没有批可拆)。
+EXPLAIN_MAX_TOKENS = 700
+EXPLAIN_RETRY_MAX_TOKENS = 1100
+
+
+def _explain_one(complete_fn, system: str, i: int, original_text: str, max_tokens: int) -> tuple[str, str]:
+    """单次调用 + 解析 + guard 校验。失败抛异常(ValueError 或底层 EngineError 等)。"""
+    content = complete_fn([
+        {"role": "system", "content": system},
+        {"role": "user", "content": f"[{i}] {original_text}"},
+    ], max_tokens=max_tokens)
+    tr, ex = _parse_explain_json(content, original_text)
+    if check_explain_echo(original_text, ex):
+        raise ValueError("讲解是原文回显")
+    if not ex.strip():
+        raise ValueError("讲解为空")
+    return tr, ex
+
+
 def explain_sentences(
     chapter: Chapter,
     complete_fn,
@@ -147,15 +172,13 @@ def explain_sentences(
         if is_done_sentence(out_dir, chapter.index, i, "explanation"):
             continue
         try:
-            content = complete_fn([
-                {"role": "system", "content": system},
-                {"role": "user", "content": f"[{i}] {s.original_text}"},
-            ])
-            tr, ex = _parse_explain_json(content, s.original_text)
-            if check_explain_echo(s.original_text, ex):
-                raise ValueError("讲解是原文回显")
-            if not ex.strip():
-                raise ValueError("讲解为空")
+            try:
+                tr, ex = _explain_one(complete_fn, system, i, s.original_text, EXPLAIN_MAX_TOKENS)
+            except AidulcError:
+                raise  # 模型加载/推理致命失败不当"输出格式问题"重试, 同 translate_batch_with_retry 的纪律
+            except Exception:
+                # 首次失败(多半是长讲解被 max_tokens 截断): 加大预算重试一次
+                tr, ex = _explain_one(complete_fn, system, i, s.original_text, EXPLAIN_RETRY_MAX_TOKENS)
             s.explanation = ex
             if tr:
                 s.translation = tr

@@ -13,6 +13,7 @@ mod application {
     pub mod wizard_service;
 }
 mod commands {
+    pub mod book_audit;
     pub mod data_root;
     pub mod dictionary;
     pub mod jobs;
@@ -489,6 +490,7 @@ fn main() {
             commands::library::read_audio_range,
             commands::library::read_image,
             commands::library::pick_files,
+            commands::book_audit::book_audit_sources,
             commands::library::library_preview,
             commands::library::backfill_cover,
             commands::library::book_export,

@@ -182,6 +182,8 @@ globalThis.AiduImportService = {
   getProfile: async () => ({ id: 'default', name: '成人自读', explain_strategy: 'brief', voice: 'af_heart', speed: 1.0, highlight_granularity: 'sentence' }),
   buildProfile: () => ({ id: 'default' }),
   buildModels: async () => ({}),
+  // STDIMPORT (2026-08-17): 导入前体检。默认全部达标 (个别用例会覆盖成 block/warn)
+  auditSources: async (paths) => paths.map(() => ({ verdict: 'ok', issues: [] })),
   importBooks: async (paths) => ({ ok: true, data: { registered: paths, skipped: [] } }),
   startPrep: async () => ({ ok: true, data: {} }),
 };
@@ -239,6 +241,7 @@ load('components/toast.js');
 load('core/import_guard.js');
 load('core/builtin_profiles.js');
 load('core/rerun_scope.js');
+load('core/import_gate.js');
 load('views/library/cover.js');
 load('views/library/status.js');
 load('views/library_view.js');
@@ -1034,6 +1037,48 @@ console.log('== 3. library_view 导入格 (G1): 网格最后一格, 无下拉, �
   dropZone.onclick();
   await new Promise((r) => setTimeout(r, 10));
   check('点击直接触发一次 pickFiles', calls.pickFiles.length === before + 1);
+}
+
+console.log('== 3a-2. STDIMPORT (2026-08-17): 导入前统一标准体检 —— 不达标的不进书库 ==');
+{
+  const lv = new globalThis.LibraryView(store, 'original');
+  const origAudit = globalThis.AiduImportService.auditSources;
+  const origImport = globalThis.AiduImportService.importBooks;
+  const imported = [];
+  globalThis.AiduImportService.importBooks = async (paths) => {
+    imported.push(paths);
+    return { ok: true, data: { registered: paths, skipped: [], batch_id: 'b1' } };
+  };
+
+  // 一本不达标 + 一本达标 → 只导入达标那本
+  globalThis.AiduImportService.auditSources = async () => ([
+    { verdict: 'block', issues: [{ code: 'S3', level: 'block', message: '解析结果过少: 0 章 / 0 句' }] },
+    { verdict: 'ok', issues: [] },
+  ]);
+  lv._startBatchImport(['C:/Books/broken.epub', 'C:/Books/good.epub']);
+  await new Promise((r) => setTimeout(r, 20));
+  check('体检: 不达标的书不进书库, 达标的照常导入',
+    imported.length === 1 && imported[0].length === 1 && imported[0][0] === 'C:/Books/good.epub',
+    JSON.stringify(imported));
+
+  // 全部不达标 → 根本不调 batch_import (不留一堆注定跑失败的书在库里)
+  imported.length = 0;
+  globalThis.AiduImportService.auditSources = async () => ([
+    { verdict: 'block', issues: [{ code: 'S1', level: 'block', message: 'EPUB 打不开或读不到 spine' }] },
+  ]);
+  lv._startBatchImport(['C:/Books/dead.epub']);
+  await new Promise((r) => setTimeout(r, 20));
+  check('体检: 全部不达标 → 完全不发起导入', imported.length === 0, JSON.stringify(imported));
+
+  // 体检本身炸了(侧车缺失/超时)不该挡住用户导入
+  imported.length = 0;
+  globalThis.AiduImportService.auditSources = async () => { throw new Error('侧车不可用'); };
+  lv._startBatchImport(['C:/Books/whatever.epub']);
+  await new Promise((r) => setTimeout(r, 20));
+  check('体检: 体检自身失败 → 降级放行, 不挡住导入', imported.length === 1, JSON.stringify(imported));
+
+  globalThis.AiduImportService.auditSources = origAudit;
+  globalThis.AiduImportService.importBooks = origImport;
 }
 
 console.log('== 3b. G2 (2026-08-11): 每张书卡至多一个主按钮 (.btn-primary ≤ 1) ==');

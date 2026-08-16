@@ -1088,10 +1088,24 @@
       const sourceLang = 'en';
       // 阶段2 (F45): 单次动作只导一次 —— 拖拽事件与文件选择同时命中/快速连点都只放行第一次
       if (this._importDedup && !this._importDedup.shouldFire(paths, profileId)) return;
-      // 苹果级: 立即反馈"正在登记"
-      AiduToast.show(`正在导入 ${paths.length} 本书…`, 'info');
-      AiduImportService.importBooks(paths, profileId, { source: sourceLang, target: 'zh-CN' })
+      // STDIMPORT (2026-08-17): 先按统一标准体检再登记。之前"导入"完全不碰文件内容,
+      // 一本正文丢 95% 的书照样导入成功, 要等用户点了开始处理、烧掉 parse 阶段才发现。
+      // 体检本身是同一份判据(prep 侧 core/standard.py), 不达标的不放进书库。
+      AiduToast.show(`正在检查 ${paths.length} 本书…`, 'info');
+      AiduImportService.auditSources(paths)
+        .catch(() => [])   // 体检自身出错不该挡住导入, 当作"判不了"全部放行
+        .then((audits) => {
+          const gate = global.AiduImportGate.evaluate(paths, audits);
+          gate.messages.forEach((m) => AiduToast.show(m.text, m.level === 'error' ? 'error' : 'warning'));
+          if (!gate.accepted.length) {
+            if (this.onImportError) this.onImportError('没有符合导入标准的书');
+            return null;
+          }
+          AiduToast.show(`正在导入 ${gate.accepted.length} 本书…`, 'info');
+          return AiduImportService.importBooks(gate.accepted, profileId, { source: sourceLang, target: 'zh-CN' });
+        })
         .then((res) => {
+          if (!res) return; // 体检全被拦下, 上一步已经把原因说清楚了, 不再叠加成功文案
           if (!res.ok) {
             if (this.onImportError) this.onImportError(res.error);
             AiduToast.show('导入失败: ' + res.error, 'error');

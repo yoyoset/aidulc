@@ -349,6 +349,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "移除任务",
     },
     CommandInfo {
+        path: "commands::book_audit::book_audit_sources",
+        domain: "书库",
+        desc: "导入前源书体检 (S1-S6 统一标准)",
+    },
+    CommandInfo {
         path: "commands::jobs::job_retry_failed",
         domain: "任务",
         desc: "重试失败句",

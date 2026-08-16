@@ -52,6 +52,13 @@
       return models;
     },
 
+    /** STDIMPORT (2026-08-17): 导入前源书体检 (S1-S6)。返回与 paths 同序的结果数组;
+     *  侧车不可用/超时时 Rust 侧已降级成 verdict='unknown', 不会让整批导入失败。 */
+    async auditSources(paths) {
+      const res = await AiduBridge.invoke('book_audit_sources', { paths });
+      return (res.ok && res.data) || [];
+    },
+
     /** 启动批量导入: 组装完整参数 → batch_import (R1: 只登记 source, 不开始处理) */
     async importBooks(paths, profileId, languages) {
       const profile = await this.getProfile(profileId);

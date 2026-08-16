@@ -39,6 +39,21 @@ NON_BODY_TOC = re.compile(
 # 整本正文都在里面 (老正则会解析出 5351 句的"巨章"), 文件内的 h1-h6 才是真实章节边界。
 LARGE_FILE_SPLIT_THRESHOLD = 200
 
+# 章节标题回退 (2026-08-16 实测): 既没有 TOC 条目、也从文件内容抽不出标题时的兜底。
+# 之前是 f"Chapter {len(chapters)+1}" —— 这个数字是"这本书目前累计产出了多少章"
+# 的位置计数, 不是书里真实的章节序号; 一旦跟同一本书里由 TOC/heading 提供的真实
+# "CHAPTER N" 标题交替出现(实测 Wild Robot Boxed Set: 目录里 "17. Chapter 17" 后面
+# 紧跟 "18. CHAPTER 16"), 两套编号体系互相打架, 读者会以为章节顺序乱了。
+# 诊断过两类根因, 只有一类能修:
+#   - Despereaux: <h1><img.../></h1>, 标题在源文件里就是纯装饰图片, 没有可提取的
+#     文字, 无法恢复真实标题(54/56 章都是这种)。
+#   - Hatchet: <h2><a><span>4</span></a></h2>, 标题文字确实存在但被嵌套标签跟
+#     [[HEADING]] 标记拆成了不同行, 理论上可以用向后看几行、吸收短行拼回标题的
+#     启发式抓回来——实测过这个启发式在 Number the Stars/Wild Robot 这类本来标题
+#     就抽取正常的书上会误吞真实首段导致丢句(1008→1001/3924→3694), 风险和收益
+#     不成比例, 这次不做, 只保底把回退文案改诚实, 不再假装成"Chapter N"。
+_UNTITLED_CHAPTER = "(Untitled)"
+
 
 def _norm_zip_path(p: str) -> str:
     """归一化 zip 内部路径: URL 解码(TOC/OPF 的 href 常是 URL 编码, 如 "Chapter%201.xhtml",
@@ -458,7 +473,7 @@ def load_epub_with_spine_health(path: str) -> tuple[Book, list[str]]:
             if first_body_idx is not None and i < first_body_idx:
                 continue  # 前页: 第一个被正文 TOC 引用的文件之前
             heading = next((t for t, _ in _file_sections(zf, full) if t), "")
-            ch_title = toc_body.get(full) or heading or f"Chapter {len(chapters) + 1}"
+            ch_title = toc_body.get(full) or heading or _UNTITLED_CHAPTER
             built = _build_chapters_from_file(zf, full, ch_title)
             before = len(chapters)
             for ch in built:
@@ -474,7 +489,7 @@ def load_epub_with_spine_health(path: str) -> tuple[Book, list[str]]:
             if key in full_files:
                 continue
             heading = next((t for t, _ in _file_sections(zf, key) if t), "")
-            ch_title = text or heading or f"Chapter {len(chapters) + 1}"
+            ch_title = text or heading or _UNTITLED_CHAPTER
             built = _build_chapters_from_file(zf, key, ch_title)
             before = len(chapters)
             for ch in built:

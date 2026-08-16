@@ -6,9 +6,11 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import zipfile
+from urllib.parse import unquote
 from xml.etree import ElementTree as ET
 
 from aidulc_prep.core.errors import InputError
@@ -37,7 +39,11 @@ LARGE_FILE_SPLIT_THRESHOLD = 200
 
 
 def _norm_zip_path(p: str) -> str:
-    """归一化 zip 内部路径: 去 ./ ../ 冗余段, 统一 / 分隔 (物理键比较用)。"""
+    """归一化 zip 内部路径: URL 解码(TOC/OPF 的 href 常是 URL 编码, 如 "Chapter%201.xhtml",
+    但 zip 内真实成员名不编码, 如 "Chapter 1.xhtml" —— 不解码会导致路径比较失败、
+    _read_member 静默读空、章节整个消失不报错, 2026-08-16 实测 Tuck Everlasting 一书因此
+    丢失 95% 正文) + 去 ./ ../ 冗余段 + 统一 / 分隔 (物理键比较用)。"""
+    p = unquote(p)
     parts: list[str] = []
     for seg in p.replace("\\", "/").split("/"):
         if seg in ("", "."):
@@ -53,6 +59,7 @@ def _read_member(zf: zipfile.ZipFile, name: str) -> str:
     try:
         return zf.read(name).decode("utf-8", errors="replace")
     except KeyError:
+        logging.getLogger("aidulc").warning("EPUB 内找不到文件: %s (可能是路径编码/解析问题)", name)
         return ""
 
 
@@ -305,7 +312,7 @@ def _find_toc_source(
                 nav_file = v
                 break
     if nav_file:
-        nav_full = f"{opf_dir}/{nav_file}" if opf_dir else nav_file
+        nav_full = _norm_zip_path(f"{opf_dir}/{nav_file}" if opf_dir else nav_file)
         return _parse_toc(_read_member(zf, nav_full)), "nav.xhtml"
 
     # EPUB2 目录 (2026-08-08 补): 老书用 toc.ncx 而非 nav.xhtml。
@@ -326,7 +333,7 @@ def _find_toc_source(
                 ncx_file = v
                 break
     if ncx_file:
-        ncx_full = f"{opf_dir}/{ncx_file}" if opf_dir else ncx_file
+        ncx_full = _norm_zip_path(f"{opf_dir}/{ncx_file}" if opf_dir else ncx_file)
         return _parse_ncx(_read_member(zf, ncx_full)), "toc.ncx"
 
     return toc_items, "none"

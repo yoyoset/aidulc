@@ -187,10 +187,44 @@ class Runner:
 
     def _parse(self) -> Book:
         try:
+            ext = os.path.splitext(self.job["book_path"])[1].lower()
+            if ext == ".epub":
+                from aidulc_prep.pipeline.loader.epub import load_epub_with_spine_health
+                book, uncovered = load_epub_with_spine_health(self.job["book_path"])
+                self._check_epub_health(book, uncovered)
+                return book
             return load_book(self.job["book_path"])
         except InputError as e:
             self.quality.record("parse", ok=False)
             raise
+
+    def _check_epub_health(self, book: Book, uncovered: list[str]) -> None:
+        """F39 体检本来只在"查看原文"预览路径生效(cli.py --preview-book), 真正备料
+        跑的是这里, 没接线——实测 Tuck Everlasting 因此悄悄产出一本只有 5% 正文的书,
+        全程无错误无警告(2026-08-16 实测)。denominator 用"产出了章节的文件数 + 未覆盖
+        文件数"近似"全书正文相关文件总数"(epub.py 内部没有直接暴露精确总数,
+        这是足够精确的近似, 不是精确值)。
+        超过 10% 未覆盖 → 判定数据丢失, 直接拒绝而不是产出残缺书包(InputError,
+        parse 阶段失败, 不会浪费后续翻译/讲解/TTS 的算力)。
+        未超过阈值的异常(离群句数/巨章/空章)只记警告日志, 不阻断——这类多数是
+        正常现象(封面页/插图说明页确实该产出 0-1 句的短章), 见 core/health.py 的
+        detect_anomalies 现有注释。"""
+        from aidulc_prep.core.health import detect_anomalies
+        total = len(book.chapters) + len(uncovered)
+        if total and len(uncovered) / total > 0.10:
+            sample = ", ".join(uncovered[:5])
+            more = f" 等共 {len(uncovered)} 个" if len(uncovered) > 5 else ""
+            raise InputError(
+                "EPUB 疑似大量正文丢失, 已拒绝处理",
+                f"{len(uncovered)}/{total} 个正文文件未被任何章节覆盖({sample}{more})"
+                "——多半是路径编码/解析问题, 不是正常现象",
+            )
+        anomalies = detect_anomalies([len(c.sentences) for c in book.chapters], uncovered)
+        if anomalies:
+            logging.getLogger("aidulc").warning(
+                "EPUB 体检发现 %d 条异常(未达 10%% 阻断阈值, 继续处理): %s",
+                len(anomalies), "; ".join(anomalies[:10]),
+            )
 
     def _nlp(self, book: Book):
         # M 系列: 实现提取到 nlp/stage.py (与 llm/tts/align stage 对称)

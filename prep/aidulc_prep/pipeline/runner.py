@@ -201,30 +201,54 @@ class Runner:
     def _check_epub_health(self, book: Book, uncovered: list[str]) -> None:
         """F39 体检本来只在"查看原文"预览路径生效(cli.py --preview-book), 真正备料
         跑的是这里, 没接线——实测 Tuck Everlasting 因此悄悄产出一本只有 5% 正文的书,
-        全程无错误无警告(2026-08-16 实测)。denominator 用"产出了章节的文件数 + 未覆盖
-        文件数"近似"全书正文相关文件总数"(epub.py 内部没有直接暴露精确总数,
-        这是足够精确的近似, 不是精确值)。
-        超过 10% 未覆盖 → 判定数据丢失, 直接拒绝而不是产出残缺书包(InputError,
-        parse 阶段失败, 不会浪费后续翻译/讲解/TTS 的算力)。
-        未超过阈值的异常(离群句数/巨章/空章)只记警告日志, 不阻断——这类多数是
-        正常现象(封面页/插图说明页确实该产出 0-1 句的短章), 见 core/health.py 的
-        detect_anomalies 现有注释。"""
+        全程无错误无警告(2026-08-16 实测)。
+
+        2026-08-16 补充实测: `uncovered` 里混了两类完全不同的东西——(a) 真的读不到
+        的文件(路径解析失败, 数据丢失, 该拦)和 (b) 读到了但本来就没正文的文件
+        (纯插图页/手写目录页, epub.py::_build_chapters_from_file 对这类文件本来就会
+        返回 []——正常现象, 不该拦)。第一版实现把两者混在一起算比例, 实测在
+        Despereaux(9个未覆盖, 全部是插图页, 真实占比应为 0%)和 Wild Robot Boxed Set
+        (36个未覆盖, 同样全部是插图/目录页, 真实占比应为 0%)上会分别算出 13.8%/10.7%,
+        双双错误触发本该只拦真正数据丢失的 10% 阈值——用 _classify_uncovered_epub_files
+        重新分类后两本书的真实缺失都是 0/9 和 0/36, 才是正确结果。"""
         from aidulc_prep.core.health import detect_anomalies
+        real_missing = self._classify_uncovered_epub_files(uncovered)
         total = len(book.chapters) + len(uncovered)
-        if total and len(uncovered) / total > 0.10:
-            sample = ", ".join(uncovered[:5])
-            more = f" 等共 {len(uncovered)} 个" if len(uncovered) > 5 else ""
+        if total and len(real_missing) / total > 0.10:
+            sample = ", ".join(real_missing[:5])
+            more = f" 等共 {len(real_missing)} 个" if len(real_missing) > 5 else ""
             raise InputError(
                 "EPUB 疑似大量正文丢失, 已拒绝处理",
-                f"{len(uncovered)}/{total} 个正文文件未被任何章节覆盖({sample}{more})"
+                f"{len(real_missing)}/{total} 个正文文件读取失败({sample}{more})"
                 "——多半是路径编码/解析问题, 不是正常现象",
             )
-        anomalies = detect_anomalies([len(c.sentences) for c in book.chapters], uncovered)
+        anomalies = detect_anomalies([len(c.sentences) for c in book.chapters], real_missing)
         if anomalies:
             logging.getLogger("aidulc").warning(
                 "EPUB 体检发现 %d 条异常(未达 10%% 阻断阈值, 继续处理): %s",
                 len(anomalies), "; ".join(anomalies[:10]),
             )
+
+    def _classify_uncovered_epub_files(self, uncovered: list[str]) -> list[str]:
+        """`uncovered` 里区分"真的读不到"(_read_member 因 KeyError 返回原始空字符串,
+        是路径解析失败的信号)和"读到了但本来就没正文"(纯插图页等, 正常现象)。
+        判据: _read_member 返回的是 _read_member 内部尚未做标签剥离的原始 HTML——
+        真实存在的文件哪怕只有一张图也会有 `<html><body><img.../></body></html>`
+        这类标记, 原始内容不可能是空字符串; 只有 KeyError(压根没找到这个文件)
+        才会让 _read_member 返回 ""。用这个信号精确区分, 而不是直接拿 uncovered
+        的原始计数当分子(那样会把插图页/目录页这类正常情况错判成数据丢失,
+        2026-08-16 实测过, 见 _check_epub_health 的 docstring)。
+        book_path 拿不到/zip 打不开时保守处理, 原样返回整个 uncovered 列表
+        (不确定就不放松阈值判断)。"""
+        import zipfile
+        from aidulc_prep.pipeline.loader.epub import _read_member
+        book_path = self.job.get("book_path", "")
+        try:
+            zf = zipfile.ZipFile(book_path)
+        except Exception:
+            return uncovered
+        with zf:
+            return [f for f in uncovered if _read_member(zf, f) == ""]
 
     def _nlp(self, book: Book):
         # M 系列: 实现提取到 nlp/stage.py (与 llm/tts/align stage 对称)

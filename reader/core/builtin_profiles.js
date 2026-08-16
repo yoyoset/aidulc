@@ -17,11 +17,13 @@
       id: 'default', name: '成人自读',
       explain_strategy: 'brief', voice: 'af_heart', speed: 1.0,
       highlight_granularity: 'sentence',
+      explain_max_chars: 150, explain_min_sentence_chars: 0,
     },
     kid: {
       id: 'kid', name: '陪小孩读',
       explain_strategy: 'deep', voice: 'af_heart', speed: 0.9,
       highlight_granularity: 'word',
+      explain_max_chars: 150, explain_min_sentence_chars: 0,
     },
   };
 

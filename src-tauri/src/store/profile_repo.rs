@@ -12,6 +12,21 @@ pub struct Profile {
     pub voice: String,
     pub speed: f64,
     pub highlight_granularity: String, // word | sentence
+    /// K33 (2026-08-16, 用户拍板"讲解深度分档不够, 要能调字数和触发门槛"): 讲解字数
+    /// 上限——替代之前硬编码在提示词里的"讲得啰嗦一点没关系"这类无约束描述(实测
+    /// Wonder 一书 explain 阶段讲解中位数 512 字符, 是原文的 10.7 倍, 且拖慢生成
+    /// 速度——见 docs/GOAL_2026-08-16_PERF.md)。
+    #[serde(default = "default_explain_max_chars")]
+    pub explain_max_chars: i64,
+    /// K33: 讲解触发门槛——原文长度(字符数)低于这个值的句子不生成讲解, 直接跳过
+    /// (跳过记为"跳过"不是"失败", 见 prep 侧 explain_sentences 的处理)。0 = 不设门槛,
+    /// 全部句子都讲(等价旧行为)。
+    #[serde(default)]
+    pub explain_min_sentence_chars: i64,
+}
+
+fn default_explain_max_chars() -> i64 {
+    150
 }
 
 impl Default for Profile {
@@ -23,6 +38,8 @@ impl Default for Profile {
             voice: "af_heart".into(),
             speed: 1.0,
             highlight_granularity: "sentence".into(),
+            explain_max_chars: 150,
+            explain_min_sentence_chars: 0,
         }
     }
 }
@@ -39,19 +56,23 @@ impl<'a> ProfileRepo<'a> {
     pub fn upsert(&self, p: &Profile) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO profiles (id, name, explain_strategy, voice, speed, highlight_granularity)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO profiles (id, name, explain_strategy, voice, speed, highlight_granularity, explain_max_chars, explain_min_sentence_chars)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name, explain_strategy = excluded.explain_strategy,
                 voice = excluded.voice, speed = excluded.speed,
-                highlight_granularity = excluded.highlight_granularity",
+                highlight_granularity = excluded.highlight_granularity,
+                explain_max_chars = excluded.explain_max_chars,
+                explain_min_sentence_chars = excluded.explain_min_sentence_chars",
             params![
                 p.id,
                 p.name,
                 p.explain_strategy,
                 p.voice,
                 p.speed,
-                p.highlight_granularity
+                p.highlight_granularity,
+                p.explain_max_chars,
+                p.explain_min_sentence_chars
             ],
         )
         .map_err(|e| format!("写 profile 失败: {e}"))?;
@@ -64,7 +85,7 @@ impl<'a> ProfileRepo<'a> {
     pub fn get(&self, id: &str) -> Option<Profile> {
         let conn = self.db.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, name, explain_strategy, voice, speed, highlight_granularity FROM profiles WHERE id = ?1",
+            "SELECT id, name, explain_strategy, voice, speed, highlight_granularity, explain_max_chars, explain_min_sentence_chars FROM profiles WHERE id = ?1",
             [id],
             |r| {
                 Ok(Profile {
@@ -74,6 +95,8 @@ impl<'a> ProfileRepo<'a> {
                     voice: r.get(3)?,
                     speed: r.get(4)?,
                     highlight_granularity: r.get(5)?,
+                    explain_max_chars: r.get(6)?,
+                    explain_min_sentence_chars: r.get(7)?,
                 })
             },
         )
@@ -82,7 +105,7 @@ impl<'a> ProfileRepo<'a> {
 
     pub fn list(&self) -> Vec<Profile> {
         let conn = self.db.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT id, name, explain_strategy, voice, speed, highlight_granularity FROM profiles ORDER BY id").unwrap();
+        let mut stmt = conn.prepare("SELECT id, name, explain_strategy, voice, speed, highlight_granularity, explain_max_chars, explain_min_sentence_chars FROM profiles ORDER BY id").unwrap();
         stmt.query_map([], |r| {
             Ok(Profile {
                 id: r.get(0)?,
@@ -91,6 +114,8 @@ impl<'a> ProfileRepo<'a> {
                 voice: r.get(3)?,
                 speed: r.get(4)?,
                 highlight_granularity: r.get(5)?,
+                explain_max_chars: r.get(6)?,
+                explain_min_sentence_chars: r.get(7)?,
             })
         })
         .unwrap()
@@ -129,6 +154,8 @@ mod tests {
             voice: "af_heart".into(),
             speed: 0.9,
             highlight_granularity: "word".into(),
+            explain_max_chars: 150,
+            explain_min_sentence_chars: 0,
         };
         repo.upsert(&p).unwrap();
         assert_eq!(repo.get("kid").unwrap(), p);
@@ -145,6 +172,8 @@ mod tests {
             voice: "v".into(),
             speed: 1.0,
             highlight_granularity: "sentence".into(),
+            explain_max_chars: 150,
+            explain_min_sentence_chars: 0,
         })
         .unwrap();
         repo.upsert(&Profile {
@@ -154,6 +183,8 @@ mod tests {
             voice: "v".into(),
             speed: 0.8,
             highlight_granularity: "word".into(),
+            explain_max_chars: 200,
+            explain_min_sentence_chars: 10,
         })
         .unwrap();
         assert_eq!(repo.get("self").unwrap().name, "新");
@@ -172,6 +203,8 @@ mod tests {
             voice: "af_heart".into(),
             speed: 1.0,
             highlight_granularity: "sentence".into(),
+            explain_max_chars: 150,
+            explain_min_sentence_chars: 0,
         })
         .unwrap();
         repo.upsert(&Profile {
@@ -181,6 +214,8 @@ mod tests {
             voice: "v".into(),
             speed: 1.0,
             highlight_granularity: "sentence".into(),
+            explain_max_chars: 150,
+            explain_min_sentence_chars: 0,
         })
         .unwrap();
         repo.delete("me").unwrap();

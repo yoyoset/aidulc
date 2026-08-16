@@ -312,6 +312,11 @@ class Runner:
         strategy = self.job["profile"].get("explain_strategy", "brief")
         if strategy == "none":
             return
+        # K33 (2026-08-16): profile 可调的讲解字数上限/触发门槛, 缺省时用
+        # profile_repo.rs::Profile::default() 同款默认值(150/0), 兼容旧 job_request
+        # (没带这两个字段的历史快照/测试 fixture)。
+        max_chars = self.job["profile"].get("explain_max_chars", 150)
+        min_sentence_chars = self.job["profile"].get("explain_min_sentence_chars", 0)
         from aidulc_prep.pipeline.llm.server import get_server
         from aidulc_prep.pipeline.llm.stage import explain_sentences
         server = get_server(self.job["models"]["llm"])
@@ -322,10 +327,15 @@ class Runner:
         for ch in book.chapters:
             if self.cancel():
                 raise EngineError("已取消", "explain")
-            # 无翻译/fatal 失败的句子 explain 必然跳过 (没翻译无法讲解) — 完整性校验需排除。
-            # 判据与 explain_sentences 的跳过条件一致 (nlp/translate 失败或没译文)。
-            skipped_fatal += sum(1 for s in ch.sentences
-                                 if "nlp" in s.failed_stages or "translate" in s.failed_stages or not s.translation)
+            # 无翻译/fatal 失败的句子 explain 必然跳过 (没翻译无法讲解), 原文太短
+            # 不达 min_sentence_chars 门槛的句子也是主动跳过(K33)——两类都要从完整性
+            # 校验的分母里排除, 否则"跳过"会被误判成"循环漏跑"(判据要跟
+            # explain_sentences 的跳过条件逐条对齐, 不能只对齐一半)。
+            skipped_fatal += sum(
+                1 for s in ch.sentences
+                if "nlp" in s.failed_stages or "translate" in s.failed_stages or not s.translation
+                or (min_sentence_chars and len(s.original_text.strip()) < min_sentence_chars)
+            )
             # 进度优化: 每 10 句回调一次 (UI 实时动)
             processed = explain_sentences(
                 ch, server.complete, self.out_dir, self.quality, strategy,
@@ -337,15 +347,17 @@ class Runner:
                     "current": done + n,
                     "total": book.sentence_count,
                 }),
+                max_chars=max_chars,
+                min_sentence_chars=min_sentence_chars,
             )
             done += len(ch.sentences)
             processed_total += processed
             self.emit({"type": "stage_progress", "ts": int(time.time() * 1000), "stage": "explain", "current": done, "total": book.sentence_count})
-        # 完整性校验 (I-C 2: 欠账检测): 首次全量跑时除 fatal 失败句外每句都应被处理。
+        # 完整性校验 (I-C 2: 欠账检测): 首次全量跑时除 fatal 失败句/门槛跳过句外每句都应被处理。
         # 缺口 > 5% 说明有句子被循环漏跑 (Breath 早期 2518 句欠账的根因场景) → 显式报错, 不静默。
         expected = book.sentence_count - skipped_fatal
         if first_run and expected and processed_total < expected * 0.95:
             raise EngineError(
                 "explain 阶段不完整",
-                f"首次运行仅处理 {processed_total}/{expected} 句 (另有 {skipped_fatal} 句因无翻译跳过) — 循环漏跑, 请重新任务",
+                f"首次运行仅处理 {processed_total}/{expected} 句 (另有 {skipped_fatal} 句因无翻译/未达讲解门槛跳过) — 循环漏跑, 请重新任务",
             )

@@ -167,11 +167,18 @@ def explain_sentences(
     strategy: str,
     cancel=None,
     on_batch=None,
+    max_chars: int | None = None,
+    min_sentence_chars: int = 0,
 ) -> None:
     """按 profile 讲解策略补讲解。strategy ∈ none/brief/deep。
     on_batch(done_in_chapter): 每 10 句回调一次 (UI 实时进度)。
+    max_chars: K33 讲解字数上限, 拼进提示词(见 prompt.py::explain_system_for)。
+    min_sentence_chars: K33 讲解触发门槛, 原文长度低于此值的句子直接跳过不讲解
+    (跳过不落 checkpoint、不计入 quality——是"这句不需要讲", 不是"讲解失败";
+    runner.py::_explain 的完整性校验要把这类跳过一并排除在 expected 分母之外,
+    否则会被误判成"循环漏跑"报错, 见那边的调用点注释)。
     返回: 本章实际调用 LLM 处理的句数 (跳过的不计)。"""
-    system = explain_system_for(strategy)
+    system = explain_system_for(strategy, max_chars=max_chars)
     if system is None:
         return 0  # 不讲: 所有句跳过
 
@@ -185,6 +192,8 @@ def explain_sentences(
             continue
         if is_done_sentence(out_dir, chapter.index, i, "explanation"):
             continue
+        if min_sentence_chars and len(s.original_text.strip()) < min_sentence_chars:
+            continue  # K33: 原文太短, 不值得讲(比如"Crack!"这类拟声词/极短句)
         try:
             try:
                 tr, ex = _explain_one(complete_fn, system, i, s.original_text, EXPLAIN_MAX_TOKENS,

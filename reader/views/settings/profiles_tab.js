@@ -47,7 +47,11 @@
           const gran = p.highlight_granularity === 'word' ? '词级' : '句级';
           // J7 (2026-08-11): 音色显示人话名 (af_heart → 女声温暖), 不把内部 id 上屏
           const voiceName = this._voiceHumanName(p.voice);
-          const meta = el('div', 'profile-meta', `${strategy} · ${voiceName} · ${p.speed}x · ${gran}`);
+          // K33 (2026-08-16): 讲解策略不是"不讲"时才有意义展示字数上限
+          const maxCharsPart = p.explain_strategy !== 'none'
+            ? ` · ≤${p.explain_max_chars != null ? p.explain_max_chars : 150}字`
+            : '';
+          const meta = el('div', 'profile-meta', `${strategy}${maxCharsPart} · ${voiceName} · ${p.speed}x · ${gran}`);
           const actions = el('div', 'profile-actions');
           const edit = el('button', 'btn-small', '编辑');
           edit.onclick = () => this._editProfileModal(p, () => this._renderProfiles(listEl));
@@ -143,8 +147,33 @@
       });
       granRow.appendChild(granSel);
 
+      // K33 (2026-08-16, 用户拍板"讲解深度分档不够, 要能调字数和触发门槛"): 讲解字数上限——
+      // 替代之前硬编码在提示词里的"讲得啰嗦一点没关系"(实测 Wonder 一书讲解中位数 512 字符,
+      // 是原文的 10.7 倍, 且大部分内容跑题、拖慢生成速度, 见 docs/GOAL_2026-08-16_PERF.md)。
+      const maxCharsRow = el('label', 'settings-row', '讲解字数上限');
+      const maxCharsSel = el('select', null);
+      [[50, '50 字(极简)'], [100, '100 字'], [150, '150 字(默认)'], [200, '200 字'], [300, '300 字(详细)']].forEach(([v, l]) => {
+        const opt = el('option', null, l);
+        opt.value = String(v);
+        if ((p.explain_max_chars != null ? p.explain_max_chars : 150) === v) opt.selected = true;
+        maxCharsSel.appendChild(opt);
+      });
+      maxCharsRow.appendChild(maxCharsSel);
+
+      // K33: 讲解触发门槛——原文长度低于这个字符数的句子不生成讲解, 直接跳过
+      // (比如 "Crack!"/"Click." 这类拟声词/极短句, 查词就够, 不需要一段讲解)。
+      const minCharsRow = el('label', 'settings-row', '讲解触发门槛');
+      const minCharsSel = el('select', null);
+      [[0, '全部句子都讲'], [30, '原文 ≥30 字才讲'], [50, '原文 ≥50 字才讲'], [80, '原文 ≥80 字才讲']].forEach(([v, l]) => {
+        const opt = el('option', null, l);
+        opt.value = String(v);
+        if ((p.explain_min_sentence_chars != null ? p.explain_min_sentence_chars : 0) === v) opt.selected = true;
+        minCharsSel.appendChild(opt);
+      });
+      minCharsRow.appendChild(minCharsSel);
+
       const voiceHint = el('div', 'import-tip', '音色可选列表取决于已装语音模型; 处理时若报错会提示具体原因。');
-      form.append(nameRow, strategyRow, voiceRow, speedRow, granRow, voiceHint);
+      form.append(nameRow, strategyRow, voiceRow, speedRow, granRow, maxCharsRow, minCharsRow, voiceHint);
 
       const actions = el('div', 'modal-actions');
       const cancelBtn = el('button', 'btn-small', '取消');
@@ -173,6 +202,8 @@
           voice: voiceSel.value,
           speed: Number.isFinite(speed) ? Math.min(1.5, Math.max(0.5, speed)) : 1.0,
           highlight_granularity: granSel.value,
+          explain_max_chars: parseInt(maxCharsSel.value, 10),
+          explain_min_sentence_chars: parseInt(minCharsSel.value, 10),
         }).then((r) => {
           if (!r.ok) { AiduToast.show('保存失败: ' + r.error, 'error'); return; }
           close();

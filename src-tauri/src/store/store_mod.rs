@@ -976,6 +976,43 @@ impl Db {
                 }
             }
         }
+        // v30 (K33, 2026-08-16, 用户拍板"讲解深度分档不够, 要能调字数和触发门槛"):
+        // profiles 表加 explain_max_chars(讲解字数上限, 替代硬编码提示词里的"讲得
+        // 啰嗦一点没关系") + explain_min_sentence_chars(讲解触发门槛, 原文太短的
+        // 句子直接跳过不讲解)。只加列, 不回填(旧行取列默认值即可, 等价旧行为的
+        // 近似——旧默认没有字数上限概念, 150 是新选的一个合理默认值, 不是"还原
+        // 旧行为", 已在 Profile::default() 的注释里说明)。
+        if version < 30 {
+            // 幂等判据(区别于其它 ALTER TABLE 迁移的必要性, 不是随手加的防御代码):
+            // 本文件里"撤旧版本重跑"的测试套路是 open 一次(走完整 v1→v30 链子,
+            // profiles 表已经有这两列了)→ 删 schema_migrations 里某几个版本号 →
+            // 在同一个物理文件上再 open 一次触发重跑。如果被删的版本号里包含 30
+            // (7 处已有测试都会删, 因为它们要连带撤到 v30 之前), v30 就会在同一张
+            // 已经有这两列的表上再跑一次 ALTER TABLE ADD COLUMN, 直接报
+            // "duplicate column name" 崩溃(实测复现过, 不是假设)。用
+            // pragma_table_info 查列是否已存在来判断要不要真的执行 ALTER, 但
+            // schema_migrations 的记账行始终写, 保证 version 判断本身不受影响。
+            let has_column: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('profiles') WHERE name='explain_max_chars'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            if has_column == 0 {
+                conn.execute_batch(
+                    "ALTER TABLE profiles ADD COLUMN explain_max_chars INTEGER NOT NULL DEFAULT 150;
+                    ALTER TABLE profiles ADD COLUMN explain_min_sentence_chars INTEGER NOT NULL DEFAULT 0;
+                    ",
+                )
+                .map_err(|e| format!("迁移 v30 失败: {e}"))?;
+            }
+            conn.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (30, strftime('%s','now')*1000)",
+                [],
+            )
+            .map_err(|e| format!("迁移 v30 失败: {e}"))?;
+        }
         Ok(())
     }
 }
@@ -1230,7 +1267,8 @@ mod tests {
                  DELETE FROM schema_migrations WHERE version=26;
                  DELETE FROM schema_migrations WHERE version=27;
                  DELETE FROM schema_migrations WHERE version=28;
-                 DELETE FROM schema_migrations WHERE version=29;",
+                 DELETE FROM schema_migrations WHERE version=29;
+                 DELETE FROM schema_migrations WHERE version=30;",
             )
             .unwrap();
             drop(conn);
@@ -1303,7 +1341,9 @@ mod tests {
                  -- 撤 v28 (vocab 归并回 default 档案), 让迁移从 v23 状态完整重跑
                  DELETE FROM schema_migrations WHERE version=28;
                  -- 撤 v29 (书签升级带创建时间), 让迁移从 v23 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=29;",
+                 DELETE FROM schema_migrations WHERE version=29;
+                 -- 撤 v30 (profiles explain_max_chars/explain_min_sentence_chars), 让迁移从 v23 状态完整重跑
+                 DELETE FROM schema_migrations WHERE version=30;",
             )
             .unwrap();
             drop(conn);
@@ -1382,7 +1422,8 @@ mod tests {
                     VALUES ('default', 22.0, 1.9, 700, 'sans', 'dark', 'word', 1, 500);
                  DELETE FROM schema_migrations WHERE version=27;
                  DELETE FROM schema_migrations WHERE version=28;
-                 DELETE FROM schema_migrations WHERE version=29;",
+                 DELETE FROM schema_migrations WHERE version=29;
+                 DELETE FROM schema_migrations WHERE version=30;",
             )
             .unwrap();
             drop(conn);
@@ -1429,7 +1470,8 @@ mod tests {
                     ('me:kid:bank', 'bank', 'bank', 'NOUN', '河岸', 300, 300, 'kid', 'me', '{\"word\":\"bank\",\"lemma\":\"bank\",\"stage\":\"new\"}'),
                     ('me:kid:orange', 'orange', 'orange', 'NOUN', '橙子', 400, 400, 'kid', 'me', '{\"word\":\"orange\",\"lemma\":\"orange\",\"stage\":\"new\"}');
                  DELETE FROM schema_migrations WHERE version=28;
-                 DELETE FROM schema_migrations WHERE version=29;",
+                 DELETE FROM schema_migrations WHERE version=29;
+                 DELETE FROM schema_migrations WHERE version=30;",
             )
             .unwrap();
             drop(conn);
@@ -1490,7 +1532,8 @@ mod tests {
                     VALUES ('me', 'plain-numbers', 0, 0, '{\"0\":[3,7]}', 555);
                  INSERT INTO reading_state (user_id, book_key, chapter, position_ms, bookmarks, updated_at)
                     VALUES ('me', 'already-entries', 0, 0, '{\"0\":[{\"i\":9,\"at\":42}]}', 999);
-                 DELETE FROM schema_migrations WHERE version=29;",
+                 DELETE FROM schema_migrations WHERE version=29;
+                 DELETE FROM schema_migrations WHERE version=30;",
             )
             .unwrap();
             drop(conn);
@@ -1593,7 +1636,7 @@ mod tests {
                  DROP TABLE highlights;
                  ALTER TABLE highlights_v17 RENAME TO highlights;
                  DROP TABLE sync_state;
-                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29);
+                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30);
                  -- 撤 v25 列, 让 v25 迁移能重跑
                  ALTER TABLE model_registry DROP COLUMN detected_family;
                  INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,source_book_id,
@@ -1704,6 +1747,8 @@ mod tests {
                  DELETE FROM schema_migrations WHERE version=28;
                  -- 撤 v29 (书签升级带创建时间), 让迁移从 v19 状态完整重跑
                  DELETE FROM schema_migrations WHERE version=29;
+                 -- 撤 v30 (profiles explain_max_chars/explain_min_sentence_chars), 让迁移从 v19 状态完整重跑
+                 DELETE FROM schema_migrations WHERE version=30;
                  -- vocab key 还原为 v19 的 {profile}:{lemma} 形式
                  UPDATE vocab SET key = substr(key, 4) WHERE key LIKE 'me:%';
                  UPDATE dictionary SET key = substr(key, 4) WHERE key LIKE 'me:%';",

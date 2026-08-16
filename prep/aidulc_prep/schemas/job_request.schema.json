@@ -17,7 +17,9 @@
         "explain_strategy": { "type": "string", "enum": ["none", "brief", "deep"] },
         "voice": { "type": "string" },
         "speed": { "type": "number" },
-        "highlight_granularity": { "type": "string", "enum": ["word", "sentence"] }
+        "highlight_granularity": { "type": "string", "enum": ["word", "sentence"] },
+        "explain_max_chars": { "type": "integer", "description": "K33: 讲解字数上限, 缺省时 prep 侧车用 150" },
+        "explain_min_sentence_chars": { "type": "integer", "description": "K33: 原文长度低于此字符数的句子不生成讲解直接跳过, 缺省/0 = 不设门槛" }
       }
     },
     "models": {

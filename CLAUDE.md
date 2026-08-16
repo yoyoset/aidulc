@@ -125,8 +125,7 @@
 `#[allow(dead_code)]` + `TODO(未接线)` 标注在源码里,2026-08-09 复核后剩余:
 CF 同步断开连接(`credentials.rs::delete_cf_token`)、旧单 token 读取(`credentials.rs::get_cf_token`,
 2026-08-13 移除其生产调用后仅测试用)、首次下载 URL 构造
-(`infrastructure/downloader/mod.rs::github_release_asset_url`)、
-profile 单条查询(`store/profile_repo.rs::get`)。改这几处附近代码前先看 `TODO(未接线)` 注释,
+(`infrastructure/downloader/mod.rs::github_release_asset_url`)。改这几处附近代码前先看 `TODO(未接线)` 注释,
 别假设它们已经在跑。(`hf_resolve_url` 已接线——2026-08-13 审计确认 `normalize_hf_url` 用到了它,
 早先把它列进未接线清单已过时。)
 

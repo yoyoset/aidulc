@@ -235,6 +235,7 @@ pub fn job_retry_custom(
     tts_id: Option<String>,
     nlp_id: Option<String>,
     force_stages: Option<Vec<String>>,
+    profile_id: Option<String>,
 ) -> Result<(), String> {
     orch::job_retry_custom(
         app,
@@ -246,6 +247,7 @@ pub fn job_retry_custom(
         tts_id,
         nlp_id,
         force_stages,
+        profile_id,
     )
 }
 

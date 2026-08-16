@@ -356,7 +356,7 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         path: "commands::jobs::job_retry_custom",
         domain: "任务",
-        desc: "自定义重跑 (重选模型 + 指定重跑阶段)",
+        desc: "自定义重跑 (重选模型/档案 + 指定重跑阶段)",
     },
     CommandInfo {
         path: "commands::jobs::job_detail",

@@ -577,7 +577,7 @@ pub fn job_retry_failed(
     id: String,
 ) -> Result<(), String> {
     // 旧入口 = 无任何 override 的自定义重跑 (模型按当前解析, 阶段自动)
-    job_retry_custom(app, state, cfg, db, id, None, None, None, None)
+    job_retry_custom(app, state, cfg, db, id, None, None, None, None, None)
 }
 
 /// 自定义重跑 (2026-08-13): 用户选错模型 / 想重做某阶段时, 可手动重选模型 (llm_id/tts_id/
@@ -594,6 +594,7 @@ pub fn job_retry_custom(
     tts_id: Option<String>,
     nlp_id: Option<String>,
     force_stages: Option<Vec<String>>,
+    profile_id: Option<String>,
 ) -> Result<(), String> {
     let repo = store::jobs_repo::JobsRepo::new(db);
     let job = repo.get(&id).ok_or("任务不存在")?;
@@ -635,7 +636,31 @@ pub fn job_retry_custom(
     }
     // F13 (2026-08-08): 重跑必须保留原始 profile (音色/策略/速度/粒度快照)
     let job_dir = std::path::PathBuf::from(&job.output_dir);
-    let profile_obj = profile_from_snapshot(&job_dir, &job.profile_id);
+    // STDIMPORT (2026-08-17, docs/GOAL_2026-08-16_STDIMPORT.md 方案 A): 重跑时可以重选
+    // 学习档案。**不改 book_id**(book_id 里烧进去的档案段退化成"创建时的档案"这个历史
+    // 标签), 只把新档案写进本次 job_request 和任务行——用户的诉求是"就地改设置再重跑,
+    // 只重跑讲解", 不是"生成另一本书"(那条路径由书库里换档案重新创建译本覆盖)。
+    // 查不到这个档案 id 时保守回退到原快照, 不让重跑因为档案没了而失败。
+    let picked_profile = profile_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .and_then(|pid| store::profile_repo::ProfileRepo::new(db).get(pid));
+    let effective_profile_id = picked_profile
+        .as_ref()
+        .map(|p| p.id.clone())
+        .unwrap_or_else(|| job.profile_id.clone());
+    let profile_obj = match &picked_profile {
+        Some(p) => serde_json::json!({
+            "id": p.id,
+            "explain_strategy": p.explain_strategy,
+            "voice": p.voice,
+            "speed": p.speed,
+            "highlight_granularity": p.highlight_granularity,
+            "explain_max_chars": p.explain_max_chars,
+            "explain_min_sentence_chars": p.explain_min_sentence_chars,
+        }),
+        None => profile_from_snapshot(&job_dir, &job.profile_id),
+    };
     let mut job_req = jobs::spawn::build_job_request(
         &job.book_path,
         &job_dir.to_string_lossy(),
@@ -660,6 +685,7 @@ pub fn job_retry_custom(
     }
     {
         let mut j = job.clone();
+        j.profile_id = effective_profile_id.clone();
         j.status = "queued".into();
         j.stage = "retry_failed".into();
         j.error = None; // 重跑清除旧错误 (否则 UI 残留历史 os error 3)
@@ -1238,6 +1264,8 @@ fn quality_summary(out_dir: &str) -> Option<String> {
 /// F13 (2026-08-08): 从任务目录的 job_request.json 快照恢复原始 profile 参数。
 /// 重试失败句时保留"这本书当年怎么配的"(音色/策略/速度/粒度), 而不是换回硬编码默认。
 /// 快照缺失/解析失败 → 返回给定默认值。纯函数, 可单测。
+/// 2026-08-16 补: K33 的 explain_max_chars/explain_min_sentence_chars 原本不在拷贝
+/// 列表里, 重跑会静默丢掉用户设的讲解字数上限/触发门槛, 退回默认值。
 fn profile_from_snapshot(job_dir: &std::path::Path, profile_id: &str) -> serde_json::Value {
     let mut obj = serde_json::json!({
         "id": profile_id,
@@ -1245,6 +1273,8 @@ fn profile_from_snapshot(job_dir: &std::path::Path, profile_id: &str) -> serde_j
         "voice": "af_heart",
         "speed": 1.0,
         "highlight_granularity": "sentence",
+        "explain_max_chars": 150,
+        "explain_min_sentence_chars": 0,
     });
     if let Ok(text) = std::fs::read_to_string(job_dir.join("job_request.json")) {
         if let Ok(req) = serde_json::from_str::<serde_json::Value>(&text) {
@@ -1254,6 +1284,8 @@ fn profile_from_snapshot(job_dir: &std::path::Path, profile_id: &str) -> serde_j
                     "voice",
                     "speed",
                     "highlight_granularity",
+                    "explain_max_chars",
+                    "explain_min_sentence_chars",
                 ] {
                     if let Some(v) = p.get(k) {
                         obj[k] = v.clone();
@@ -1483,6 +1515,45 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         // 无 quality_report.json → None (调用处兜底 "无详情报告")
         assert!(quality_summary(dir.to_str().unwrap()).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn profile_snapshot_keeps_k33_fields() {
+        // K33 字段 (explain_max_chars / explain_min_sentence_chars) 应从 job_request.json
+        // 中保留，而不是被默认值覆盖。这条测的就是改动 1 修的 bug。
+        let dir = std::env::temp_dir().join(format!("aidulc_ps_k33_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let job_request = serde_json::json!({
+            "profile": {
+                "explain_strategy": "deep",
+                "voice": "af_x",
+                "speed": 1.2,
+                "highlight_granularity": "word",
+                "explain_max_chars": 100,
+                "explain_min_sentence_chars": 30
+            }
+        });
+        std::fs::write(
+            dir.join("job_request.json"),
+            serde_json::to_string_pretty(&job_request).unwrap(),
+        )
+        .unwrap();
+        let result = profile_from_snapshot(&dir, "p1");
+        assert_eq!(result["explain_max_chars"], 100);
+        assert_eq!(result["explain_min_sentence_chars"], 30);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn profile_snapshot_defaults_when_absent() {
+        // 无 job_request.json 时，应返回正确的默认值，包括 K33 字段。
+        let dir = std::env::temp_dir().join(format!("aidulc_ps_def_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let result = profile_from_snapshot(&dir, "p1");
+        assert_eq!(result["explain_max_chars"], 150);
+        assert_eq!(result["explain_min_sentence_chars"], 0);
+        assert_eq!(result["id"], "p1");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -75,7 +75,14 @@ function makeElement(tag) {
     querySelectorAll: (sel) => queryAll(el, sel),
     contains(other) { let n = other; while (n) { if (n === el) return true; n = n.parentNode; } return false; },
     closest(sel) { let n = el; while (n) { if (matches(n, sel)) return n; n = n.parentNode; } return null; },
-    addEventListener() {}, removeEventListener() {}, focus() {},
+    // 事件: 原来是纯空实现。STDIMPORT (2026-08-17) 要测"改下拉 → 联动改单选",
+    // 补成"记下来, 只有测试显式 dispatchEvent 时才触发"——现有测试没人调
+    // dispatchEvent, 所以对它们是零行为变化(空实现下本来也一个都不会触发)。
+    _handlers: {},
+    addEventListener(ev, fn) { (el._handlers[ev] = el._handlers[ev] || []).push(fn); },
+    removeEventListener(ev, fn) { el._handlers[ev] = (el._handlers[ev] || []).filter((f) => f !== fn); },
+    dispatchEvent(ev) { (el._handlers[(ev && ev.type) || ''] || []).forEach((fn) => fn(ev)); return true; },
+    focus() {},
     getBoundingClientRect: () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }),
   };
   return el;
@@ -145,7 +152,7 @@ globalThis.AiduJobService = {
   pause: async () => ({ ok: true }), resume: async () => ({ ok: true }),
   pauseAll: async () => ({ ok: true }), resumeAll: async () => ({ ok: true }),
   retryFailed: async () => ({ ok: true }), detail: async () => ({ ok: true, data: {} }),
-  retryCustom: async (id, llmId, ttsId, nlpId, forceStages) => { calls.retryCustom.push({ id, llmId, ttsId, nlpId, forceStages }); return { ok: true }; },
+  retryCustom: async (id, llmId, ttsId, nlpId, forceStages, profileId) => { calls.retryCustom.push({ id, llmId, ttsId, nlpId, forceStages, profileId: profileId || null }); return { ok: true }; },
   listBatches: async () => ({ ok: true, data: [] }),
 };
 globalThis.AiduBridge = {
@@ -231,6 +238,7 @@ load('components/modal.js');
 load('components/toast.js');
 load('core/import_guard.js');
 load('core/builtin_profiles.js');
+load('core/rerun_scope.js');
 load('views/library/cover.js');
 load('views/library/status.js');
 load('views/library_view.js');
@@ -265,22 +273,30 @@ console.log('== 1d. UX5 修正 (2026-08-13): 失败任务给「去修模型」�
   const rowN = pv1d._buildTaskRow(mkErr('文件格式不支持: .djvu'));
   check('UX5修正: 非模型类失败不显示「去修模型」', !queryAll(rowN, 'button').some((b) => b.textContent === '去修模型'));
   // 有重试按钮 (恢复路径仍在)
-  check('UX5修正: 失败行仍有「重试失败句」', !!queryAll(rowM, 'button').find((b) => b.textContent === '重试失败句'));
+  // STDIMPORT (2026-08-17): 「重试失败句」和「重跑…」合并成单一「重新处理…」入口
+  // (「只补失败句」降级成对话框里的默认重跑范围, 语义等价)。恢复路径仍在, 只是少一个概念。
+  check('UX5修正: 失败行仍有恢复入口「重新处理…」', !!queryAll(rowM, 'button').find((b) => b.textContent === '重新处理…'));
 }
 
-console.log('== 1e. 手动重跑 (2026-08-13): 「重跑…」按钮 + 对话框 (3 模型下拉 + 重跑范围单选) ==');
+console.log('== 1e. 重新处理 (2026-08-13 / STDIMPORT 2026-08-17): 单一入口 + 对话框 (3 模型 + 档案下拉 + 重跑范围) ==');
 {
   const pv = new globalThis.PrepView(store);
   pv._listEl = makeElement('div');
   const mkErr = (error) => ({ id: 'job-rerun', status: 'failed', stage: 'tts', current: 3, total: 240, progress: 57, error, book_path: 'C:/Books/Alice.epub', profile_id: 'default', output_dir: 'C:/out/job-rerun', batch_id: null });
   const row = pv._buildTaskRow(mkErr('TTS voices 目录不存在: F:/hf_cache/...'));
-  const btnRerun = queryAll(row, 'button').find((b) => b.textContent === '重跑…');
-  const btnRetry = queryAll(row, 'button').find((b) => b.textContent === '重试失败句');
-  check('手动重跑: 失败行有「重跑…」按钮', !!btnRerun);
-  const acts = queryAll(row, '.prep-task-actions')[0];
-  check('手动重跑: 「重跑…」紧挨「重试失败句」', !!(btnRerun && btnRetry && acts && acts._children.indexOf(btnRerun) === acts._children.indexOf(btnRetry) - 1));
+  const btnRerun = queryAll(row, 'button').find((b) => b.textContent === '重新处理…');
+  check('重新处理: 失败行有「重新处理…」按钮', !!btnRerun);
+  // 合并后不该再并排出现第二个重跑入口 (用户反馈"两个重跑分不清")
+  check('重新处理: 不再并排「重跑…」/「重试失败句」两个入口',
+    !queryAll(row, 'button').some((b) => b.textContent === '重跑…' || b.textContent === '重试失败句'));
 
   // 覆盖模型 stub: 给对话框填充 llm/tts/nlp 各一个已登记模型 (对话框异步拉取)
+  // 档案下拉的数据源 (STDIMPORT): 当前档案 default + 一个可切换的 kid
+  const origProfilesList = globalThis.AiduBridge.profiles.list;
+  globalThis.AiduBridge.profiles.list = async () => ({ ok: true, data: [
+    { id: 'default', name: '成人自读', explain_strategy: 'brief', explain_max_chars: 150, explain_min_sentence_chars: 0, voice: 'af_heart', speed: 1.0 },
+    { id: 'kid', name: '儿童精讲', explain_strategy: 'deep', explain_max_chars: 150, explain_min_sentence_chars: 0, voice: 'af_heart', speed: 1.0 },
+  ]});
   const origModelsList = globalThis.AiduModelService.list;
   globalThis.AiduModelService.list = async () => ({ ok: true, data: [
     { id: 'llm|en|qwen3-4b|q4', family: 'llm', model_id: 'qwen3-4b', active: true },
@@ -293,16 +309,27 @@ console.log('== 1e. 手动重跑 (2026-08-13): 「重跑…」按钮 + 对话框
   await Promise.resolve(); // 等模型下拉异步填充
   check('手动重跑: 点击后出现对话框 (.modal-overlay)', !!ov);
   const selAll = queryAll(ov, 'select');
-  check('手动重跑: 对话框有 3 个模型下拉', selAll.length === 3, 'selects=' + selAll.length);
+  check('重新处理: 对话框有 4 个下拉 (3 模型 + 学习档案)', selAll.length === 4, 'selects=' + selAll.length);
   const optTexts = (sel) => queryAll(sel, 'option').map((o) => o.textContent);
   check('手动重跑: 翻译下拉有「保持当前」+ qwen3-4b', optTexts(selAll[0]).includes('保持当前 (书级绑定/推荐)') && optTexts(selAll[0]).some((t) => t.includes('qwen3-4b')), JSON.stringify(optTexts(selAll[0])));
   check('手动重跑: 语音下拉有 kokoro', optTexts(selAll[1]).some((t) => t.includes('kokoro')), JSON.stringify(optTexts(selAll[1])));
   check('手动重跑: 分词下拉有 spacy', optTexts(selAll[2]).some((t) => t.includes('spacy')), JSON.stringify(optTexts(selAll[2])));
+  check('重新处理: 档案下拉有「保持当前」+ 两个档案, 当前档案带 (当前) 标记',
+    optTexts(selAll[3]).includes('保持当前') && optTexts(selAll[3]).includes('成人自读 (当前)') && optTexts(selAll[3]).includes('儿童精讲'),
+    JSON.stringify(optTexts(selAll[3])));
   const radios = queryAll(ov, 'input').filter((i) => i.type === 'radio');
   check('手动重跑: 重跑范围 5 个单选 (自动/从翻译/从讲解/从语音/全部)', radios.length === 5, 'radios=' + radios.length);
   check('手动重跑: 单选默认「自动」(checked)', radios.length === 5 && radios[0].checked, JSON.stringify(radios.map((r) => ({ v: r.value, c: r.checked }))));
   const startBtn = queryAll(ov, 'button').find((b) => b.textContent === '开始重跑');
   check('手动重跑: 有「开始重跑」按钮', !!startBtn);
+  // 联动 (STDIMPORT): 换成讲解策略不同的档案 → 默认范围自动跳到「从讲解」, 不必全量重跑
+  selAll[3].value = 'kid';
+  selAll[3].dispatchEvent({ type: 'change' });
+  check('重新处理: 换讲解档案 → 默认范围自动变「从讲解」',
+    radios.find((r) => r.value === 'explain') && radios.find((r) => r.value === 'explain').checked,
+    JSON.stringify(radios.map((r) => ({ v: r.value, c: r.checked }))));
+  selAll[3].value = '';
+  selAll[3].dispatchEvent({ type: 'change' });
 
   // 默认自动 + 不选模型 → retryCustom(id, null, null, null, null)
   const before = calls.retryCustom.length;
@@ -313,6 +340,7 @@ console.log('== 1e. 手动重跑 (2026-08-13): 「重跑…」按钮 + 对话框
   check('手动重跑: 默认传 job id', autoCall && autoCall.id === 'job-rerun', JSON.stringify(autoCall));
   check('手动重跑: 默认模型为空 (null)', autoCall && autoCall.llmId === null && autoCall.ttsId === null && autoCall.nlpId === null, JSON.stringify(autoCall));
   check('手动重跑: 自动范围 → forceStages null', autoCall && autoCall.forceStages === null, JSON.stringify(autoCall));
+  check('重新处理: 未换档案 → profileId null', autoCall && autoCall.profileId === null, JSON.stringify(autoCall));
 
   // 重开: 选模型 + 从语音 → retryCustom(id, llm, tts, nlp, ['tts'])
   btnRerun.onclick();
@@ -344,6 +372,7 @@ console.log('== 1e. 手动重跑 (2026-08-13): 「重跑…」按钮 + 对话框
   check('手动重跑: 全部 → forceStages 四阶段全列', allCall && JSON.stringify(allCall.forceStages) === JSON.stringify(['translate', 'explain', 'tts', 'align']), JSON.stringify(allCall.forceStages));
 
   globalThis.AiduModelService.list = origModelsList;
+  globalThis.AiduBridge.profiles.list = origProfilesList;
   calls.retryCustom.length = 0;
 }
 

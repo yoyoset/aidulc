@@ -273,30 +273,22 @@
         };
         actions.appendChild(btnResume);
       }
-      // 失败行: 重试失败句可见 (苹果级: 失败必有恢复路径)
-      if (job.status === 'failed' || job.status === 'partial') {
-        // 手动重跑 (2026-08-13): 选错模型/想重做某阶段时, 重新选模型 + 指定重跑范围
-        const btnRerun = el('button', 'btn-small', '重跑…');
-        btnRerun.title = '重新选模型或指定重跑范围 (比如只重跑语音) —— 比「重试失败句」更细。';
+      // 已跑完的任务(成功或失败)都给一个统一的恢复/重做入口 (苹果级: 失败必有恢复路径)
+      if (job.status === 'failed' || job.status === 'partial' || job.status === 'done') {
+        // STDIMPORT (2026-08-17): 原来这里并排两个按钮(「重跑…」和「重试失败句」),
+        // 用户反馈"两个重跑分不清"。合并成一个「重新处理…」入口: 先改设置再选范围,
+        // 「重试失败句」降级成对话框里的默认项(重跑范围 = 自动), 语义完全等价,
+        // 少一个需要当场理解的概念。
+        const btnRerun = el('button', 'btn-small', '重新处理…');
+        btnRerun.title = '改模型/学习档案后重跑, 或只重跑某个阶段 (比如只重跑讲解)。默认只补失败/未完成的句子。';
         btnRerun.onclick = () => this._showRetryDialog(job);
         actions.appendChild(btnRerun);
-        const btnRetry = el('button', 'btn-small', '重试失败句');
-        btnRetry.onclick = () => {
-          btnRetry.disabled = true;
-          btnRetry.textContent = '重试中…';
-          AiduJobService.retryFailed(job.id).then((r) => {
-            if (!r.ok) { btnRetry.disabled = false; btnRetry.textContent = '重试失败句'; AiduToast.show('重试失败: ' + r.error, 'error'); return; }
-            AiduToast.show('已重新排队', 'success');
-            this._refreshJobs();
-          });
-        };
-        actions.appendChild(btnRetry);
         // UX5 修正 (2026-08-13): 模型类失败 → 给「去修模型」入口 (用户实测: TTS 引擎错,
         // 任务失败后没有入口去改模型设置再重跑)。错误信息里带模型/TTS/引擎关键词就显示。
         const errText = String(job.error || '');
         if (/(模型|TTS|voices|config|引擎|缺少|模型文件)/.test(errText)) {
           const btnFix = el('button', 'btn-small btn-primary', '去修模型');
-          btnFix.title = '这个失败和模型有关。去模型中心检查/更换推荐模型后, 再回来点「重试失败句」。';
+          btnFix.title = '这个失败和模型有关。去模型中心检查/更换推荐模型后, 再回来点「重新处理…」。';
           // K17 (2026-08-14): 之前跳去"设置→依赖组件"tab, 那里只有版本检查、没有下载能力。
           // 改跳"模型中心"(#/models), 有 catalog 一键下载单; 能从报错文本猜出是哪个家族
           // (llm/tts) 就带上 focus, 直接弹下载单。
@@ -437,7 +429,7 @@
     }
 
     /** 手动重跑 (2026-08-13): 「重跑…」对话框 — 重新选模型 (3 下拉) + 重跑范围 (单选)。
-     * 点「开始重跑」→ AiduJobService.retryCustom(id, llmId, ttsId, nlpId, forceStages)。
+     * 点「开始重跑」→ AiduJobService.retryCustom(id, llmId, ttsId, nlpId, forceStages, profileId)。
      * 模型下拉: 默认「保持当前」(书级绑定/推荐解析), 选项 = 已登记模型 (AiduModelService.list)。
      * 重跑范围: 自动(只跑失败/未完成) / 从翻译 / 从讲解 / 从语音 / 全部, 语义与
      * prep checkpoint.clear_stages 的 FORCE_STAGE_CASCADE 对齐 (翻译级联讲解, 语音级联对齐)。
@@ -450,10 +442,11 @@
       box.className = 'modal-box';
       box.setAttribute('role', 'dialog');
       box.setAttribute('aria-modal', 'true');
-      const title = el('h2', 'modal-title', `重跑 — ${job.book_path.split(/[\\/]/).pop()}`);
+      const title = el('h2', 'modal-title', `重新处理 — ${job.book_path.split(/[\\/]/).pop()}`);
       const body = el('div', 'book-settings-body');
+      let scopeTouched = false; // 用户是否手动动过"重跑范围"(动过就不再被下拉联动覆盖)
 
-      body.appendChild(el('div', 'preview-meta', '重新选模型 (可选, 保持当前 = 沿用书级绑定/推荐), 并选择重跑范围。'));
+      body.appendChild(el('div', 'preview-meta', '先改设置 (模型/学习档案, 保持当前 = 沿用原来的), 重跑范围会自动调到够用的最小范围, 也可以自己改。'));
       // 模型下拉 (默认保持当前 = 空串)
       const mkSelect = (fam) => {
         const wrap = el('div', 'retry-field');
@@ -483,11 +476,35 @@
       const nlp = mkSelect('nlp');
       body.append(llm.wrap, tts.wrap, nlp.wrap);
 
+      // STDIMPORT (2026-08-17): 学习档案也能重选 —— 用户的真实诉求是"就地改讲解设置
+      // 再重跑, 只重跑讲解", 之前这个对话框只能换模型, 改档案得回书库重新创建译本
+      // (等于重跑整本)。换档案不改 book_id (Rust 侧 job_retry_custom 的注释说明了原因)。
+      const profWrap = el('div', 'retry-field');
+      profWrap.appendChild(el('label', null, '学习档案'));
+      const profSel = document.createElement('select');
+      profSel.className = 'retry-select';
+      const keepProf = document.createElement('option');
+      keepProf.value = '';
+      keepProf.textContent = '保持当前';
+      profSel.appendChild(keepProf);
+      profWrap.appendChild(profSel);
+      body.appendChild(profWrap);
+      let profiles = [];
+      AiduBridge.profiles.list().then((res) => {
+        profiles = (res.ok && res.data) || [];
+        profiles.forEach((p) => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.name + (p.id === job.profile_id ? ' (当前)' : '');
+          profSel.appendChild(opt);
+        });
+      }).catch(() => {});
+
       // 重跑范围 (单选) — force_stages 语义与 FORCE_STAGE_CASCADE 对齐
       const scopeWrap = el('div', 'retry-field');
       scopeWrap.appendChild(el('label', null, '重跑范围'));
       const scopes = [
-        { v: '', t: '自动', d: '只重跑失败/未完成的句子 (和「重试失败句」一致)' },
+        { v: '', t: '自动', d: '只补失败/未完成的句子 (最省时间)' },
         { v: 'translate', t: '从翻译', d: '重跑翻译+讲解' },
         { v: 'explain', t: '从讲解', d: '重跑讲解' },
         { v: 'tts', t: '从语音', d: '重跑语音+对齐' },
@@ -502,6 +519,7 @@
         r.checked = s.v === '';
         r.addEventListener('change', () => {
           radios.forEach((x) => { x.checked = (x === r); });
+          scopeTouched = true; // 用户自己选过之后, 不再被下拉联动覆盖
         });
         row.appendChild(r);
         row.appendChild(el('span', null, s.t + ' — ' + s.d));
@@ -509,6 +527,22 @@
         return r;
       });
       body.appendChild(scopeWrap);
+
+      // 下拉变化 → 自动把重跑范围调到"够用的最小范围"(AiduRerunScope 纯逻辑,
+      // 配对测试在 reader/tests/rerun_scope.test.js)。用户手动选过就不再覆盖。
+      const syncScope = () => {
+        if (scopeTouched) return;
+        const scopeApi = global.AiduRerunScope || globalThis.AiduRerunScope;
+        const v = scopeApi.suggest({
+          oldProfile: profiles.find((p) => p.id === job.profile_id) || null,
+          newProfile: profSel.value ? profiles.find((p) => p.id === profSel.value) || null : null,
+          llmChanged: !!llm.sel.value,
+          ttsChanged: !!tts.sel.value,
+          nlpChanged: !!nlp.sel.value,
+        });
+        radios.forEach((r) => { r.checked = (r.value === v); });
+      };
+      [llm.sel, tts.sel, nlp.sel, profSel].forEach((s) => s.addEventListener('change', syncScope));
 
       const actions = el('div', 'modal-actions');
       const startBtn = el('button', 'btn-small btn-primary', '开始重跑');
@@ -531,6 +565,7 @@
           tts.sel.value || null,
           nlp.sel.value || null,
           forceStages,
+          profSel.value || null,
         ).then((r) => {
           if (!r.ok) { startBtn.disabled = false; startBtn.textContent = '开始重跑'; AiduToast.show('重跑失败: ' + r.error, 'error'); return; }
           ov.remove();

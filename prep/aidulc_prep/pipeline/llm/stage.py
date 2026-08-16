@@ -131,12 +131,26 @@ EXPLAIN_MAX_TOKENS = 700
 EXPLAIN_RETRY_MAX_TOKENS = 1100
 
 
-def _explain_one(complete_fn, system: str, i: int, original_text: str, max_tokens: int) -> tuple[str, str]:
-    """单次调用 + 解析 + guard 校验。失败抛异常(ValueError 或底层 EngineError 等)。"""
+def _explain_one(
+    complete_fn, system: str, i: int, original_text: str, max_tokens: int,
+    chapter_index: int = -1, attempt: int = 1,
+) -> tuple[str, str]:
+    """单次调用 + 解析 + guard 校验。失败抛异常(ValueError 或底层 EngineError 等)。
+    chapter_index/attempt 只用于性能探针日志, 不影响调用逻辑。"""
+    import time
+    t0 = time.perf_counter()
     content = complete_fn([
         {"role": "system", "content": system},
         {"role": "user", "content": f"[{i}] {original_text}"},
     ], max_tokens=max_tokens)
+    elapsed = time.perf_counter() - t0
+    # 性能探针 (2026-08-15): attempt=2 是重试(EXPLAIN_RETRY_MAX_TOKENS), 单独看出
+    # "重试拖慢了多少" —— 跟 translate 那条放一起 grep 就能比出两个阶段耗时差距。
+    import logging
+    from aidulc_prep.infra.timing import format_timing_line
+    logging.getLogger("aidulc").info(format_timing_line(
+        "explain", elapsed, chapter=chapter_index, sentence=i, attempt=attempt, max_tokens=max_tokens,
+    ))
     tr, ex = _parse_explain_json(content, original_text)
     if check_explain_echo(original_text, ex):
         raise ValueError("讲解是原文回显")
@@ -173,12 +187,14 @@ def explain_sentences(
             continue
         try:
             try:
-                tr, ex = _explain_one(complete_fn, system, i, s.original_text, EXPLAIN_MAX_TOKENS)
+                tr, ex = _explain_one(complete_fn, system, i, s.original_text, EXPLAIN_MAX_TOKENS,
+                                       chapter_index=chapter.index, attempt=1)
             except AidulcError:
                 raise  # 模型加载/推理致命失败不当"输出格式问题"重试, 同 translate_batch_with_retry 的纪律
             except Exception:
                 # 首次失败(多半是长讲解被 max_tokens 截断): 加大预算重试一次
-                tr, ex = _explain_one(complete_fn, system, i, s.original_text, EXPLAIN_RETRY_MAX_TOKENS)
+                tr, ex = _explain_one(complete_fn, system, i, s.original_text, EXPLAIN_RETRY_MAX_TOKENS,
+                                       chapter_index=chapter.index, attempt=2)
             s.explanation = ex
             if tr:
                 s.translation = tr

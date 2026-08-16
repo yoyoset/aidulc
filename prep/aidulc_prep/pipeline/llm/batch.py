@@ -90,10 +90,18 @@ def translate_batch_with_retry(
 
 def _translate_batch_once(complete_fn, texts: list[str], system: str, temperature: float) -> list[str]:
     numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts))
+    # 性能探针 (2026-08-15, 用户反馈"太慢了"): 只测真正调用模型这一步, 不含
+    # parse/guard 的 CPU 开销, 才能跟 explain 那边的单句调用耗时公平对比。
+    import time
+    t0 = time.perf_counter()
     content = complete_fn([
         {"role": "system", "content": system},
         {"role": "user", "content": numbered},
     ])
+    elapsed = time.perf_counter() - t0
+    import logging
+    from aidulc_prep.infra.timing import format_timing_line
+    logging.getLogger("aidulc").info(format_timing_line("translate", elapsed, batch_size=len(texts)))
     results = parse_numbered_response(content, len(texts))
     # M 系列: 接线 guard 防线 (错位/echo 整体检查, 触发对半重试)
     try:

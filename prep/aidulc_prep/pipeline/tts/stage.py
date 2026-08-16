@@ -7,6 +7,7 @@ pipeline/tts/stage.py —— 逐句合成 + 时间轴 + 校验
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 
@@ -15,6 +16,7 @@ from aidulc_prep.core.models import Chapter, SentenceAudio, WordTiming
 from aidulc_prep.core.quality import QualityReport
 from aidulc_prep.core.word_alignment import align_tts_words_to_segments
 from aidulc_prep.infra.checkpoint import is_done_sentence, save_stage_result
+from aidulc_prep.infra.timing import format_timing_line
 from aidulc_prep.pipeline.tts.engine import SAMPLE_RATE
 
 # 时长/字符数 正常区间 (秒/字符)。实测 Kokoro: 约 0.08-0.15 s/字符
@@ -110,7 +112,14 @@ def synth_chapter(
         audio, timings, ok = None, [], False
         for attempt in (1, 2):
             try:
+                # 性能探针 (2026-08-15, 用户反馈"太慢了"): 逐句合成是刻意设计(故障
+                # 半径=一句), 但代价是调用次数=句数, 先测实际单句耗时再判断值不值。
+                t0 = time.perf_counter()
                 audio, timings = engine.synth(text, voice, speed)
+                elapsed = time.perf_counter() - t0
+                logging.getLogger("aidulc").info(format_timing_line(
+                    "tts", elapsed, chapter=chapter.index, sentence=i, attempt=attempt, chars=len(text),
+                ))
                 ok = True
                 break
             except EngineError:

@@ -175,6 +175,15 @@ class Runner:
             "current": current,
             "total": total,
         })
+        # 性能探针 (2026-08-15): emit() 走的 NDJSON 进度流只喂前端实时进度条, 不落盘,
+        # 事后没法回看"某阶段整体花了多久"。这里额外记一行到 run.log(已有 FileHandler),
+        # 跟 llm/stage.py、tts/stage.py 里逐次调用的 TIMING 行放一起, 能互相印证
+        # "单次调用耗时总和" 是否能解释 "阶段整体墙钟时间"(差距大说明还有别的开销,
+        # 比如 checkpoint I/O、guard 校验、JSON 解析这些非模型调用的部分)。
+        logging.getLogger("aidulc").info(
+            "STAGE_MARK stage=%s event=%s current=%d total=%d ts=%d",
+            stage, "done" if done else "start", current, total, int(time.time() * 1000),
+        )
 
     def _parse(self) -> Book:
         try:

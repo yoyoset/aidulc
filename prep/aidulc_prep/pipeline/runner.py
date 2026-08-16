@@ -230,25 +230,10 @@ class Runner:
             )
 
     def _classify_uncovered_epub_files(self, uncovered: list[str]) -> list[str]:
-        """`uncovered` 里区分"真的读不到"(_read_member 因 KeyError 返回原始空字符串,
-        是路径解析失败的信号)和"读到了但本来就没正文"(纯插图页等, 正常现象)。
-        判据: _read_member 返回的是 _read_member 内部尚未做标签剥离的原始 HTML——
-        真实存在的文件哪怕只有一张图也会有 `<html><body><img.../></body></html>`
-        这类标记, 原始内容不可能是空字符串; 只有 KeyError(压根没找到这个文件)
-        才会让 _read_member 返回 ""。用这个信号精确区分, 而不是直接拿 uncovered
-        的原始计数当分子(那样会把插图页/目录页这类正常情况错判成数据丢失,
-        2026-08-16 实测过, 见 _check_epub_health 的 docstring)。
-        book_path 拿不到/zip 打不开时保守处理, 原样返回整个 uncovered 列表
-        (不确定就不放松阈值判断)。"""
-        import zipfile
-        from aidulc_prep.pipeline.loader.epub import _read_member
-        book_path = self.job.get("book_path", "")
-        try:
-            zf = zipfile.ZipFile(book_path)
-        except Exception:
-            return uncovered
-        with zf:
-            return [f for f in uncovered if _read_member(zf, f) == ""]
+        """实现已挪到 loader/epub.py::classify_uncovered(导入体检要复用同一份判据,
+        不允许两处各写一遍)。这里保留薄封装, 现有测试和调用点不用改。"""
+        from aidulc_prep.pipeline.loader.epub import classify_uncovered
+        return classify_uncovered(self.job.get("book_path", ""), uncovered)
 
     def _nlp(self, book: Book):
         # M 系列: 实现提取到 nlp/stage.py (与 llm/tts/align stage 对称)

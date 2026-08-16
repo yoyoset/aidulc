@@ -88,6 +88,19 @@ def _strip_tags(html: str) -> str:
     html = re.sub(r"<head.*?</head>", " ", html, flags=re.S | re.I)
     html = re.sub(r"<script.*?</script>", " ", html, flags=re.S | re.I)
     html = re.sub(r"<style.*?</style>", " ", html, flags=re.S | re.I)
+    # 无 h1-h6 的整本书单文件兜底 (2026-08-16 实测 Frindle): 有的书(多见于 calibre
+    # 转出的老 HTML)整本正文在一个文件里, 一个 h1-h6 都没有, 章节边界只体现在
+    # `<p class="ChapterTitle">` 这类 class 命名上。没有这个兜底时大文件二次切分
+    # 找不到任何边界, 整本退化成一个 675 句的巨章, 阅读器里无法按章导航。
+    # 严格限定在"整个文件一个 h1-h6 都没有"时才启用 —— 有真标题的书走原路径,
+    # 一行都不受影响, 因此不可能让已经正常的书退化。
+    if not re.search(r"<h[1-6][\s>]", html, flags=re.I):
+        html = re.sub(
+            r'<(?:p|div)[^>]*\bclass\s*=\s*"[^"]*chapter[^"]*"[^>]*>',
+            "\n[[HEADING]]",
+            html,
+            flags=re.I,
+        )
     html = re.sub(r"<(h[1-6])[^>]*>", "\n[[HEADING]]", html, flags=re.I)
     html = re.sub(r"</(h[1-6])>", "\n", html, flags=re.I)
     # <img src="..."> → [[IMG:src]] (单双引号都兼容; 无 src 的忽略)
@@ -359,6 +372,25 @@ def _find_toc_source(
 def load_epub(path: str) -> Book:
     book, _ = load_epub_with_spine_health(path)
     return book
+
+
+def classify_uncovered(book_path: str, uncovered: list[str]) -> list[str]:
+    """`uncovered` 里区分"真的读不到"(_read_member 因 KeyError 返回原始空字符串,
+    是路径解析失败的信号)和"读到了但本来就没正文"(纯插图页等, 正常现象)。
+    判据: _read_member 返回的是 _read_member 内部尚未做标签剥离的原始 HTML——
+    真实存在的文件哪怕只有一张图也会有 `<html><body><img.../></body></html>`
+    这类标记, 原始内容不可能是空字符串; 只有 KeyError(压根没找到这个文件)
+    才会让 _read_member 返回 ""。用这个信号精确区分, 而不是直接拿 uncovered
+    的原始计数当分子(那样会把插图页/目录页这类正常情况错判成数据丢失,
+    2026-08-16 实测过, 见 _check_epub_health 的 docstring)。
+    book_path 拿不到/zip 打不开时保守处理, 原样返回整个 uncovered 列表
+    (不确定就不放松阈值判断)。"""
+    try:
+        zf = zipfile.ZipFile(book_path)
+    except Exception:
+        return uncovered
+    with zf:
+        return [f for f in uncovered if _read_member(zf, f) == ""]
 
 
 def load_epub_with_spine_health(path: str) -> tuple[Book, list[str]]:

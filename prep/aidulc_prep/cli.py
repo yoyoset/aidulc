@@ -48,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tts-language", default="en", help="TTS 语言 (配合 --tts-server)")
     # 原版书预览模式 (书库"查看原文")
     parser.add_argument("--preview-book", help="原版书路径 (EPUB/TXT/PDF → 纯文本预览)")
+    # 源书体检 (STDIMPORT, 2026-08-16): 导入时把关 + 手动体检脚本共用, 输出 JSON 到 stdout
+    parser.add_argument("--audit-book", help="源书路径 (EPUB), 输出 S1-S6 体检结果 JSON")
     # 组件健康探测 (R3.4): 输出 PyMuPDF 版本号或 "none", Rust components_health 解析
     parser.add_argument("--pymupdf-version", action="store_true", help="探测 PyMuPDF 是否可用")
     # K12 (2026-08-14): 只补封面, 不重跑整条流水线 (老 edition 没有封面时的轻量入口,
@@ -79,6 +81,12 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(ver.strip() + "\n")
         except ImportError:
             sys.stdout.write("none\n")
+        return 0
+
+    # 源书体检 (STDIMPORT, 2026-08-16): 导入时把关 + 手动体检脚本共用, 输出 JSON 到 stdout
+    if args.audit_book:
+        from aidulc_prep.application.book_audit import evaluate_book
+        sys.stdout.write(json.dumps(evaluate_book(args.audit_book), ensure_ascii=False) + "\n")
         return 0
 
     # 原版书预览模式 (书库"查看原文" + 处理前体检 R3.3: 格式/目录来源/章节异常信号)

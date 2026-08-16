@@ -23,11 +23,13 @@ NS = {
     "ncx": "http://www.daisy.org/z3986/2005/ncx/",
 }
 
-# 非正文 TOC 条目 (封面/目录/地图/图表/索引/尾注/版权等 — 不该成为可读章节)
+# 非正文 TOC 条目 (封面/目录/地图/图表/索引/尾注/版权等, 以及出版社宣传性尾页——
+# 花絮/致谢/书评摘录/其它书预告/讨论指南等—— 都不该成为可读章节)
 NON_BODY_TOC = re.compile(
     r"^(cover|title|table of contents|contents?|map|range map|wolf charts|charts?|references?|index|"
-    r"notes?|endnotes?|source notes|bibliography|acknowledgements?|about the author|also by|"
-    r"epigraph|colophon|copyright|dedication|"
+    r"notes?|endnotes?|source notes|bibliography|acknowledge?ments?|about the author|also by|"
+    r"epigraph|colophon|copyright|dedication|a note about the story|behind the scenes|"
+    r"discussion guide|praise for|a sneak peek|"
     r"[ivxlcdm]{1,6}\b|\d{1,4}$)",
     re.I,
 )

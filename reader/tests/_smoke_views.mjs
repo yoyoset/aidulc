@@ -212,7 +212,7 @@ globalThis.AiduSyncService = {
   backendAdd: async () => ({ ok: true }), backendSwitch: async () => ({ ok: true }), backendRemove: async () => ({ ok: true }),
   backendToggle: async () => ({ ok: true }),
 };
-globalThis.AiduDictionaryService = { list: async () => ({ ok: true, data: [] }), vocabAll: async () => ({ ok: true, data: [] }), lookup: async () => ({ ok: true, data: {} }), lookupOnline: async () => ({ ok: true, data: ['NOUN', '', ['在线释义'], [], [], '', []] }), addToVocab: async () => ({ ok: true, data: { added: 'x', common_word: false } }), vocabRemove: async () => ({ ok: true }), srsPreview: async () => ({ ok: true, data: { options: [1,2,3,4].map((g) => ({ grade: g, human: g + ' 天' })) } }), srsGrade: async (p, l, g) => ({ ok: true, data: {} }), srsRestore: async () => ({ ok: true, data: {} }), vocabCommonPreview: async () => ({ ok: true, data: { count: 0, top_n: 3000, lemmas: [] } }), vocabRemoveCommon: async () => ({ ok: true, data: { removed: 0, backup_path: '' } }), vocabBacklogPreview: async () => ({ ok: true, data: { backlog_count: 0, daily_cap: 40, days: 0, today_after: 0, today_before: 0 } }), vocabBacklogSpread: async () => ({ ok: true, data: { spread: 0, days: 0, backup_path: '' } }), ttsCacheWord: async () => ({ ok: true }), vocabReadCachedAudio: async () => ({ ok: true, data: null }) };
+globalThis.AiduDictionaryService = { list: async () => ({ ok: true, data: [] }), vocabAll: async () => ({ ok: true, data: [] }), lookup: async () => ({ ok: true, data: {} }), lookupOnline: async () => ({ ok: true, data: ['NOUN', '', ['在线释义'], [], [], '', []] }), addToVocab: async () => ({ ok: true, data: { added: 'x', common_word: false } }), vocabRemove: async () => ({ ok: true }), srsPreview: async () => ({ ok: true, data: { options: [1,2,3,4].map((g) => ({ grade: g, human: g + ' 天' })) } }), srsGrade: async (p, l, g) => ({ ok: true, data: {} }), srsRestore: async () => ({ ok: true, data: {} }), vocabCommonPreview: async () => ({ ok: true, data: { count: 0, top_n: 3000, lemmas: [] } }), vocabRemoveCommon: async () => ({ ok: true, data: { removed: 0, backup_path: '' } }), vocabBacklogPreview: async () => ({ ok: true, data: { backlog_count: 0, daily_cap: 40, days: 0, today_after: 0, today_before: 0 } }), vocabBacklogSpread: async () => ({ ok: true, data: { spread: 0, days: 0, backup_path: '' } }), ttsCacheWord: async () => ({ ok: true }), vocabReadCachedAudio: async () => ({ ok: true, data: null }), vocabAudioStart: async (words) => ({ ok: true, data: { running: true, total: words.length, done: 0, synthesized: 0, skipped: 0, failed: 0, current: '', outcome: '', finished_at: 0 } }), vocabAudioStatus: async () => ({ ok: true, data: { running: false, total: 0, done: 0, synthesized: 0, skipped: 0, failed: 0, current: '', outcome: '', finished_at: 0 } }), vocabAudioCancel: async () => ({ ok: true }) };
 globalThis.AiduReadingService = { get: async () => ({ ok: true, data: null }), save: async () => ({ ok: true }), stats: async () => ({ ok: true, data: {} }) };
 globalThis.AiduMiscService = {
   logPath: async () => ({ ok: true, data: { path: 'C:/log' } }), componentsHealth: async () => ({ ok: true, data: [] }),
@@ -245,6 +245,7 @@ load('core/import_gate.js');
 load('views/library/cover.js');
 load('views/library/status.js');
 load('views/library_view.js');
+load('views/prep/retry_dialog.js');
 load('views/prep_view.js');
 load('views/settings/system_tab.js');
 load('views/settings/models_tab.js');
@@ -279,6 +280,43 @@ console.log('== 1d. UX5 修正 (2026-08-13): 失败任务给「去修模型」�
   // STDIMPORT (2026-08-17): 「重试失败句」和「重跑…」合并成单一「重新处理…」入口
   // (「只补失败句」降级成对话框里的默认重跑范围, 语义等价)。恢复路径仍在, 只是少一个概念。
   check('UX5修正: 失败行仍有恢复入口「重新处理…」', !!queryAll(rowM, 'button').find((b) => b.textContent === '重新处理…'));
+}
+
+console.log('== 1d-2. 补全发音后台任务 (2026-08-17): 处理中页单独一行, 有进度条和取消 ==');
+{
+  const pv = new globalThis.PrepView(store);
+  pv._vocabSlot = makeElement('div');
+
+  // 从没跑过 → 不占位置
+  pv._renderVocabAudio(null);
+  check('补发音: 没跑过时不占位置', pv._vocabSlot._children.length === 0);
+  pv._renderVocabAudio({ running: false, total: 0, done: 0, synthesized: 0, skipped: 0, failed: 0, current: '', outcome: '' });
+  check('补发音: total=0 也不占位置', pv._vocabSlot._children.length === 0);
+
+  // 跑动中 → 有进度条 + 取消按钮 + 三个计数分开报
+  pv._renderVocabAudio({ running: true, total: 100, done: 40, synthesized: 30, skipped: 8, failed: 2, current: 'hatchet', outcome: '' });
+  const card = queryAll(pv._vocabSlot, '.prep-task')[0];
+  check('补发音: 跑动中出现任务卡', !!card);
+  check('补发音: 标题是「补全生词发音」', !!queryAll(card, '.prep-task-title').find((n) => n.textContent === '补全生词发音'));
+  const st = queryAll(card, '.prep-task-status')[0];
+  check('补发音: 状态显示 已处理/总数 + 当前词', st && st.textContent === '40/100 · hatchet', st && st.textContent);
+  const fill = queryAll(card, '.prep-bar-fill')[0];
+  check('补发音: 进度条按 done/total 走', fill && fill.style.width === '40%', fill && fill.style.width);
+  const cancelBtn = queryAll(card, 'button').find((b) => b.textContent === '取消');
+  check('补发音: 跑动中有取消按钮', !!cancelBtn);
+  const meta = queryAll(card, '.preview-meta')[0];
+  check('补发音: 新合成/跳过/失败 三个数分开报 (跳过不是失败)',
+    meta && meta.textContent === '新合成 30 · 已有缓存跳过 8 · 失败 2', meta && meta.textContent);
+
+  // 结束后仍留一条结果摘要, 且没有取消按钮
+  pv._renderVocabAudio({ running: false, total: 100, done: 100, synthesized: 90, skipped: 10, failed: 0, current: '', outcome: 'done' });
+  const card2 = queryAll(pv._vocabSlot, '.prep-task')[0];
+  check('补发音: 跑完仍留结果摘要 (不是弹个 toast 就没了)', !!card2);
+  check('补发音: 跑完状态是「已完成」', queryAll(card2, '.prep-task-status')[0].textContent === '已完成');
+  check('补发音: 跑完没有取消按钮', !queryAll(card2, 'button').some((b) => b.textContent === '取消'));
+
+  pv._renderVocabAudio({ running: false, total: 100, done: 42, synthesized: 40, skipped: 2, failed: 0, current: '', outcome: 'canceled' });
+  check('补发音: 取消后状态是「已取消」', queryAll(pv._vocabSlot, '.prep-task-status')[0].textContent === '已取消');
 }
 
 console.log('== 1e. 重新处理 (2026-08-13 / STDIMPORT 2026-08-17): 单一入口 + 对话框 (3 模型 + 档案下拉 + 重跑范围) ==');

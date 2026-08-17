@@ -78,6 +78,8 @@
       if (shelfEl) wrap.append(shelfEl);
 
       const listEl = el('div', 'book-list');
+      // 2026-08-17: 每次 render 都从持久化里取一次, 这样切走再回来/重启 app 都保持
+      if (this._cardCompact === undefined) this._cardCompact = this._storedCompact();
       if (this._cardCompact) listEl.classList.add('book-list--compact');
       wrap.append(listEl);
 
@@ -102,7 +104,10 @@
         this._sortMode = sortSel.value;
         this._renderBooks(listEl, this.store.state.books || [], searchInput, segBar, shelfEl);
       });
-      // K31: 卡片大小切换 —— 紧凑/大图二态按钮, 纯内存状态 (this._cardCompact), 默认大图
+      // K31: 卡片大小切换 —— 紧凑/大图二态按钮, 默认大图。
+      // 2026-08-17 (用户反馈"点紧凑要默认保存"): 原来是纯内存状态, 切走页面或重启
+      // 就退回大图。改成落 localStorage(同 aidulc.lastProfile 的做法), 属于"这台机器
+      // 上这个人的显示偏好", 不进 reader_settings 那张按档案存学习设置的表。
       const sizeBtn = el('button', 'btn-small', this._cardCompact ? '大图' : '紧凑');
       sizeBtn.title = this._cardCompact ? '切换为大图卡片' : '切换为紧凑卡片';
       sizeBtn.addEventListener('click', () => {
@@ -110,6 +115,7 @@
         sizeBtn.textContent = this._cardCompact ? '大图' : '紧凑';
         sizeBtn.title = this._cardCompact ? '切换为大图卡片' : '切换为紧凑卡片';
         listEl.classList.toggle('book-list--compact', this._cardCompact);
+        this._saveCompact(this._cardCompact);
       });
       const segBar = el('div', 'library-segmented');
       // 状态分段: 全部 / 已就绪 / 处理中 / 未处理 (映射见 _inStatusBucket)
@@ -590,6 +596,15 @@
         onConfirm: () => AiduLibraryService.remove(edition.id, true)
           .then(() => { this.store.emit('change', this.store.state); AiduToast.show('已移除译本记录', 'success'); }),
       });
+    }
+
+    /** 卡片紧凑模式的持久化 (2026-08-17): 同 _storedProfile 的 localStorage 做法。
+     *  读失败/没有 localStorage 时退回 false(大图), 不阻塞渲染。 */
+    _storedCompact() {
+      try { return window.localStorage.getItem('aidulc.lib.compact') === '1'; } catch (e) { return false; }
+    }
+    _saveCompact(on) {
+      try { window.localStorage.setItem('aidulc.lib.compact', on ? '1' : '0'); } catch (e) { /* 无 localStorage 不阻塞 */ }
     }
 
     /** 默认与预填 (UX 审计 2026-08-09): 记住上次选的档案, 导入/创建译本自动预选 */

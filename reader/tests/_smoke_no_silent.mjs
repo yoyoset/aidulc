@@ -264,6 +264,10 @@ globalThis.AiduDictionaryService = {
   vocabBacklogPreview: async () => ({ ok: true, data: { backlog_count: 0, daily_cap: 40, days: 0, today_after: 0, today_before: 0 } }),
   vocabBacklogSpread: async () => ({ ok: true, data: { spread: 0, days: 0, backup_path: '' } }),
   ttsCacheWord: async () => ({ ok: true }), vocabReadCachedAudio: async () => ({ ok: true, data: null }),
+  // 2026-08-17: 补发音改成 Rust 侧后台任务的三个命令
+  vocabAudioStart: async (words) => ({ ok: true, data: { running: true, total: (words || []).length, done: 0, synthesized: 0, skipped: 0, failed: 0, current: '', outcome: '' } }),
+  vocabAudioStatus: async () => ({ ok: true, data: { running: false, total: 0, done: 0, synthesized: 0, skipped: 0, failed: 0, current: '', outcome: '' } }),
+  vocabAudioCancel: async () => ({ ok: true }),
 };
 globalThis.AiduReadingService = { get: async () => ({ ok: true, data: null }), save: async () => ({ ok: true }), stats: async () => ({ ok: true, data: {} }) };
 globalThis.AiduMiscService = {
@@ -401,6 +405,7 @@ load('views/library/status.js');
 load('views/library_view.js');
 load('views/models_view.js');
 load('views/vocab_view.js');
+load('views/prep/retry_dialog.js');
 load('views/prep_view.js');
 load('views/settings/system_tab.js');
 load('views/settings/models_tab.js');

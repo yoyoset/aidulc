@@ -88,7 +88,19 @@
 /* K16 (2026-08-14): 排队原因说明 —— 显存安全的刻意设计, 之前无文案 */
 .prep-queue-hint { font-weight: 400; font-size: var(--md-sys-font-size-body-s); color: var(--md-sys-color-on-surface-variant); cursor: help; }
 .prep-section { margin-bottom: 8px; }
-/* I2: 查看历史 (折叠, 完成满一天的批次收进来) */
+/* 2026-08-17: 「最近完成」显示条数下拉 (挂在小节标题右侧, 不抢标题的视觉重量) */
+.prep-recent-limit {
+  margin-left: 10px;
+  padding: 2px 6px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-sm);
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface-variant);
+  font-weight: 400;
+  font-size: var(--md-sys-font-size-body-s);
+  cursor: pointer;
+}
+/* I2: 查看历史 (折叠, 更早完成的任务收进来) */
 .prep-history-toggle {
   display: block;
   width: 100%;

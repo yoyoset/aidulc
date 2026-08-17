@@ -49,10 +49,15 @@
       header.appendChild(ctrl);
 
       // 任务列表 (I1: 三段式 — 进行中 / 排队中 / 最近完成)
+      // 生词补发音任务的展示位 (2026-08-17): 独立于 jobs 列表, 放在最上面 ——
+      // 它不排队、点了立刻开始, 混进"进行中/排队中"分段反而会误导成书籍任务。
+      const vocabSlot = el('div', 'prep-vocab-slot');
+      this._vocabSlot = vocabSlot;
+
       const listEl = el('div', 'prep-list');
       this._listEl = listEl;
 
-      wrap.append(header, listEl);
+      wrap.append(header, vocabSlot, listEl);
       container.appendChild(wrap);
 
       // 订阅任务进度 (Bug fix 审查确认: 注销旧订阅, 每次 render 叠加 4 个 listener)
@@ -71,8 +76,16 @@
         AiduBridge.listen('batch-progress', () => {
           this._refreshJobs();
         }),
+        // 2026-08-17: 生词补发音后台任务 (不在 jobs 表里, 单独一行, 见 vocab_audio_task.rs)
+        AiduBridge.listen('vocab-audio-progress', (ev) => {
+          this._renderVocabAudio((ev && ev.payload) || null);
+        }),
       ];
       this._refreshJobs();
+      // 进页面先主动拉一次: 事件只在跑动时来, 刚进来时拿不到当前状态
+      AiduDictionaryService.vocabAudioStatus()
+        .then((r) => this._renderVocabAudio((r.ok && r.data) || null))
+        .catch(() => {});
     }
 
     /** F33 (2026-08-08): 路由离开时注销事件订阅, 不残留对游离 DOM 的更新/重复拉取 */
@@ -134,17 +147,22 @@
         // 三段归类 (I1): running→进行中, queued/paused→排队中, 其余终态→最近完成
         const running = jobs.filter((j) => j.status === 'running');
         const queued = jobs.filter((j) => ['queued', 'paused'].includes(j.status));
-        // I2: 最近完成只显示今天的; 更早的进「查看历史」
-        const todayDone = jobs.filter((j) => ['done', 'partial', 'failed', 'canceled'].includes(j.status));
-        const recent = todayDone.filter((j) => {
-          const t = j.updated_at || j.created_at || 0;
-          return new Date(t).toDateString() === new Date(now).toDateString();
-        });
-        const history = todayDone.filter((j) => !recent.includes(j));
+        // 2026-08-17 (用户问"显示历史的条目是什么判断的"): 原来判据是"完成时间是不是今天"
+        // (toDateString 比较), 结果昨晚 23:59 跑完的书今天 00:01 打开就进历史了 —— 跟
+        // "多久之前"无关, 只跟跨没跨零点有关, 不符合直觉。改成按条数取最近 N 条,
+        // N 由顶部下拉选(默认 20), 其余进历史。
+        const finished = jobs
+          .filter((j) => ['done', 'partial', 'failed', 'canceled'].includes(j.status))
+          .sort((a, b) => (b.updated_at || b.created_at || 0) - (a.updated_at || a.created_at || 0));
+        const limit = this._recentLimit();
+        const recent = limit === 0 ? finished : finished.slice(0, limit);
+        const history = limit === 0 ? [] : finished.slice(limit);
 
-        const section = (title, items) => {
+        const section = (title, items, titleExtra) => {
           const sec = el('div', 'prep-section');
-          sec.appendChild(el('div', 'prep-section-title', title));
+          const t = el('div', 'prep-section-title', title);
+          if (titleExtra) t.appendChild(titleExtra);
+          sec.appendChild(t);
           items.forEach((j) => sec.appendChild(this._buildTaskRow(j)));
           return sec;
         };
@@ -189,7 +207,21 @@
           listEl.appendChild(activeSec);
         }
         if (recent.length) {
-          listEl.appendChild(section('今天完成', recent));
+          // 条数下拉挂在小节标题右侧, 改完立刻重渲染
+          const sel = document.createElement('select');
+          sel.className = 'prep-recent-limit';
+          sel.title = '「最近完成」显示多少条, 其余进「查看历史」';
+          [['10', '10 条'], ['20', '20 条'], ['50', '50 条'], ['0', '全部']].forEach(([v, t]) => {
+            const o = document.createElement('option');
+            o.value = v; o.textContent = t;
+            if (String(this._recentLimit()) === v) o.selected = true;
+            sel.appendChild(o);
+          });
+          sel.addEventListener('change', () => {
+            this._saveRecentLimit(parseInt(sel.value, 10));
+            this._refreshJobs();
+          });
+          listEl.appendChild(section(`最近完成 (${recent.length}/${finished.length})`, recent, sel));
         }
         if (history.length) {
           const histBtn = el('button', 'prep-history-toggle', `查看历史 (${history.length})`);
@@ -272,6 +304,13 @@
           });
         };
         actions.appendChild(btnResume);
+        // 2026-08-17 (用户反馈"暂停的时候也应该有重新备料的按钮"): 暂停原本只给「继续」,
+        // 想改模型/档案再跑只能先继续、等它跑完或失败, 等于没有入口。暂停是最需要改设置的
+        // 时刻(多半就是因为发现设置不对才暂停的), 所以这里也给同一个入口。
+        const btnReconf = el('button', 'btn-small', '重新处理…');
+        btnReconf.title = '改模型/学习档案后重跑, 或只重跑某个阶段。已完成的部分不会白跑。';
+        btnReconf.onclick = () => this._showRetryDialog(job);
+        actions.appendChild(btnReconf);
       }
       // 已跑完的任务(成功或失败)都给一个统一的恢复/重做入口 (苹果级: 失败必有恢复路径)
       if (job.status === 'failed' || job.status === 'partial' || job.status === 'done') {
@@ -428,158 +467,66 @@
       });
     }
 
-    /** 手动重跑 (2026-08-13): 「重跑…」对话框 — 重新选模型 (3 下拉) + 重跑范围 (单选)。
-     * 点「开始重跑」→ AiduJobService.retryCustom(id, llmId, ttsId, nlpId, forceStages, profileId)。
-     * 模型下拉: 默认「保持当前」(书级绑定/推荐解析), 选项 = 已登记模型 (AiduModelService.list)。
-     * 重跑范围: 自动(只跑失败/未完成) / 从翻译 / 从讲解 / 从语音 / 全部, 语义与
-     * prep checkpoint.clear_stages 的 FORCE_STAGE_CASCADE 对齐 (翻译级联讲解, 语音级联对齐)。
-     */
+    /** 「重新处理…」对话框 —— 实现在 views/prep/retry_dialog.js (2026-08-17 拆出)。 */
     _showRetryDialog(job) {
-      const famLabels = { llm: '翻译引擎', tts: '语音引擎', nlp: '分词' };
-      const ov = document.createElement('div');
-      ov.className = 'modal-overlay';
-      const box = document.createElement('div');
-      box.className = 'modal-box';
-      box.setAttribute('role', 'dialog');
-      box.setAttribute('aria-modal', 'true');
-      const title = el('h2', 'modal-title', `重新处理 — ${job.book_path.split(/[\\/]/).pop()}`);
-      const body = el('div', 'book-settings-body');
-      let scopeTouched = false; // 用户是否手动动过"重跑范围"(动过就不再被下拉联动覆盖)
+      global.AiduPrepRetryDialog.show(this, job);
+    }
 
-      body.appendChild(el('div', 'preview-meta', '先改设置 (模型/学习档案, 保持当前 = 沿用原来的), 重跑范围会自动调到够用的最小范围, 也可以自己改。'));
-      // 模型下拉 (默认保持当前 = 空串)
-      const mkSelect = (fam) => {
-        const wrap = el('div', 'retry-field');
-        wrap.appendChild(el('label', null, famLabels[fam] || fam));
-        const sel = document.createElement('select');
-        sel.className = 'retry-select';
-        const keep = document.createElement('option');
-        keep.value = '';
-        keep.textContent = '保持当前 (书级绑定/推荐)';
-        sel.appendChild(keep);
-        (global.AiduModelService.list ? (global.AiduModelService.list() || Promise.resolve({ ok: true, data: [] })) : Promise.resolve({ ok: true, data: [] }))
-          .then((res) => {
-            const models = (res.ok && res.data) || [];
-            models.filter((m) => m.family === fam).forEach((m) => {
-              const opt = document.createElement('option');
-              opt.value = m.id;
-              opt.textContent = (m.model_id || m.id) + (m.active ? ' (推荐)' : '');
-              sel.appendChild(opt);
-            });
-          })
-          .catch(() => {});
-        wrap.appendChild(sel);
-        return { wrap, sel };
-      };
-      const llm = mkSelect('llm');
-      const tts = mkSelect('tts');
-      const nlp = mkSelect('nlp');
-      body.append(llm.wrap, tts.wrap, nlp.wrap);
+    /** 生词补发音任务行 (2026-08-17)。p 为 null / 从没跑过 → 不占位置。
+     *  跑完之后仍显示一条结果摘要, 直到用户离开页面 —— 之前那版跑完只弹个 toast,
+     *  一闪而过, 用户根本不知道成功没有、跳过了几个。 */
+    _renderVocabAudio(p) {
+      const slot = this._vocabSlot;
+      if (!slot) return;
+      slot.innerHTML = '';
+      if (!p || (!p.running && !p.total)) return;
+      const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
 
-      // STDIMPORT (2026-08-17): 学习档案也能重选 —— 用户的真实诉求是"就地改讲解设置
-      // 再重跑, 只重跑讲解", 之前这个对话框只能换模型, 改档案得回书库重新创建译本
-      // (等于重跑整本)。换档案不改 book_id (Rust 侧 job_retry_custom 的注释说明了原因)。
-      const profWrap = el('div', 'retry-field');
-      profWrap.appendChild(el('label', null, '学习档案'));
-      const profSel = document.createElement('select');
-      profSel.className = 'retry-select';
-      const keepProf = document.createElement('option');
-      keepProf.value = '';
-      keepProf.textContent = '保持当前';
-      profSel.appendChild(keepProf);
-      profWrap.appendChild(profSel);
-      body.appendChild(profWrap);
-      let profiles = [];
-      AiduBridge.profiles.list().then((res) => {
-        profiles = (res.ok && res.data) || [];
-        profiles.forEach((p) => {
-          const opt = document.createElement('option');
-          opt.value = p.id;
-          opt.textContent = p.name + (p.id === job.profile_id ? ' (当前)' : '');
-          profSel.appendChild(opt);
-        });
-      }).catch(() => {});
-
-      // 重跑范围 (单选) — force_stages 语义与 FORCE_STAGE_CASCADE 对齐
-      const scopeWrap = el('div', 'retry-field');
-      scopeWrap.appendChild(el('label', null, '重跑范围'));
-      const scopes = [
-        { v: '', t: '自动', d: '只补失败/未完成的句子 (最省时间)' },
-        { v: 'translate', t: '从翻译', d: '重跑翻译+讲解' },
-        { v: 'explain', t: '从讲解', d: '重跑讲解' },
-        { v: 'tts', t: '从语音', d: '重跑语音+对齐' },
-        { v: 'all', t: '全部', d: '重跑翻译+讲解+语音+对齐' },
-      ];
-      const radios = scopes.map((s) => {
-        const row = el('label', 'retry-scope-row');
-        const r = document.createElement('input');
-        r.type = 'radio';
-        r.name = 'retry-scope';
-        r.value = s.v;
-        r.checked = s.v === '';
-        r.addEventListener('change', () => {
-          radios.forEach((x) => { x.checked = (x === r); });
-          scopeTouched = true; // 用户自己选过之后, 不再被下拉联动覆盖
-        });
-        row.appendChild(r);
-        row.appendChild(el('span', null, s.t + ' — ' + s.d));
-        scopeWrap.appendChild(row);
-        return r;
-      });
-      body.appendChild(scopeWrap);
-
-      // 下拉变化 → 自动把重跑范围调到"够用的最小范围"(AiduRerunScope 纯逻辑,
-      // 配对测试在 reader/tests/rerun_scope.test.js)。用户手动选过就不再覆盖。
-      const syncScope = () => {
-        if (scopeTouched) return;
-        const scopeApi = global.AiduRerunScope || globalThis.AiduRerunScope;
-        const v = scopeApi.suggest({
-          oldProfile: profiles.find((p) => p.id === job.profile_id) || null,
-          newProfile: profSel.value ? profiles.find((p) => p.id === profSel.value) || null : null,
-          llmChanged: !!llm.sel.value,
-          ttsChanged: !!tts.sel.value,
-          nlpChanged: !!nlp.sel.value,
-        });
-        radios.forEach((r) => { r.checked = (r.value === v); });
-      };
-      [llm.sel, tts.sel, nlp.sel, profSel].forEach((s) => s.addEventListener('change', syncScope));
-
-      const actions = el('div', 'modal-actions');
-      const startBtn = el('button', 'btn-small btn-primary', '开始重跑');
-      startBtn.onclick = () => {
-        const sel = radios.find((r) => r.checked);
-        // 重跑范围 → force_stages (与 checkpoint FORCE_STAGE_CASCADE 语义一致:
-        // 翻译级联讲解, 语音级联对齐; 空 = 自动只跑失败/未完成)
-        const FORCE_MAP = {
-          translate: ['translate'],
-          explain: ['explain'],
-          tts: ['tts'],
-          all: ['translate', 'explain', 'tts', 'align'],
+      const card = el('div', 'prep-task');
+      const head = el('div', 'prep-task-header');
+      head.appendChild(el('div', 'prep-task-title', '补全生词发音'));
+      const statusText = p.running
+        ? `${p.done}/${p.total}${p.current ? ' · ' + p.current : ''}`
+        : ({ canceled: '已取消', done: '已完成' }[p.outcome] || p.outcome || '已结束');
+      head.appendChild(el('div', 'prep-task-status', statusText));
+      const acts = el('div', 'prep-task-actions');
+      if (p.running) {
+        const btn = el('button', 'btn-small', '取消');
+        btn.onclick = () => {
+          btn.disabled = true;
+          btn.textContent = '取消中…';
+          AiduDictionaryService.vocabAudioCancel().then(() => AiduToast.show('已请求取消', 'info'));
         };
-        const forceStages = (sel && FORCE_MAP[sel.value]) || null;
-        startBtn.disabled = true;
-        startBtn.textContent = '重排中…';
-        AiduJobService.retryCustom(
-          job.id,
-          llm.sel.value || null,
-          tts.sel.value || null,
-          nlp.sel.value || null,
-          forceStages,
-          profSel.value || null,
-        ).then((r) => {
-          if (!r.ok) { startBtn.disabled = false; startBtn.textContent = '开始重跑'; AiduToast.show('重跑失败: ' + r.error, 'error'); return; }
-          ov.remove();
-          AiduToast.show('已重新排队', 'success');
-          this._refreshJobs();
-        });
-      };
-      const close = el('button', 'btn-small', '关闭');
-      close.onclick = () => ov.remove();
-      actions.append(startBtn, close);
-      box.append(title, body, actions);
-      ov.appendChild(box);
-      ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
-      document.body.appendChild(ov);
+        acts.appendChild(btn);
+      }
+      head.appendChild(acts);
+      card.appendChild(head);
+
+      const bar = el('div', 'prep-bar');
+      const fill = el('div', 'prep-bar-fill');
+      fill.style.width = pct + '%';
+      bar.appendChild(fill);
+      card.appendChild(bar);
+
+      // 三个计数分开报: "跳过"是幂等命中已有缓存, 不是失败 —— 跑第二遍时几乎全是跳过,
+      // 混在一起会让用户以为什么都没做或全失败了。
+      card.appendChild(el(
+        'div', 'preview-meta',
+        `新合成 ${p.synthesized} · 已有缓存跳过 ${p.skipped} · 失败 ${p.failed}`,
+      ));
+      slot.appendChild(card);
+    }
+
+    /** 「最近完成」显示条数 (2026-08-17)。0 = 全部(历史区为空)。
+     *  存 localStorage(同 library_view 的 aidulc.* 做法), 是显示偏好不是学习设置。 */
+    _recentLimit() {
+      try {
+        const v = parseInt(window.localStorage.getItem('aidulc.prep.recentLimit'), 10);
+        return [0, 10, 20, 50].includes(v) ? v : 20;
+      } catch (e) { return 20; }
+    }
+    _saveRecentLimit(n) {
+      try { window.localStorage.setItem('aidulc.prep.recentLimit', String(n)); } catch (e) { /* 无 localStorage 不阻塞 */ }
     }
 
     /** K20 (2026-08-14): 已耗时/已完成度线性外推剩余时间。只对 running 且进度落在

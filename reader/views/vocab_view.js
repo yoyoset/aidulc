@@ -515,16 +515,23 @@
       AiduToast.show(`已导出 ${this.entries.length} 个生词为 CSV`, 'success');
     }
 
-    /** K32 (2026-08-15): 存量补齐发音 —— 遍历当前列表所有词依次预生成缓存(幂等,
-     *  后端见文件已存在就直接跳过)。顺序执行, 不并发堆满语音守护(单进程串行)。 */
+    /** K32 (2026-08-15): 存量补齐发音 —— 幂等, 已有缓存的词后端直接跳过。
+     *
+     *  2026-08-17 (用户反馈"我跑了一个补全发音但是任务没有"): 原来是在这里跑
+     *  `for (const w of words) await ttsCacheWord(w)`, 没有任务、没有进度、没法取消,
+     *  切走页面循环就断且断在哪不知道。改成起 Rust 侧后台任务, 进度在"处理中"页看,
+     *  这里只负责发起 + 给一句去哪看的提示。 */
     async _backfillPronunciations() {
       const words = this.entries.map((e) => e.word);
       if (!words.length) { AiduToast.show('生词本为空, 无需补全', 'info'); return; }
-      AiduToast.show(`开始为 ${words.length} 个词补全发音…`, 'info');
-      for (const w of words) {
-        await AiduDictionaryService.ttsCacheWord(w).catch(() => null);
+      const r = await AiduDictionaryService.vocabAudioStart(words);
+      if (!r.ok) { AiduToast.show('补全发音启动失败: ' + r.error, 'error'); return; }
+      const p = r.data || {};
+      if (p.running && p.done > 0) {
+        AiduToast.show('补全发音已经在跑了, 去「处理中」看进度', 'info');
+        return;
       }
-      AiduToast.show('发音补全完成', 'success');
+      AiduToast.show(`已开始为 ${words.length} 个词补全发音, 去「处理中」看进度(可取消)`, 'success');
     }
 
     /** K27 (2026-08-14, 用户拍板"可勾选, 各是个独立边界, 可以全选"): 备份前选类别。

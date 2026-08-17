@@ -158,6 +158,21 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "K29: 进入阅读器时预热语音守护, 减少生词本首次发音的等待",
     },
     CommandInfo {
+        path: "commands::vocab_audio::vocab_audio_start",
+        domain: "生词本",
+        desc: "补全发音: 启动后台任务",
+    },
+    CommandInfo {
+        path: "commands::vocab_audio::vocab_audio_status",
+        domain: "生词本",
+        desc: "补全发音: 当前进度",
+    },
+    CommandInfo {
+        path: "commands::vocab_audio::vocab_audio_cancel",
+        domain: "生词本",
+        desc: "补全发音: 取消",
+    },
+    CommandInfo {
         path: "commands::dictionary::tts_cache_word",
         domain: "词典",
         desc: "K30: 生词加入生词本时后台预生成发音音频缓存 (文件存在即已生成, 幂等)",

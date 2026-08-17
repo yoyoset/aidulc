@@ -598,8 +598,15 @@ pub fn job_retry_custom(
 ) -> Result<(), String> {
     let repo = store::jobs_repo::JobsRepo::new(db);
     let job = repo.get(&id).ok_or("任务不存在")?;
-    if job.status != "done" && job.status != "failed" && job.status != "partial" {
-        return Err("只有已完成的任务能重跑".into());
+    // 2026-08-17: 放开 paused —— 用户反馈"暂停的时候也应该有重新备料的按钮"。暂停恰恰
+    // 是最需要改设置的时刻(多半就是发现模型/档案不对才按的暂停), 而暂停态的任务子进程
+    // 已被杀、checkpoint 完整保留, 重新排队和从 done/failed 重跑没有区别。
+    // 仍然拦住 running/queued: 那两种状态下改 job_request 会和正在跑的进程打架。
+    if !matches!(
+        job.status.as_str(),
+        "done" | "failed" | "partial" | "paused"
+    ) {
+        return Err("只有已完成或已暂停的任务能重跑".into());
     }
     // 原书 id 用 job.source_id (真实原书 id, 不重算 path+profile, 见 job_retry_failed 历史注释)
     let orig_book_id = job.source_id.clone().unwrap_or_else(|| {

@@ -10,6 +10,7 @@ mod application {
     pub mod sync_service;
     pub mod transfer_service;
     pub mod users_service;
+    pub mod vocab_audio_task;
     pub mod wizard_service;
 }
 mod commands {
@@ -26,6 +27,7 @@ mod commands {
     pub mod srs;
     pub mod sync_backend;
     pub mod vocab;
+    pub mod vocab_audio;
 }
 mod domain {
     pub mod bookpack;
@@ -434,6 +436,10 @@ fn main() {
         .manage(prep_cfg)
         // 阶段3 (F46): 书包解析缓存, 消除大书每章整文件重读重解析 (实测 419ms/章)
         .manage(infrastructure::bookpack_cache::BookpackCache::new())
+        // 生词补发音后台任务的单例状态 (2026-08-17, 不进 jobs 队列, 见 vocab_audio_task.rs)
+        .manage(std::sync::Arc::new(
+            application::vocab_audio_task::VocabAudioState::default(),
+        ))
         .setup(|app| {
             // G7: 启动后自动恢复队列任务 —— 只有用户明确 queued 的任务才自动跑;
             // stale running 任务已被 reset_stale 标记成 paused, 不在此列 (P0-A, 2026-08-10)。
@@ -505,6 +511,9 @@ fn main() {
             commands::dictionary::tts_synth_word,
             commands::dictionary::tts_prewarm,
             commands::dictionary::tts_cache_word,
+            commands::vocab_audio::vocab_audio_start,
+            commands::vocab_audio::vocab_audio_status,
+            commands::vocab_audio::vocab_audio_cancel,
             commands::dictionary::vocab_read_cached_audio,
             commands::vocab::vocab_all,
             commands::vocab::vocab_search,

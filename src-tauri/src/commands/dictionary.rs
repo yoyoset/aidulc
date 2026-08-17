@@ -293,7 +293,7 @@ fn tts_cache_slug(word: &str) -> String {
 }
 
 /// 缓存文件绝对路径: {data_dir}/tts_cache/{slug}.wav
-fn tts_cache_path(data_dir: &std::path::Path, word: &str) -> std::path::PathBuf {
+pub(crate) fn tts_cache_path(data_dir: &std::path::Path, word: &str) -> std::path::PathBuf {
     data_dir
         .join("tts_cache")
         .join(format!("{}.wav", tts_cache_slug(word)))

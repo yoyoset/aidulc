@@ -52,6 +52,11 @@
     // K32 (2026-08-15): 生词发音缓存 —— ttsCacheWord 后台预生成音频落盘(幂等, 加词时
     // fire-and-forget); vocabReadCachedAudio 读缓存 base64(未命中返回 null, 前端降级合成)。
     ttsCacheWord(word) { return AiduBridge.invoke('tts_cache_word', { word }); },
+    // 2026-08-17: 批量补发音改成 Rust 侧后台任务(有进度/可取消/切页面不断),
+    // 不再是前端 for 循环逐词调 ttsCacheWord。见 application/vocab_audio_task.rs。
+    vocabAudioStart(words) { return AiduBridge.invoke('vocab_audio_start', { words }); },
+    vocabAudioStatus() { return AiduBridge.invoke('vocab_audio_status'); },
+    vocabAudioCancel() { return AiduBridge.invoke('vocab_audio_cancel'); },
     vocabReadCachedAudio(word) { return AiduBridge.invoke('vocab_read_cached_audio', { word }); },
   };
 

@@ -9,7 +9,7 @@ from aidulc_prep.core.standard import BLOCK, WARN, StandardIssue, judge_standard
 def judge(**kw):
     """Helper: 每个用例只传自己关心的参数。"""
     base = dict(opened=True, chapter_count=20, sentence_count=1000, real_missing=[],
-                total_files=20, untitled_count=0, non_body_titles=[], anomalies=[], severe_anomalies=[])
+                total_files=20, untitled_count=0, distinct_titles=None, non_body_titles=[], anomalies=[], severe_anomalies=[])
     base.update(kw)
     return judge_standard(**base)
 
@@ -144,3 +144,36 @@ def test_s3_normal_book_no_warn():
     """S3: 正常书(21 章 675 句) 无 S3 警告"""
     issues = judge(chapter_count=21, sentence_count=675)
     assert not any(issue.code == "S3" for issue in issues)
+
+
+class TestS5DuplicateTitles:
+    """S5 补的重名维度 (2026-08-17): 实测 Frindle 21 章标题全是 'Nick', 去重后只剩 1 个,
+    无题占比 0% 反而判达标 —— 但章节列表里 21 行同名, 和全部无题一样没法用。"""
+
+    def test_duplicate_titles_reported(self):
+        r = judge(chapter_count=21, untitled_count=0, distinct_titles=1)
+        s5 = [i for i in r if i.code == "S5"]
+        assert len(s5) == 1 and s5[0].level == WARN
+        assert "重名" in s5[0].message
+
+    def test_normal_titles_not_reported(self):
+        assert not [i for i in judge(chapter_count=21, distinct_titles=21) if i.code == "S5"]
+
+    def test_boundary_30_percent(self):
+        # 正好 30% 不报(不 <), 20% 报
+        assert not [i for i in judge(chapter_count=10, distinct_titles=3) if i.code == "S5"]
+        assert [i for i in judge(chapter_count=10, distinct_titles=2) if i.code == "S5"]
+
+    def test_small_book_not_reported(self):
+        """章数 <5 的书不判重名 —— 两三章重名可能是真的(比如上下篇同名)。"""
+        assert not [i for i in judge(chapter_count=4, distinct_titles=1) if i.code == "S5"]
+
+    def test_untitled_takes_priority(self):
+        """两种都命中时只报更严重的无题, 不叠两条 S5。"""
+        r = [i for i in judge(chapter_count=10, untitled_count=9, distinct_titles=1) if i.code == "S5"]
+        assert len(r) == 1
+        assert "(Untitled)" in r[0].message and "重名" not in r[0].message
+
+    def test_none_distinct_is_skipped(self):
+        """旧调用方不传 distinct_titles 时不报也不崩。"""
+        assert not [i for i in judge(chapter_count=21, distinct_titles=None) if i.code == "S5"]

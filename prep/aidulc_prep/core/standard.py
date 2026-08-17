@@ -35,7 +35,8 @@ def judge_standard(
     real_missing: list[str],
     total_files: int,
     untitled_count: int,
-    non_body_titles: list[str],
+    distinct_titles: int | None = None,
+    non_body_titles: list[str] | None = None,
     anomalies: list[str],
     severe_anomalies: list[str] | None = None,
 ) -> list[StandardIssue]:
@@ -49,6 +50,8 @@ def judge_standard(
         real_missing: 真的读不到的正文文件(URL 解码后仍读不到), 由调用方用 classify 逻辑算好
         total_files: 章节数 + 未覆盖文件数(比例分母)
         untitled_count: 标题回退成 "(Untitled)" 的章数
+        distinct_titles: 章节标题去重之后还剩几个。远小于 chapter_count 说明大量章节
+            重名(实测 Frindle 21 章标题全是 'Nick'), 在章节列表里等同于全部无题
         non_body_titles: 章节标题里仍然命中前后言正则的标题列表
         anomalies: core/health.py::detect_anomalies 的输出
         severe_anomalies: anomalies 里无歧义的那部分(某章 0 句 / 某章 >1000 句巨章),
@@ -112,12 +115,24 @@ def judge_standard(
             f"{len(anomalies)}/{chapter_count} 章句数分布离群({len(anomalies) / chapter_count:.0%}): {'; '.join(anomalies[:3])}"
         ))
 
-    # S5: 标题缺失过多
+    # S5 (2026-08-17 补重名维度): 原来只数 (Untitled) 占比, 实测 Frindle 21 章标题
+    # 全是 'Nick'(去重后只剩 1 个), 无题占比 0% 反而判达标 —— 但章节列表里 21 行同名,
+    # 可用性和全部无题没有区别。两种"标题不可用"都要抓, 先报更严重的无题。
     if chapter_count and untitled_count / chapter_count > 0.20:
         issues.append(StandardIssue(
             "S5",
             WARN,
             f"{untitled_count}/{chapter_count} 章标题缺失退化成 (Untitled)({untitled_count / chapter_count:.0%}), 章节列表会难以辨认"
+        ))
+    elif (
+        chapter_count >= 5
+        and distinct_titles is not None
+        and distinct_titles / chapter_count < 0.30
+    ):
+        issues.append(StandardIssue(
+            "S5",
+            WARN,
+            f"{chapter_count} 章标题去重后只剩 {distinct_titles} 个, 大量章节重名, 章节列表里无法区分"
         ))
 
     # S6: 前后言条目混进正文

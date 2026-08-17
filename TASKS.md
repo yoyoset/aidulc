@@ -7,7 +7,7 @@
 
 ## A. 行内标签把句子切碎(最严重, 编排方自己做)
 
-状态: **进行中**
+状态: **已完成** (编排方实现 + 10 本回归)
 
 `prep/aidulc_prep/pipeline/loader/epub.py::_strip_tags` 把**所有**标签一律换成换行,
 包括 `<em>/<a>/<span>/<strong>` 这些**行内**标签。后果实测(Charlotte's Web 开篇名句):
@@ -35,7 +35,7 @@
 
 ## B. 封面正则写死了属性顺序
 
-状态: **已完成** (pi/flash 实现, 编排方复核)
+状态: **已完成** (编排方实现 —— pi 跑 30 分钟零产出, 停掉自己做)
 
 `epub.py` 的 `<meta name="cover" content="id"/>` 正则要求 `name` 在 `content` 之前,
 但 XML 属性顺序是任意的。实测 Winn-Dixie 和 Holes 写的都是
@@ -54,7 +54,7 @@
 
 ## D. S5 判据不看标题重复度
 
-状态: **已完成** (pi/flash 实现, 编排方复核)
+状态: **已完成** (编排方实现 —— pi 跑 30 分钟零产出, 停掉自己做)
 
 `core/standard.py` 的 S5 只数 `(Untitled)` 占比。Frindle 21 章标题全是 'Nick',
 无题 0% → 判"达标", 但章节列表里 21 行同名, 可用性等同于全部无题。

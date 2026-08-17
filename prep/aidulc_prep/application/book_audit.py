@@ -46,6 +46,7 @@ def evaluate_book(path: str) -> dict:
             "uncovered": 0,
             "real_missing": [],
             "untitled": 0,
+            "distinct_titles": 0,
             "non_body_titles": [],
             "anomalies": [],
             "severe_anomalies": [],
@@ -57,6 +58,8 @@ def evaluate_book(path: str) -> dict:
     real_missing = classify_uncovered(path, uncovered)
     titles = [c.title or "" for c in book.chapters]
     untitled = sum(1 for t in titles if t == _UNTITLED_CHAPTER)
+    # 标题去重数(S5 的重名维度): 全书标题只剩个位数几个 = 章节列表无法区分
+    distinct_titles = len({t.strip() for t in titles if t.strip()})
     non_body = [
         t
         for t in titles
@@ -81,6 +84,7 @@ def evaluate_book(path: str) -> dict:
         real_missing=real_missing,
         total_files=total_files,
         untitled_count=untitled,
+        distinct_titles=distinct_titles,
         non_body_titles=non_body,
         anomalies=anomalies,
         severe_anomalies=severe,
@@ -94,6 +98,7 @@ def evaluate_book(path: str) -> dict:
         "uncovered": len(uncovered),
         "real_missing": real_missing,
         "untitled": untitled,
+        "distinct_titles": distinct_titles,
         "non_body_titles": non_body,
         "anomalies": anomalies,
         "severe_anomalies": severe,

@@ -469,9 +469,20 @@ def load_epub_with_spine_health(path: str) -> tuple[Book, list[str]]:
         # EPUB3 manifest item 直接标 properties="cover-image"。两种都没有就是真没封面
         # (不是所有书都带, 前端要有占位兜底, 这里不报错不强求)。
         cover_href = None
-        cm = re.search(r'<meta[^>]*name="cover"[^>]*content="([^"]+)"', opf)
-        if cm and cm.group(1) in manifest:
-            cover_href = manifest[cm.group(1)]
+        # 2026-08-17 实测: XML 属性顺序是任意的, 但旧正则写死了 name 必须出现在 content
+        # 之前。Because of Winn-Dixie 写的是 <meta content="my_cover_image" name="cover"/>,
+        # Holes 写的是 <meta content="cover-image" name="cover"/> —— 两本都匹配失败,
+        # 结果书库里没有封面。两个顺序都要认。
+        cover_id = None
+        cm = re.search(r'<meta[^>]*\bname="cover"[^>]*\bcontent="([^"]+)"', opf)
+        if cm:
+            cover_id = cm.group(1)
+        else:
+            cm2 = re.search(r'<meta[^>]*\bcontent="([^"]+)"[^>]*\bname="cover"', opf)
+            if cm2:
+                cover_id = cm2.group(1)
+        if cover_id and cover_id in manifest:
+            cover_href = manifest[cover_id]
         if not cover_href:
             for item in re.findall(r'<item[^>]*/?>', opf):
                 if re.search(r'properties="[^"]*cover-image[^"]*"', item):

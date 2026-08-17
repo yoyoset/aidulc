@@ -80,11 +80,38 @@ def _read_member(zf: zipfile.ZipFile, name: str) -> str:
         return ""
 
 
+# 行内标签 (2026-08-17 实测确认的真 bug): 这些标签出现在句子**中间**, 不是段落边界。
+# 旧实现把所有标签一律换成换行, 于是带行内标记的句子被切碎、标记里的词被整个丢掉。
+# 实测 Charlotte's Web 开篇名句:
+#   输入 `"Where is Papa going with that <em>ax</em>?" said Fern to her mother...`
+#   旧输出 ① `"Where is Papa going with that`  ② `?" said Fern to her mother...`
+#   —— 一句变两个残句, 且 "ax" 从正文里彻底消失。
+# 实测规模: 约 20% 的段落含行内标签(Charlotte's Web 30/148, Hatchet 34/159),
+# 下游翻译/讲解/配音/对齐全都建立在这些残句上。
+#
+# 这也是 2026-08-16 为 Hatchet(`<h2><a><span>4</span></a></h2>` 标题抽不出来)
+# 试过又放弃的那个"向后吸收下一行"启发式的正解 —— 那个方案是在猜, 这个是按 HTML
+# 语义区分块级/行内, 顺带把 Frindle 21 章标题全是 'Nick' 的问题一并解决。
+_INLINE_TAGS = (
+    "a|span|em|strong|b|i|u|s|small|big|tt|font|sub|sup|code|cite|q|abbr|dfn"
+    "|kbd|samp|var|mark|del|ins|ruby|rt|rp|bdi|bdo|nobr|time|data"
+)
+_INLINE_RE = re.compile(rf"</?(?:{_INLINE_TAGS})\b[^>]*>", re.I)
+
+# 块级边界先用哨兵占位, 最后一步才换成换行。中间要把源码里的换行/缩进压成空格 ——
+# 否则 calibre 那类把一个段落硬折成多行的 HTML, 就算行内标签处理对了, 段落仍会被
+# 源码换行切碎。哨兵用 \x00: 正文里不可能出现, 且不被 \s 匹配, 压空白时不会被吃掉。
+_BLOCK_MARK = "\x00"
+
+
 def _strip_tags(html: str) -> str:
     """粗剥 XHTML 标签 + 还原常见实体。标题 (h1-h6) 换行并标记为 HEADING 前缀, 段落以换行分隔。
 
     R4 (2026-08-08): `<img>` 不再被剥成空行, 而是换行标成 `[[IMG:<src>]]` 记号,
-    让 _file_sections 能保留图片在段落流中的位置 (at = 之前有多少句)。"""
+    让 _file_sections 能保留图片在段落流中的位置 (at = 之前有多少句)。
+
+    2026-08-17: 区分块级/行内标签 —— 行内标签去掉但不断行(见 _INLINE_TAGS 上方注释),
+    块级标签才是段落边界; 段落内部的源码换行压成空格。"""
     html = re.sub(r"<head.*?</head>", " ", html, flags=re.S | re.I)
     html = re.sub(r"<script.*?</script>", " ", html, flags=re.S | re.I)
     html = re.sub(r"<style.*?</style>", " ", html, flags=re.S | re.I)
@@ -97,19 +124,26 @@ def _strip_tags(html: str) -> str:
     if not re.search(r"<h[1-6][\s>]", html, flags=re.I):
         html = re.sub(
             r'<(?:p|div)[^>]*\bclass\s*=\s*"[^"]*chapter[^"]*"[^>]*>',
-            "\n[[HEADING]]",
+            _BLOCK_MARK + "[[HEADING]]",
             html,
             flags=re.I,
         )
-    html = re.sub(r"<(h[1-6])[^>]*>", "\n[[HEADING]]", html, flags=re.I)
-    html = re.sub(r"</(h[1-6])>", "\n", html, flags=re.I)
+    html = re.sub(r"<(h[1-6])[^>]*>", _BLOCK_MARK + "[[HEADING]]", html, flags=re.I)
+    html = re.sub(r"</(h[1-6])>", _BLOCK_MARK, html, flags=re.I)
     # <img src="..."> → [[IMG:src]] (单双引号都兼容; 无 src 的忽略)
-    html = re.sub(r'<img[^>]*\bsrc\s*=\s*"([^"]+)"[^>]*/?>', "\n[[IMG:\\1]]\n", html, flags=re.I)
-    html = re.sub(r"<img[^>]*\bsrc\s*=\s*'([^']+)'[^>]*/?>", "\n[[IMG:\\1]]\n", html, flags=re.I)
-    html = re.sub(r"<[^>]+>", "\n", html)
+    html = re.sub(r'<img[^>]*\bsrc\s*=\s*"([^"]+)"[^>]*/?>',
+                  _BLOCK_MARK + "[[IMG:\\1]]" + _BLOCK_MARK, html, flags=re.I)
+    html = re.sub(r"<img[^>]*\bsrc\s*=\s*'([^']+)'[^>]*/?>",
+                  _BLOCK_MARK + "[[IMG:\\1]]" + _BLOCK_MARK, html, flags=re.I)
+    # 行内标签直接去掉(不断行), 其余标签(块级 + 未知)才是段落边界。
+    # 未知标签保守当块级处理 —— 与旧行为一致, 只有明确列进 _INLINE_TAGS 的才改判。
+    html = _INLINE_RE.sub("", html)
+    html = re.sub(r"<[^>]+>", _BLOCK_MARK, html)
     for ent, ch in [("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'), ("&apos;", "'")]:
         html = html.replace(ent, ch)
-    return html
+    # 段落内部的源码换行/缩进压成空格(哨兵不是空白字符, 不会被吃掉), 最后还原成换行
+    html = re.sub(r"\s+", " ", html)
+    return html.replace(_BLOCK_MARK, "\n")
 
 
 _IMG_MARKER = re.compile(r"^\[\[IMG:(.+?)\]\]$")

@@ -50,3 +50,9 @@ cloud/mobile/.last-deployed-version
 # wrangler 在 cloud/worker 下部署/本地跑也会建状态目录 (只含 tmp 产物)
 cloud/worker/.wrangler/
 cloud/mobile/.wrangler/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+graft/
+
+# 测试临时产物 (test_epub_health_classify 造 fixture 时留下的)
+prep/tests/_tmp_health_test/

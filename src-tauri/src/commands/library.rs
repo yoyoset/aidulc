@@ -185,15 +185,14 @@ pub fn library_list(
                         serde_json::json!(highlights_repo.list_by_book(uid, &e.id).len()),
                     );
                 }
-                // K2-2 (2026-08-13): 封面 —— 同 original 分支一样从 bookpack.json 轻量解析
+                // K2-2 (2026-08-13): 封面 —— 从 bookpack.json 取。
+                // 2026-08-17: 改成只读文件头 64KB(cover 是顶层字段, 实测在第 252 字节)。
+                // 之前是整份读 + 整份 JSON 解析, 实测 10 本合计 ~154MB, 是"我的书"页
+                // 卡顿的直接原因; 这个分支除了封面不需要 bookpack 里的任何东西。
                 let bp = std::path::Path::new(&e.pack_dir).join("bookpack.json");
-                if let Ok(text) = std::fs::read_to_string(&bp) {
-                    if let Some(cover) =
-                        crate::application::library_service::parse_bookpack_cover(&text)
-                    {
-                        if let Some(obj) = v.as_object_mut() {
-                            obj.insert("cover_file".into(), serde_json::json!(cover));
-                        }
+                if let Some(cover) = crate::application::library_service::read_bookpack_cover(&bp) {
+                    if let Some(obj) = v.as_object_mut() {
+                        obj.insert("cover_file".into(), serde_json::json!(cover));
                     }
                 }
                 attach_pack_state(&mut v);
@@ -237,10 +236,12 @@ pub fn library_list(
             // 从 edition 的 bookpack.json 轻量解析 (失败给 0, 展示性数据不阻断列表)。
             if let Some(pack_dir) = x.get("pack_dir").and_then(|p| p.as_str()) {
                 let bp = std::path::Path::new(pack_dir).join("bookpack.json");
+                // 2026-08-17: 原来这里对同一份 text 做了**两次**完整 JSON 解析
+                // (counts 一次、cover 一次)。封面改走头部读, 整份解析只剩 counts 这一次。
+                let cover = crate::application::library_service::read_bookpack_cover(&bp);
                 if let Ok(text) = std::fs::read_to_string(&bp) {
                     let (sentences, audio_seconds) =
                         crate::application::library_service::parse_bookpack_counts(&text);
-                    let cover = crate::application::library_service::parse_bookpack_cover(&text);
                     if let Some(o) = x.as_object_mut() {
                         o.insert("sentence_count".into(), serde_json::json!(sentences));
                         o.insert("audio_seconds".into(), serde_json::json!(audio_seconds));
@@ -1101,125 +1102,4 @@ pub fn book_import(
         "id": new_id,
         "pack_dir": pack_dir.to_string_lossy(),
     }))
-}
-
-/// S4: 原版书预览 (书库"查看原文") — spawn 侧车 preview 模式读原书纯文本
-/// 返回 { title, chapters: [{index, title, sentences: [原文]}], format }
-/// S0 (2026-08-10): 改 async + spawn_blocking + 读超时 —— spawn 子进程读 stdout 是
-/// 阻塞 I/O, 同步命令会卡死主线程 (与 components_health 同类, 一并修)。
-#[tauri::command]
-pub async fn library_preview(
-    cfg: State<'_, crate::PrepConfig>,
-    db: State<'_, store::Db>,
-    book_id: String,
-) -> Result<serde_json::Value, String> {
-    let prep_path = cfg.prep_path.clone();
-    let source_path = {
-        let repo = store::books_repo::BooksRepo::new(db.inner());
-        let book = repo.get(&book_id).ok_or("书不存在")?;
-        if !std::path::Path::new(&book.source_path).exists() {
-            return Err("原书文件不存在, 请重新导入".into());
-        }
-        book.source_path.clone()
-    };
-    let v = tauri::async_runtime::spawn_blocking(move || {
-        preview_book_blocking(&prep_path, &source_path)
-    })
-    .await
-    .map_err(|e| format!("预览执行失败: {e}"))??;
-    Ok(v)
-}
-
-/// K12 (2026-08-14): 补封面——只重跑"从源 EPUB 抽封面拷进书包根"这一步, 不碰
-/// 已生成的译文/音频/讲解。老 edition(K2-2 封面管线上线前跑完的)专用轻量入口,
-/// 免去"要么重新跑一次完整备料(很贵), 要么永远没有封面"这个二选一。
-#[tauri::command]
-pub async fn backfill_cover(
-    cfg: State<'_, crate::PrepConfig>,
-    db: State<'_, store::Db>,
-    cache: State<'_, crate::infrastructure::bookpack_cache::BookpackCache>,
-    edition_id: String,
-) -> Result<serde_json::Value, String> {
-    let prep_path = cfg.prep_path.clone();
-    let (source_path, pack_dir) = {
-        let editions = store::editions_repo::EditionsRepo::new(db.inner());
-        let edition = editions.get(&edition_id).ok_or("译本不存在")?;
-        let books = store::books_repo::BooksRepo::new(db.inner());
-        let book = books.get(&edition.source_id).ok_or("原书不存在")?;
-        if !std::path::Path::new(&book.source_path).exists() {
-            return Err("原书文件不存在, 请重新导入".into());
-        }
-        (book.source_path.clone(), edition.pack_dir.clone())
-    };
-    let pack_dir_for_blocking = pack_dir.clone();
-    let v = tauri::async_runtime::spawn_blocking(move || {
-        backfill_cover_blocking(&prep_path, &source_path, &pack_dir_for_blocking)
-    })
-    .await
-    .map_err(|e| format!("补封面执行失败: {e}"))??;
-    cache.invalidate(&pack_dir);
-    Ok(v)
-}
-
-fn backfill_cover_blocking(
-    prep_path: &std::path::Path,
-    source_path: &str,
-    pack_dir: &str,
-) -> Result<serde_json::Value, String> {
-    use std::os::windows::process::CommandExt;
-    use std::process::{Command, Stdio};
-
-    let mut cmd = Command::new(prep_path);
-    cmd.arg("--backfill-cover-book")
-        .arg(source_path)
-        .arg("--backfill-cover-pack")
-        .arg(pack_dir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .creation_flags(0x08000000);
-    let child = cmd.spawn().map_err(|e| format!("启动补封面失败: {e}"))?;
-    let out = crate::services::components::read_stdout_with_timeout(
-        child,
-        std::time::Duration::from_secs(60),
-    )
-    .map_err(|e| format!("读补封面输出失败: {e}"))?;
-    let line = out
-        .lines()
-        .find(|l| l.trim_start().starts_with('{'))
-        .ok_or("补封面无输出")?;
-    serde_json::from_str(line).map_err(|e| format!("补封面输出非法: {e}"))
-}
-
-fn preview_book_blocking(
-    prep_path: &std::path::Path,
-    source_path: &str,
-) -> Result<serde_json::Value, String> {
-    use std::os::windows::process::CommandExt;
-    use std::process::{Command, Stdio};
-
-    // 调侧车 preview (复用 loader: 已修复 z-lib EPUB manifest 顺序 + 垃圾句过滤)
-    let mut cmd = Command::new(prep_path);
-    cmd.arg("--preview-book")
-        .arg(source_path)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .creation_flags(0x08000000);
-    let child = cmd.spawn().map_err(|e| format!("启动预览失败: {e}"))?;
-    // S0: 读 stdout 带 60 秒超时 (大书解析可能慢, 但不应无限等)
-    let out = crate::services::components::read_stdout_with_timeout(
-        child,
-        std::time::Duration::from_secs(60),
-    )
-    .map_err(|e| format!("读预览输出失败: {e}"))?;
-    let line = out
-        .lines()
-        .find(|l| l.trim_start().starts_with('{'))
-        .ok_or("预览无输出")?;
-    let mut v: serde_json::Value =
-        serde_json::from_str(line).map_err(|e| format!("预览输出非法: {e}"))?;
-    v["format"] = serde_json::json!(std::path::Path::new(source_path)
-        .extension()
-        .map(|e| e.to_string_lossy().to_string())
-        .unwrap_or_default());
-    Ok(v)
 }

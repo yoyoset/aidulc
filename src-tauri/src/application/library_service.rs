@@ -63,9 +63,55 @@ pub fn parse_bookpack_counts(text: &str) -> (i64, i64) {
 
 /// K2-2 (2026-08-13): 从 bookpack.json 文本取封面书包内相对路径 (无封面/解析失败返回 None,
 /// 展示性字段, 同 parse_bookpack_counts 的"失败不阻断列表"原则)。
+/// 2026-08-17: 生产路径已全部改走 read_bookpack_cover(只读头部)。这份"整份解析"的
+/// 实现保留下来当**参考实现**, 供头部解析器的一致性测试对照 —— 头部扫描是手写的
+/// 字符串匹配, 单独测它容易测成"跟自己一致", 拿真 JSON 解析器对着比才有意义。
+#[cfg(test)]
 pub fn parse_bookpack_cover(text: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(text).ok()?;
     v.get("cover")?.as_str().map(String::from)
+}
+
+/// 2026-08-17 (用户反馈"我的书这个页面显示太慢, 有点卡"): 书库列表为了取一个封面
+/// 文件名, 走的是 `fs::read_to_string` 整份读 + `serde_json::from_str` 整份解析。
+/// 实测 bookpack.json 一本 5-39 MB(Wild Robot 39.2 MB), 10 本合计约 154 MB ——
+/// 每次打开书库页都读+解析一遍。而 `cover` 是顶层字段, 实测就在**第 252 字节**。
+///
+/// 这里只读文件头 64KB 做一次字符串扫描。判据保持和 `v.get("cover")` 一致(只认顶层):
+/// 扫到 `"chapters"`(那个巨大的数组, 一定在 cover 之后)就停, 避免误抓章节里嵌套的
+/// 同名字段。头部没扫到就当没有封面 —— 不回退去做整份解析, 那正是要消灭的开销。
+const BOOKPACK_HEAD_BYTES: usize = 64 * 1024;
+
+pub fn parse_bookpack_cover_head(head: &str) -> Option<String> {
+    let stop = head.find("\"chapters\"").unwrap_or(head.len());
+    let scope = &head[..stop];
+    let key = scope.find("\"cover\"")?;
+    let rest = &scope[key + "\"cover\"".len()..];
+    let colon = rest.find(':')?;
+    let after = rest[colon + 1..].trim_start();
+    let mut chars = after.char_indices();
+    // 只接受字符串值; null / 数字都当"没有封面"
+    if chars.next()?.1 != '"' {
+        return None;
+    }
+    let body = &after[1..];
+    let end = body.find('"')?;
+    let val = &body[..end];
+    if val.is_empty() {
+        None
+    } else {
+        Some(val.to_string())
+    }
+}
+
+/// 读 bookpack.json 的封面字段(只读头部, 见 parse_bookpack_cover_head 的说明)。
+pub fn read_bookpack_cover(path: &std::path::Path) -> Option<String> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut buf = vec![0u8; BOOKPACK_HEAD_BYTES];
+    let n = f.read(&mut buf).ok()?;
+    buf.truncate(n);
+    parse_bookpack_cover_head(&String::from_utf8_lossy(&buf))
 }
 
 /// 登记一本书到书库 (幂等: 同 id 覆盖)。
@@ -265,6 +311,57 @@ mod tests {
         assert_eq!(parse_bookpack_cover("not json"), None);
         assert_eq!(parse_bookpack_cover(r#"{"no":"cover"}"#), None);
         assert_eq!(parse_bookpack_cover(r#"{"cover":null}"#), None);
+    }
+
+    // 2026-08-17 头部读取(书库页卡顿修复): 判据必须和整份解析的 parse_bookpack_cover
+    // 一致 —— 只认顶层 cover, 缺失/null/空串都当没有封面。
+    #[test]
+    fn head_parse_matches_full_parse_on_normal_pack() {
+        let head = r#"{"schemaVersion":1,"title":"T","cover":"cover.png","chapters":[]}"#;
+        assert_eq!(
+            parse_bookpack_cover_head(head),
+            Some("cover.png".to_string())
+        );
+        assert_eq!(parse_bookpack_cover_head(head), parse_bookpack_cover(head));
+    }
+
+    #[test]
+    fn head_parse_missing_null_or_empty_is_none() {
+        assert_eq!(parse_bookpack_cover_head(r#"{"title":"T"}"#), None);
+        assert_eq!(parse_bookpack_cover_head(r#"{"cover":null}"#), None);
+        assert_eq!(parse_bookpack_cover_head(r#"{"cover":""}"#), None);
+        assert_eq!(parse_bookpack_cover_head(""), None);
+    }
+
+    #[test]
+    fn head_parse_ignores_cover_nested_inside_chapters() {
+        // 章节里可能有同名字段; 顶层没有封面时不能把它当封面(与 v.get("cover") 一致)
+        let head = r#"{"title":"T","chapters":[{"cover":"wrong.jpg"}]}"#;
+        assert_eq!(parse_bookpack_cover_head(head), None);
+        assert_eq!(parse_bookpack_cover_head(head), parse_bookpack_cover(head));
+    }
+
+    #[test]
+    fn head_read_only_touches_file_head() {
+        // 真正的价值在这里: 文件后面接一大坨内容也不影响结果, 也不需要读进来。
+        let dir = std::env::temp_dir().join(format!("aidulc_bphead_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("bookpack.json");
+        let mut text = String::from(r#"{"title":"T","cover":"c.png","chapters":["#);
+        text.push_str(&"{\"sentences\":[]},".repeat(20000));
+        text.push_str("{}]}");
+        assert!(text.len() > 300_000, "构造的文件要明显大于 64KB 头部窗口");
+        std::fs::write(&p, &text).unwrap();
+        assert_eq!(read_bookpack_cover(&p), Some("c.png".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn head_read_missing_file_is_none_not_panic() {
+        assert_eq!(
+            read_bookpack_cover(std::path::Path::new("Z:/nope/bookpack.json")),
+            None
+        );
     }
 
     #[test]

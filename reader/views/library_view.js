@@ -334,7 +334,15 @@
           }
           actions.append(createBtn);
           const menuBtn = el('button', 'btn-small', '⋯');
-          menuBtn.onclick = () => this._openBookMenu(book, { preview: true, settings: true, delete: true, online: true });
+          // 2026-08-17: 补封面接到这里。K12 当初只把它写进 kind==='product' 分支, 而
+          // main.js 只挂了 new LibraryView(store,'original') 这一个视图 —— 那个分支
+          // 在 UI 上根本到不了, 这个功能从写出来就是点不到的(用户实测: 书卡 ⋯ 和
+          // 译本 ⋯ 里都没有)。封面属于译本不属于原书, 所以目标是第一个缺封面的译本。
+          const coverless = (Array.isArray(book.editions) ? book.editions : []).find((e) => !e.cover_file);
+          menuBtn.onclick = () => this._openBookMenu(book, {
+            preview: true, settings: true, delete: true, online: true,
+            backfillCover: !!coverless, backfillTarget: coverless,
+          });
           actions.appendChild(menuBtn);
         }
          card.append(name, meta, actions);
@@ -529,7 +537,11 @@
       // UX5 #6 (2026-08-13): L8② 整本外发入口 —— 开启时每本确认外发量后再发
       if (opts && opts.online) items.push(['整本翻译/讲解(在线)', () => this._onlineWholeBook(book)]);
       // K12 (2026-08-14): 补封面——只重跑封面抽取这一步(几秒钟), 不是重新备料整本书
-      if (opts && opts.backfillCover) items.push(['补封面', () => this._backfillCover(book)]);
+      // backfillTarget: 原书卡上点补封面时, 真正要补的是它下面那个缺封面的译本
+      // (封面存在译本的书包里, 原书没有 pack_dir)
+      if (opts && opts.backfillCover) {
+        items.push(['补封面', () => this._backfillCover((opts && opts.backfillTarget) || book)]);
+      }
       if (opts && opts.delete) {
         items.push(['删除' + (opts.editionChild ? '译本' : ''), () => {
           const isChild = !!opts.editionChild;

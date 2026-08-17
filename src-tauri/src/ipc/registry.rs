@@ -89,12 +89,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "原生文件选择对话框",
     },
     CommandInfo {
-        path: "commands::library::library_preview",
+        path: "commands::book_assets::library_preview",
         domain: "书库",
         desc: "预览原书章节/句子(不需要已处理书包)",
     },
     CommandInfo {
-        path: "commands::library::backfill_cover",
+        path: "commands::book_assets::backfill_cover",
         domain: "书库",
         desc: "K12: 老 edition 补封面(只重跑封面抽取, 不碰其它已生成资产)",
     },

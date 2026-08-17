@@ -170,6 +170,7 @@ globalThis.AiduBridge = {
 };
 globalThis.AiduLibraryService = {
   list: async () => ({ ok: true, data: [] }), open: async () => ({ ok: true }),
+  readImage: async () => ({ ok: true, data: null }), backfillCover: async () => ({ ok: true, data: { cover: "cover.jpg" } }),
   remove: async () => ({ ok: true }), loadBookpack: async () => ({ ok: true, data: {} }),
   loadBookpackChapter: async () => ({ ok: true, data: {} }),
   readAudioRange: async () => ({ ok: true, data: { data_b64: '', read: 0, total: 0, end: true } }),
@@ -1075,6 +1076,48 @@ console.log('== 3. library_view 导入格 (G1): 网格最后一格, 无下拉, �
   dropZone.onclick();
   await new Promise((r) => setTimeout(r, 10));
   check('点击直接触发一次 pickFiles', calls.pickFiles.length === before + 1);
+}
+
+console.log('== 3a-3. 补封面入口 (2026-08-17): 必须真的点得到 ==');
+{
+  // 背景: K12 把「补封面」只写进 kind==='product' 分支, 而 main.js 只挂了
+  // new LibraryView(store,'original') —— 那个分支 UI 上到不了, 功能从写出来就是死的。
+  // 这条测试锁定"在真正挂着的那个视图里点得到", 防止再退化成不可达。
+  const lv = new globalThis.LibraryView(store, 'original');
+  const listEl = makeElement('div');
+  const mk = (edCover) => ({
+    id: 'src1', title: 'Number the Stars', kind: 'original', status: 'done',
+    editions: [{ id: 'ed1', title: 'Number the Stars', pack_dir: 'C:/p/ed1', status: 'done', cover_file: edCover }],
+  });
+
+  lv._renderBooks(listEl, [mk(null)], makeElement('input'));
+  const card = queryAll(listEl, '.book-card')[0];
+  const dots = queryAll(card, 'button').find((b) => b.textContent === '⋯');
+  check('补封面: 原书卡上有 ⋯ 按钮', !!dots);
+  dots.onclick();
+  let menu = queryAll(globalThis.document.body, '.vocab-menu').at(-1);
+  const labels = queryAll(menu, 'button').map((b) => b.textContent);
+  check('补封面: 译本没封面时, ⋯ 菜单里有「补封面」', labels.includes('补封面'), JSON.stringify(labels));
+
+  // 点它要打到译本 id(封面在译本的书包里, 原书没有 pack_dir)
+  const seen = [];
+  const orig = globalThis.AiduLibraryService.backfillCover;
+  globalThis.AiduLibraryService.backfillCover = async (id) => { seen.push(id); return { ok: true, data: { cover: 'cover.jpeg' } }; };
+  queryAll(menu, 'button').find((b) => b.textContent === '补封面').onclick();
+  await new Promise((r) => setTimeout(r, 10));
+  check('补封面: 点了传的是译本 id 不是原书 id', seen.length === 1 && seen[0] === 'ed1', JSON.stringify(seen));
+  globalThis.AiduLibraryService.backfillCover = orig;
+  queryAll(globalThis.document.body, '.modal-overlay').forEach((o) => o.remove());
+
+  // 译本已有封面 → 不显示这一项(不给无意义的入口)
+  const listEl2 = makeElement('div');
+  lv._renderBooks(listEl2, [mk('cover.jpg')], makeElement('input'));
+  const dots2 = queryAll(queryAll(listEl2, '.book-card')[0], 'button').find((b) => b.textContent === '⋯');
+  dots2.onclick();
+  menu = queryAll(globalThis.document.body, '.vocab-menu').at(-1);
+  check('补封面: 译本已有封面时不显示这一项',
+    !queryAll(menu, 'button').map((b) => b.textContent).includes('补封面'));
+  queryAll(globalThis.document.body, '.modal-overlay').forEach((o) => o.remove());
 }
 
 console.log('== 3a-2. STDIMPORT (2026-08-17): 导入前统一标准体检 —— 不达标的不进书库 ==');

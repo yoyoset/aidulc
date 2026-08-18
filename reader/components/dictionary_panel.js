@@ -196,14 +196,20 @@
         wordRow.appendChild(ph);
       }
       const speak = document.createElement('button');
-      speak.className = 'btn-small';
-      speak.textContent = '🔊 发音';
+      // 2026-08-18 (用户): "发音去掉文字。直接喇叭就可以了。" —— 喇叭图标本身已经
+      // 说清楚了, "发音"两个字在这一行里只是占地方 (那行还要放词/来源徽章/音标)。
+      // 图标按钮必须补 aria-label + title, 否则读屏和悬停提示都没了。
+      speak.className = 'btn-small dict-speak';
+      speak.textContent = '🔊';
+      speak.setAttribute('aria-label', '发音');
+      speak.title = '发音';
       // K7 (2026-08-14): 之前直接调 speechSynthesis.speak() 没做可用性检测, 也没监听
       // error 事件——系统没装英文语音包或运行环境不支持时点击静默无反应, 用户分不清
       // 是没配置好还是点击没生效(CLAUDE.md 明确要优先排除的"后台失败但用户以为成功")。
       if (!global.speechSynthesis) {
         speak.disabled = true;
         speak.title = '当前环境不支持语音朗读';
+        speak.setAttribute('aria-label', '发音 (当前环境不支持)');
       } else {
         speak.onclick = () => {
           const u = new SpeechSynthesisUtterance(d.word);

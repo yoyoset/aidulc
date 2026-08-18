@@ -418,17 +418,37 @@ body::before {
 .dict-panel.open { transform: translateX(0); }
 .dict-header { padding: 8px 12px; border-bottom: 1px solid var(--md-sys-color-outline-variant); }
 .dict-body { padding: 16px; overflow-y: auto; flex: 1; }
-.dict-word { font-size: 1.5rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
-.dict-phonetic { font-size: 0.95rem; color: var(--md-sys-color-on-surface-variant); font-weight: 400; }
+.dict-word {
+  font-size: 1.5rem; font-weight: 700;
+  display: flex; align-items: center; gap: 10px;
+  /* 2026-08-18: 加 wrap —— 词 + 来源徽章 + 音标 + 发音键在窄面板里排不下时,
+     原来是互相挤压(用户截图: "AI 生成"被压成一个灰色圆球, 还盖住了音标) */
+  flex-wrap: wrap;
+}
+.dict-phonetic {
+  font-size: 0.95rem; color: var(--md-sys-color-on-surface-variant); font-weight: 400;
+  white-space: nowrap;
+}
 /* K13 (2026-08-14): 释义来源徽章——词典查到的 vs AI 生成的, 视觉上要分得开但不抢戏 */
 .dict-source {
   font-size: var(--md-sys-font-size-label-s);
   font-weight: 500;
   padding: 1px 8px;
   border-radius: var(--md-sys-radius-pill);
+  /* 2026-08-18: 这两条是那个"灰色圆球"的正解 —— 徽章在 1.5rem 的 flex 行里被挤到
+     每行一个字, 三个字叠成一坨、圆角一包就成了球。不许换行、不许被压缩。 */
+  white-space: nowrap;
+  flex: 0 0 auto;
+  line-height: 1.6;
 }
 .dict-source-local { background: var(--md-sys-color-success); color: var(--md-sys-color-on-success); }
 .dict-source-llm, .dict-source-online { background: var(--md-sys-color-info); color: var(--md-sys-color-on-info); }
+/* 2026-08-18: 发音改成纯图标 —— 去掉文字后按钮不该还留着为文字准备的宽度 */
+.dict-speak {
+  flex: 0 0 auto;
+  line-height: 1;
+  padding: 6px 8px;
+}
 .dict-pos { color: var(--md-sys-color-primary); margin: 6px 0; font-size: 0.9rem; }
 .dict-meanings { margin: 8px 0; padding-left: 18px; }
 .dict-examples { font-style: italic; color: var(--md-sys-color-on-surface-variant); margin: 8px 0; }

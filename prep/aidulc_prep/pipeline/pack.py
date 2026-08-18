@@ -175,8 +175,15 @@ def _copy_cover(book, bookpack_dir: str, source_book: str) -> str | None:
         return None
     ext = os.path.splitext(src)[1] or ".jpg"
     dest_name = f"cover{ext}"
-    with open(os.path.join(bookpack_dir, dest_name), "wb") as f:
+    dest_path = os.path.join(bookpack_dir, dest_name)
+    with open(dest_path, "wb") as f:
         f.write(data)
+    # 2026-08-18: 顺手生成缩略图。封面是原始尺寸原样落盘的, 实测 10 本书里最大一张
+    # 是 1742x2284 的 PNG / 8.95 MB, 而书库卡片上只占一个两指宽的格子 —— 整张搬去
+    # 前端等于每次进书库都过一遍 9 MB 的 base64。缩略图在这里做掉, 前端直接读几十 KB。
+    # 失败只是没有缩略图 (前端有 canvas 兜底那条路), 不影响打包。
+    from aidulc_prep.core.thumbnail import make_cover_thumb
+    make_cover_thumb(dest_path, bookpack_dir)
     return dest_name
 
 

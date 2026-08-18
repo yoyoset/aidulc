@@ -91,6 +91,42 @@ def _loose_extract(text: str) -> tuple[str, str] | None:
     return tr, ex
 
 
+# 2026-08-18 (第三轮重跑实测): 40064 句里 translate 只失败 5 条, 逐条看原文是
+#   'LBYR.com' / 'Twitter.com/LittleBrownYR' / 'v 1.0 HTML' / 'Clickety clickety click!'
+# —— 出版社 URL、版本号、拟声词。模型原样回显被判"翻译失败/回显", 判定本身没错, 但
+# 前三类句子永远不会成功, 每次重跑都重试一遍并常驻失败清单。和 K33 定的"主动跳过要
+# 记成跳过、不能记成失败"是同一条规矩, 所以走 notice 通道。
+#
+# 全语料实测本函数命中 13 条, 全部是出版社页脚的 URL 和一条版本号, 零误伤。
+# 拟声词那类**没有**纳入 —— 理由见下。
+#
+# **试过并证伪的一条规则**: "整句由同一个词重复构成 → 拟声词 → 不可翻译"。
+# 拿 40064 句全语料实测, 命中 69 条, **其中 64 条当前已经有正常译文** —— 逐条看绝大
+# 多数是有实义的对话: "No! No!" / "There, there." / "Hello, hello?" / "Stop! stop!" /
+# "Wait wait wait!" / "Food! Food!" / "Mama! Mama!" / "Quickly, quickly."。真正的拟声词
+# (Tat-tat / Clickety / Bee-bee-bee / Blah blah)是少数, 且没有可靠特征把两者分开。
+# 这条规则会把 64 句已经翻译成功的正常对话挡在翻译之外, 比它要解决的问题(5 条永久
+# 失败)严重一个量级。删掉, 只保留 URL / 版本号 / 无字母这三条零误报的规则。
+#
+# 判定刻意保守: 只认"整句都没有可翻译内容"的情况。带 URL 的正常句子
+# (如 'Visit LBYR.com for more.') 必须判 False —— 宁可漏判也不能把正常句子挡掉。
+_URLISH = re.compile(r"^(?:https?://|www\.)?[\w.-]+\.(?:com|net|org|edu|gov|io|co|uk)(?:/\S*)?$", re.I)
+_VERSIONISH = re.compile(r"^v?\s*\d+(?:\.\d+)+\s*[A-Za-z]*$")
+_WORD = re.compile(r"[A-Za-z]")
+
+
+def is_untranslatable(text: str) -> bool:
+    """整句没有可翻译内容 → 跳过翻译(记 notice, 不记 failed)。保守判定。"""
+    t = (text or "").strip()
+    if not t:
+        return False
+    if _URLISH.match(t) or _VERSIONISH.match(t):
+        return True
+    if not _WORD.search(t):
+        return True  # 一个字母都没有: 纯符号/纯数字
+    return False
+
+
 def translate_sentences(
     chapter: Chapter,
     complete_fn,
@@ -111,9 +147,17 @@ def translate_sentences(
         if is_done_sentence(out_dir, chapter.index, i, "translation"):
             s.translation = load_translation(out_dir, chapter.index, i)
             continue
-        if s.original_text.strip():
-            pending.append(s.original_text)
-            indices.append(i)
+        if not s.original_text.strip():
+            continue
+        if is_untranslatable(s.original_text):
+            # 跳过而不是失败: 见 is_untranslatable 上方的说明
+            quality.add_notice(
+                chapter.index, i, "untranslatable",
+                f"原文无可翻译内容, 已跳过: {s.original_text.strip()[:40]}",
+            )
+            continue
+        pending.append(s.original_text)
+        indices.append(i)
 
     processed = 0
     for start in range(0, len(pending), BATCH_SIZE):

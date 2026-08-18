@@ -84,8 +84,12 @@ def run_nlp_stage(
                 # save_sentence 不会真的清掉磁盘上的旧 translation/audio(踩过这个坑,
                 # 已用 roundtrip 测试复现确认, 见 checkpoint.py::save_sentence 的说明)。
                 from aidulc_prep.infra.checkpoint import overwrite_sentence
-                quality.add_failure(
-                    ch.index, i, ["nlp_realign"],
+                # 2026-08-18: 这里原来走 add_failure —— 但重新对齐不是失败, 是保护
+                # 数据正确性的正常动作。8/17 改了 EPUB 行内标签解析后几乎每句原文都变了,
+                # 于是近乎全量记账, 成品里 Wild Robot 的"失败句数"被放大到 9023
+                # (真实失败 30)。改走 notice 通道, 不进 failedSentences。
+                quality.add_notice(
+                    ch.index, i, "realign",
                     f"{conflict}, 已清空该位置历史阶段数据强制重跑, 防止张冠李戴",
                 )
                 overwrite_sentence(out_dir, ch.index, i, nlp_fields)

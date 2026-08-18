@@ -380,6 +380,7 @@ pub fn library_book_set_profile(
 /// 删除一本书
 #[tauri::command]
 pub fn library_remove(
+    app: tauri::AppHandle,
     db: State<store::Db>,
     cache: State<crate::infrastructure::bookpack_cache::BookpackCache>,
     id: String,
@@ -400,6 +401,13 @@ pub fn library_remove(
             let _ = std::fs::remove_dir_all(p);
         }
     }
+    // 2026-08-18 (用户报"删除译本以后我的书页面刷新有问题"): 这里原来**不发**
+    // library-changed —— 命令连 AppHandle 都没收。前端书库虽然监听了这个事件, 但删除
+    // 走的是另一条路: onConfirm 里 `store.emit('change', store.state)`, 拿的是**没变过
+    // 的旧 books 数组**, 于是重渲染出来的还是原来那份, 删掉的译本继续挂在页面上。
+    // 两边各错一半, 这里补上事件(所有视图统一走这条), 前端那半单独改成真的重取。
+    use tauri::Emitter;
+    let _ = app.emit("library-changed", serde_json::json!({}));
     Ok(())
 }
 

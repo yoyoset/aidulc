@@ -117,6 +117,17 @@
         listEl.classList.toggle('book-list--compact', this._cardCompact);
         this._saveCompact(this._cardCompact);
       });
+      // 2026-08-18 (用户): "放一个刷新按钮"。除了兜住"某条路径忘了发 library-changed"
+      // 这类问题, 手动刷新本身也是用户合理的诉求 —— 页面显示的是磁盘+DB 的快照,
+      // 用户在别处动过东西(比如手动删了书包目录)时得有个不重启就能重读的入口。
+      const refreshBtn = el('button', 'btn-small', '刷新');
+      refreshBtn.title = '重新读取书库 (删除/外部改动后没刷新时点这里)';
+      refreshBtn.addEventListener('click', () => {
+        refreshBtn.disabled = true;
+        Promise.resolve(this._reload && this._reload())
+          .then(() => AiduToast.show('已刷新', 'success'))
+          .finally(() => { refreshBtn.disabled = false; });
+      });
       const segBar = el('div', 'library-segmented');
       // 状态分段: 全部 / 已就绪 / 处理中 / 未处理 (映射见 _inStatusBucket)
       const buckets = [
@@ -139,7 +150,7 @@
         });
         segBar.appendChild(seg);
       });
-      toolbar.append(searchInput, sortSel, sizeBtn, segBar);
+      toolbar.append(searchInput, sortSel, sizeBtn, refreshBtn, segBar);
       wrap.insertBefore(toolbar, listEl);
 
       // Bug fix (审查确认): 注销旧监听 (每次 render 叠加导致 listener 累积)
@@ -155,6 +166,8 @@
          if (res.ok) this.store.set({ books: res.data || [] });
          else AiduToast.show('读取书库失败: ' + res.error, 'error');
        }).catch((err) => AiduToast.show('读取书库失败: ' + err, 'error'));
+       // 挂到实例上: 刷新按钮和"删除后重取"都在 render 作用域外, 需要拿到它
+       this._reload = loadBooks;
       if (this.kind === 'original') {
         const loadJobs = () => AiduJobService.list().then((res) => {
           this._jobs = (res.ok && res.data) || [];
@@ -551,8 +564,14 @@
               ? '只删除这个译本, 原书和其它译本保留。'
               : '原书及其全部译本、阅读进度、书签和处理任务都会移除, 无法恢复。',
             confirmText: '删除', danger: true,
+            // 2026-08-18: 原来是 `store.emit('change', store.state)` —— 拿**没变过的
+            // 旧 books 数组**重渲染一遍, 删掉的译本当然还在页面上(用户报的"删除译本
+            // 以后刷新有问题"就是这个)。要重新去后端取。
             onConfirm: () => AiduLibraryService.remove(book.id, true)
-              .then(() => { this.store.emit('change', this.store.state); AiduToast.show('已删除' + (isChild ? '译本' : '《' + (book.title || '') + '》'), 'success'); }),
+              .then(() => {
+                AiduToast.show('已删除' + (isChild ? '译本' : '《' + (book.title || '') + '》'), 'success');
+                return this._reload && this._reload();
+              }),
           });
         }]);
       }

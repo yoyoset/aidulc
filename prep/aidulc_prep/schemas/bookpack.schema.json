@@ -174,7 +174,7 @@
         },
         "notices": {
           "type": "array",
-          "description": "正常事件(非失败): realign=checkpoint 位置冲突后强制重跑, untranslatable=原文无可翻译内容已跳过。绝不能并进失败计数。",
+          "description": "正常事件(非失败): realign=checkpoint 位置冲突后强制重跑; untranslatable=原文无可翻译内容已跳过; health=parse 阶段 S4/S5 体检异常(未达阻断阈值, 但必须让用户看得到)。绝不能并进失败计数。",
           "items": {
             "type": "object",
             "required": [
@@ -192,7 +192,8 @@
                 "type": "string",
                 "enum": [
                   "realign",
-                  "untranslatable"
+                  "untranslatable",
+                  "health"
                 ]
               },
               "reason": {

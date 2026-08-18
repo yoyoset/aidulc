@@ -228,6 +228,13 @@ class Runner:
                 "EPUB 体检发现 %d 条异常(未达 10%% 阻断阈值, 继续处理): %s",
                 len(anomalies), "; ".join(anomalies[:10]),
             )
+            # 2026-08-18: 这些异常原来**只写日志**——用户在界面上看不到任何痕迹,
+            # 书跑完了、写着"已就绪", 而"某章 0 句""某章句数离群"这类线索埋在
+            # run.log 里没人看。这正是全局原则里要优先排除的"后台有问题但用户以为
+            # 一切正常"。走 notice 通道让它进 quality_report(不是失败, 不该拦, 但
+            # 必须可见)。chapter=-1 表示"整本书级别", 不指向具体某句。
+            for a in anomalies:
+                self.quality.add_notice(-1, -1, "health", a)
 
     def _classify_uncovered_epub_files(self, uncovered: list[str]) -> list[str]:
         """实现已挪到 loader/epub.py::classify_uncovered(导入体检要复用同一份判据,

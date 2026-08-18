@@ -63,3 +63,25 @@ def test_untranslatable_is_conservative():
               "Wait wait wait!", "Food! Food!", "Quickly, quickly.",
               "Blah blah blah."]:
         assert not is_untranslatable(t), t
+
+
+def test_parse_health_anomalies_become_visible_notices(tmp_path):
+    """S4/S5 体检异常原来只写 run.log, 用户在界面上看不到 —— 走 notice 通道后
+    它们进 quality_report, 是"后台有问题但用户以为一切正常"这条的对症改动。"""
+    import types
+    from aidulc_prep.pipeline.runner import Runner
+
+    r = Runner.__new__(Runner)
+    r.quality = QualityReport()
+    r.job = {"book_path": str(tmp_path / "x.epub")}
+    book = types.SimpleNamespace(chapters=[
+        types.SimpleNamespace(sentences=[]),              # 0 句章 -> S4 必报
+        types.SimpleNamespace(sentences=[1] * 50),
+        types.SimpleNamespace(sentences=[1] * 50),
+    ])
+    r._check_epub_health(book, [])
+
+    d = r.quality.to_dict()
+    assert d["failedSentences"] == []            # 体检异常不是失败
+    assert d["noticeCounts"].get("health", 0) >= 1
+    assert all(n["chapter"] == -1 for n in d["notices"])  # 整本书级别

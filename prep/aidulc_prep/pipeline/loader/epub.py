@@ -30,9 +30,21 @@ NON_BODY_TOC = re.compile(
     r"notes?|endnotes?|source notes|bibliography|acknowledge?ments?|about the author|also by|"
     r"epigraph|colophon|copyright|dedication|a note about the story|behind the scenes|"
     r"discussion guide|praise for|a sneak peek|"
-    r"[ivxlcdm]{1,6}\b|\d{1,4}$)",
+    r"[ivxlcdm]{1,6}\b)",
     re.I,
 )
+# 2026-08-18(用户报"导入一本书失败, 不是该转格式吗"追查出来的真根因): 原来这里还有
+# 一条 `\d{1,4}$` —— 意图是拦掉索引页里"12" "45" 这类纯页码 TOC 条目, 但它同时会
+# 匹配**任何纯数字的 TOC 标题**。实测撞见 Ferris(Kate DiCamillo): NCX 里 32 个真实
+# 章节的 navLabel 就是裸数字 "1".."32"(这本书章节标题本来就不带"Chapter"前缀,
+# c01.htm 正文以 "It was the summer..." 开头, 内容完整, 不是任何形式的残次书)。
+# 这条正则把这 32 章全部当非正文页跳过, 只剩后附内容 1 章 15 句, 直接撞上 S3 阻断
+# 阈值("解析结果过少"), 在导入这一步就被拒了——用户在界面上只看到"不达标", 看不出
+# 真正原因是解析器自己的正则太宽, 不是书的问题。
+#
+# 删掉 `\d{1,4}$` 而不是收窄它: 索引页的纯页码是"逐句"出现在解析出的**句子**里,
+# 已经有 _looks_like_index 在句子层面拦这类内容(见其 docstring, Wolf 21 872 句索引
+# 实测), TOC 标题层面拦纯数字没有独立收益, 只有误伤面。
 
 # 巨章判据: 单个 TOC 条目的文件解析出的候选句数 ≥ 此值 → 按文件内 h1-h6 二次切分。
 # 背景 (2026-08-08, 银河系那本真实撞见): 有的书 TOC 条目对应一个超大 XHTML 文件,

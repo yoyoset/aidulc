@@ -56,3 +56,11 @@ class TestNonBodyTocDoesNotSwallowRealChapters:
         ]
         for t in real_titles:
             assert not NON_BODY_TOC.match(t), f"真实章节标题被误判成非正文: {t!r}"
+
+    def test_bare_digit_chapter_titles_are_not_non_body(self):
+        r"""2026-08-18 实测撞见: Ferris(Kate DiCamillo)的 NCX 章节 navLabel 就是裸
+        数字 "1".."32"(不带"Chapter"前缀, 这本书的真实排版约定)。旧正则里的
+        `\d{1,4}$` 把这 32 章全部当非正文页跳过, 只剩后附内容 1 章 15 句, 撞上
+        S3 阻断阈值——书完整、无残缺, 是解析器的正则太宽把用户挡在门外。"""
+        for t in ('1', '2', '32', '9', '150'):
+            assert not NON_BODY_TOC.match(t), f"裸数字章节标题被误判成非正文: {t!r}"

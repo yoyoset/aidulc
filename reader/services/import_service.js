@@ -21,16 +21,10 @@
         const res = await AiduBridge.profiles.list();
         if (res.ok && Array.isArray(res.data)) {
           const found = res.data.find((p) => p.id === pid);
-          if (found) {
-            return {
-              id: found.id,
-              name: found.name || pid,
-              explain_strategy: found.explain_strategy || 'brief',
-              voice: found.voice || 'af_heart',
-              speed: typeof found.speed === 'number' ? found.speed : 1.0,
-              highlight_granularity: found.highlight_granularity || 'sentence',
-            };
-          }
+          // 2026-08-18: 原来这里是就地写一份显式白名单, 漏了 K33 的
+          // explain_max_chars / explain_min_sentence_chars —— 用户在设置里配的
+          // 讲解字数上限/触发门槛在新书这条路上被静默丢弃(详见 fromRow 的说明)。
+          if (found) return AiduBuiltinProfiles.fromRow(found, pid);
         }
       } catch (e) { /* 档案查询失败不阻断导入, 落内建默认 */ }
       return this._builtinProfile(pid);

@@ -45,6 +45,40 @@
     return { ...(BUILTIN_PROFILES[key] || BUILTIN_PROFILES.default) };
   }
 
+  /**
+   * 档案表的一行 → job_request 里的 profile 对象 (纯函数)。
+   *
+   * 2026-08-18: 加这个函数是因为踩了第二次同样的坑。K33 给 profiles 加了
+   * explain_max_chars / explain_min_sentence_chars 之后, 一共有四条地方在"从某个
+   * 来源拼一个 profile 对象", 每条都是各写一份**显式白名单**:
+   *   1. 重跑重选档案 (Rust: job_orchestrator.rs picked_profile)      —— 带
+   *   2. 重跑保持原档案 (Rust: profile_from_snapshot)                 —— 8/16 修过才带
+   *   3. **新书导入/开始阅读准备 (import_service.js::getProfile)**    —— **一直在丢**
+   *   4. 内建兜底 (本文件 BUILTIN_PROFILES)                           —— 带
+   * 8/16 只修了第 2 条, 没回头查还有没有别处做同样的拷贝。结果用户在设置里配的
+   * "讲解字数上限/触发门槛"在**新书**这条路上被静默丢弃, prep 侧按缺省填 150/0,
+   * 全程无报错 —— 8/18 跑 The Giver 时从"废话率没降下来"倒查才发现。
+   *
+   * 所以第 3 条改成走这里, 而且配了一条按 contracts/job_request.schema.json 校验
+   * 字段齐全的测试 (reader/tests/profile_shape.test.js): 以后往契约里加第八个字段,
+   * 测试会先红, 不会再靠人记得同步四个地方。
+   */
+  function fromRow(row, fallbackId) {
+    const base = builtinProfile((row && row.id) || fallbackId);
+    const r = row || {};
+    const num = (v, d) => (typeof v === 'number' ? v : d);
+    return {
+      id: r.id || base.id,
+      name: r.name || base.name,
+      explain_strategy: r.explain_strategy || base.explain_strategy,
+      voice: r.voice || base.voice,
+      speed: num(r.speed, base.speed),
+      highlight_granularity: r.highlight_granularity || base.highlight_granularity,
+      explain_max_chars: num(r.explain_max_chars, base.explain_max_chars),
+      explain_min_sentence_chars: num(r.explain_min_sentence_chars, base.explain_min_sentence_chars),
+    };
+  }
+
   /** 给档案列表补上缺失的内建项 (default 队首 / kid 队尾), 返回新数组。 */
   function ensureBuiltins(profiles) {
     const out = (profiles || []).slice();
@@ -53,5 +87,5 @@
     return out;
   }
 
-  global.AiduBuiltinProfiles = { BUILTIN_PROFILES, VOICES, builtinProfile, ensureBuiltins };
+  global.AiduBuiltinProfiles = { BUILTIN_PROFILES, VOICES, builtinProfile, ensureBuiltins, fromRow };
 })(window);

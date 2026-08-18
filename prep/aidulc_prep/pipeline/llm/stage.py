@@ -59,7 +59,36 @@ def _parse_explain_json(content: str, sentence: str) -> tuple[str, str]:
                         return obj.get("translation", ""), obj.get("explanation", "")
                 except json.JSONDecodeError:
                     break
+    # 宽松兜底 (2026-08-18): 严格 JSON 解析救不回来时, 直接按字段名把值抠出来。
+    # 实测根因是模型在字符串值里塞了未转义的双引号 —— 主要来源(复述 original_text)
+    # 已经从提示词里去掉, 这里兜住剩下的情况: 允许 translation/explanation 的值内部
+    # 含裸引号, 用"下一个字段名"或"对象结尾"当右边界, 而不是用第一个引号。
+    loose = _loose_extract(cleaned)
+    if loose:
+        return loose
     raise ValueError("讲解 JSON 解析失败")
+
+
+_LOOSE_TR = re.compile(r'"translation"\s*:\s*"(.*?)"\s*,\s*"explanation"\s*:', re.S)
+# 收尾的 `"` 是**必须**的: 它区分"完整但有裸引号"(该救)和"被截断"(该重试)。
+# 贪婪 .* 让它吃到最后一个引号, 所以值内部的裸引号不会提前截断; 而截断的输出末尾
+# 没有收尾引号, 直接不匹配 → 交回上层走 EXPLAIN_RETRY_MAX_TOKENS 重试。
+# (这一条是既有测试 test_truncated_first_attempt_retries_with_bigger_budget 抓出来的:
+#  第一版兜底把半截讲解也"救"了回来, 等于静默产出残缺内容, 比失败更糟。)
+_LOOSE_EX = re.compile(r'"explanation"\s*:\s*"(.*)"\s*\}?\s*$', re.S)
+
+
+def _loose_extract(text: str) -> tuple[str, str] | None:
+    """按字段名抠值 (容忍值里的裸引号)。抠不到讲解就返回 None, 交回上层判失败。"""
+    ex_m = _LOOSE_EX.search(text)
+    if not ex_m:
+        return None
+    ex = ex_m.group(1).strip().rstrip('"').strip()
+    if not ex:
+        return None
+    tr_m = _LOOSE_TR.search(text)
+    tr = tr_m.group(1).strip() if tr_m else ""
+    return tr, ex
 
 
 def translate_sentences(

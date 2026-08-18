@@ -27,6 +27,19 @@ class TestExplainSystemForMaxChars:
         sys_msg = explain_system_for("deep", max_chars=100)
         assert "100 字以内" in sys_msg
 
+    def test_length_is_adaptive_not_flat_cap(self):
+        """2026-08-18: 提示词原来写死"只讲最关键的一两点", 对复杂长句是硬性压制。
+
+        实测 14454 句: 原文长 5 倍(40→200+ 字符), 讲解中位只从 50 涨到 67 就饱和,
+        且全体仅 0.1% 超过 130 字 —— 上限根本没在起作用, 卡住长度的是那句指令。
+        改成按难度自适应后, 长句能拿到结构分析而不是只列两个生词。
+        """
+        sys_msg = explain_system_for("deep", max_chars=150)
+        assert "只讲最关键的一两点" not in sys_msg, "这句对长句是硬性压制, 不该再出现"
+        assert "自适应" in sys_msg
+        assert "结构复杂" in sys_msg, "要显式告诉模型复杂句该怎么讲"
+        assert "150 字以内" in sys_msg, "上限仍然保留, 只是不再压制正常的详略判断"
+
     def test_zero_max_chars_treated_as_unconstrained(self):
         """0 是"不限制"的哨兵值, 不该拼出一句"控制在 0 字以内"的荒谬指令。"""
         assert "字以内" not in explain_system_for("brief", max_chars=0)

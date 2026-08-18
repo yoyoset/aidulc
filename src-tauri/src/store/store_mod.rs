@@ -1013,6 +1013,35 @@ impl Db {
             )
             .map_err(|e| format!("迁移 v30 失败: {e}"))?;
         }
+        // v31 (2026-08-18, 从 8/18 跑批观察里发现): 回填 batches.total_books。
+        // batch_start_prep 在 batch_id 不在表里时会自动建批次(R6-1 兜底), 硬编码
+        // total_books: 0 且入队后从不回填 —— 实测库里**所有** 10 个批次都是 0,
+        // 备料台组头因此一直显示「0 本书」。代码侧的回填已经在同一批改动里修了,
+        // 但那只对**新建**的批次生效, 历史批次行不会自己变好, 而用户重跑复用的正是
+        // 这些老行。这里按 jobs.batch_id 数一遍回填。
+        //
+        // 只回填 total_books = 0 的行: 非 0 的行是 batch_import 正常路径建的, 它的
+        // total_books 是"计划处理多少本", 可能大于当前 jobs 表里还剩几条(用户删过
+        // 任务), 覆盖掉会把用户的删除动作抹平。
+        //
+        // 不动 batches.status: 那是 update_progress 的职责(同批改动已修了它在
+        // total_books=0 时恒判 completed 的 bug), 迁移不该越界替它算状态。
+        if version < 31 {
+            conn.execute(
+                "UPDATE batches SET total_books = (
+                     SELECT COUNT(*) FROM jobs WHERE jobs.batch_id = batches.id
+                 )
+                 WHERE total_books = 0
+                   AND EXISTS (SELECT 1 FROM jobs WHERE jobs.batch_id = batches.id)",
+                [],
+            )
+            .map_err(|e| format!("迁移 v31 失败: {e}"))?;
+            conn.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (31, strftime('%s','now')*1000)",
+                [],
+            )
+            .map_err(|e| format!("迁移 v31 失败: {e}"))?;
+        }
         Ok(())
     }
 }
@@ -1026,6 +1055,52 @@ mod tests {
             .join(format!("aidulc_mig_{name}_{}.db", std::process::id()))
             .to_string_lossy()
             .to_string()
+    }
+
+    #[test]
+    fn v31_backfills_total_books_from_jobs() {
+        // v31: 历史批次 total_books 恒为 0(自动建批次兜底硬编码 0 且不回填),
+        // 备料台组头显示「0 本书」。按 jobs.batch_id 数一遍回填。
+        let path = temp_path("v31");
+        let _ = std::fs::remove_file(&path);
+        {
+            let db = Db::open(&path).expect("首次迁移应成功");
+            let conn = db.conn.lock().unwrap();
+            conn.execute_batch(
+                "INSERT INTO batches(id,profile_id,source_language,target_language,status,
+                    total_books,done_books,failed_books,created_at,updated_at)
+                 VALUES ('b0','default','en','zh-CN','created',0,0,0,1,1),
+                        ('b3','default','en','zh-CN','created',0,0,0,1,1),
+                        ('bkeep','default','en','zh-CN','created',5,0,0,1,1),
+                        ('bempty','default','en','zh-CN','created',0,0,0,1,1);
+                 INSERT INTO jobs(id,book_path,profile_id,output_dir,status,stage,current,total,
+                    failed_count,batch_id,source_language,target_language,created_at,updated_at)
+                 VALUES ('j1','p1','default','o1','queued','',0,0,0,'b3','en','zh-CN',1,1),
+                        ('j2','p2','default','o2','queued','',0,0,0,'b3','en','zh-CN',1,1),
+                        ('j3','p3','default','o3','queued','',0,0,0,'b3','en','zh-CN',1,1),
+                        ('j4','p4','default','o4','queued','',0,0,0,'bkeep','en','zh-CN',1,1);
+                 DELETE FROM schema_migrations WHERE version >= 31;",
+            )
+            .unwrap();
+        }
+        let db = Db::open(&path).expect("v31 迁移应成功");
+        let conn = db.conn.lock().unwrap();
+        let get = |id: &str| -> i64 {
+            conn.query_row("SELECT total_books FROM batches WHERE id=?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap()
+        };
+        assert_eq!(get("b3"), 3, "有 3 条 job 的批次应回填成 3");
+        assert_eq!(
+            get("bkeep"),
+            5,
+            "total_books 非 0 的行不动: 它是'计划处理多少本', 覆盖会抹平用户删任务的动作"
+        );
+        assert_eq!(get("bempty"), 0, "没有任何 job 的批次保持 0, 不误写");
+        assert_eq!(get("b0"), 0, "同上");
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
@@ -1264,11 +1339,11 @@ mod tests {
                     VALUES ('me', 'legacy-book', 2, 500, '[3,7]', 100);
                  INSERT INTO reading_state (user_id, book_key, chapter, position_ms, bookmarks, updated_at)
                     VALUES ('me', 'already-migrated', 1, 0, '{\"1\":[9]}', 100);
-                 DELETE FROM schema_migrations WHERE version=26;
-                 DELETE FROM schema_migrations WHERE version=27;
-                 DELETE FROM schema_migrations WHERE version=28;
-                 DELETE FROM schema_migrations WHERE version=29;
-                 DELETE FROM schema_migrations WHERE version=30;",
+                 -- 用 >= 而不是逐个列版本号: 这些测试要的是撤到 v26 之前让迁移完整重跑。
+                 -- 逐个列的写法意味着每加一条新迁移都要回来改这 7 处, 而漏改不会报你漏了 ——
+                 -- MAX(version) 仍等于新版本号, 整条链子被整个跳过, 报出来的是
+                 -- no such table: editions 这类完全指不到根因的错(2026-08-18 加 v31 时实测踩到)。
+                 DELETE FROM schema_migrations WHERE version >= 26;",
             )
             .unwrap();
             drop(conn);
@@ -1330,20 +1405,11 @@ mod tests {
                     VALUES ('u-kid', 200, 7, 'https://a.workers.dev|kid', 200);
                  INSERT INTO sync_state (user_id, last_push_at, last_pull_rev, endpoint_key, updated_at)
                     VALUES ('legacy-empty', 999, 9, '', 999);
-                 DELETE FROM schema_migrations WHERE version=24;
                  -- 撤 v25 (model_registry.detected_family), 让迁移从 v23 状态完整重跑
                  ALTER TABLE model_registry DROP COLUMN detected_family;
-                 DELETE FROM schema_migrations WHERE version=25;
-                 -- 撤 v26 (reading_state.bookmarks 按章分组), 让迁移从 v23 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=26;
-                 -- 撤 v27 (reader_settings 复合主键), 让迁移从 v23 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=27;
-                 -- 撤 v28 (vocab 归并回 default 档案), 让迁移从 v23 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=28;
-                 -- 撤 v29 (书签升级带创建时间), 让迁移从 v23 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=29;
                  -- 撤 v30 (profiles explain_max_chars/explain_min_sentence_chars), 让迁移从 v23 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=30;",
+                 -- >= 而不是逐个列: 见本文件第一处同类注释 (漏改会静默跳过整条迁移链)。
+                 DELETE FROM schema_migrations WHERE version >= 24;",
             )
             .unwrap();
             drop(conn);
@@ -1420,10 +1486,8 @@ mod tests {
                  INSERT INTO reader_settings (profile_id, font_size, line_height, content_width,
                     font_family, theme, highlight_granularity, child_mode, updated_at)
                     VALUES ('default', 22.0, 1.9, 700, 'sans', 'dark', 'word', 1, 500);
-                 DELETE FROM schema_migrations WHERE version=27;
-                 DELETE FROM schema_migrations WHERE version=28;
-                 DELETE FROM schema_migrations WHERE version=29;
-                 DELETE FROM schema_migrations WHERE version=30;",
+                 -- >= 而不是逐个列: 见本文件第一处同类注释 (漏改会静默跳过整条迁移链)。
+                 DELETE FROM schema_migrations WHERE version >= 27;",
             )
             .unwrap();
             drop(conn);
@@ -1469,9 +1533,8 @@ mod tests {
                     ('me:default:bank', 'bank', 'bank', 'NOUN', '银行', 100, 200, 'default', 'me', '{\"word\":\"bank\",\"lemma\":\"bank\",\"stage\":\"review\"}'),
                     ('me:kid:bank', 'bank', 'bank', 'NOUN', '河岸', 300, 300, 'kid', 'me', '{\"word\":\"bank\",\"lemma\":\"bank\",\"stage\":\"new\"}'),
                     ('me:kid:orange', 'orange', 'orange', 'NOUN', '橙子', 400, 400, 'kid', 'me', '{\"word\":\"orange\",\"lemma\":\"orange\",\"stage\":\"new\"}');
-                 DELETE FROM schema_migrations WHERE version=28;
-                 DELETE FROM schema_migrations WHERE version=29;
-                 DELETE FROM schema_migrations WHERE version=30;",
+                 -- >= 而不是逐个列: 见本文件第一处同类注释 (漏改会静默跳过整条迁移链)。
+                 DELETE FROM schema_migrations WHERE version >= 28;",
             )
             .unwrap();
             drop(conn);
@@ -1532,8 +1595,8 @@ mod tests {
                     VALUES ('me', 'plain-numbers', 0, 0, '{\"0\":[3,7]}', 555);
                  INSERT INTO reading_state (user_id, book_key, chapter, position_ms, bookmarks, updated_at)
                     VALUES ('me', 'already-entries', 0, 0, '{\"0\":[{\"i\":9,\"at\":42}]}', 999);
-                 DELETE FROM schema_migrations WHERE version=29;
-                 DELETE FROM schema_migrations WHERE version=30;",
+                 -- >= 而不是逐个列: 见本文件第一处同类注释 (漏改会静默跳过整条迁移链)。
+                 DELETE FROM schema_migrations WHERE version >= 29;",
             )
             .unwrap();
             drop(conn);
@@ -1636,7 +1699,8 @@ mod tests {
                  DROP TABLE highlights;
                  ALTER TABLE highlights_v17 RENAME TO highlights;
                  DROP TABLE sync_state;
-                 DELETE FROM schema_migrations WHERE version IN (18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30);
+                 -- >= 而不是逐个列: 见本文件第一处同类注释 (漏改会静默跳过整条迁移链)。
+                 DELETE FROM schema_migrations WHERE version >= 18;
                  -- 撤 v25 列, 让 v25 迁移能重跑
                  ALTER TABLE model_registry DROP COLUMN detected_family;
                  INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,source_book_id,
@@ -1727,28 +1791,13 @@ mod tests {
                  INSERT INTO reading_daily (book_key, day, time_spent_ms)
                     SELECT book_key, day, time_spent_ms FROM reading_daily_legacy;
                  DROP TABLE reading_daily_legacy;
-                 DELETE FROM schema_migrations WHERE version=20;
-                 DELETE FROM schema_migrations WHERE version=21;
                  -- 撤 v22 (sync_state), 让迁移从 v19 状态完整重跑
                  DROP TABLE sync_state;
-                 DELETE FROM schema_migrations WHERE version=22;
-                 -- 撤 v23 (sync_state.endpoint_key), 让迁移从 v19 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=23;
-                 -- 撤 v24 (sync_state 复合主键 + enabled), 让迁移从 v19 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=24;
                  -- 撤 v25 (model_registry.detected_family), 让迁移从 v19 状态完整重跑
                  ALTER TABLE model_registry DROP COLUMN detected_family;
-                 DELETE FROM schema_migrations WHERE version=25;
-                 -- 撤 v26 (reading_state.bookmarks 按章分组), 让迁移从 v19 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=26;
-                 -- 撤 v27 (reader_settings 复合主键), 让迁移从 v19 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=27;
-                 -- 撤 v28 (vocab 归并回 default 档案), 让迁移从 v19 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=28;
-                 -- 撤 v29 (书签升级带创建时间), 让迁移从 v19 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=29;
                  -- 撤 v30 (profiles explain_max_chars/explain_min_sentence_chars), 让迁移从 v19 状态完整重跑
-                 DELETE FROM schema_migrations WHERE version=30;
+                 -- >= 而不是逐个列: 见本文件第一处同类注释 (漏改会静默跳过整条迁移链)。
+                 DELETE FROM schema_migrations WHERE version >= 20;
                  -- vocab key 还原为 v19 的 {profile}:{lemma} 形式
                  UPDATE vocab SET key = substr(key, 4) WHERE key LIKE 'me:%';
                  UPDATE dictionary SET key = substr(key, 4) WHERE key LIKE 'me:%';",

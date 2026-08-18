@@ -88,8 +88,12 @@
 - **正当例外(登记进 `scripts/file_size_baseline.json`,只能降不能加)**:`store_mod.rs`(v1→v29
   顺序迁移链,顺序本身是文档——这份"只能降不能加"对这一个文件天然会随新迁移持续走高,
   2026-08-14 加 v27 时已把基线从 1395 提到 1518,加 v28(K21, 生词本归并回 default 档案)时
-  再提到 1674,加 v29(K26, 书签升级带创建时间)时再提到 1811,原则不变: 只登记"确实新增了
-  一条真实迁移"带来的行数,不为图省事随手加大)、`ipc/registry.rs`(F29 门禁校验用的注册表本身,`CommandInfo.path`
+  再提到 1674,加 v29(K26, 书签升级带创建时间)时再提到 1811,加 v31(回填 batches.total_books)
+  时再提到 1905,原则不变: 只登记"确实新增了一条真实迁移"带来的行数,不为图省事随手加大。
+  **加 v31 时踩到的坑,后来者必看**: 7 个"撤旧版本重跑"的测试原本逐个列版本号删
+  `schema_migrations`(`WHERE version=26; =27; …=30`),新加一条迁移后 `MAX(version)` 仍等于
+  新版本号,**整条迁移链被跳过**,报出来的却是 `no such table: editions` 这类完全指不到根因的
+  错。已全部改成 `WHERE version >= N`,新迁移不必再回来改这 7 处)、`ipc/registry.rs`(F29 门禁校验用的注册表本身,`CommandInfo.path`
   字段会被解析成文件路径去反查函数签名——**挪动任何命令的物理文件位置,必须同步改这里对应的
   `path`,漏改不会报错,只会让 F29 校验静默去错的文件里找函数**)、`data_migration.rs`(单事务
   级联删除)、`job_orchestrator.rs`/`commands/library.rs`/`application/model_service.rs`(单一

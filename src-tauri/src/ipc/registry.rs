@@ -99,6 +99,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "K12: 老 edition 补封面(只重跑封面抽取, 不碰其它已生成资产)",
     },
     CommandInfo {
+        path: "commands::book_assets::write_cover_thumb",
+        domain: "书库",
+        desc: "写书包内封面缩略图(前端 canvas 缩好回传, 免每次搬原图过 IPC)",
+    },
+    CommandInfo {
         path: "commands::library::book_export",
         domain: "书库",
         desc: "书包导出为 zip(成品资产, 跨设备迁移)",

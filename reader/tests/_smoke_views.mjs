@@ -243,6 +243,7 @@ load('core/import_guard.js');
 load('core/builtin_profiles.js');
 load('core/rerun_scope.js');
 load('core/import_gate.js');
+load('core/cover_cache.js');
 load('views/library/cover.js');
 load('views/library/status.js');
 load('views/library_view.js');

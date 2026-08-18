@@ -501,6 +501,7 @@ fn main() {
             commands::book_audit::book_audit_sources,
             commands::book_assets::library_preview,
             commands::book_assets::backfill_cover,
+            commands::book_assets::write_cover_thumb,
             commands::library::book_export,
             commands::library::book_import,
             commands::dictionary::word_lookup,

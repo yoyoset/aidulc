@@ -83,6 +83,8 @@
     readAudio: (basePath, file) => invoke('read_audio', { basePath, file }),
     // R4 (2026-08-08): 读原书插图 (base64)
     readImage: (basePath, file) => invoke('read_image', { basePath, file }),
+    // 2026-08-18: 封面缩略图回写 (前端 canvas 缩好, 免每次搬原图过 IPC)
+    writeCoverThumb: (packDir, dataB64) => invoke('write_cover_thumb', { packDir, dataB64 }),
   };
 
   // ---- profile / 设置 ----

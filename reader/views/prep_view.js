@@ -435,7 +435,9 @@
           });
           body.appendChild(stageList);
         }
-        const failedN = (qr && Array.isArray(qr.failedSentences)) ? qr.failedSentences.length : null;
+        // A2 (2026-08-18): 数失败句排除 stages 只含 nlp_realign 的条目 (历史产物还混着)
+        const failedN = (qr && Array.isArray(qr.failedSentences))
+          ? AiduQualityNotice.realFailures(qr.failedSentences).length : null;
         if (failedN != null) body.appendChild(el('div', 'preview-meta', `失败句数: ${failedN}`));
         // M7 R26: 原始日志尾部 (调试/诊断用)
         const logTail = res.data && res.data.run_log_tail;

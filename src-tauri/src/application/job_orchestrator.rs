@@ -241,7 +241,7 @@ pub fn batch_start_prep(
     // R6-1 (2026-08-08): 前端"开始阅读准备"的 batch_id 依赖会话内存, 重启后伪造的 id
     // 在表里不存在 → 原来直接"批次不存在"报错, "导入→稍后处理"主流程断掉。
     // 修法: 不存在时按单书自动建批次(保留批次语义, 不阻塞入队)。
-    let batch = match batch_repo.get(&batch_id) {
+    let mut batch = match batch_repo.get(&batch_id) {
         Some(b) => b,
         None => {
             let now = now_ms();
@@ -354,12 +354,19 @@ pub fn batch_start_prep(
         }
         enqueued.push(book_id.clone());
     }
-    // 批次状态: 有入队 → running
-    if !enqueued.is_empty() {
-        let mut b = batch.clone();
-        b.status = "running".into();
-        b.updated_at = now_ms();
-        let _ = batch_repo.upsert(&b);
+    // B1 (2026-08-18): 回填 total_books —— 自动建批次时硬编码 0, 入队数量此时才真正
+    // 知道。此前从不回填, 实测 DB 里 10 个批次 total_books 全是 0, 前端组头一直显示
+    // 「0 本书」。以实际入队数为准 (前置检查会跳过部分书)。
+    // 和"有入队 → running"合成同一次 upsert: 这两件事都发生在入队循环之后、对同一行,
+    // 分两次写没有额外语义, 只多一次锁 db.conn。
+    let needs_write = batch.total_books != enqueued.len() as i64 || !enqueued.is_empty();
+    if needs_write {
+        batch.total_books = enqueued.len() as i64;
+        if !enqueued.is_empty() {
+            batch.status = "running".into();
+        }
+        batch.updated_at = now_ms();
+        let _ = batch_repo.upsert(&batch);
     }
     let _ = app.emit("library-changed", serde_json::json!({}));
     let _ = app.emit("job-list-changed", serde_json::json!({}));
@@ -1042,8 +1049,9 @@ pub fn pump_queue(
                     };
                     // I-C: 失败可读 —— 从 quality_report.json 生成摘要
                     if j.status == "failed" {
-                        j.error = quality_summary(&j.output_dir)
-                            .or_else(|| Some("任务失败 (无详情报告)".into()));
+                        j.error =
+                            crate::application::quality_notice::quality_summary(&j.output_dir)
+                                .or_else(|| Some("任务失败 (无详情报告)".into()));
                     }
                     j.updated_at = now_ms();
                     job_batch_id = j.batch_id.clone();
@@ -1200,74 +1208,6 @@ fn enrich_progress(ev: jobs::progress::ProgressEvent, job_id: &str) -> serde_jso
     }
 }
 
-/// I-C: 从 quality_report.json 生成失败摘要 (失败句数 + 涉及阶段 + 前 3 条原因)
-fn quality_summary(out_dir: &str) -> Option<String> {
-    let path = std::path::Path::new(out_dir).join("quality_report.json");
-    let text = std::fs::read_to_string(&path).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
-    // I-C: 阶段级错误优先 (pack 超时/完整性校验等, 不是句级失败)
-    if let Some(err) = v
-        .get("error")
-        .and_then(|e| e.as_str())
-        .filter(|e| !e.is_empty())
-    {
-        return Some(err.to_string());
-    }
-    let failed_sents = v
-        .get("failedSentences")
-        .and_then(|a| a.as_array())
-        .map(|a| a.len())
-        .unwrap_or(0);
-    let stages = v
-        .get("failedSentences")
-        .and_then(|a| a.as_array())
-        .map(|arr| {
-            let mut set: Vec<String> = Vec::new();
-            for f in arr {
-                if let Some(ss) = f.get("stages").and_then(|s| s.as_array()) {
-                    for s in ss {
-                        if let Some(name) = s.as_str() {
-                            if !set.contains(&name.to_string()) {
-                                set.push(name.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-            set
-        })
-        .unwrap_or_default();
-    let reasons: Vec<String> = v
-        .get("failedSentences")
-        .and_then(|a| a.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|f| f.get("reason").and_then(|r| r.as_str()).map(String::from))
-                .filter(|r| !r.is_empty())
-                .collect()
-        })
-        .unwrap_or_default();
-    let reason_sample = reasons
-        .iter()
-        .take(3)
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(" | ");
-    if failed_sents == 0 && stages.is_empty() {
-        return Some("任务失败 (bookpack 未生成)".into());
-    }
-    Some(format!(
-        "{} 句有失败阶段 ({}){}",
-        failed_sents,
-        stages.join(", "),
-        if reason_sample.is_empty() {
-            String::new()
-        } else {
-            format!(": {reason_sample}")
-        }
-    ))
-}
-
 /// F13 (2026-08-08): 从任务目录的 job_request.json 快照恢复原始 profile 参数。
 /// 重试失败句时保留"这本书当年怎么配的"(音色/策略/速度/粒度), 而不是换回硬编码默认。
 /// 快照缺失/解析失败 → 返回给定默认值。纯函数, 可单测。
@@ -1306,10 +1246,7 @@ fn profile_from_snapshot(job_dir: &std::path::Path, profile_id: &str) -> serde_j
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        enrich_progress, overall_progress, profile_from_snapshot, quality_summary,
-        register_import_batch,
-    };
+    use super::{enrich_progress, overall_progress, profile_from_snapshot, register_import_batch};
 
     #[test]
     fn enrich_progress_carries_overall_progress() {
@@ -1509,7 +1446,7 @@ mod tests {
         }"#,
         )
         .unwrap();
-        let s = quality_summary(dir.to_str().unwrap()).unwrap();
+        let s = crate::application::quality_notice::quality_summary(dir.to_str().unwrap()).unwrap();
         assert!(s.contains("3 句有失败阶段"), "got: {s}");
         assert!(s.contains("translate") && s.contains("tts"), "got: {s}");
         assert!(s.contains("API 超时"), "原因应入摘要: {s}");
@@ -1521,7 +1458,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("aidulc_qf_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         // 无 quality_report.json → None (调用处兜底 "无详情报告")
-        assert!(quality_summary(dir.to_str().unwrap()).is_none());
+        assert!(
+            crate::application::quality_notice::quality_summary(dir.to_str().unwrap()).is_none()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

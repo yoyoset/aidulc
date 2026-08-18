@@ -7,6 +7,7 @@ mod application {
     pub mod library_asset_service;
     pub mod library_service;
     pub mod model_service;
+    pub mod quality_notice;
     pub mod sync_service;
     pub mod transfer_service;
     pub mod users_service;

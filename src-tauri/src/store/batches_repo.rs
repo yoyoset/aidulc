@@ -128,8 +128,8 @@ impl<'a> BatchesRepo<'a> {
         let conn = self.db.conn.lock().unwrap();
         conn.execute(
             "UPDATE batches SET done_books = ?1, failed_books = ?2,
-                status = CASE WHEN ?1 + ?2 >= total_books AND ?2 = 0 THEN 'completed'
-                              WHEN ?1 + ?2 >= total_books THEN 'partial'
+                status = CASE WHEN total_books > 0 AND ?1 + ?2 >= total_books AND ?2 = 0 THEN 'completed'
+                              WHEN total_books > 0 AND ?1 + ?2 >= total_books THEN 'partial'
                               ELSE 'running' END,
                 updated_at = strftime('%s','now')*1000
              WHERE id = ?3",
@@ -193,6 +193,21 @@ mod tests {
         repo.upsert(&batch("b1")).unwrap();
         repo.update_progress("b1", 1, 1).unwrap();
         assert_eq!(repo.get("b1").unwrap().status, "partial");
+    }
+
+    #[test]
+    fn zero_total_books_never_completed() {
+        // B2 (2026-08-18): total_books=0 时 ?1+?2 >= 0 恒真, 批次一建出来就是 completed
+        // (实测: 表里 10 个批次 job 还在 queued, 批次已经 completed)。
+        // 修法: 两个 WHEN 都加 total_books > 0 前置, 0 本书的批次保持 running。
+        let db = temp_db();
+        let repo = BatchesRepo::new(&db);
+        let mut b = batch("b1");
+        b.total_books = 0;
+        repo.upsert(&b).unwrap();
+        repo.update_progress("b1", 0, 0).unwrap();
+        assert_ne!(repo.get("b1").unwrap().status, "completed");
+        assert_eq!(repo.get("b1").unwrap().status, "running");
     }
 
     #[test]

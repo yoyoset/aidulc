@@ -25,7 +25,7 @@ pub fn parse_bookpack_meta(text: &str) -> Option<(String, i64, i64)> {
         .get("quality")
         .and_then(|q| q.get("failedSentences"))
         .and_then(|f| f.as_array())
-        .map(|a| a.len() as i64)
+        .map(|a| crate::application::quality_notice::real_failures(a).len() as i64)
         .unwrap_or(0);
     Some((title, chapters, failed))
 }

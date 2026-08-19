@@ -272,3 +272,32 @@ node tests/_smoke_views.mjs
 4. `docs/WATCH_2026-08-18.md` 或新开一份, 记录实测结果(哪本书走了这条路, 转换前后
    verdict 变化, 有没有卡在 running 的情况)。
 5. 重新打包侧车 + 构建主程序。
+
+---
+
+## 完成记录 (2026-08-19)
+
+四块拼图全部落地, 门禁全绿:
+
+| 拼图 | 提交 | 验收 |
+|---|---|---|
+| 核心算法(pymupdf 兜底) | `9f059ab` | 318 prep 测试(含 12 条新增), 真实数据验证(Ferris 33章2793句 verdict=ok) |
+| Python 接线(CLI + runner.py) | `42d6389` | 327 prep 测试(+9), contracts sync -Verify |
+| 前端(导入流程 + 卡片徽章) | `36523e1` | 167 vitest + 392 项冒烟测试, 独立复核 |
+| Rust(数据模型 + 后台队列) | `e446d71` | 320 cargo 测试, `scripts/check.ps1` 24/24 |
+
+复核中发现并修正两处(记在 `e446d71` 提交信息里, 不重复):
+`library_view.js` 顶破文件规模基线 → 徽章 DOM 构造挪进 `library/status.js` 落回基线内,
+不碰基线数字; `job_orchestrator.rs` 基线被登记成超前 99 行的余量 → 改回精确匹配实际
+行数(CLAUDE.md "只登记确实新增内容, 不为图省事随手加大")。
+
+**打包验证**(不只是 dev 环境跑通): `scripts/build_prep.ps1` 重新打包后, 用真正的
+`prep/dist/aidulc-prep/aidulc-prep.exe`(不是 `.venv` 里的 dev python)跑
+`--standardize-book` 在 Ferris 上, 结果与 dev 环境一致(33 章 2793 句 verdict=ok)——
+证明打包过程没有漏掉新代码路径。`cargo build --release` 干净通过。
+
+**还没做、需要用户配合的部分**: 完整的导入 → 后台转换 → 卡片显示这条链路, 每一段
+都有单元/集成测试覆盖(见上表), 但**没有通过真正跑起来的 GUI 走一遍**——这需要
+用户实际导入一本 block 书, 观察卡片上的状态变化。建议下次导入时留意一本格式有问题
+的书(比如提示"格式不标准"那种), 看它是不是真的从"自动转换中…"变成正常可读或者
+标红说明原因。

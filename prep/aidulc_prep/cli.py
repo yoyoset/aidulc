@@ -50,6 +50,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--preview-book", help="原版书路径 (EPUB/TXT/PDF → 纯文本预览)")
     # 源书体检 (STDIMPORT, 2026-08-16): 导入时把关 + 手动体检脚本共用, 输出 JSON 到 stdout
     parser.add_argument("--audit-book", help="源书路径 (EPUB), 输出 S1-S6 体检结果 JSON")
+
+    parser.add_argument(
+        "--standardize-book",
+        help="源书路径 (EPUB), 原生解析判 block 后的自动标准化转换: pymupdf 兜底重解析, "
+        "配合 --out 写报告 JSON (含判定结果 + 转换后的章节/句子, 供 --out 存档路径复用)",
+    )
     # 组件健康探测 (R3.4): 输出 PyMuPDF 版本号或 "none", Rust components_health 解析
     parser.add_argument("--pymupdf-version", action="store_true", help="探测 PyMuPDF 是否可用")
     # K12 (2026-08-14): 只补封面, 不重跑整条流水线 (老 edition 没有封面时的轻量入口,
@@ -87,6 +93,37 @@ def main(argv: list[str] | None = None) -> int:
     if args.audit_book:
         from aidulc_prep.application.book_audit import evaluate_book
         sys.stdout.write(json.dumps(evaluate_book(args.audit_book), ensure_ascii=False) + "\n")
+        return 0
+
+    # 自动标准化转换 (2026-08-19, 用户拍板"不符合标准的自动转换, 不用设置, 能看结果"):
+    # 只在原生解析(--audit-book)判 block 之后, Rust 后台任务才会调这个模式。
+    # 写文件而不是像 --audit-book 那样只吐 stdout —— 结果要作为缓存被
+    # runner.py::_parse() 复用(备料阶段直接读, 不重新解析一遍), 需要落盘存档。
+    if args.standardize_book:
+        if not args.out:
+            sys.stderr.write("--standardize-book 需要配合 --out 指定报告输出路径\n")
+            return 2
+        from aidulc_prep.application.book_audit import _judge_book
+        from aidulc_prep.pipeline.loader.epub_fallback import load_epub_fallback
+
+        book, uncovered = load_epub_fallback(args.standardize_book)
+        result = _judge_book(args.standardize_book, book, uncovered)
+        # verdict=block 时不塞一份"反正也不达标"的半成品章节结构进去——那样容易让
+        # 下游误以为有可用缓存。book 字段只在 ok/warn 时非空。
+        result["book"] = (
+            {
+                "title": book.title,
+                "chapters": [
+                    {"title": c.title, "sentences": [s.original_text for s in c.sentences]}
+                    for c in book.chapters
+                ],
+            }
+            if result["verdict"] != "block"
+            else None
+        )
+        os.makedirs(os.path.dirname(os.path.abspath(args.out)) or ".", exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False)
         return 0
 
     # 原版书预览模式 (书库"查看原文" + 处理前体检 R3.3: 格式/目录来源/章节异常信号)

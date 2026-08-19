@@ -4,46 +4,120 @@
   "title": "aidulc 任务快照 (Rust → Python)",
   "description": "Rust 组装的一次任务的不可变快照。Python 侧只读这一份, 不做任何配置发现 (3.1 纪律)。",
   "type": "object",
-  "required": ["job_id", "book_path", "out_dir", "profile", "models", "tokens"],
+  "required": [
+    "job_id",
+    "book_path",
+    "out_dir",
+    "profile",
+    "models",
+    "tokens"
+  ],
   "properties": {
-    "job_id": { "type": "string" },
-    "book_path": { "type": "string", "description": "EPUB/PDF/TXT 绝对路径" },
-    "out_dir": { "type": "string", "description": "书包输出目录" },
+    "job_id": {
+      "type": "string"
+    },
+    "book_path": {
+      "type": "string",
+      "description": "EPUB/PDF/TXT 绝对路径"
+    },
+    "out_dir": {
+      "type": "string",
+      "description": "书包输出目录"
+    },
     "profile": {
       "type": "object",
-      "required": ["id", "explain_strategy", "voice", "speed", "highlight_granularity"],
+      "required": [
+        "id",
+        "explain_strategy",
+        "voice",
+        "speed",
+        "highlight_granularity"
+      ],
       "properties": {
-        "id": { "type": "string" },
-        "explain_strategy": { "type": "string", "enum": ["none", "brief", "deep"] },
-        "voice": { "type": "string" },
-        "speed": { "type": "number" },
-        "highlight_granularity": { "type": "string", "enum": ["word", "sentence"] },
-        "explain_max_chars": { "type": "integer", "description": "K33: 讲解字数上限, 缺省时 prep 侧车用 150" },
-        "explain_min_sentence_chars": { "type": "integer", "description": "K33: 原文长度低于此字符数的句子不生成讲解直接跳过, 缺省/0 = 不设门槛" }
+        "id": {
+          "type": "string"
+        },
+        "explain_strategy": {
+          "type": "string",
+          "enum": [
+            "none",
+            "brief",
+            "deep"
+          ]
+        },
+        "voice": {
+          "type": "string"
+        },
+        "speed": {
+          "type": "number"
+        },
+        "highlight_granularity": {
+          "type": "string",
+          "enum": [
+            "word",
+            "sentence"
+          ]
+        },
+        "explain_max_chars": {
+          "type": "integer",
+          "description": "K33: 讲解字数上限, 缺省时 prep 侧车用 150"
+        },
+        "explain_min_sentence_chars": {
+          "type": "integer",
+          "description": "K33: 原文长度低于此字符数的句子不生成讲解直接跳过, 缺省/0 = 不设门槛"
+        }
       }
     },
     "models": {
       "type": "object",
       "description": "模型 key → 绝对路径 (模型绑定快照, 任务运行中改设置不影响正在跑的任务)",
-      "required": ["llm", "tts"],
+      "required": [
+        "llm",
+        "tts"
+      ],
       "properties": {
-        "llm": { "type": "string", "description": "GGUF 路径" },
-        "tts": { "type": "string", "description": "Kokoro 模型路径 (kokoro-v1_0.pth)" },
-        "spacy": { "type": "string", "description": "spaCy 模型名, 默认 en_core_web_sm" }
+        "llm": {
+          "type": "string",
+          "description": "GGUF 路径"
+        },
+        "tts": {
+          "type": "string",
+          "description": "Kokoro 模型路径 (kokoro-v1_0.pth)"
+        },
+        "spacy": {
+          "type": "string",
+          "description": "spaCy 模型名, 默认 en_core_web_sm"
+        }
       }
     },
     "tokens": {
       "type": "object",
       "description": "LLM 采样参数",
       "properties": {
-        "temperature": { "type": "number" },
-        "max_tokens": { "type": "integer" }
+        "temperature": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        }
       }
     },
     "force_stages": {
       "type": "array",
       "description": "手动重跑: 列出要强制重跑的阶段 (含下游级联)。缺省/空 = 自动(只跑失败/未完成)。",
-      "items": { "type": "string", "enum": ["translate", "explain", "tts", "align"] }
+      "items": {
+        "type": "string",
+        "enum": [
+          "translate",
+          "explain",
+          "tts",
+          "align"
+        ]
+      }
+    },
+    "standardize_cache_path": {
+      "type": "string",
+      "description": "2026-08-19: 标准化转换后台任务产出的缓存 JSON 绝对路径, 非空时 _parse() 读它而不重新原生解析。可选字段, 只在这本原书 standardize_status=done 时由 Rust 注入。"
     }
   }
 }

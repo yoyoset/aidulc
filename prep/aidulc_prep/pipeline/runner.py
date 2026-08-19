@@ -187,6 +187,15 @@ class Runner:
 
     def _parse(self) -> Book:
         try:
+            cache_path = self.job.get("standardize_cache_path")
+            if cache_path:
+                # 2026-08-19: 这本书原生解析判过 block, 用户拍板"自动尝试标准化转换"——
+                # Rust 后台任务已经用 pymupdf 兜底重解析过一遍并判定 ok/warn, 缓存路径
+                # 写进了 job_request.json。这里直接读缓存, **不重新原生解析一遍**
+                # (重解析只会得到同样的 block 结果, 缓存就是为了绕过它存在的)。
+                # 缺失/解析失败按现有 InputError 处理方式抛错——静默退回原生解析会让
+                # "缓存明明该在却读不出来"这类真实故障被掩盖成一个看起来正常的 block。
+                return self._load_from_standardize_cache(cache_path)
             ext = os.path.splitext(self.job["book_path"])[1].lower()
             if ext == ".epub":
                 from aidulc_prep.pipeline.loader.epub import load_epub_with_spine_health
@@ -197,6 +206,37 @@ class Runner:
         except InputError as e:
             self.quality.record("parse", ok=False)
             raise
+
+    def _load_from_standardize_cache(self, cache_path: str) -> Book:
+        """读标准化转换的缓存 JSON, 重建 Book。跳过 _check_epub_health——那条体检是
+        对 spine/uncovered 覆盖率的判断, 兜底解析路径(按页而不是按 spine 文件走)
+        没有这个概念可体检; 缓存本身已经在标准化阶段被判过 ok/warn, 不需要再体检一遍。"""
+        import json
+
+        from aidulc_prep.core.models import Chapter, Sentence
+
+        try:
+            with open(cache_path, encoding="utf-8") as f:
+                report = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            raise InputError(
+                "标准化转换缓存读取失败", f"{cache_path}: {e}"
+            ) from e
+        data = report.get("book")
+        if not data:
+            raise InputError(
+                "标准化转换缓存不含可用章节",
+                f"{cache_path} 的 verdict={report.get('verdict')}, book 字段为空",
+            )
+        chapters = [
+            Chapter(
+                index=i,
+                title=c.get("title") or "",
+                sentences=[Sentence(original_text=t) for t in c.get("sentences", [])],
+            )
+            for i, c in enumerate(data.get("chapters", []))
+        ]
+        return Book(title=data.get("title") or "", chapters=chapters)
 
     def _check_epub_health(self, book: Book, uncovered: list[str]) -> None:
         """F39 体检本来只在"查看原文"预览路径生效(cli.py --preview-book), 真正备料

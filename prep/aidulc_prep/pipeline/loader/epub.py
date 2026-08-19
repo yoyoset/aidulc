@@ -328,7 +328,7 @@ def probe_toc_source(path: str) -> str:
             mhref = re.search(r'href="([^"]+)"', item)
             if mid and mhref:
                 manifest[mid.group(1)] = mhref.group(1)
-        _items, source = _find_toc_source(zf, opf, manifest, opf_dir)
+        _items, source, _toc_dir = _find_toc_source(zf, opf, manifest, opf_dir)
         return source
 
 
@@ -367,12 +367,24 @@ def _find_toc_source(
     opf: str,
     manifest: dict[str, str],
     opf_dir: str,
-) -> tuple[list[tuple[str, str]], str]:
-    """定位目录来源, 返回 (toc_items, source)。source ∈ {nav.xhtml, toc.ncx, none}。
+) -> tuple[list[tuple[str, str]], str, str]:
+    """定位目录来源, 返回 (toc_items, source, toc_dir)。source ∈ {nav.xhtml, toc.ncx, none}。
 
     顺序: 先找 EPUB3 的 nav.xhtml (properties="nav"), 没有再看 EPUB2 的 toc.ncx
     (spine toc 属性 → manifest id → media-type → 文件名兜底)。
-    """
+
+    2026-08-19 (实测 Impossible Creatures 65 章全 (Untitled) 才发现): 多返回一个
+    toc_dir —— nav.xhtml/toc.ncx 里的 <a href>/<content src> 是相对**该文件自己所在
+    目录**解析的(EPUB3 spec 明文规定), 不是相对 opf_dir。之前调用方统一拿 opf_dir
+    去拼, 这本书的 nav.xhtml 放在 OEBPS/xhtml/ 下(不是 OEBPS/ 根), href
+    "13_FRANK_AUREATE.xhtml" 被错误拼成 "OEBPS/13_FRANK_AUREATE.xhtml", 而
+    manifest 里真实物理路径是 "OEBPS/xhtml/13_FRANK_AUREATE.xhtml" —— 两个 key
+    永远对不上, toc_body 查表全部落空, 65 章标题全退化成 (Untitled); 同时
+    first_body_idx 的判断也用了同一份错 key, 找不到任何正文条目匹配, 连"前页不算
+    章节"这条边界都失效, 前言/扉页被当成了 1 句的碎片章漏进正文(与本书
+    health notice 里的"第 3/58/63/64 章只有 1 句"吻合)。
+    绝大多数 EPUB 的 nav.xhtml/toc.ncx 和 opf 在同一目录, toc_dir == opf_dir,
+    这条修复对它们零影响(已用现有 11 本书回归验证)。"""
     toc_items: list[tuple[str, str]] = []
     nav_file = None
     for item in re.findall(r'<item[^>]*/?>', opf):
@@ -389,7 +401,7 @@ def _find_toc_source(
                 break
     if nav_file:
         nav_full = _norm_zip_path(f"{opf_dir}/{nav_file}" if opf_dir else nav_file)
-        return _parse_toc(_read_member(zf, nav_full)), "nav.xhtml"
+        return _parse_toc(_read_member(zf, nav_full)), "nav.xhtml", os.path.dirname(nav_full)
 
     # EPUB2 目录 (2026-08-08 补): 老书用 toc.ncx 而非 nav.xhtml。
     ncx_file = None
@@ -410,9 +422,9 @@ def _find_toc_source(
                 break
     if ncx_file:
         ncx_full = _norm_zip_path(f"{opf_dir}/{ncx_file}" if opf_dir else ncx_file)
-        return _parse_ncx(_read_member(zf, ncx_full)), "toc.ncx"
+        return _parse_ncx(_read_member(zf, ncx_full)), "toc.ncx", os.path.dirname(ncx_full)
 
-    return toc_items, "none"
+    return toc_items, "none", opf_dir
 
 
 def load_epub(path: str) -> Book:
@@ -509,7 +521,7 @@ def load_epub_with_spine_health(path: str) -> tuple[Book, list[str]]:
         # 质量修复 3 (章节划分): 用 TOC 划章节 (真实标题 + 过滤非正文)
         # 兼容 spine id 与 manifest id 不一致的书 (Wolf 21: spine=nav_00, manifest=nav_1)
         # → 直接从 manifest 里找 nav.xhtml (properties="nav"), 不依赖 spine 映射
-        toc_items, _toc_source = _find_toc_source(zf, opf, manifest, opf_dir)
+        toc_items, _toc_source, toc_dir = _find_toc_source(zf, opf, manifest, opf_dir)
 
         # 章节划分 (F38 修复 2026-08-10): 遍历基准 = spine 全量, 不再只看 TOC 引用的文件。
         # 实测根因: TOC 条目是"锚点"不是"文件清单"——《银河系漫游指南》五部长篇的正文
@@ -535,8 +547,9 @@ def load_epub_with_spine_health(path: str) -> tuple[Book, list[str]]:
             phys = href.split("#")[0]
             if not phys:
                 continue
-            if not os.path.isabs(phys) and not phys.startswith(opf_dir):
-                phys = f"{opf_dir}/{phys}"
+            # toc_dir, 不是 opf_dir —— 见 _find_toc_source 的说明
+            if not os.path.isabs(phys) and not phys.startswith(toc_dir):
+                phys = f"{toc_dir}/{phys}"
             key = _norm_zip_path(phys)
             if NON_BODY_TOC.match(text_s):
                 toc_nonbody.add(key)

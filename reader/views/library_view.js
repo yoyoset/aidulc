@@ -270,6 +270,16 @@
           metaBits.join(' · ') + ' · ' + `${langLabel}→中文 · ${profileLabel}` +
           (book.failed_count ? ` · ${book.failed_count} 句失败` : ''));
         meta.prepend(badge);
+        // AUTOSTANDARDIZE (2026-08-19): 第二档徽章 —— 与 status 无关的格式自动转换痕迹。
+        // none/缺省不渲染; done 只是一个小点 + 悬浮 title; failed 标红给原因; 用与
+        // status 徽章同一套 .book-badge/.badge-* 视觉语言, 只追加一个 data-standardize 钩子。
+        const stz = global.AiduLibraryStatus.standardizeBadge(book);
+        if (stz) {
+          const stzBadge = el('span', 'book-badge ' + stz.cls, stz.label);
+          stzBadge.dataset.standardize = '1';
+          if (stz.title) stzBadge.title = stz.title;
+          meta.append(stzBadge);
+        }
         // K2-4 (2026-08-13): 阅读状态独立成一排对齐的统计块 (是否读了/读了多久/多少笔记/
         // 多少书签), 不再拼进一整条字符串——数字对不齐、弱视觉层级是本期治理的问题之一。
         // 阅读时长此前挂在"有 reading_chapter 才显示"的条件下, 现在独立判断 time_spent_ms
@@ -1136,22 +1146,28 @@
       if (this._importDedup && !this._importDedup.shouldFire(paths, profileId)) return;
       // STDIMPORT (2026-08-17): 先按统一标准体检再登记。之前"导入"完全不碰文件内容,
       // 一本正文丢 95% 的书照样导入成功, 要等用户点了开始处理、烧掉 parse 阶段才发现。
-      // 体检本身是同一份判据(prep 侧 core/standard.py), 不达标的不放进书库。
+      // AUTOSTANDARDIZE (2026-08-19): 不再有"完全拒绝" —— 不达标(block)的书也照常
+      // 登记进书库, 同时把它的路径交给后台自动尝试转换(evaluate 的 pendingStandardize)。
       AiduToast.show(`正在检查 ${paths.length} 本书…`, 'info');
       AiduImportService.auditSources(paths)
         .catch(() => [])   // 体检自身出错不该挡住导入, 当作"判不了"全部放行
         .then((audits) => {
           const gate = global.AiduImportGate.evaluate(paths, audits);
-          gate.messages.forEach((m) => AiduToast.show(m.text, m.level === 'error' ? 'error' : 'warning'));
+          gate.messages.forEach((m) => {
+            // 3 档消息全有: error/warning 来自体检, info 来自"已导入并后台自动转换"
+            const kind = m.level === 'error' ? 'error' : m.level === 'warning' ? 'warning' : 'info';
+            AiduToast.show(m.text, kind);
+          });
           if (!gate.accepted.length) {
             if (this.onImportError) this.onImportError('没有符合导入标准的书');
             return null;
           }
           AiduToast.show(`正在导入 ${gate.accepted.length} 本书…`, 'info');
-          return AiduImportService.importBooks(gate.accepted, profileId, { source: sourceLang, target: 'zh-CN' });
+          return AiduImportService.importBooks(gate.accepted, profileId,
+            { source: sourceLang, target: 'zh-CN' }, gate.pendingStandardize);
         })
         .then((res) => {
-          if (!res) return; // 体检全被拦下, 上一步已经把原因说清楚了, 不再叠加成功文案
+          if (!res) return; // 上一步没发起导入(paths 为空等), 不叠加成功文案
           if (!res.ok) {
             if (this.onImportError) this.onImportError(res.error);
             AiduToast.show('导入失败: ' + res.error, 'error');

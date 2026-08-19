@@ -27,6 +27,28 @@
     return map[book.status] || { label: book.status, cls: 'badge-idle' };
   }
 
+  /** AUTOSTANDARDIZE (2026-08-19): standardize_status → 独立于 status 的第二档展示.
+   *  none/缺省 = 不显示(绝大多数书, 零视觉噪音); done = 转完就是正常书, 只留一个
+   *  小点 + 悬浮 title 可查证的痕迹; pending/running = 复用现有处理中样式;
+   *  failed = 复用现有失败样式, 文案直接用 standardize_note。
+   *  @returns {null|{label: string, cls: string, title?: string}} */
+  function standardizeBadge(book) {
+    const s = book && book.standardize_status;
+    const note = (book && book.standardize_note) || '';
+    if (s === 'pending' || s === 'running') {
+      return { label: '自动转换中…', cls: 'badge-busy', title: note || '格式自动转换中' };
+    }
+    if (s === 'done') {
+      // 不打扰: 无常驻文字, 悬浮 title 显示标准化痕迹 (这本书跟正常书没区别)
+      return { label: '', cls: 'badge-ok badge-dot', title: note || '格式已自动转换完成' };
+    }
+    if (s === 'failed') {
+      const label = note || '格式自动转换失败';
+      return { label, cls: 'badge-err', title: note || label };
+    }
+    return null; // 'none' / 缺省
+  }
+
   /** 阶段6 设计交付 §01: 状态分段映射 —— 未处理 = pending/failed; 已就绪 = ready/done/partial */
   function inStatusBucket(book, bucket) {
     switch (bucket) {
@@ -50,5 +72,5 @@
     });
   }
 
-  global.AiduLibraryStatus = { STAGE_LABEL, bookStatus, inStatusBucket, updateSegCounts };
+  global.AiduLibraryStatus = { STAGE_LABEL, bookStatus, standardizeBadge, inStatusBucket, updateSegCounts };
 })(window);

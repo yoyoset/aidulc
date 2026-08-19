@@ -53,13 +53,17 @@
       return (res.ok && res.data) || [];
     },
 
-    /** 启动批量导入: 组装完整参数 → batch_import (R1: 只登记 source, 不开始处理) */
-    async importBooks(paths, profileId, languages) {
+    /** 启动批量导入: 组装完整参数 → batch_import (R1: 只登记 source, 不开始处理)
+     *  AUTOSTANDARDIZE (2026-08-19): 第 4 参数 pendingStandardize —— 体检不达标的书,
+     *  照常登记并让 Rust 侧对这些路径后台尝试自动转换。命令参数名 needsStandardize
+     *  (camelCase) 与前端数组名不同是故意的, 对应后端命令签名。*/
+    async importBooks(paths, profileId, languages, pendingStandardize) {
       const profile = await this.getProfile(profileId);
       return AiduBridge.invoke('batch_import', {
         bookPaths: paths, profile,
         sourceLanguage: (languages && languages.source) || 'en',
         targetLanguage: (languages && languages.target) || 'zh-CN',
+        needsStandardize: pendingStandardize || [],
       });
     },
 

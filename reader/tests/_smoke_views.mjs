@@ -1121,46 +1121,102 @@ console.log('== 3a-3. 补封面入口 (2026-08-17): 必须真的点得到 ==');
   queryAll(globalThis.document.body, '.modal-overlay').forEach((o) => o.remove());
 }
 
-console.log('== 3a-2. STDIMPORT (2026-08-17): 导入前统一标准体检 —— 不达标的不进书库 ==');
+console.log('== 3a-2. STDIMPORT/AUTOSTANDARDIZE (2026-08-17/19): 导入前统一标准体检 —— 不标准的书照常导入 + 后台转换 ==');
 {
   const lv = new globalThis.LibraryView(store, 'original');
   const origAudit = globalThis.AiduImportService.auditSources;
   const origImport = globalThis.AiduImportService.importBooks;
   const imported = [];
-  globalThis.AiduImportService.importBooks = async (paths) => {
+  const needsStd = [];
+  globalThis.AiduImportService.importBooks = async (paths, profileId, languages, pendingStandardize) => {
     imported.push(paths);
+    needsStd.push(pendingStandardize);
     return { ok: true, data: { registered: paths, skipped: [], batch_id: 'b1' } };
   };
 
-  // 一本不达标 + 一本达标 → 只导入达标那本
+  // 一本不标准 + 一本达标 → 两本都导入, 不标准那本把路径传给 needsStandardize
   globalThis.AiduImportService.auditSources = async () => ([
     { verdict: 'block', issues: [{ code: 'S3', level: 'block', message: '解析结果过少: 0 章 / 0 句' }] },
     { verdict: 'ok', issues: [] },
   ]);
   lv._startBatchImport(['C:/Books/broken.epub', 'C:/Books/good.epub']);
   await new Promise((r) => setTimeout(r, 20));
-  check('体检: 不达标的书不进书库, 达标的照常导入',
-    imported.length === 1 && imported[0].length === 1 && imported[0][0] === 'C:/Books/good.epub',
+  check('体检: 不标准的书也进书库(与达标的一起导入)',
+    imported.length === 1 && imported[0].length === 2
+    && imported[0].includes('C:/Books/broken.epub') && imported[0].includes('C:/Books/good.epub'),
     JSON.stringify(imported));
+  check('体检: 不标准的那本传给 needsStandardize (后台自动转换)',
+    needsStd.length === 1 && JSON.stringify(needsStd[0]) === JSON.stringify(['C:/Books/broken.epub']),
+    JSON.stringify(needsStd));
 
-  // 全部不达标 → 根本不调 batch_import (不留一堆注定跑失败的书在库里)
-  imported.length = 0;
+  // 全部不标准 → 也照常导入, 全部进 needsStandardize (不再有"完全拒绝")
+  imported.length = 0; needsStd.length = 0;
   globalThis.AiduImportService.auditSources = async () => ([
     { verdict: 'block', issues: [{ code: 'S1', level: 'block', message: 'EPUB 打不开或读不到 spine' }] },
   ]);
   lv._startBatchImport(['C:/Books/dead.epub']);
   await new Promise((r) => setTimeout(r, 20));
-  check('体检: 全部不达标 → 完全不发起导入', imported.length === 0, JSON.stringify(imported));
+  check('体检: 全部不标准 → 照常导入 + 全部转后台转换',
+    imported.length === 1 && imported[0].length === 1 && needsStd[0] && needsStd[0].length === 1,
+    'imported=' + JSON.stringify(imported) + ' needsStd=' + JSON.stringify(needsStd));
 
   // 体检本身炸了(侧车缺失/超时)不该挡住用户导入
-  imported.length = 0;
+  imported.length = 0; needsStd.length = 0;
   globalThis.AiduImportService.auditSources = async () => { throw new Error('侧车不可用'); };
   lv._startBatchImport(['C:/Books/whatever.epub']);
   await new Promise((r) => setTimeout(r, 20));
-  check('体检: 体检自身失败 → 降级放行, 不挡住导入', imported.length === 1, JSON.stringify(imported));
+  check('体检: 体检自身失败 → 降级放行, 不挡住导入',
+    imported.length === 1 && needsStd[0] && needsStd[0].length === 0, JSON.stringify(imported));
 
   globalThis.AiduImportService.auditSources = origAudit;
   globalThis.AiduImportService.importBooks = origImport;
+}
+
+console.log('== 3a-3. AUTOSTANDARDIZE (2026-08-19): 书卡 standardize_status 徽章 (独立于 status) ==');
+{
+  const lv = new globalThis.LibraryView(store, 'original');
+  lv._profiles = [{ id: 'default', name: '成人自读' }];
+  const listEl = makeElement('div');
+  const books = [
+    { id: 'p1', title: 'Pending.epub', kind: 'original', status: 'ready', source_language: 'en', standardize_status: 'pending', standardize_note: '' },
+    { id: 'r1', title: 'Running.epub', kind: 'original', status: 'pending', source_language: 'en', standardize_status: 'running', standardize_note: '第二遍转换中' },
+    { id: 'd1', title: 'Done.epub', kind: 'original', status: 'ready', source_language: 'en', standardize_status: 'done', standardize_note: '已规范为单 EPUB' },
+    { id: 'f1', title: 'Failed.epub', kind: 'original', status: 'ready', source_language: 'en', standardize_status: 'failed', standardize_note: '仍然不达标: 解析结果过少' },
+    { id: 'n1', title: 'None.epub', kind: 'original', status: 'ready', source_language: 'en', standardize_status: 'none' },
+    { id: 'x1', title: 'NoField.epub', kind: 'original', status: 'ready', source_language: 'en' },
+  ];
+  lv._renderBooks(listEl, books, makeElement('input'), null);
+  const cards = queryAll(listEl, '.book-card');
+  const byTitle = (t) => cards.find((c) => c.querySelector('.book-card-title').textContent === t);
+  const stz = (t) => byTitle(t) ? queryAll(byTitle(t), '[data-standardize="1"]') : [];
+  // pending/running → 复用处理中样式的"自动转换中…"小徽章
+  check('standardize: pending 显示「自动转换中…」(badge-busy)',
+    stz('Pending').length === 1 && stz('Pending')[0].textContent === '自动转换中…' && stz('Pending')[0].className.includes('badge-busy'),
+    'stz=' + stz('Pending').map((b) => b.textContent + '/' + b.className).join(','));
+  check('standardize: running 同样「自动转换中…」',
+    stz('Running').length === 1 && stz('Running')[0].textContent === '自动转换中…',
+    'stz=' + stz('Running').map((b) => b.textContent).join(','));
+  // done → 无常驻文字的小点 + 悬浮 title 带 standardize_note
+  const doneBadge = stz('Done')[0];
+  check('standardize: done 是小点(badge-dot), 无常驻文字, title 带说明',
+    !!doneBadge && doneBadge.textContent === '' && doneBadge.className.includes('badge-dot')
+    && doneBadge.title.includes('已规范为单 EPUB'),
+    doneBadge && (doneBadge.textContent + '/' + doneBadge.className + '/' + doneBadge.title));
+  // failed → 醒目失败样式, 文案直接用 standardize_note
+  const failedBadge = stz('Failed')[0];
+  check('standardize: failed 标红(badge-err), 文案 = standardize_note',
+    !!failedBadge && failedBadge.className.includes('badge-err')
+    && failedBadge.textContent.includes('仍然不达标') && failedBadge.title.includes('仍然不达标'),
+    failedBadge && (failedBadge.className + '/' + failedBadge.textContent + '/' + failedBadge.title));
+  // none / 缺省 → 不渲染任何 standardize 徽章
+  check('standardize: none/缺省不渲染第二徽章',
+    stz('None').length === 0 && stz('NoField').length === 0,
+    'none=' + stz('None').length + ' nofield=' + stz('NoField').length);
+  // status 徽章仍在 —— 第二档与 status 独立并存
+  const failedCard = byTitle('Failed');
+  check('standardize: status 徽章不受影响(仍显示「就绪」)',
+    !!failedCard && queryAll(failedCard, '.book-badge').some((b) => b.textContent === '就绪'),
+    'badges=' + (failedCard && queryAll(failedCard, '.book-badge').map((b) => b.textContent).join(',')));
 }
 
 console.log('== 3b. G2 (2026-08-11): 每张书卡至多一个主按钮 (.btn-primary ≤ 1) ==');

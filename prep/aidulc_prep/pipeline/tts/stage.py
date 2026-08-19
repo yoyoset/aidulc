@@ -99,10 +99,33 @@ def synth_chapter(
 
         data = _load_ckpt(out_dir, chapter.index, i)
         if data and data.get("audio"):
-            # 已合成: 恢复时间轴
-            s.audio = SentenceAudio(chapter=chapter.index, start_ms=data["audio"]["start_ms"], end_ms=data["audio"]["end_ms"])
+            # 已合成: 复用音频文件, 但**不能直接照抄旧的绝对时间戳**——
+            # 2026-08-19 实测发现的真 bug(用户报"TTS 错位, 逐次跳动和分词时间都错位"):
+            # 这句话在上一轮跑的时候被跳过/失败, 这一轮"重试失败句"只重新合成了它
+            # *前面*那几句, 那几句的新音频时长跟上一轮不一样(重新合成的语音时长不
+            # 保证逐字一致)。这句自己没变、checkpoint 复用没问题, 但它存的
+            # start_ms/end_ms 是**上一轮的绝对时间戳**, 跟这一轮实际累计到这里的
+            # chapter_start_ms 对不上——复用旧值会让它在章节音轨里的实际位置和数字
+            # 对不上, 从它开始后面所有句子跟着错位。
+            # 实测样本 (Frindle ch10#20): 前一句这一轮止于 106100ms, 这句 checkpoint
+            # 里存的却是 88700-90500(上一轮的绝对位置, 早了 17.4 秒)。
+            # 修法: start_ms 永远用**这一轮**累计的 chapter_start_ms, 只从 checkpoint
+            # 借音频**时长**(end-start, 这个不受"是第几轮跑的"影响, 因为音频文件
+            # 本身没有重新合成, 时长就是它本来的时长)。
+            # words 不用调——它们存的是相对这句音频开头的偏移(实测确认: 第一个词
+            # start_ms=275 远小于整句 1800ms 长度, 不是章节绝对时间戳), 挪动句子在
+            # 章节里的位置不影响词内部的相对时间。
+            duration_ms = data["audio"]["end_ms"] - data["audio"]["start_ms"]
+            start_ms = chapter_start_ms
+            end_ms = start_ms + duration_ms
+            s.audio = SentenceAudio(chapter=chapter.index, start_ms=start_ms, end_ms=end_ms)
             s.words = [WordTiming(**w) for w in data.get("words", [])]
-            chapter_start_ms = data["audio"]["end_ms"]
+            chapter_start_ms = end_ms
+            if end_ms != data["audio"]["end_ms"]:
+                save_stage_result(
+                    out_dir, chapter.index, i, "audio",
+                    {"chapter": chapter.index, "start_ms": start_ms, "end_ms": end_ms},
+                )
             quality.record("tts", ok=True)
             if emit:
                 emit({"type": "sentence_done", "ts": int(time.time() * 1000), "sentence_index": chapter_base + i, "status": "ok"})

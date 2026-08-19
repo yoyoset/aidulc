@@ -24,6 +24,15 @@ fn uuid_short() -> String {
     format!("{}-{}-{c}", now_ms(), std::process::id())
 }
 
+/// v32 (2026-08-19): 兜底解析达标的书, 把缓存 JSON 路径注入 job_request。
+/// 只有 standardize_status == "done" 才有 cache_path, 其它状态一律 None (重新原生解析)。
+fn standardize_cache_for(db: &store::Db, book_id: &str) -> Option<String> {
+    store::books_repo::BooksRepo::new(db)
+        .get(book_id)
+        .filter(|b| b.standardize_status == "done")
+        .and_then(|b| b.standardize_cache_path.clone())
+}
+
 /// 启动单本任务 (G2: 支持 batch_id/多语言)
 pub fn start_prep_job(
     app: tauri::AppHandle,
@@ -48,15 +57,13 @@ pub fn start_prep_job(
         .unwrap_or("default")
         .to_string();
 
+    let source_book_id = crate::commands::library::book_id_from_path(&book_path, &profile_id);
     let repo = store::jobs_repo::JobsRepo::new(db);
     let job = store::jobs_repo::Job {
         id: job_id.clone(),
         edition_id: None,
         // BOOK_WORKFLOW §2.3: job 显式关联 source (start_prep_job 单书路径, 由路径+档案推导)
-        source_id: Some(crate::commands::library::book_id_from_path(
-            &book_path,
-            &profile_id,
-        )),
+        source_id: Some(source_book_id.clone()),
         book_path: book_path.clone(),
         profile_id: profile_id.clone(),
         output_dir: job_dir.to_string_lossy().to_string(),
@@ -76,8 +83,14 @@ pub fn start_prep_job(
     repo.upsert(&job)
         .map_err(|e| format!("写任务表失败: {e}"))?;
 
-    let mut job_req =
-        jobs::spawn::build_job_request(&book_path, &job_dir.to_string_lossy(), &profile, &models);
+    let std_cache = standardize_cache_for(db, &source_book_id);
+    let mut job_req = jobs::spawn::build_job_request(
+        &book_path,
+        &job_dir.to_string_lossy(),
+        &profile,
+        &models,
+        std_cache.as_deref(),
+    );
     if let Some(bid) = &batch_id {
         job_req["batch_id"] = serde_json::json!(bid);
     }
@@ -109,17 +122,39 @@ pub fn start_prep_job(
 /// 命令层只负责 emit 事件 + 序列化返回。同一路径 + 同一 profile 重复导入:
 ///   - source 层面幂等(book_id 去重, 不再登记第二条 source);
 ///   - 返回 skipped 列表, 前端据此提示"该原书已导入, 直接创建译本", 而不是用户以为导入两次。
+// 参数个数延续本文件约定 (收 &PrepConfig/&StandardizeState/&Db, 不是 State<T>), 与其它
+// 编排函数一样是真实债务 (真正清零需改成请求结构体, 见 docs/ROADMAP.md P3)。
+#[allow(clippy::too_many_arguments)]
 pub fn batch_import(
     app: tauri::AppHandle,
+    cfg: &PrepConfig,
+    state: &crate::application::standardize_task::StandardizeState,
     db: &store::Db,
     book_paths: Vec<String>,
+    needs_standardize: Vec<String>,
     profile: serde_json::Value,
     source_language: Option<String>,
     target_language: Option<String>,
 ) -> Result<serde_json::Value, String> {
     use tauri::Emitter;
-    let out = register_import_batch(db, book_paths, profile, source_language, target_language)?;
+    let out = register_import_batch(
+        db,
+        book_paths,
+        needs_standardize.clone(),
+        profile,
+        source_language,
+        target_language,
+    )?;
     let _ = app.emit("library-changed", serde_json::json!({}));
+    // v32: 有新登记的 pending 行 → 踢一下后台标准化队列 (fire-and-forget, 不阻塞返回)
+    if out.registered.iter().any(|p| needs_standardize.contains(p)) {
+        let _ = crate::application::standardize_task::pump_standardize_queue(
+            app.clone(),
+            cfg,
+            state,
+            db,
+        );
+    }
     Ok(serde_json::json!({
         "batch_id": out.batch_id,
         "registered": out.registered,
@@ -139,6 +174,7 @@ pub struct ImportOutcome {
 pub fn register_import_batch(
     db: &store::Db,
     book_paths: Vec<String>,
+    needs_standardize: Vec<String>,
     profile: serde_json::Value,
     source_language: Option<String>,
     target_language: Option<String>,
@@ -184,6 +220,14 @@ pub fn register_import_batch(
             llm_id: None,
             tts_id: None,
             nlp_id: None,
+            // v32: 体检 block 的书登记成 pending, 排队等后台兜底转换; 其余 none
+            standardize_status: if needs_standardize.contains(path) {
+                "pending".into()
+            } else {
+                "none".into()
+            },
+            standardize_note: None,
+            standardize_cache_path: None,
             created_at: now_ms(),
             updated_at: now_ms(),
         };
@@ -336,11 +380,13 @@ pub fn batch_start_prep(
         let jobs = store::jobs_repo::JobsRepo::new(db);
         jobs.upsert(&job)
             .map_err(|e| format!("写任务表失败: {e}"))?;
+        let std_cache = standardize_cache_for(db, book_id);
         let mut job_req = jobs::spawn::build_job_request(
             &book.source_path,
             &job_dir.to_string_lossy(),
             &profile_obj,
             &book_models,
+            std_cache.as_deref(),
         );
         job_req["batch_id"] = serde_json::json!(batch_id);
         job_req["source_language"] = serde_json::json!(book.source_language);
@@ -508,6 +554,10 @@ pub fn batch_start(
                 llm_id: None,
                 tts_id: None,
                 nlp_id: None,
+                // 旧前端兼容路径 (batch_start) 没有体检步骤, 一律 none
+                standardize_status: "none".into(),
+                standardize_note: None,
+                standardize_cache_path: None,
                 created_at: now_ms(),
                 updated_at: now_ms(),
             };
@@ -553,11 +603,13 @@ pub fn batch_start(
         let jobs = store::jobs_repo::JobsRepo::new(db);
         jobs.upsert(&job)
             .map_err(|e| format!("写任务表失败: {e}"))?;
+        let std_cache = standardize_cache_for(db, &book_id);
         let mut job_req = jobs::spawn::build_job_request(
             path,
             &job_dir.to_string_lossy(),
             &profile,
             &book_models,
+            std_cache.as_deref(),
         );
         job_req["batch_id"] = serde_json::json!(batch_id);
         job_req["source_language"] = serde_json::json!(batch.source_language);
@@ -675,11 +727,13 @@ pub fn job_retry_custom(
         }),
         None => profile_from_snapshot(&job_dir, &job.profile_id),
     };
+    let std_cache = standardize_cache_for(db, &orig_book_id);
     let mut job_req = jobs::spawn::build_job_request(
         &job.book_path,
         &job_dir.to_string_lossy(),
         &profile_obj,
         &book_models,
+        std_cache.as_deref(),
     );
     if let Some(bid) = &job.batch_id {
         job_req["batch_id"] = serde_json::json!(bid);
@@ -1297,10 +1351,12 @@ mod tests {
         let profile = serde_json::json!({"id": "default"});
         let p = "/tmp/Alice.epub".to_string();
         let first =
-            register_import_batch(&db, vec![p.clone()], profile.clone(), None, None).unwrap();
+            register_import_batch(&db, vec![p.clone()], vec![], profile.clone(), None, None)
+                .unwrap();
         assert_eq!(first.registered.len(), 1);
         assert!(first.skipped.is_empty());
-        let second = register_import_batch(&db, vec![p.clone()], profile, None, None).unwrap();
+        let second =
+            register_import_batch(&db, vec![p.clone()], vec![], profile, None, None).unwrap();
         assert!(second.registered.is_empty());
         assert_eq!(second.skipped, vec![p.clone()]);
         let c = db.conn.lock().unwrap();
@@ -1326,6 +1382,7 @@ mod tests {
         register_import_batch(
             &db,
             vec![p.clone()],
+            vec![],
             serde_json::json!({"id": "default"}),
             None,
             None,
@@ -1334,6 +1391,7 @@ mod tests {
         register_import_batch(
             &db,
             vec![p.clone()],
+            vec![],
             serde_json::json!({"id": "kid"}),
             None,
             None,
@@ -1361,6 +1419,7 @@ mod tests {
         register_import_batch(
             &db,
             vec!["/tmp/Alice.epub".to_string()],
+            vec![],
             serde_json::json!({"id": "default"}),
             None,
             None,
@@ -1374,6 +1433,37 @@ mod tests {
             assert_eq!(n, 0, "导入不应创建 {t}");
         }
         drop(c);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn register_import_batch_marks_needs_standardize_as_pending() {
+        // v32: verdict=block 的路径登记成 standardize_status='pending', 其它 'none'
+        let path = std::env::temp_dir().join(format!("aidulc_stdimp_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = crate::store::Db::open(path.to_str().unwrap()).unwrap();
+        let ok = "/tmp/Good.epub".to_string();
+        let bad = "/tmp/Bad.epub".to_string();
+        register_import_batch(
+            &db,
+            vec![ok.clone(), bad.clone()],
+            vec![bad.clone()],
+            serde_json::json!({"id": "default"}),
+            None,
+            None,
+        )
+        .unwrap();
+        let repo = crate::store::books_repo::BooksRepo::new(&db);
+        let good = repo
+            .get(&crate::commands::library::book_id_from_path(&ok, "default"))
+            .unwrap();
+        let badb = repo
+            .get(&crate::commands::library::book_id_from_path(
+                &bad, "default",
+            ))
+            .unwrap();
+        assert_eq!(good.standardize_status, "none", "体检通过的书不需要转换");
+        assert_eq!(badb.standardize_status, "pending", "block 的书应排队待转换");
         let _ = std::fs::remove_file(&path);
     }
 

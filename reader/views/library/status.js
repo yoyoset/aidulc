@@ -49,6 +49,19 @@
     return null; // 'none' / 缺省
   }
 
+  /** DOM 构造挪到这里(而不是留在 library_view.js): 文件规模基线卡在 1063 行, 这个
+   *  10 行的徽章块把它顶过线, 而 standardizeBadge 的映射逻辑本来就在本文件——渲染
+   *  它自己的判定结果, 比让调用方现拼 span/dataset 更就近。@param elFn 复用调用方的
+   *  el(tag, cls, text) 小工具, 不在这里重新定义一份。 */
+  function appendStandardizeBadge(meta, book, elFn) {
+    const stz = standardizeBadge(book);
+    if (!stz) return;
+    const badge = elFn('span', 'book-badge ' + stz.cls, stz.label);
+    badge.dataset.standardize = '1';
+    if (stz.title) badge.title = stz.title;
+    meta.append(badge);
+  }
+
   /** 阶段6 设计交付 §01: 状态分段映射 —— 未处理 = pending/failed; 已就绪 = ready/done/partial */
   function inStatusBucket(book, bucket) {
     switch (bucket) {
@@ -72,5 +85,7 @@
     });
   }
 
-  global.AiduLibraryStatus = { STAGE_LABEL, bookStatus, standardizeBadge, inStatusBucket, updateSegCounts };
+  global.AiduLibraryStatus = {
+    STAGE_LABEL, bookStatus, standardizeBadge, appendStandardizeBadge, inStatusBucket, updateSegCounts,
+  };
 })(window);

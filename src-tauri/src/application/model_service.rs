@@ -594,6 +594,9 @@ mod tests {
                 llm_id: None,
                 tts_id: None,
                 nlp_id: None,
+                standardize_status: "none".into(),
+                standardize_note: None,
+                standardize_cache_path: None,
                 created_at: 100,
                 updated_at: 100,
             })
@@ -642,6 +645,9 @@ mod tests {
                 llm_id: Some("llm|en|book_llm|1.0".into()),
                 tts_id: None,
                 nlp_id: None,
+                standardize_status: "none".into(),
+                standardize_note: None,
+                standardize_cache_path: None,
                 created_at: 100,
                 updated_at: 100,
             })
@@ -673,6 +679,9 @@ mod tests {
                 llm_id: None,
                 tts_id: None,
                 nlp_id: None,
+                standardize_status: "none".into(),
+                standardize_note: None,
+                standardize_cache_path: None,
                 created_at: 100,
                 updated_at: 100,
             })
@@ -899,6 +908,9 @@ mod tests {
                     llm_id: Some(e.id.clone()),
                     tts_id: None,
                     nlp_id: None,
+                    standardize_status: "none".into(),
+                    standardize_note: None,
+                    standardize_cache_path: None,
                     created_at: 0,
                     updated_at: 0,
                 })

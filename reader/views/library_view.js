@@ -270,16 +270,8 @@
           metaBits.join(' · ') + ' · ' + `${langLabel}→中文 · ${profileLabel}` +
           (book.failed_count ? ` · ${book.failed_count} 句失败` : ''));
         meta.prepend(badge);
-        // AUTOSTANDARDIZE (2026-08-19): 第二档徽章 —— 与 status 无关的格式自动转换痕迹。
-        // none/缺省不渲染; done 只是一个小点 + 悬浮 title; failed 标红给原因; 用与
-        // status 徽章同一套 .book-badge/.badge-* 视觉语言, 只追加一个 data-standardize 钩子。
-        const stz = global.AiduLibraryStatus.standardizeBadge(book);
-        if (stz) {
-          const stzBadge = el('span', 'book-badge ' + stz.cls, stz.label);
-          stzBadge.dataset.standardize = '1';
-          if (stz.title) stzBadge.title = stz.title;
-          meta.append(stzBadge);
-        }
+        // AUTOSTANDARDIZE: 第二档徽章(转换痕迹), DOM 构造在 library/status.js。
+        global.AiduLibraryStatus.appendStandardizeBadge(meta, book, el);
         // K2-4 (2026-08-13): 阅读状态独立成一排对齐的统计块 (是否读了/读了多久/多少笔记/
         // 多少书签), 不再拼进一整条字符串——数字对不齐、弱视觉层级是本期治理的问题之一。
         // 阅读时长此前挂在"有 reading_chapter 才显示"的条件下, 现在独立判断 time_spent_ms
@@ -1153,11 +1145,8 @@
         .catch(() => [])   // 体检自身出错不该挡住导入, 当作"判不了"全部放行
         .then((audits) => {
           const gate = global.AiduImportGate.evaluate(paths, audits);
-          gate.messages.forEach((m) => {
-            // 3 档消息全有: error/warning 来自体检, info 来自"已导入并后台自动转换"
-            const kind = m.level === 'error' ? 'error' : m.level === 'warning' ? 'warning' : 'info';
-            AiduToast.show(m.text, kind);
-          });
+          // m.level 直接就是 toast 的 type('error'/'warning'/'info'), 不用再映射一遍
+          gate.messages.forEach((m) => AiduToast.show(m.text, m.level));
           if (!gate.accepted.length) {
             if (this.onImportError) this.onImportError('没有符合导入标准的书');
             return null;

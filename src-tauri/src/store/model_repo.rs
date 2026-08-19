@@ -262,6 +262,9 @@ mod tests {
             llm_id: Some("llm|en|qwen".into()),
             tts_id: Some("tts|en|kokoro".into()),
             nlp_id: None,
+            standardize_status: "none".into(),
+            standardize_note: None,
+            standardize_cache_path: None,
             created_at: 1,
             updated_at: 1,
         };

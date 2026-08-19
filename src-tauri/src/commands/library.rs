@@ -331,6 +331,9 @@ pub fn library_register(
             llm_id: None,
             tts_id: None,
             nlp_id: None,
+            standardize_status: "none".into(),
+            standardize_note: None,
+            standardize_cache_path: None,
             created_at: now,
             updated_at: now,
         })?;
@@ -798,6 +801,9 @@ mod meta_tests {
                 llm_id: None,
                 tts_id: None,
                 nlp_id: None,
+                standardize_status: "none".into(),
+                standardize_note: None,
+                standardize_cache_path: None,
                 created_at: now,
                 updated_at: now,
             })

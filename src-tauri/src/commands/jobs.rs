@@ -39,19 +39,30 @@ pub fn start_prep_job(
 
 /// 导入批次 (R1: 只登记书+批次, 不开始处理)
 /// 返回 { batch_id, registered[], skipped[] }。用户稍后在书库点"创建译本" → batch_start_prep。
+/// needs_standardize (Option): 体检 block 的路径子集, 登记成 pending 后台兑底转换;
+/// 用 Option 是为了兼容旧前端 (job_service.js 不传该键), 不传 = 没有需要转换的书。
+// 参数个数镜像 application::job_orchestrator::batch_import (那边的警告不压, 是真实债务),
+// 这里纯转发, 参数结构必须和它一致才对 —— 只在薄壳这一层压掉重复噪音。
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn batch_import(
     app: tauri::AppHandle,
+    cfg: State<crate::PrepConfig>,
+    state: State<crate::application::standardize_task::StandardizeState>,
     db: State<store::Db>,
     book_paths: Vec<String>,
+    needs_standardize: Option<Vec<String>>,
     profile: serde_json::Value,
     source_language: Option<String>,
     target_language: Option<String>,
 ) -> Result<serde_json::Value, String> {
     orch::batch_import(
         app,
+        cfg.inner(),
+        state.inner(),
         db.inner(),
         book_paths,
+        needs_standardize.unwrap_or_default(),
         profile,
         source_language,
         target_language,

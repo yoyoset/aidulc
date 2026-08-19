@@ -8,6 +8,7 @@ mod application {
     pub mod library_service;
     pub mod model_service;
     pub mod quality_notice;
+    pub mod standardize_task;
     pub mod sync_service;
     pub mod transfer_service;
     pub mod users_service;
@@ -442,6 +443,8 @@ fn main() {
         .manage(std::sync::Arc::new(
             application::vocab_audio_task::VocabAudioState::default(),
         ))
+        // 导入自动标准化转换的单例状态 (2026-08-19, 独立于备料队列, 见 standardize_task.rs)
+        .manage(application::standardize_task::StandardizeState::default())
         .setup(|app| {
             // G7: 启动后自动恢复队列任务 —— 只有用户明确 queued 的任务才自动跑;
             // stale running 任务已被 reset_stale 标记成 paused, 不在此列 (P0-A, 2026-08-10)。
@@ -481,6 +484,19 @@ fn main() {
                     st.inner(),
                     db.inner(),
                 );
+                // v32 (2026-08-19): 处理上次会话没跑完就退出、留在库里的 pending 行 ——
+                // 不这样做的话, 关 app 时正好有本书在排队, 它会永远停在 pending, 没有
+                // 任何东西会再唤醒这条队列。
+                if let Some(std_state) =
+                    app.try_state::<application::standardize_task::StandardizeState>()
+                {
+                    let _ = application::standardize_task::pump_standardize_queue(
+                        app.handle().clone(),
+                        cfg.inner(),
+                        std_state.inner(),
+                        db.inner(),
+                    );
+                }
             }
             Ok(())
         })

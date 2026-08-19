@@ -1042,6 +1042,36 @@ impl Db {
             )
             .map_err(|e| format!("迁移 v31 失败: {e}"))?;
         }
+        // v32 (2026-08-19, 导入自动标准化转换): books 加三个字段记录"体检 block 后
+        // 后台兜底转换"的状态/结果/缓存。standardize_status: none|pending|running|done|failed
+        // (none = 体检 ok/warn 不需要转换, 绝大多数书); note 是给人看的结果; cache_path
+        // 是 done 时兜底解析产出的章节/句子 JSON 绝对路径 (备料 parse 阶段直接读它)。
+        // 幂等判据抄 v30 的写法: 撤旧版本重跑的测试会把版本号删掉让迁移在同一张已有列
+        // 的表上再跑一次 ALTER, 直接报 duplicate column —— 用 pragma_table_info 查列是否
+        // 已存在来决定要不要真的执行 ALTER, schema_migrations 记账行始终写。
+        if version < 32 {
+            let has_column: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('books') WHERE name='standardize_status'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            if has_column == 0 {
+                conn.execute_batch(
+                    "ALTER TABLE books ADD COLUMN standardize_status TEXT NOT NULL DEFAULT 'none';
+                     ALTER TABLE books ADD COLUMN standardize_note TEXT;
+                     ALTER TABLE books ADD COLUMN standardize_cache_path TEXT;
+                     ",
+                )
+                .map_err(|e| format!("迁移 v32 失败: {e}"))?;
+            }
+            conn.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (32, strftime('%s','now')*1000)",
+                [],
+            )
+            .map_err(|e| format!("迁移 v32 失败: {e}"))?;
+        }
         Ok(())
     }
 }
@@ -1101,6 +1131,63 @@ mod tests {
         assert_eq!(get("b0"), 0, "同上");
         drop(conn);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn v32_adds_standardize_columns_idempotently() {
+        // v32: books 加三个标准化字段。默认值 none; 撤版本重跑时 has_column 判据应跳过
+        // 重复 ALTER (不报 duplicate column)。
+        let path = temp_path("v32");
+        let _ = std::fs::remove_file(&path);
+        {
+            let db = Db::open(&path).unwrap();
+            let conn = db.conn.lock().unwrap();
+            for col in [
+                "standardize_status",
+                "standardize_note",
+                "standardize_cache_path",
+            ] {
+                let n: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM pragma_table_info('books') WHERE name=?1",
+                        [col],
+                        |r| r.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(n, 1, "books 应有 {col} (v32)");
+            }
+            // 未指定 standardize_status 时默认 'none'
+            conn.execute_batch(
+                "INSERT INTO books (id,title,source_path,pack_dir,profile_id,status,kind,
+                    chapter_count,failed_count,created_at,updated_at)
+                 VALUES ('b1','T','p','','default','pending','original',0,0,1,1);",
+            )
+            .unwrap();
+            let s: String = conn
+                .query_row(
+                    "SELECT standardize_status FROM books WHERE id='b1'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(s, "none", "未指定时默认 none");
+            // 撤 v32 让迁移重跑: has_column 判据应跳过 ALTER, 不报 duplicate column
+            conn.execute_batch("DELETE FROM schema_migrations WHERE version >= 32;")
+                .unwrap();
+            drop(conn);
+        }
+        let db = Db::open(&path).expect("v32 幂等重跑应成功");
+        let conn = db.conn.lock().unwrap();
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert!(version >= 32, "应迁移到 v32, 实得 {version}");
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-wal"));
+        let _ = std::fs::remove_file(format!("{path}-shm"));
     }
 
     #[test]

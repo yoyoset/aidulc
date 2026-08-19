@@ -10,6 +10,7 @@ pub fn build_job_request(
     out_dir: &str,
     profile: &serde_json::Value,
     models: &serde_json::Value,
+    standardize_cache_path: Option<&str>,
 ) -> serde_json::Value {
     // 归一化: 兼容前端传字符串 profile ("default") 与数组 models ([])
     // (schema 要求 object —— 实测 job_request 校验失败根因, 见 2026-08-04 排查)
@@ -21,14 +22,20 @@ pub fn build_job_request(
         serde_json::Value::Array(_) | serde_json::Value::Null => serde_json::json!({}),
         v => v.clone(),
     };
-    serde_json::json!({
+    let mut req = serde_json::json!({
         "job_id": format!("job-{}", std::process::id()),
         "book_path": book_path,
         "out_dir": out_dir,
         "profile": profile_obj,
         "models": models_obj,
         "tokens": {"temperature": 0.3, "max_tokens": 400},
-    })
+    });
+    // v32 (2026-08-19): 兜底解析达标的书, 把缓存 JSON 路径注入 job_request ——
+    // 备料 parse 阶段直接读它, 不重新原生解析一遍。None 时不写该字段。
+    if let Some(p) = standardize_cache_path {
+        req["standardize_cache_path"] = serde_json::json!(p);
+    }
+    req
 }
 
 /// 启动 prep 侧车, 绑定 Job Object, 返回 (child, NDJSON 进度行 reader)。
@@ -71,10 +78,31 @@ mod tests {
             "C:/out",
             &serde_json::json!({"id": "self", "explain_strategy": "brief", "voice": "af_heart", "speed": 1.0, "highlight_granularity": "sentence"}),
             &serde_json::json!({"llm": "F:/m.gguf", "tts": "F:/k.pth"}),
+            None,
         );
         assert_eq!(req["book_path"], "C:/book.epub");
         assert_eq!(req["profile"]["id"], "self");
         assert!(req["job_id"].as_str().is_some());
+        assert!(
+            req.get("standardize_cache_path").is_none(),
+            "None 时不应写 standardize_cache_path"
+        );
+    }
+
+    #[test]
+    fn standardize_cache_path_injected_when_present() {
+        // v32: 兜底解析达标的书, cache path 应写进 job_request 供备料 parse 直接读
+        let req = build_job_request(
+            "C:/book.epub",
+            "C:/out",
+            &serde_json::json!("default"),
+            &serde_json::json!([]),
+            Some("C:/data/standardize_cache/book.json"),
+        );
+        assert_eq!(
+            req["standardize_cache_path"],
+            "C:/data/standardize_cache/book.json"
+        );
     }
 
     #[test]
@@ -85,6 +113,7 @@ mod tests {
             "C:/out",
             &serde_json::json!("default"),
             &serde_json::json!([]),
+            None,
         );
         assert!(req["profile"].is_object(), "profile 应为 object: {req}");
         assert_eq!(req["profile"]["id"], "default");

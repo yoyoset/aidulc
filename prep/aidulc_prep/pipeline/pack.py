@@ -229,10 +229,21 @@ def _copy_chapter_images(ch, images_dir: str, source_book: str) -> None:
         zf.close()
 
 
-def _chapter_opus_ok(out_dir: str, audio_dir: str, ch_index: int) -> bool:
+def _chapter_opus_ok(out_dir: str, audio_dir: str, ch_index: int, sentence_count: int) -> bool:
     """该章 opus 是否已存在且完整。opus(32kbps=4000B/s) ≈ wav 总量/24 —— wav 是 float32
     (24000Hz×4B/s 单声道, tts/stage 用 sf.write float32), 不是 16-bit(48000B/s)。之前按
-    /12 (16-bit 口径) 算期望值恒偏大 2× → "已编码可跳过"永远不成立, 重试总是全量重编码。"""
+    /12 (16-bit 口径) 算期望值恒偏大 2× → "已编码可跳过"永远不成立, 重试总是全量重编码。
+
+    2026-08-19 (用户报"TTS 错位, 它读了章节标题"实测追出的第二个 bug): 这条字节量
+    校验只看**总字节数**的比例, 抓不住"章节被重新解析、句子数变少了, 但音频总量
+    变化幅度小于 10% 容差"这种情况——实测 Number the Stars 全书 19 章, 每章磁盘上都
+    比当前句数多 3~12 个孤儿 wav/checkpoint 文件(早前解析切出的句子比现在细, 后来
+    的分词修复合并/裁掉了尾部几句), 孤儿只占该章总字节 ~2%, 远低于 10% 容差, 靠
+    字节比例这条判据完全测不出来——继续判定"已完整, 跳过重编码", opus 停留在
+    8/13 的老版本, 跟当天已经改过的句子结构(和今天修的时间戳)完全对不上。
+    加一条硬性检查: 只要磁盘上存在**任何**索引 >= 当前句数的 sN 文件(不管字节量
+    差多少), 就说明这章音频是拿旧的、更大的句子集合编的, 必须重新编码——不能靠
+    比例容差, 这类"结构变了但总量凑巧接近"的情况正是容差本身失效的场景。"""
     out_path = os.path.join(audio_dir, f"ch_{ch_index:03d}.opus")
     if not os.path.exists(out_path):
         return False
@@ -241,8 +252,12 @@ def _chapter_opus_ok(out_dir: str, audio_dir: str, ch_index: int) -> bool:
         return False
     total_wav = 0
     for name in os.listdir(wav_dir):
-        if name.endswith(".wav"):
-            total_wav += os.path.getsize(os.path.join(wav_dir, name))
+        if not name.endswith(".wav"):
+            continue
+        total_wav += os.path.getsize(os.path.join(wav_dir, name))
+        idx_str = name[1:6] if name[:1] == "s" and name[1:6].isdigit() else None
+        if idx_str is not None and int(idx_str) >= sentence_count:
+            return False  # 孤儿文件: 音频是拿旧的、更大的句子集合编的, 必须重编
     if total_wav == 0:
         return False
     expected = total_wav / 24
@@ -254,8 +269,9 @@ def _encode_chapter(ff, ch, out_dir, audio_dir, bookpack_dir, emit, total_chapte
     import time
     out_path = os.path.join(audio_dir, f"ch_{ch.index:03d}.opus")
     # 已完成的章跳过 (重试时不全量重编码)。校验: opus 大小 ≈ wav 总量/12 (32kbps vs 48000B/s pcm),
-    # <90% 视为不完整 (超时 kill 的部分产物) → 重新编码
-    if _chapter_opus_ok(out_dir, audio_dir, ch.index):
+    # <90% 视为不完整 (超时 kill 的部分产物) → 重新编码; 磁盘上存在当前句数之外的孤儿
+    # wav 文件(章节被重新解析过, 句数变了)同样强制重编, 见 _chapter_opus_ok 说明。
+    if _chapter_opus_ok(out_dir, audio_dir, ch.index, len(ch.sentences)):
         if emit:
             emit({"type": "stage_progress", "ts": int(time.time() * 1000), "stage": "pack",
                   "current": ch.index + 1, "total": total_chapters})

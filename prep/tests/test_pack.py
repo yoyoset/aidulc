@@ -1,10 +1,13 @@
-"""pack 阶段回归测试: opus 复用判定 (float32 wav 字节率口径 + 孤儿文件检测)"""
+"""pack 阶段回归测试: opus 复用判定 (float32 wav 字节率口径 + 孤儿文件检测) +
+ffmpeg 子进程不弹控制台窗口"""
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from aidulc_prep.pipeline.pack import _chapter_opus_ok
+from aidulc_prep.core.models import Chapter
+from aidulc_prep.pipeline.pack import _chapter_opus_ok, _encode_chapter
 
 
 def test_chapter_opus_ok_float32_ratio(tmp_path):
@@ -117,3 +120,42 @@ def test_chapter_opus_ok_no_false_positive_when_wav_set_matches_current(tmp_path
         f.write(b"\x00" * 8000)  # 96000*2/24 = 8000
 
     assert _chapter_opus_ok(out, audio_dir, 0, 2), "wav 集合正好匹配当前句数时不该被误伤"
+
+
+def test_encode_chapter_ffmpeg_call_does_not_pop_console_window(tmp_path, monkeypatch):
+    """2026-08-20 (用户报"打开书弹一个 CMD 窗口"): 侧车本身用 CREATE_NO_WINDOW 起、
+    自己没有控制台; Windows 上没控制台的进程再 spawn 子进程若不显式传这个 flag,
+    会自动新分配一个控制台给子进程——每次 ffmpeg 编码都闪一下 cmd。Rust 侧 11 处
+    Command::new 早就统一带了这个 flag, prep 这边唯一调 subprocess 的地方漏了。
+
+    这里不真的起 ffmpeg(测试环境未必有), 用 stub 拦截 subprocess.run 记录调用时的
+    kwargs, 断言 Windows 上一定带了 creationflags=CREATE_NO_WINDOW。"""
+    calls = []
+
+    def _stub_run(cmd, **kwargs):
+        calls.append(kwargs)
+        # _encode_chapter 后面会 os.replace(tmp_path, out_path), tmp_path 是 cmd 最后一个参数
+        with open(cmd[-1], "wb") as f:
+            f.write(b"\x00")
+        class _Result:
+            returncode = 0
+        return _Result()
+
+    monkeypatch.setattr(subprocess, "run", _stub_run)
+
+    out_dir = str(tmp_path)
+    audio_dir = os.path.join(out_dir, "audio")
+    bookpack_dir = os.path.join(out_dir, "bookpack")
+    os.makedirs(audio_dir)
+    os.makedirs(bookpack_dir)
+    # 空章(没有任何句子 wav 落盘)走"整章全失败"分支, 是唯一路径最短能触发
+    # subprocess.run 的场景, 不需要真的合成语音。
+    ch = Chapter(index=0, title="T", sentences=[])
+
+    _encode_chapter("ffmpeg", ch, out_dir, audio_dir, bookpack_dir, None, total_chapters=1)
+
+    assert len(calls) == 1, f"应该恰好调用一次 ffmpeg, 实得 {len(calls)}"
+    if sys.platform == "win32":
+        assert calls[0].get("creationflags") == subprocess.CREATE_NO_WINDOW, (
+            f"Windows 上 ffmpeg 子进程必须带 CREATE_NO_WINDOW, 实得 kwargs={calls[0]}"
+        )

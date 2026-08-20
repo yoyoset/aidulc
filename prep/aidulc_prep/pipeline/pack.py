@@ -10,12 +10,20 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 
 from aidulc_prep.core.errors import OutputError
 from aidulc_prep.core.models import Book
 from aidulc_prep.core.quality import QualityReport
 
 FFMPEG = "ffmpeg"  # 运行时依赖 (Phase 8 打包时绑定绝对路径)
+
+# 2026-08-20 (用户报"打开书弹一个 CMD 窗口"): 侧车本身被 Rust 那边用
+# CREATE_NO_WINDOW 起, 自己没有控制台; Windows 上没控制台的进程再 spawn 子进程
+# 若不显式传这个 flag, 会自动新分配一个控制台窗口给子进程——ffmpeg 每次编码/合并
+# 都会闪一下 cmd。Rust 侧 11 处 Command::new 早就统一带了这个 flag(参见
+# job_orchestrator.rs 等), 这里(prep 这边唯一调 subprocess 的地方)漏掉了。
+_SUBPROCESS_KW = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
 
 
 def _atomic_write_json(path: str, obj) -> None:
@@ -293,7 +301,7 @@ def _encode_chapter(ff, ch, out_dir, audio_dir, bookpack_dir, emit, total_chapte
         tmp_path = out_path[:-5] + ".tmp.opus"
         cmd = [ff, "-y", "-i", sil_wav, "-c:a", "libopus", "-b:a", "32k", tmp_path]
         try:
-            subprocess.run(cmd, capture_output=True, timeout=120, check=True)
+            subprocess.run(cmd, capture_output=True, timeout=120, check=True, **_SUBPROCESS_KW)
         except subprocess.CalledProcessError as e:
             _rm_quiet(tmp_path)
             raise OutputError(f"ffmpeg 生成空章 {ch.index} 失败", detail=e.stderr.decode("utf-8", errors="replace")[:500]) from e
@@ -319,7 +327,7 @@ def _encode_chapter(ff, ch, out_dir, audio_dir, bookpack_dir, emit, total_chapte
         cmd = [ff, "-y", "-f", "concat", "-safe", "0", "-i", batch_list,
                "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", mid_wav]
         try:
-            subprocess.run(cmd, capture_output=True, timeout=120, check=True)
+            subprocess.run(cmd, capture_output=True, timeout=120, check=True, **_SUBPROCESS_KW)
         except subprocess.CalledProcessError as e:
             raise OutputError(f"ffmpeg 合并第 {ch.index} 章批次 {batch_start//100} 失败",
                               detail=e.stderr.decode("utf-8", errors="replace")[:500]) from e
@@ -346,7 +354,7 @@ def _encode_chapter(ff, ch, out_dir, audio_dir, bookpack_dir, emit, total_chapte
         cmd = [ff, "-y", "-f", "concat", "-safe", "0", "-i", mid_list,
                "-ar", "24000", "-ac", "1", "-c:a", "libopus", "-b:a", "32k", tmp_path]
     try:
-        subprocess.run(cmd, capture_output=True, timeout=encode_timeout, check=True)
+        subprocess.run(cmd, capture_output=True, timeout=encode_timeout, check=True, **_SUBPROCESS_KW)
     except subprocess.CalledProcessError as e:
         _rm_quiet(tmp_path)
         raise OutputError(f"ffmpeg 编码第 {ch.index} 章失败", detail=e.stderr.decode("utf-8", errors="replace")[:500]) from e

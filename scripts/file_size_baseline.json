@@ -4,7 +4,7 @@
   "src-tauri/src/ipc/registry.rs": 1112,
   "src-tauri/src/infrastructure/data_migration.rs": 1363,
   "src-tauri/src/commands/library.rs": 1123,
-  "src-tauri/src/application/job_orchestrator.rs": 1496,
+  "src-tauri/src/application/job_orchestrator.rs": 1505,
   "src-tauri/src/application/sync_service.rs": 1593,
   "src-tauri/src/application/model_service.rs": 910,
   "src-tauri/src/store/vocab_repo.rs": 506,

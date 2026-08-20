@@ -1107,6 +1107,20 @@ pub fn pump_queue(
                             crate::application::quality_notice::quality_summary(&j.output_dir)
                                 .or_else(|| Some("任务失败 (无详情报告)".into()));
                     }
+                    // 2026-08-19 (用户报"打开一本书不显示插图"追出的第三个 bug):
+                    // BookpackCache 是内存 LRU, 键就是 output_dir。用户在任务还没跑完时
+                    // 点开过这本书(比如查看进度), load_bookpack 会把当时残缺的
+                    // bookpack.json 缓存住; 任务这里跑完、磁盘上的 bookpack.json 已经
+                    // 换成含插图的完整版本, 但内存缓存从来没人告诉它"该失效了"——
+                    // 之前这张缓存只在删除书时失效(book_assets.rs::backfill_cover /
+                    // library.rs 的级联删除), 任务正常完成这条路径上完全没有失效点。
+                    // 结果用户看到的书库/阅读器一直是缓存里那份不含插图的旧内容,
+                    // 直到重启 app(内存清空)才会重新读到磁盘上正确的版本。
+                    if let Some(cache) = app_state
+                        .try_state::<crate::infrastructure::bookpack_cache::BookpackCache>(
+                    ) {
+                        cache.invalidate(&j.output_dir);
+                    }
                     j.updated_at = now_ms();
                     job_batch_id = j.batch_id.clone();
                     let _ = repo.upsert(&j);

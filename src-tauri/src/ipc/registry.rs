@@ -610,6 +610,16 @@ pub const COMMANDS: &[CommandInfo] = &[
         domain: "运行时",
         desc: "一键安装文档解析器 PyMuPDF(开发环境 venv)",
     },
+    CommandInfo {
+        path: "commands::misc::gpu_status",
+        domain: "运行时",
+        desc: "2026-08-20: 查显卡占用(总量/剩余 + 非 aidulc 自己的计算类进程), 打开书时探测",
+    },
+    CommandInfo {
+        path: "commands::misc::gpu_kill_process",
+        domain: "运行时",
+        desc: "2026-08-20: 按 PID 关闭一个进程(用户在显卡占用提示里点了才调, 不自动执行)",
+    },
     // ---- 设置/Profile/阅读状态/传输 (ipc/commands.rs) ----
     CommandInfo {
         path: "ipc::commands::profile_upsert",

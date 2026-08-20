@@ -164,6 +164,11 @@
       // 正常情况下后台任务应该只在不阅读时跑, 这里只是把这个隐含期望变成显式选择。
       await this._maybeWarnBackgroundTasks();
       if (gen !== this._generation) return;
+      // 2026-08-20 (用户实测: 本地查词偶发超时/失败, 根因是自己另起的 llama-server.exe
+      // 常驻占着显卡): 打开书时顺带探测一次显卡, 剩余显存紧张且有外部计算进程占着才提示
+      // ——不是 aidulc 自己起的模型/驱动没装的机器上这个检查静默跳过, 不打扰。
+      await this._maybeWarnGpuOccupied();
+      if (gen !== this._generation) return;
       // K29 (2026-08-14, 用户拍板): 进入阅读器就预热语音守护, 不等它、不阻塞加载——
       // 纯粹是"提前把模型加载进后台", 生词本点发音时才受益。失败静默(没配置语音模型
       // 时后端直接 Ok(()), 真失败也不该打断阅读)。
@@ -265,6 +270,37 @@
           // 暂停失败(比如没有任何可暂停的任务)不该拦住阅读器打开, modal 自己会
           // 弹 toast 说明暂停失败, 这里不重复报错。
           onConfirm: () => AiduJobService.pauseAll().catch(() => {}).then(() => resolve()),
+          onCancel: () => resolve(),
+        });
+      });
+    }
+
+    /** 2026-08-20: 显卡占用提示——只有"显存紧张 + 有非 aidulc 自己的计算类进程占着"
+     *  才弹(后端 gpu_status 的 shouldWarn 已经做了这个判断, 这里不重复过滤逻辑)。
+     *  用户点"关闭并继续" → 挨个 kill 掉那些进程; 点"不用管"/关闭弹窗都直接放行阅读,
+     *  这只是提示不是拦截——查词失败自己会报错, 不是"打不开书"级别的阻塞项。 */
+    async _maybeWarnGpuOccupied() {
+      if (typeof AiduMiscService === 'undefined' || !AiduMiscService.gpuStatus) return;
+      let status;
+      try {
+        const res = await AiduMiscService.gpuStatus();
+        if (!res.ok || !res.data) return;
+        status = res.data;
+      } catch (e) { return; }
+      if (!status.shouldWarn) return;
+      const procs = status.foreignProcesses || [];
+      if (!procs.length) return;
+      const names = procs.map((p) => p.name.split(/[\\/]/).pop()).join('、');
+      const freeGb = (status.freeMb / 1024).toFixed(1);
+      return new Promise((resolve) => {
+        AiduModal.confirm({
+          title: '显卡显存紧张',
+          message: `显卡剩余显存只有 ${freeGb}GB, ${names} 正占着显卡, 可能拖慢查词/发音等本地功能。要不要现在关掉它?`,
+          confirmText: '关闭并继续',
+          cancelText: '不用管, 继续阅读',
+          onConfirm: () => Promise.all(
+            procs.map((p) => AiduMiscService.gpuKillProcess(p.pid).catch(() => {}))
+          ).then(() => resolve()),
           onCancel: () => resolve(),
         });
       });

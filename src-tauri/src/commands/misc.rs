@@ -202,6 +202,30 @@ fn find_prep_venv_python(prep_path: &std::path::Path) -> Option<std::path::PathB
     None
 }
 
+/// 2026-08-20: 打开书时探测一次显卡占用 (见 infrastructure/gpu_check.rs 顶部注释)。
+/// 只读, 不改任何状态; 非 N 卡机器/没装驱动时 `available:false`, 前端应静默跳过。
+#[tauri::command]
+pub fn gpu_status() -> serde_json::Value {
+    let s = crate::infrastructure::gpu_check::check_gpu();
+    serde_json::json!({
+        "available": s.available,
+        "usedMb": s.used_mb,
+        "totalMb": s.total_mb,
+        "freeMb": s.free_mb,
+        "shouldWarn": s.should_warn(),
+        "foreignProcesses": s.foreign_processes.iter().map(|p| serde_json::json!({
+            "pid": p.pid, "name": p.name,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+/// 关掉一个显卡占用进程 —— 只在用户点了提示里的"关闭"按钮才会调, 这里不做二次确认
+/// (确认是前端弹窗的职责, 命令层收到调用就直接执行)。
+#[tauri::command]
+pub fn gpu_kill_process(pid: u32) -> Result<(), String> {
+    crate::infrastructure::gpu_check::kill_process(pid)
+}
+
 #[cfg(test)]
 mod tests {
     use super::find_prep_venv_python;

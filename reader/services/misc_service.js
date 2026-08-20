@@ -43,6 +43,9 @@
     onlineConfigClearKey() { return AiduBridge.invoke('online_config_clear_key'); },
     // R3.4: 一键安装文档解析器 PyMuPDF
     docParserInstall() { return AiduBridge.invoke('doc_parser_install'); },
+    // 2026-08-20: 打开书时探测显卡占用 (用户本地查词被外部 llama-server 挤占显存排查出的功能)
+    gpuStatus() { return AiduBridge.invoke('gpu_status'); },
+    gpuKillProcess(pid) { return AiduBridge.invoke('gpu_kill_process', { pid }); },
   };
 
   global.AiduMiscService = MiscService;

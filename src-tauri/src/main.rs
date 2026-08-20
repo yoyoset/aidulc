@@ -71,6 +71,7 @@ mod infrastructure {
     pub mod dict_daemon;
     pub mod downloader;
     pub mod frequency;
+    pub mod gpu_check;
     pub mod log;
     pub mod online_client;
     pub mod model_store {
@@ -617,6 +618,8 @@ fn main() {
             commands::online_config::online_config_clear_key,
             commands::misc::boot_ping,
             commands::misc::doc_parser_install,
+            commands::misc::gpu_status,
+            commands::misc::gpu_kill_process,
             ipc::commands::profile_upsert,
             ipc::commands::profile_list,
             ipc::commands::profile_delete,

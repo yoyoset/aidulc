@@ -740,6 +740,58 @@ body.reader-active ::selection {
   resize: vertical;
 }
 
+/* 2026-08-20 (用户报"点书签图标没反应"): views/reader/bookmarks.js::showPanel
+   一直在建 DOM(点击确实有触发), 但 .bookmarks-panel 系列类从拆分出该文件起
+   就没配过 CSS——面板是零样式的裸 div, 直接追加在 document.body 末尾, 挤在
+   全书正文下方(阅读器是长滚动页面), 不滚到底根本看不见, 用户体验上等同于
+   "点了没反应"。样式抄 .hl-panel(摘录面板, 结构完全同构: 头部+可滚动列表)。 */
+.bookmarks-panel {
+  position: fixed;
+  right: 12px;
+  top: 90px;
+  width: 340px;
+  max-height: 70vh;
+  background: var(--rd-surface-raised);
+  border: 1px solid var(--rd-surface-sunken);
+  border-radius: var(--md-sys-radius-md);
+  box-shadow: var(--md-sys-elevation-3);
+  z-index: 350;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.bookmarks-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rd-surface-sunken);
+  font-weight: 600;
+  color: var(--rd-ink);
+}
+.bookmarks-header-other { border-top: 1px solid var(--rd-surface-sunken); }
+.bookmarks-list { padding: 6px; }
+.bookmarks-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin: 2px 0;
+  border-radius: var(--md-sys-radius-sm);
+  cursor: pointer;
+}
+.bookmarks-row:hover { background: var(--md-sys-state-hover); }
+.bookmarks-text {
+  font-family: var(--md-sys-font-serif);
+  font-size: var(--md-sys-font-size-body-s);
+  color: var(--rd-ink);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---- 首次进入一次性快捷键提示 (设计 §4 可发现性兜底) ---- */
 .rd-onboard {
   position: fixed;

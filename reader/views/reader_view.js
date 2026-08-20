@@ -596,10 +596,15 @@
       this._chapterImages = ch.images || [];
       content.innerHTML = '';
       this.renderer = new ReaderRenderer(content);
+      // 2026-08-20 (插图不显示 bug): setBasePath 必须在 render() 之前——render()
+      // 建 <img> 时靠 basePath 判断要不要发 read_image, render 跑的时候 renderer
+      // 才刚 new 出来、basePath 还是空串, _loadFigure 直接 return, 图片 src 永远
+      // 没设置过。之前的调用顺序(render 完了才 setBasePath)会补一份 img._data_b64
+      // 缓存, 但那份缓存不回填已经建好的 DOM, 用户看到的是完全空白的插图位。
+      this.renderer.setBasePath(this.basePath);
       if (this._anchorIndex < 0) this._anchorIndex = 0;
       await this._renderSentences();
       if (gen !== this._chapterGen) return;
-      this.renderer.setBasePath(this.basePath);
 
       this.topbarTitle = `${this.bookpack.title} · ${chMeta.title || ('第' + (this.chapterIndex + 1) + '章')}`;
       if (this.titleEl) this.titleEl.textContent = this.topbarTitle;

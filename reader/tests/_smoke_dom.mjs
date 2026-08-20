@@ -270,6 +270,43 @@ check('bench dataset.mode', renderer.contentArea.dataset.mode === 'bench');
 renderer.render({ sentences, mode: 'silent', currentIndex: 0, readerState: rd, verifiedSet: new Set(), savedSet: new Set(), bookmarkIndices: new Set() }, handlers);
 check('silent 重建不抛错', renderer._blockCache.size === 2);
 
+console.log('== 2026-08-20 插图不显示 bug: setBasePath 必须在 render() 之前 ==');
+{
+  // 实测复现: aidulc.log 显示 read_image 3 次全部成功(数据确实拿到了), 但插图
+  // 位置上一片空白。根因是 reader_view.js 里 render()(建 <img>) 跑在 setBasePath()
+  // 之前——建块那一刻 renderer.basePath 还是构造函数给的空串, _loadFigure 第一行
+  // `if (!this.basePath) return;` 直接放弃, img.src 永远没被设置过; 后来才到的
+  // setBasePath 只是把图片数据缓存进 img._data_b64, 不会回填已经建好的 DOM。
+  globalThis.AiduLibraryService.readImage = async (basePath, file) => ({ ok: true, data: { data_b64: 'FAKEBASE64_' + file } });
+  const images = [{ file: 'images/ch_000_p001.png', at: 0 }];
+  const imgState = { sentences, images, mode: 'guess', currentIndex: 0, readerState: rd, verifiedSet: new Set(), savedSet: new Set(), bookmarkIndices: new Set() };
+
+  // 正确顺序 (修复后 reader_view.js 的顺序): setBasePath 先于 render。
+  const goodRootEl = globalThis.document.createElement('div');
+  const goodRenderer = new globalThis.ReaderRenderer(goodRootEl);
+  goodRenderer.state = rd;
+  goodRenderer.setBasePath('/fake/pack/dir');
+  goodRenderer.render(imgState, handlers);
+  await Promise.resolve(); await Promise.resolve();
+  const goodImg = goodRenderer.contentArea.querySelector('img.reader-figure-img');
+  check('setBasePath 先于 render: 插图 src 被正确设置',
+    goodImg && goodImg.src.includes('FAKEBASE64_images/ch_000_p001.png'), goodImg && goodImg.src);
+
+  // 旧 bug 顺序: render 先于 setBasePath —— 必须证明这条路径下 img.src 确实空着,
+  // 不然这个回归测试锁不住这个 bug。
+  const badRootEl = globalThis.document.createElement('div');
+  const badRenderer = new globalThis.ReaderRenderer(badRootEl);
+  badRenderer.state = rd;
+  badRenderer.render(imgState, handlers);
+  badRenderer.setBasePath('/fake/pack/dir');
+  await Promise.resolve(); await Promise.resolve();
+  const badImg = badRenderer.contentArea.querySelector('img.reader-figure-img');
+  check('render 先于 setBasePath (旧顺序): 插图 src 确认为空, 复现 bug 症状',
+    badImg && !badImg.src, badImg && badImg.src);
+
+  globalThis.AiduLibraryService.readImage = async () => ({ ok: false });
+}
+
 console.log('== 当前句切换 + 离开已揭示句折叠 ==');
 rd.setMode('guess');
 renderer.render({ sentences, mode: 'guess', currentIndex: 0, readerState: rd, verifiedSet: new Set(), savedSet: new Set(), bookmarkIndices: new Set() }, handlers);

@@ -51,6 +51,23 @@ def _ensure_cuda_dll_paths() -> None:
 _ensure_cuda_dll_paths()
 
 
+def _sanitize_messages(messages: list[dict]) -> list[dict]:
+    """2026-08-20 (用户报"bring 词义查询失败: 'utf-8' codec can't encode character
+    '\\udc9d' ... surrogates not allowed"): messages 里的 content 来自书里的原文
+    (word_lookup 的 context / explain 的 original_text), 书源(EPUB 解析/早前的编解码
+    修复)偶尔会把一个残缺的 UTF-16 代理对留成孤立代理字符——这种字符在 Python str
+    里合法存在(不会在读书流程任何一步报错), 但 llama_cpp 把 prompt 编码成 UTF-8
+    字节喂给 C 库时才第一次触发 UnicodeEncodeError, 报错信息和"哪本书哪句话"完全
+    脱节, 用户只看到一句词典查询失败。修法: 在唯一的 LLM 调用出口(所有 explain/
+    translate/词典查询都过这里)兜底清洗, 不追到底是哪本书哪句话产生的坏字符——
+    那是解析器的事, 这里只保证"不管上游给什么, 喂给 LLM 的一定是合法 UTF-8"。"""
+    return [
+        {**m, "content": m["content"].encode("utf-8", "replace").decode("utf-8")}
+        if isinstance(m.get("content"), str) else m
+        for m in messages
+    ]
+
+
 class LlmServer:
     """llama_cpp_python 进程内推理。openai 兼容的 create_chat_completion 接口。"""
 
@@ -88,7 +105,7 @@ class LlmServer:
         """返回模型输出文本。异常包装为 EngineError。"""
         try:
             r = self.llm.create_chat_completion(
-                messages=messages,
+                messages=_sanitize_messages(messages),
                 temperature=temperature,
                 max_tokens=max_tokens,
             )

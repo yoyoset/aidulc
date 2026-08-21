@@ -399,7 +399,12 @@ pub async fn sync_make_code(
     crate::infrastructure::log::info("cmd", &format!("enter: sync_make_code user={user_id}"));
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
-    let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
+    // 2026-08-21 修复(用户报"明明已连接, 生成邀请码却报未配置同步"): 这里之前直接读
+    // 老 V6 单 key(get_cf_token_for), 但 sync_status/立即同步走的是 endpoint_state
+    // 的迁移感知解析(老 key 读得到会自动迁到新的按 endpoint 分的 key)——迁移一旦
+    // 发生, 老 key 就读不到了, 这里却还在读老 key, 于是"已连接"和"生成邀请码"两处
+    // 对同一份 token 状态给出矛盾结论。改成同一条解析路径。
+    let (_endpoint_key, token, _server_user) = endpoint_state(&user_id, &url)?;
     let nm = name;
     let ct = code_type;
     let r = tauri::async_runtime::spawn_blocking(move || {
@@ -447,7 +452,9 @@ pub async fn sync_pair_qr(
 ) -> Result<serde_json::Value, String> {
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
-    let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
+    // 2026-08-21 修复: 同 sync_make_code——统一走 endpoint_state 的迁移感知解析,
+    // 不再单独读已经迁移走的老 V6 key。
+    let (_endpoint_key, token, _server_user) = endpoint_state(&user_id, &url)?;
     if url.is_empty() || token.is_empty() {
         return Err("先配置同步 (Worker URL + 换 token) 才能生成配对码".into());
     }
@@ -493,7 +500,8 @@ pub async fn sync_revoke_token(
 ) -> Result<serde_json::Value, String> {
     let svc = services.inner();
     let url = svc.cf_worker_url.lock().unwrap().clone();
-    let token = crate::services::credentials::get_cf_token_for(&user_id).unwrap_or_default();
+    // 2026-08-21 修复: 同上——统一走 endpoint_state。
+    let (_endpoint_key, token, _server_user) = endpoint_state(&user_id, &url)?;
     if url.is_empty() || token.is_empty() {
         return Err("先配置同步才能踢设备".into());
     }

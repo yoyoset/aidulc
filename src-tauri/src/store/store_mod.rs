@@ -1072,6 +1072,44 @@ impl Db {
             )
             .map_err(|e| format!("迁移 v32 失败: {e}"))?;
         }
+        // v33 (2026-08-21, 查词三层重构): 全局词典基底表——跟 dictionary 表(按
+        // user+profile 隔离的个人缓存)是两回事, 这张表不分区, 种子(ECDICT)+
+        // 后续查词积累的稳定字段(pos/phonetic/meanings/phrases)全体共用。
+        // 只建表, **不在这里跑种子导入**——19139 行的批量 INSERT 如果放进 migrate(),
+        // 会让每个开 temp db 的测试都背上这个成本(见 dict_base_repo.rs 顶部注释),
+        // 真正的种子导入由 dict_base_repo::seed_bundled_dict_base_if_empty 在应用
+        // 启动时单独调用。
+        if version < 33 {
+            // 幂等判据抄 v32 的写法(pragma 查是否已存在): 撤旧版本重跑的测试会把
+            // schema_migrations 里 >= 32 的行删掉让迁移从 v32 状态重跑, 这张表
+            // 在第一次 Db::open 时已经建过, 裸 CREATE TABLE 会报 already exists。
+            let has_table: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dict_base'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            if has_table == 0 {
+                conn.execute_batch(
+                    "CREATE TABLE dict_base (
+                        word TEXT PRIMARY KEY,
+                        pos TEXT NOT NULL DEFAULT '',
+                        phonetic TEXT NOT NULL DEFAULT '',
+                        meanings TEXT NOT NULL DEFAULT '[]',
+                        phrases TEXT NOT NULL DEFAULT '[]',
+                        source TEXT NOT NULL DEFAULT 'llm',
+                        updated_at INTEGER NOT NULL DEFAULT 0
+                    );",
+                )
+                .map_err(|e| format!("迁移 v33 失败: {e}"))?;
+            }
+            conn.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (33, strftime('%s','now')*1000)",
+                [],
+            )
+            .map_err(|e| format!("迁移 v33 失败: {e}"))?;
+        }
         Ok(())
     }
 }

@@ -34,6 +34,7 @@ pub async fn word_lookup(
     user_id: String,
     profile_id: String,
     context: String,
+    force_llm: bool,
 ) -> Result<serde_json::Value, String> {
     use crate::application::dictionary_service;
     crate::infrastructure::log::info("cmd", "enter: word_lookup (async)");
@@ -42,16 +43,27 @@ pub async fn word_lookup(
         return Err("空词".into());
     }
 
-    // 1. 本地命中 → 直接返回 (纯 DB 读, 快)
+    // 1. 本地命中(个人缓存, 含语境例句) → 直接返回 (纯 DB 读, 快)
     if let Some(local) = dictionary_service::lookup_local(db.inner(), &user_id, &profile_id, &key)?
     {
         crate::infrastructure::log::info("cmd", "exit: word_lookup (local hit)");
         return serde_json::to_value(local).map_err(|e| e.to_string());
     }
 
-    // 2. 未命中 → 侧车查词放 spawn_blocking (子进程 + 阻塞读 + 30s 超时都在后台)
+    // 2. 全局词典基底命中(种子+积累, 无语境例句) → 除非用户主动要"结合这句话
+    // 再讲一下"(force_llm), 否则直接返回, 瞬时且完全不碰 GPU。
+    if !force_llm {
+        if let Some(base) = dictionary_service::lookup_base(db.inner(), &user_id, &key) {
+            crate::infrastructure::log::info("cmd", "exit: word_lookup (base hit)");
+            return serde_json::to_value(base).map_err(|e| e.to_string());
+        }
+    }
+
+    // 3. 基底没有 / 用户要语境例句 → 侧车查词放 spawn_blocking (子进程 + 阻塞读 +
+    // 30s 超时都在后台)。2026-08-21: 模型路径改用查词专用槽位(没配置就退回
+    // 共享的翻译/讲解模型), 不再强制跟大模型抢显存。
     let prep_path = cfg.inner().prep_path.clone();
-    let (llm_model, _, _) = crate::application::model_service::resolve_paths(db.inner(), "en");
+    let llm_model = crate::application::model_service::resolve_lookup_llm_path(db.inner(), "en");
     let w = key.clone();
     let ctx = context;
     let configured = !llm_model.is_empty() && std::path::Path::new(&llm_model).exists();

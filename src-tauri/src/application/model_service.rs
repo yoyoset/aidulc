@@ -10,6 +10,9 @@ use crate::store::Db;
 pub const FAMILY_LLM: &str = "llm";
 pub const FAMILY_TTS: &str = "tts";
 pub const FAMILY_NLP: &str = "nlp";
+/// 2026-08-21 (查词三层重构): 查词专用模型槽位, 跟翻译/讲解共用的 FAMILY_LLM 分开——
+/// `family` 本身是自由文本(见下面 model_registry 表定义), 加这个新值不需要改表结构。
+pub const FAMILY_LLM_LOOKUP: &str = "llm-lookup";
 
 /// 构造注册表 id: family|language|model_id|version
 pub fn entry_id(family: &str, language: &str, model_id: &str, version: &str) -> String {
@@ -39,6 +42,15 @@ pub fn recommend_bundle(
 /// M 系列 (单一真相源): 解析某语言的运行时模型路径 (llm, tts, spacy)。
 /// 全部来自 model_registry 推荐 (active); 不再读 config.toml 第二份状态。
 /// 返回的 String 可能为空 = 该家族未注册模型。
+/// 查词专用 LLM 路径: 优先 FAMILY_LLM_LOOKUP 的 active 模型; 没配置就退回共享的
+/// FAMILY_LLM(零配置也能查词, 只是回到"跟翻译/讲解共用一个模型"的今天的行为)。
+pub fn resolve_lookup_llm_path(db: &Db, language: &str) -> String {
+    recommend_for(db, FAMILY_LLM_LOOKUP, language)
+        .or_else(|| recommend_for(db, FAMILY_LLM, language))
+        .map(|m| m.path)
+        .unwrap_or_default()
+}
+
 pub fn resolve_paths(db: &Db, language: &str) -> (String, String, String) {
     let (llm, tts, nlp) = recommend_bundle(db, language);
     (
@@ -570,6 +582,37 @@ mod tests {
         let db = temp_db();
         let (llm, tts, _) = resolve_paths(&db, "en");
         assert!(llm.is_empty() && tts.is_empty());
+    }
+
+    #[test]
+    fn resolve_lookup_llm_path_prefers_dedicated_model() {
+        // 2026-08-21: 配了查词专用模型时, 查词应该用它而不是翻译/讲解的大模型
+        // ——这是这次重构的核心诉求(不再共用同一个槽位抢显存)。
+        let db = temp_db();
+        let repo = ModelRepo::new(&db);
+        repo.upsert(&entry("llm", "en", "qwen-4b", true)).unwrap();
+        repo.upsert(&entry(FAMILY_LLM_LOOKUP, "en", "qwen-0.6b", true))
+            .unwrap();
+        assert_eq!(
+            resolve_lookup_llm_path(&db, "en"),
+            "C:/models/qwen-0.6b",
+            "配了专用模型应该优先用它"
+        );
+    }
+
+    #[test]
+    fn resolve_lookup_llm_path_falls_back_to_shared_llm() {
+        // 没配置查词专用模型时, 零配置也要能查词——退回今天的共享行为。
+        let db = temp_db();
+        let repo = ModelRepo::new(&db);
+        repo.upsert(&entry("llm", "en", "qwen-4b", true)).unwrap();
+        assert_eq!(resolve_lookup_llm_path(&db, "en"), "C:/models/qwen-4b");
+    }
+
+    #[test]
+    fn resolve_lookup_llm_path_empty_when_nothing_registered() {
+        let db = temp_db();
+        assert!(resolve_lookup_llm_path(&db, "en").is_empty());
     }
 
     #[test]

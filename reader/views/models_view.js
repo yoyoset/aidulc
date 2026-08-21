@@ -34,6 +34,7 @@
   // 不是"语音识别" —— 全项目没有任何 ASR/跟读打分实现。统一从这里取标签, 不再散落。
   const FAM_LABEL = {
     llm: '翻译/讲解',
+    'llm-lookup': '查词专用(可选)',
     tts: '语音合成',
     nlp: '分词 / NLP',
   };
@@ -247,7 +248,7 @@
       const status = el('div', 'sync-status', '');
       const famRow = el('div', 'prep-row');
       const famSel = el('select', 'prep-select');
-      [['llm', '翻译/讲解'], ['tts', '语音合成'], ['nlp', '分词 / NLP']].forEach(([v, l]) => {
+      [['llm', '翻译/讲解'], ['llm-lookup', '查词专用(可选)'], ['tts', '语音合成'], ['nlp', '分词 / NLP']].forEach(([v, l]) => {
         const opt = el('option', null, l); opt.value = v; famSel.appendChild(opt);
       });
       famRow.append(el('span', null, '用途:'), famSel);
@@ -371,10 +372,10 @@
       const hint = el('div', 'settings-hint',
         '当前家族: ' + (FAM_LABEL[m.family] || m.family || '未知') + '。改家族会重建模型 id (原 id 移除)。');
       const famSel = el('select', 'prep-select');
-      [['llm', '翻译/讲解'], ['tts', '语音合成'], ['nlp', '分词/NLP']].forEach(([v, l]) => {
+      [['llm', '翻译/讲解'], ['llm-lookup', '查词专用(可选)'], ['tts', '语音合成'], ['nlp', '分词/NLP']].forEach(([v, l]) => {
         const o = el('option', null, l); o.value = v; famSel.appendChild(o);
       });
-      famSel.value = ['llm', 'tts', 'nlp'].includes(m.family) ? m.family : 'llm';
+      famSel.value = ['llm', 'llm-lookup', 'tts', 'nlp'].includes(m.family) ? m.family : 'llm';
       const actions = el('div', 'modal-actions');
       const cancel = el('button', 'btn-small', '取消');
       cancel.onclick = () => ov.remove();
@@ -596,7 +597,7 @@
      *  没有 → 提供下载。 */
     _renderGrouped(listEl, models) {
       listEl.innerHTML = '';
-      const all = (models || []).filter((m) => ['llm', 'tts', 'nlp'].includes(m.family));
+      const all = (models || []).filter((m) => ['llm', 'llm-lookup', 'tts', 'nlp'].includes(m.family));
       // J2 核心判据: 该 family 是否有"已登记且文件存在"的模型
       const usableOf = (family) => all.filter((m) => m.family === family && m.path && String(m.path).trim() !== '');
       const famLabel = FAM_LABEL;
@@ -673,6 +674,21 @@
       section('llm',
         '需要 GGUF 格式的翻译/讲解模型 (如 Qwen)。处理书籍前必须先有这个。',
         '未配置 —— 翻译/讲解需要它, 否则无法处理书籍。');
+      // 2026-08-21 (查词三层重构): 查词专用模型是可选的——没配置时自动退回翻译/
+      // 讲解那个模型(今天的行为), 配了就能查词单独用一个更小、不跟大模型抢显存
+      // 的模型。跟 nlp 一样没有 DOWNLOAD_CATALOG 目录项(还没找到验证过 sha256
+      // 的推荐小模型), 走同样的"已登记就展示区段, 没登记就给静态说明"折中。
+      if (all.some((m) => m.family === 'llm-lookup')) {
+        section('llm-lookup',
+          '可选: 给查词单独配一个更小的模型, 不跟翻译/讲解抢显存。没配置时查词自动复用翻译/讲解模型。',
+          '未配置 —— 查词自动复用翻译/讲解模型, 不影响正常使用。');
+      } else {
+        const sec = el('div', 'model-group');
+        sec.appendChild(el('h2', null, FAM_LABEL['llm-lookup']));
+        sec.appendChild(el('div', 'import-tip',
+          '可选。没配置时查词自动复用上面「翻译/讲解」的模型。如果显卡经常被其它程序占用导致查词变慢, 可以在「扫描复用」或上面的自定义链接里把模型用途选「查词专用」, 装一个更小的模型专门给查词用。'));
+        listEl.appendChild(sec);
+      }
       section('tts',
         '需要 Kokoro 语音模型 (kokoro-v1_0.pth + config.json + voices/ 同一目录, 如 HF 缓存 models--hexgrad--Kokoro-82M/snapshots/<sha>/)。没有语音不影响文字阅读。',
         '未配置 —— 没有语音合成不影响文字阅读, 需要跟读/听读时再下载。');
@@ -928,11 +944,11 @@
         const autoCheck = !c.registered && !incomplete;
         cb.checked = autoCheck;
         const famSel = el('select', 'prep-select scan-fam');
-        [['llm', '翻译/讲解'], ['tts', '语音合成'], ['nlp', '分词/NLP']].forEach(([v, l]) => {
+        [['llm', '翻译/讲解'], ['llm-lookup', '查词专用(可选)'], ['tts', '语音合成'], ['nlp', '分词/NLP']].forEach(([v, l]) => {
           const o = el('option', null, l); o.value = v; famSel.appendChild(o);
         });
         const hint = c.family_hint || 'unknown';
-        if (hint === 'llm' || hint === 'tts' || hint === 'nlp') famSel.value = hint;
+        if (['llm', 'llm-lookup', 'tts', 'nlp'].includes(hint)) famSel.value = hint;
         // 识别不出 / 识别出但本应用无对应功能 (asr/vad) → 一律「未识别」, 不许自称语音合成
         const known = famLabel[hint];
         const famBadge = el('span', 'book-badge ' + (known ? 'badge-idle' : 'badge-warn'),

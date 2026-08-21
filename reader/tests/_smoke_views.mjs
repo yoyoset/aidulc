@@ -712,6 +712,11 @@ console.log('== 2d2. L8 (2026-08-11): 查词失败面板 —— 开关①开才�
 console.log('== 2d3. UX6 #4 (2026-08-13): 词典面板治理 —— 点正文收起 / 长内容分段可折叠 / 底部非历史讲清楚 ==');
 {
   load('components/dictionary_panel.js');
+  // 2026-08-21: 成功渲染现在也会 fire-and-forget 查一次在线开关配置(见
+  // _maybeAppendOnlineLookup)——上一个 2d2 测试块把这个 mock 留在 lookup_enabled:
+  // true, 不在这里先重置成确定值的话, 前一块遗留的悬空 promise 会在本块第一次
+  // await 时才落地, 混进本块自己的断言里(实测踩到, 断言随机多一个按钮)。
+  globalThis.AiduMiscService.onlineConfigGet = async () => ({ ok: true, data: { lookup_enabled: false } });
   const lookupCalls = [];
   globalThis.AiduDictionaryService.lookup = async (w) => {
     lookupCalls.push(w);
@@ -741,9 +746,44 @@ console.log('== 2d3. UX6 #4 (2026-08-13): 词典面板治理 —— 点正文收
   // 底部不是查询历史 (讲清楚)
   const srcText = queryAll(p4.body, '.dict-source').map((s) => s.textContent).join(' ');
   check('UX6#4: 底部明确"不是查询历史"', srcText.includes('不是查询历史'), srcText);
-  // UX6 #3 (2026-08-13): 本地查词成功 → 绝不出现「用在线 AI 查一次」(不回退在线)。
-  // 在线入口只出现在本地失败面板 (_setError), 且需用户再点一次确认才外发。
-  check('UX6#3: 本地命中 → 无在线入口', !queryAll(p4.body, 'button').some((b) => b.textContent === '用在线 AI 查一次'), queryAll(p4.body, 'button').map((b) => b.textContent).join(','));
+  // 2026-08-21 (查词三层重构, 改了 UX6 #3 原来的行为): 开关①关闭时, 哪怕查词
+  // 成功也不该出现在线入口(发不出去的东西不该有按钮)——这条不变。
+  globalThis.AiduMiscService.onlineConfigGet = async () => ({ ok: true, data: { lookup_enabled: false } });
+  p4._render({ word: 'reticent', pos: 'NOUN', phonetic: '/rɛtɪsnt/', meanings: ['含蓄的'], examples: ['x'], example_zh: ['y'], usage: 'z', phrases: [], in_vocab: false, source: 'llm' });
+  await new Promise((r) => setTimeout(r, 20));
+  check('开关①关: 查词成功也无在线入口', !queryAll(p4.body, 'button').some((b) => b.textContent === '用在线 AI 查一次'), queryAll(p4.body, 'button').map((b) => b.textContent).join(','));
+  // 2026-08-21 拍板改动: 开关①开启时, 查词成功(不管是 local/base/llm 哪个来源)
+  // 也该出现在线入口——"本地给了答案、用户还是不确定"时不必等到彻底查不到
+  // 才能点"用在线 AI 查一次"。旧版本 UX6 #3 的"绝不在成功路径出现"已不再成立。
+  globalThis.AiduMiscService.onlineConfigGet = async () => ({ ok: true, data: { lookup_enabled: true } });
+  p4._render({ word: 'reticent', pos: 'NOUN', phonetic: '/rɛtɪsnt/', meanings: ['含蓄的'], examples: ['x'], example_zh: ['y'], usage: 'z', phrases: [], in_vocab: false, source: 'llm' });
+  await new Promise((r) => setTimeout(r, 20));
+  check('开关①开: 查词成功也提供在线入口(本地给了答案仍可再确认)', queryAll(p4.body, 'button').some((b) => b.textContent === '用在线 AI 查一次'), queryAll(p4.body, 'button').map((b) => b.textContent).join(','));
+
+  // 2026-08-21 (查词三层重构): 基底命中(source='base')只有稳定字段, 面板要
+  // 给一个"结合这句话再讲一下"的手动按钮触发本地小模型补全语境例句。
+  globalThis.AiduMiscService.onlineConfigGet = async () => ({ ok: true, data: { lookup_enabled: false } });
+  const enrichCalls = [];
+  globalThis.AiduDictionaryService.lookup = async (w, profileId, ctx, forceLlm) => {
+    enrichCalls.push({ w, forceLlm });
+    return { ok: true, data: { word: w, pos: 'NOUN', phonetic: '/x/', meanings: ['基底释义'], examples: ['结合上下文的例句'], example_zh: ['例句翻译'], usage: '用法', phrases: [], in_vocab: false, source: 'llm' } };
+  };
+  const pBase = new globalThis.DictionaryPanel();
+  pBase.el = makeElement('div'); pBase.body = makeElement('div'); pBase.el.appendChild(pBase.body);
+  document.body.appendChild(pBase.el);
+  pBase._word = 'zebra'; pBase._profileId = 'default'; pBase._context = 'A zebra ran past.';
+  pBase._render({ word: 'zebra', pos: 'NOUN', phonetic: '/ˈziː.brə/', meanings: ['斑马'], examples: [], example_zh: [], usage: '', phrases: ['zebra crossing'], in_vocab: false, source: 'base' });
+  const srcBadge = queryAll(pBase.body, '.dict-source-base')[0];
+  check('基底命中: 来源徽章显示"词典基底"', srcBadge && srcBadge.textContent === '词典基底', srcBadge && srcBadge.textContent);
+  const enrichBtn = queryAll(pBase.body, 'button').find((b) => b.textContent === '结合这句话再讲一下');
+  check('基底命中: 有"结合这句话再讲一下"按钮', !!enrichBtn);
+  enrichBtn.onclick();
+  await new Promise((r) => setTimeout(r, 20));
+  check('点按钮 → 强制走 LLM (forceLlm=true)', enrichCalls.length === 1 && enrichCalls[0].forceLlm === true, JSON.stringify(enrichCalls));
+  check('点按钮后重新渲染出语境例句', queryAll(pBase.body, '.dict-examples').length > 0);
+  // 对照组: 非基底命中(llm/local)不该出现这个按钮
+  pBase._render({ word: 'zebra', pos: 'NOUN', phonetic: '/x/', meanings: ['斑马'], examples: ['e'], example_zh: ['y'], usage: 'u', phrases: [], in_vocab: false, source: 'llm' });
+  check('非基底命中: 无"结合这句话再讲一下"按钮', !queryAll(pBase.body, 'button').some((b) => b.textContent === '结合这句话再讲一下'));
 
   // 点正文 (面板外) → 自动收起
   p4._bindDocClick();

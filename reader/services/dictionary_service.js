@@ -10,8 +10,10 @@
   }
 
   const DictionaryService = {
-    lookup(word, profileId, context) {
-      return AiduBridge.invoke('word_lookup', { word, userId: currentUser(), profileId, context });
+    // 2026-08-21 (查词三层重构): forceLlm=true 用于"基底有收录但用户想要结合
+    // 这句话的例句/用法"这个手动按钮——跳过基底直接走本地小模型。
+    lookup(word, profileId, context, forceLlm) {
+      return AiduBridge.invoke('word_lookup', { word, userId: currentUser(), profileId, context, forceLlm: !!forceLlm });
     },
     // K3 (2026-08-11): 用在线 AI 查一次 (本地失败后用户显式点击, 绝不自动回退)
     lookupOnline(word, context) {

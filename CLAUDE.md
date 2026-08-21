@@ -14,6 +14,7 @@
 |---|---|---|
 | `vocab` | `vocab_repo.rs` | SRS 学习状态 (V1 起带 user_id, user ≠ profile) |
 | `dictionary` | `dict_repo.rs` | 个人词典资产 (V1 起带 user_id) |
+| `dict_base` | `dict_base_repo.rs` | **v33 新增**: 全局词典基底, 不分 user/profile——种子(ECDICT, `resources/dict_seed.jsonl`, build 时 `include_str!` 编进二进制)+ 历次查词积累的稳定字段(pos/phonetic/meanings/phrases), 例句/用法等语境字段不进这张表(仍在 `dictionary` 里按人隔离) |
 | `users` | `users_repo.rs` | **V1 新增**: 身份 ("谁"), 与 profile("讲解策略")分开; 顶栏切人 |
 | `profiles` | `profile_repo.rs` | 讲解策略/音色/语速/高亮粒度 |
 | `reading_state` | `reading_repo.rs` | 阅读进度/书签/播放位置 (V1 起复合主键 user_id+book_key) |

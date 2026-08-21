@@ -46,6 +46,7 @@ mod services {
 mod store {
     pub mod batches_repo;
     pub mod books_repo;
+    pub mod dict_base_repo;
     pub mod dict_repo;
     pub mod editions_repo;
     pub mod highlights_repo;
@@ -365,6 +366,15 @@ fn main() {
             .unwrap_or_else(|| data_dir.join("data.db").to_string_lossy().to_string())
     });
     let db = store::Db::open(&db_path).expect("打开 SQLite 失败");
+    // 2026-08-21 (查词三层重构): 词典基底种子只在真正启动时导入一次(COUNT>0 就
+    // 跳过, 见 dict_base_repo.rs 顶部注释——不能放进 migrate(), 会拖慢整个测试
+    // 套件)。失败不阻断启动: 基底缺失只是查词退化回全走 LLM, 不是致命错误。
+    {
+        let conn = db.conn.lock().unwrap();
+        if let Err(e) = store::dict_base_repo::seed_bundled_dict_base_if_empty(&conn) {
+            infrastructure::log::error("app", &format!("词典基底种子导入失败(不阻断启动): {e}"));
+        }
+    }
 
     // 3. 书库/输出目录 (见 resolve_out_dir 文档注释: 2026-08-07 修复的路径 bug
     //    + 合并此前重复的 library_dir/out_dir 两个概念, 见 Config.out_dir 文档注释)

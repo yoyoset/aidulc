@@ -3,7 +3,7 @@
 //! 职责: 本地词典优先 → 未命中调 LLM 补全并沉淀 → 不自动进生词本。
 //! 依赖注入: lookup_llm 是可注入的补全函数 (测试用 fake)。
 
-use crate::store::{dict_repo::DictRepo, vocab_repo::VocabRepo, Db};
+use crate::store::{dict_base_repo::DictBaseRepo, dict_repo::DictRepo, vocab_repo::VocabRepo, Db};
 
 /// 查词响应 DTO (契约: 前端面板渲染依据)
 #[derive(Debug, Clone, serde::Serialize)]
@@ -157,6 +157,31 @@ pub fn lookup_local(
     Ok(None)
 }
 
+/// 2026-08-21 (查词三层重构): 查全局词典基底(种子 ECDICT + 历次 LLM 查词积累的
+/// 稳定字段, 不分 user/profile)。只有 pos/phonetic/meanings/phrases——例句/用法
+/// 这些语境相关字段这一层天然给不出, 前端看到 `source==='base'` 该显示"结合这句
+/// 话再讲一下"这个手动按钮(见 dictionary_panel.js), 而不是当作查词已经完整。
+pub fn lookup_base(db: &Db, user_id: &str, key: &str) -> Option<WordLookup> {
+    let entry = DictBaseRepo::new(db).get(key)?;
+    let vocab_repo = VocabRepo::new(db);
+    let in_vocab = vocab_repo
+        .get(user_id, crate::domain::vocab::VOCAB_PROFILE_ID, key)
+        .is_some();
+    Some(WordLookup {
+        word: key.to_string(),
+        pos: entry.pos,
+        phonetic: entry.phonetic,
+        meanings: entry.meanings,
+        examples: vec![],
+        example_zh: vec![],
+        usage: String::new(),
+        phrases: entry.phrases,
+        source: "base".into(),
+        confidence: 0.75,
+        in_vocab,
+    })
+}
+
 /// K2 (2026-08-11): LLM 补全结果沉淀词典并组装 WordLookup。从 lookup 拆出,
 /// 供异步命令在 spawn_blocking 拿到 tuple 后回主线程写库 (写库是快操作)。
 pub fn persist_llm(
@@ -176,6 +201,11 @@ pub fn persist_llm(
     });
     let repo = DictRepo::new(db);
     let _ = repo.upsert(key, &payload, user_id, profile_id); // 沉淀失败不阻断 (词典是缓存性质)
+                                                             // 2026-08-21: 稳定字段(跟哪句话无关的"这个词是什么意思")并入全局基底——
+                                                             // 这就是"查词也能填充基底"。例句/用法留在上面的个人缓存里, 不进基底
+                                                             // (那些是结合当前这句话生成的, 不该被别的语境复用)。first-write-wins,
+                                                             // 失败不阻断(基底是积累性质, 不是查词成功与否的必要条件)。
+    let _ = DictBaseRepo::new(db).upsert_if_absent(key, &pos, &phonetic, &meanings, &phrases);
 
     Ok(WordLookup {
         word: key.to_string(),
@@ -215,9 +245,21 @@ pub fn add_to_vocab(
 ) -> Result<serde_json::Value, String> {
     let repo = DictRepo::new(db);
     let key = word.trim().to_lowercase();
-    let payload = repo
-        .get(&key, user_id, profile_id)
-        .unwrap_or_else(|| serde_json::json!({"word": key, "lemma": key}));
+    // 2026-08-21: 个人缓存没有时退回查全局基底(ECDICT 种子/别的 profile 积累的
+    // 结果)取 pos/phonetic/meanings, 避免"基底明明查得到、生词本却是空白"这种
+    // 不一致——用户可能是直接在 base 命中的面板上点的"加入生词本", 从没走过
+    // 个人缓存这条路。
+    let payload = repo.get(&key, user_id, profile_id).unwrap_or_else(|| {
+        DictBaseRepo::new(db)
+            .get(&key)
+            .map(|b| {
+                serde_json::json!({
+                    "word": key, "lemma": key, "pos": b.pos, "phonetic": b.phonetic,
+                    "meanings": b.meanings,
+                })
+            })
+            .unwrap_or_else(|| serde_json::json!({"word": key, "lemma": key}))
+    });
     // K21 (2026-08-14): 生词本(VocabRepo)不再跟着 profile_id(阅读时挂的讲解档案)分区——
     // 一律用固定的 VOCAB_PROFILE_ID, 换书换档案不会让已存的生词"看不见"。dictionary 表
     // (上面 payload)缓存的是释义文本, 不同档案讲解深浅确实该分开存, 继续用 profile_id。
@@ -499,6 +541,66 @@ mod tests {
         assert!(vocab.get("u-kid", "default", "gutter").is_some());
         assert_eq!(vocab.list("me", "default").len(), 1);
         assert_eq!(vocab.list("u-kid", "default").len(), 1);
+    }
+
+    #[test]
+    fn lookup_base_returns_stable_fields_only_no_context_fields() {
+        let db = temp_db();
+        DictBaseRepo::new(&db)
+            .upsert_if_absent(
+                "zebra",
+                "NOUN",
+                "/ˈziː.brə/",
+                &["斑马".to_string()],
+                &["zebra crossing".to_string()],
+            )
+            .unwrap();
+        let r = lookup_base(&db, "me", "zebra").expect("应命中基底");
+        assert_eq!(r.source, "base");
+        assert_eq!(r.meanings, vec!["斑马"]);
+        assert_eq!(r.phrases, vec!["zebra crossing"]);
+        assert!(
+            r.examples.is_empty() && r.example_zh.is_empty() && r.usage.is_empty(),
+            "基底层不该有语境相关字段"
+        );
+    }
+
+    #[test]
+    fn lookup_base_miss_returns_none() {
+        let db = temp_db();
+        assert!(lookup_base(&db, "me", "nonexistentword123").is_none());
+    }
+
+    #[test]
+    fn persist_llm_also_fills_dict_base() {
+        // 2026-08-21 核心诉求: 查词要能填充基底, 不止写个人缓存。
+        let db = temp_db();
+        lookup(&db, "me", "default", "zebra", "ctx", &fake_llm).unwrap();
+        let base = DictBaseRepo::new(&db).get("zebra").expect("应写入基底");
+        assert_eq!(base.source, "llm");
+        assert_eq!(base.pos, "NOUN");
+    }
+
+    #[test]
+    fn add_to_vocab_falls_back_to_dict_base_when_personal_cache_missing() {
+        // 2026-08-21: 用户可能直接在 base 命中的面板上点"加入生词本", 个人缓存
+        // 里从来没存过这个词——不该因此让生词本词条卡一片空白。
+        let db = temp_db();
+        DictBaseRepo::new(&db)
+            .upsert_if_absent("gutter", "NOUN", "/ˈɡʌt.ər/", &["排水沟".to_string()], &[])
+            .unwrap();
+        add_to_vocab(
+            &db,
+            "me",
+            "default",
+            "gutter",
+            Some("ctx".into()),
+            SourceLocation::default(),
+        )
+        .unwrap();
+        let got = VocabRepo::new(&db).get("me", "default", "gutter").unwrap();
+        assert_eq!(got.pos, "NOUN");
+        assert_eq!(got.meaning, "排水沟");
     }
 
     #[test]

@@ -102,9 +102,15 @@
       retry.onclick = () => this._lookup();
       this.body.appendChild(retry);
 
-      // L8 (2026-08-11): 「用在线 AI 查一次」出口只在用户开启①时才出现 ——
-      // 关闭时查词失败面板不提供在线入口 (发不出去的东西不该有按钮)。
-      // 先查在线引擎配置, 再决定是否挂这个按钮。
+      this._maybeAppendOnlineLookup();
+    }
+
+    /** L8 (2026-08-11) + 2026-08-21 改: 「用在线 AI 查一次」出口只在用户开启①时
+     *  才出现——关闭时不提供在线入口 (发不出去的东西不该有按钮)。之前只有查词
+     *  彻底失败才会调这个检查; 现在成功渲染完(不管命中基底还是本地小模型)也
+     *  调一次, 让"本地给了答案、我还是不确定"这种情况也能点到在线兜底, 不必
+     *  等到彻底查不到才看得见这个入口。 */
+    _maybeAppendOnlineLookup() {
       if (global.AiduMiscService && AiduMiscService.onlineConfigGet) {
         AiduMiscService.onlineConfigGet().then((res) => {
           const enabled = res && res.ok && res.data && res.data.lookup_enabled;
@@ -181,12 +187,14 @@
       // K13 (2026-08-14): 释义来源徽章——之前 confidence/source 字段后端存了、传了,
       // 前端就是没渲染。用户看一条释义分不清是词典查到的还是 AI 现编的, 对英语学习
       // 场景这个区分不是锦上添花(AI 生成偶尔会有错, 该多留一个心眼)。
-      const SOURCE_LABEL = { local: '词典', llm: 'AI 生成', online: '在线 AI 生成' };
+      const SOURCE_LABEL = { local: '词典', base: '词典基底', llm: 'AI 生成', online: '在线 AI 生成' };
       if (d.source && SOURCE_LABEL[d.source]) {
         const src = document.createElement('span');
         src.className = 'dict-source dict-source-' + d.source;
         src.textContent = SOURCE_LABEL[d.source];
-        src.title = d.source === 'local' ? '本地词典查到的释义' : '本地/在线 AI 生成的释义, 偶尔可能有误';
+        src.title = d.source === 'local' ? '本地词典查到的释义'
+          : d.source === 'base' ? '词典基底(种子词典 + 大家查词积累), 瞬时且不占显卡'
+          : '本地/在线 AI 生成的释义, 偶尔可能有误';
         wordRow.appendChild(src);
       }
       if (d.phonetic) {
@@ -282,11 +290,36 @@
         parts.push(sec('搭配', ph));
       }
 
+      // 2026-08-21 (查词三层重构): 基底命中只有稳定字段, 没有结合上下文的例句/
+      // 用法——"看得到但没看懂"是主观判断, 系统猜不出来, 给个常驻按钮让用户自己点。
+      if (d.source === 'base') {
+        const enrichBtn = document.createElement('button');
+        enrichBtn.className = 'btn-small';
+        enrichBtn.textContent = '结合这句话再讲一下';
+        enrichBtn.title = '用本地小模型结合当前这句话生成例句/用法说明';
+        enrichBtn.onclick = () => {
+          enrichBtn.disabled = true;
+          enrichBtn.textContent = '生成中…';
+          AiduDictionaryService.lookup(this._word, this._profileId, this._context, true).then((res) => {
+            if (!res.ok) {
+              enrichBtn.disabled = false;
+              enrichBtn.textContent = '结合这句话再讲一下';
+              AiduToast.show(res.error || '生成失败', 'error');
+              return;
+            }
+            this._render(res.data);
+          });
+        };
+        parts.push(enrichBtn);
+      }
+
       // UX6 #4: 底部讲清楚 —— 这不是查询历史, 是这个词的来源说明 + 加词动作。
       const src = document.createElement('div');
       src.className = 'dict-source';
       src.textContent = d.source === 'llm'
         ? '以上为本词详情: 释义/例句/用法/搭配 (不是查询历史)。已存入本地词典, 不会自动加入生词本。'
+        : d.source === 'base'
+        ? '以上为本词详情 (不是查询历史)。来源: 词典基底(种子词典 + 大家查词积累)。'
         : '以上为本词详情: 释义/例句/用法/搭配 (不是查询历史)。来源: 本地词典。';
       parts.push(src);
 
@@ -322,6 +355,8 @@
 
       this.body.innerHTML = '';
       parts.forEach(p => this.body.appendChild(p));
+      // 2026-08-21: 成功渲染完也检查一次在线入口(见 _maybeAppendOnlineLookup 注释)。
+      this._maybeAppendOnlineLookup();
     }
   }
 

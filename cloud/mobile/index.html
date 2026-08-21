@@ -69,12 +69,18 @@
       </header>
       <div id="card" class="card">
         <div id="card-front" class="card-face">
-          <div id="front-word" class="front-word"></div>
+          <div class="word-row">
+            <div id="front-word" class="front-word"></div>
+            <button id="front-speak" class="speak-btn" aria-label="发音" title="发音">🔊</button>
+          </div>
           <div id="front-phonetic" class="front-phonetic"></div>
           <div id="front-context" class="front-context"></div>
         </div>
         <div id="card-back" class="card-face hidden">
-          <div id="back-word" class="front-word"></div>
+          <div class="word-row">
+            <div id="back-word" class="front-word"></div>
+            <button id="back-speak" class="speak-btn" aria-label="发音" title="发音">🔊</button>
+          </div>
           <div id="back-phonetic" class="front-phonetic"></div>
           <div id="back-meaning" class="back-meaning"></div>
           <div id="back-pos" class="back-pos"></div>

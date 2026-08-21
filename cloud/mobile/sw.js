@@ -7,7 +7,7 @@
  *     闈欐€佽祫婧?stale-while-revalidate (鍏堢敤缂撳瓨绉掑紑, 鍚庡彴鎷夋柊)銆? *   - activate 娓呮帀鎵€鏈夋棫鐗堟湰缂撳瓨銆? * 璇嶆潯鏁版嵁鍦?IndexedDB (adapter), 涓?SW 缂撳瓨姝ｄ氦銆? */
 'use strict';
 
-const BUILD_VERSION = '0.7.2';
+const BUILD_VERSION = '0.7.3';
 const CACHE = 'aidulc-mobile-' + BUILD_VERSION;
 const SHELL = [
   './',

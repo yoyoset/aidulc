@@ -64,7 +64,14 @@ body {
   transition: transform .18s ease; box-shadow: 0 2px 4px rgba(74,47,28,.10);
 }
 .card-face { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.word-row { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .front-word { font-size: 44px; font-weight: 600; letter-spacing: -.02em; }
+/* 2026-08-21 (用户: "背单词这里缺少发音按钮"): 手机端卡片补发音按钮, 桌面版早就有。 */
+.speak-btn {
+  border: none; background: transparent; font-size: 22px; line-height: 1; cursor: pointer;
+  padding: 4px; border-radius: 50%; color: var(--ink2);
+}
+.speak-btn:hover, .speak-btn:active { background: var(--line2); }
 .front-phonetic { font-size: 14px; color: var(--ink3); }
 .front-context { font-size: 16px; line-height: 1.85; color: var(--ink2); }
 .back-meaning { font-size: 17px; line-height: 1.6; }

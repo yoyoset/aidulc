@@ -433,6 +433,22 @@
     const disabledItems = document.querySelectorAll('.ba-item.ba-disabled');
     disabledItems.forEach((it) => (it.onclick = sourceActionHint));
     $('ba-another').onclick = sourceActionHint;
+    // 2026-08-21 (用户: "背单词这里缺少发音按钮"): 手机端没有本地书包音频(桌面版
+    // 那条"读原句音频"管线在手机上根本没有源文件), 只能用浏览器自带的
+    // speechSynthesis——比什么都没有强, iOS Safari / Android Chrome 都支持。
+    $('front-speak').onclick = () => speakCurrentWord();
+    $('back-speak').onclick = () => speakCurrentWord();
+  }
+
+  function speakCurrentWord() {
+    if (!currentEntry || !currentEntry.word) return;
+    if (!('speechSynthesis' in window) || !window.speechSynthesis) return;
+    try {
+      window.speechSynthesis.cancel(); // 打断上一个还没读完的
+      const u = new SpeechSynthesisUtterance(currentEntry.word);
+      u.lang = 'en-US';
+      window.speechSynthesis.speak(u);
+    } catch (e) { /* 静默失败: 没有语音包等环境问题, 不阻断背单词流程 */ }
   }
 
   // ---------- 启动 ----------

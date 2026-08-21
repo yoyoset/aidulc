@@ -73,6 +73,13 @@
       wrap.appendChild(dirsEl);
       this._loadModelDirs(dirsEl);
 
+      // 2026-08-21 (用户: "设置里增加字典文件的选择"): 词典基底(种子+积累的
+      // pos/phonetic/meanings, 查词第一层, 见 dict_base_repo.rs)统计 + 导入
+      // 自定义词典文件的入口。
+      const dictBaseEl = el('div', 'model-dirs');
+      wrap.appendChild(dictBaseEl);
+      this._loadDictBaseSection(dictBaseEl);
+
       const listEl = el('div', 'models-list');
       wrap.appendChild(listEl);
       container.appendChild(wrap);
@@ -123,6 +130,53 @@
         this._modelDirs = [];
         this._renderModelDirs(dirsEl);
       });
+    }
+
+    /** 2026-08-21: 词典基底(查词第一层, 不碰 GPU)统计 + 导入自定义词典文件。
+     *  跟模型无关但同属"设置里配置查词相关的东西", 放在模型页顺理成章。 */
+    _loadDictBaseSection(container) {
+      container.innerHTML = '';
+      const sec = el('div', 'model-group');
+      sec.appendChild(el('h2', null, '词典基底'));
+      sec.appendChild(el('div', 'import-tip',
+        '查词第一层, 瞬时返回不占显卡。种子来自 ECDICT(开源, 约 1.9 万核心词), 加上大家' +
+        '查过的词持续积累。可以导入自己的词典文件补充(不会覆盖已有词条, 只追加新词)。'));
+      const statLine = el('div', 'settings-hint', '统计中…');
+      sec.appendChild(statLine);
+      const importBtn = el('button', 'btn-small', '导入自定义词典文件');
+      importBtn.title = '支持 JSONL(word/phonetic/pos/meanings) 或 CSV(表头含 word 列 + translation/meaning/definition/释义 任一列)';
+      importBtn.onclick = () => {
+        AiduBridge.pickFiles(['jsonl', 'ndjson', 'csv', 'txt']).then((r) => {
+          if (!r.ok || !r.data || !r.data.length) return;
+          importBtn.disabled = true;
+          const originalText = importBtn.textContent;
+          importBtn.textContent = '导入中…';
+          AiduMiscService.dictBaseImportFile(r.data[0]).then((res) => {
+            importBtn.disabled = false;
+            importBtn.textContent = originalText;
+            if (!res.ok) { AiduToast.show('导入失败: ' + res.error, 'error'); return; }
+            const s = res.data;
+            AiduToast.show(
+              `已导入 ${s.imported} 条新词(跳过 ${s.skipped_existing} 条已存在, 共读到 ${s.total_rows} 行)`,
+              'success'
+            );
+            this._loadDictBaseSection(container);
+          });
+        });
+      };
+      sec.appendChild(importBtn);
+      container.appendChild(sec);
+
+      AiduMiscService.dictBaseStats().then((res) => {
+        if (!res.ok) { statLine.textContent = '统计失败: ' + res.error; return; }
+        const rows = res.data || [];
+        const total = rows.reduce((s, r) => s + r.count, 0);
+        const label = { seed: '种子(ECDICT)', llm: '查词积累', custom: '自定义导入' };
+        const parts = rows.map((r) => `${label[r.source] || r.source} ${r.count}`).join(' · ');
+        statLine.textContent = total
+          ? `共 ${total} 词条 (${parts})`
+          : '基底暂无数据(应用启动时会自动种入 ECDICT, 若一直空请检查日志)';
+      }).catch(() => { statLine.textContent = '统计失败'; });
     }
 
     _renderModelDirs(dirsEl) {

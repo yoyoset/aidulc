@@ -630,6 +630,8 @@ fn main() {
             commands::misc::doc_parser_install,
             commands::misc::gpu_status,
             commands::misc::gpu_kill_process,
+            commands::misc::dict_base_import_file,
+            commands::misc::dict_base_stats,
             ipc::commands::profile_upsert,
             ipc::commands::profile_list,
             ipc::commands::profile_delete,

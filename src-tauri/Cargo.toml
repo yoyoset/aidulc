@@ -23,6 +23,10 @@ rfd = "0.15"
 base64 = "0.22"
 zip = "2"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+# 2026-08-21 (查词三层重构, 用户导入自定义词典文件): 真正的 CSV 解析(带引号内嵌
+# 逗号/换行, 见 ECDICT translation 列), 不用手写 split(',') 这种会在真实数据上
+# 静默错位的土办法。
+csv = "1.3"
 
 [profile.release]
 opt-level = 2

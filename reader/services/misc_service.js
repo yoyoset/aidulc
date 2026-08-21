@@ -46,6 +46,10 @@
     // 2026-08-20: 打开书时探测显卡占用 (用户本地查词被外部 llama-server 挤占显存排查出的功能)
     gpuStatus() { return AiduBridge.invoke('gpu_status'); },
     gpuKillProcess(pid) { return AiduBridge.invoke('gpu_kill_process', { pid }); },
+    // 2026-08-21 (查词三层重构, 用户: "设置里增加字典文件的选择"): 导入自定义
+    // 词典文件到全局基底 + 查基底统计(种子/自己积累各多少词)。
+    dictBaseImportFile(path) { return AiduBridge.invoke('dict_base_import_file', { path }); },
+    dictBaseStats() { return AiduBridge.invoke('dict_base_stats'); },
   };
 
   global.AiduMiscService = MiscService;

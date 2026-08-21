@@ -226,6 +226,29 @@ pub fn gpu_kill_process(pid: u32) -> Result<(), String> {
     crate::infrastructure::gpu_check::kill_process(pid)
 }
 
+/// 2026-08-21 (用户: "设置里增加字典文件的选择"): 导入用户自己的词典文件, 追加进
+/// 全局词典基底(不覆盖已有词条)。支持 JSONL(同 resources/dict_seed.jsonl 形状)
+/// 或 CSV(表头含 word + translation/meaning/definition/释义 任一列)。
+#[tauri::command]
+pub fn dict_base_import_file(
+    db: State<crate::store::Db>,
+    path: String,
+) -> Result<serde_json::Value, String> {
+    let stats =
+        crate::store::dict_base_repo::DictBaseRepo::new(db.inner()).import_custom_file(&path)?;
+    serde_json::to_value(stats).map_err(|e| e.to_string())
+}
+
+/// 词典基底统计(按来源分组), 设置页展示"当前基底多少词、种子/自己积累各多少"。
+#[tauri::command]
+pub fn dict_base_stats(db: State<crate::store::Db>) -> Result<serde_json::Value, String> {
+    let rows = crate::store::dict_base_repo::DictBaseRepo::new(db.inner()).stats()?;
+    Ok(serde_json::json!(rows
+        .into_iter()
+        .map(|(source, count)| serde_json::json!({ "source": source, "count": count }))
+        .collect::<Vec<_>>()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::find_prep_venv_python;

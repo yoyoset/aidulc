@@ -68,6 +68,192 @@ impl<'a> DictBaseRepo<'a> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ImportStats {
+    pub imported: usize,
+    pub skipped_existing: usize,
+    pub total_rows: usize,
+}
+
+impl<'a> DictBaseRepo<'a> {
+    /// 2026-08-21 (用户: "设置里增加字典文件的选择"): 导入用户自己的词典文件,
+    /// 追加进基底(跟种子/别人查过的词共存, INSERT OR IGNORE——不覆盖已有词条,
+    /// 只补充新词/生僻词)。支持两种格式, 按内容自动判断:
+    ///   - JSONL: 每行一个 JSON 对象, 形状同 resources/dict_seed.jsonl
+    ///     (word/phonetic/pos/meanings, meanings 是数组)。
+    ///   - CSV: 表头里找 word 列 + 释义列(translation/meaning/meanings/definition/
+    ///     释义 任一, 大小写不敏感), phonetic/pos 列可选。用 csv 库解析(不是手写
+    ///     split(',')——ECDICT 这类词典的释义字段常见内嵌逗号/换行, 裸 split 会
+    ///     悄悄错位)。
+    pub fn import_custom_file(&self, path: &str) -> Result<ImportStats, String> {
+        let conn = self.db.conn.lock().unwrap();
+        import_file_on_conn(&conn, path)
+    }
+
+    /// 基底统计(按来源分), 给设置页展示"当前基底有多少词、种子/自己积累各多少"。
+    pub fn stats(&self) -> Result<Vec<(String, i64)>, String> {
+        let conn = self.db.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT source, COUNT(*) FROM dict_base GROUP BY source ORDER BY source")
+            .map_err(|e| format!("查基底统计失败: {e}"))?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(|e| format!("查基底统计失败: {e}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("查基底统计失败: {e}"))
+    }
+}
+
+fn import_file_on_conn(conn: &Connection, path: &str) -> Result<ImportStats, String> {
+    let content = std::fs::read_to_string(path).map_err(|e| format!("读文件失败: {e}"))?;
+    let lower = path.to_lowercase();
+    let looks_jsonl = lower.ends_with(".jsonl")
+        || lower.ends_with(".ndjson")
+        || content.trim_start().starts_with('{');
+    if looks_jsonl {
+        import_jsonl_on_conn(conn, &content)
+    } else {
+        import_csv_on_conn(conn, &content)
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct CustomJsonlRow {
+    word: String,
+    #[serde(default)]
+    phonetic: String,
+    #[serde(default)]
+    pos: String,
+    #[serde(default)]
+    meanings: Vec<String>,
+    #[serde(default)]
+    phrases: Vec<String>,
+}
+
+fn import_jsonl_on_conn(conn: &Connection, content: &str) -> Result<ImportStats, String> {
+    let mut total_rows = 0usize;
+    let mut imported = 0usize;
+    let mut stmt = conn
+        .prepare(
+            "INSERT OR IGNORE INTO dict_base (word, pos, phonetic, meanings, phrases, source, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'custom', ?6)",
+        )
+        .map_err(|e| format!("导入准备语句失败: {e}"))?;
+    let now = crate::store::now_ms_for_store();
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let row: CustomJsonlRow = match serde_json::from_str(line) {
+            Ok(r) => r,
+            Err(_) => continue, // 单行坏数据跳过, 不拖垮整个导入
+        };
+        let word = row.word.trim().to_lowercase();
+        if word.is_empty() || row.meanings.is_empty() {
+            continue;
+        }
+        total_rows += 1;
+        let n = stmt
+            .execute(params![
+                word,
+                row.pos,
+                row.phonetic,
+                serde_json::to_string(&row.meanings).unwrap_or_else(|_| "[]".into()),
+                serde_json::to_string(&row.phrases).unwrap_or_else(|_| "[]".into()),
+                now,
+            ])
+            .map_err(|e| format!("导入失败 (word={word}): {e}"))?;
+        imported += n;
+    }
+    Ok(ImportStats {
+        imported,
+        skipped_existing: total_rows - imported,
+        total_rows,
+    })
+}
+
+const WORD_HEADERS: &[&str] = &["word", "headword", "单词"];
+const MEANING_HEADERS: &[&str] = &["translation", "meaning", "meanings", "definition", "释义"];
+const PHONETIC_HEADERS: &[&str] = &["phonetic", "ipa", "音标"];
+const POS_HEADERS: &[&str] = &["pos", "词性"];
+
+fn find_col(headers: &csv::StringRecord, candidates: &[&str]) -> Option<usize> {
+    headers.iter().position(|h| {
+        let h = h.trim().to_lowercase();
+        candidates.iter().any(|c| *c == h)
+    })
+}
+
+/// 拆多义项: 真换行 + 常见字面量转义(\r\n / \n 两种都当分隔符, ECDICT 类词典
+/// 混用过——build_seed.py 处理 ECDICT 种子时踩过同样的坑)。
+fn split_meanings(raw: &str) -> Vec<String> {
+    let norm = raw
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .replace("\\r\\n", "\n")
+        .replace("\\n", "\n");
+    norm.split('\n')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn import_csv_on_conn(conn: &Connection, content: &str) -> Result<ImportStats, String> {
+    let mut rdr = csv::ReaderBuilder::new()
+        .flexible(true)
+        .from_reader(content.as_bytes());
+    let headers = rdr
+        .headers()
+        .map_err(|e| format!("读表头失败: {e}"))?
+        .clone();
+    let word_idx = find_col(&headers, WORD_HEADERS)
+        .ok_or_else(|| "找不到「word」列 (支持列名: word/headword/单词)".to_string())?;
+    let meaning_idx = find_col(&headers, MEANING_HEADERS).ok_or_else(|| {
+        "找不到释义列 (支持列名: translation/meaning/meanings/definition/释义)".to_string()
+    })?;
+    let phonetic_idx = find_col(&headers, PHONETIC_HEADERS);
+    let pos_idx = find_col(&headers, POS_HEADERS);
+
+    let mut total_rows = 0usize;
+    let mut imported = 0usize;
+    let mut stmt = conn
+        .prepare(
+            "INSERT OR IGNORE INTO dict_base (word, pos, phonetic, meanings, phrases, source, updated_at)
+             VALUES (?1, ?2, ?3, ?4, '[]', 'custom', ?5)",
+        )
+        .map_err(|e| format!("导入准备语句失败: {e}"))?;
+    let now = crate::store::now_ms_for_store();
+    for rec in rdr.records() {
+        let rec = match rec {
+            Ok(r) => r,
+            Err(_) => continue, // 单行解析失败(比如引号没配平)跳过, 不拖垮整个导入
+        };
+        let word = rec.get(word_idx).unwrap_or("").trim().to_lowercase();
+        let meanings = split_meanings(rec.get(meaning_idx).unwrap_or(""));
+        if word.is_empty() || meanings.is_empty() {
+            continue;
+        }
+        total_rows += 1;
+        let phonetic = phonetic_idx.and_then(|i| rec.get(i)).unwrap_or("").trim();
+        let pos = pos_idx.and_then(|i| rec.get(i)).unwrap_or("").trim();
+        let n = stmt
+            .execute(params![
+                word,
+                pos,
+                phonetic,
+                serde_json::to_string(&meanings).unwrap_or_else(|_| "[]".into()),
+                now,
+            ])
+            .map_err(|e| format!("导入失败 (word={word}): {e}"))?;
+        imported += n;
+    }
+    Ok(ImportStats {
+        imported,
+        skipped_existing: total_rows - imported,
+        total_rows,
+    })
+}
+
 fn get_on_conn(conn: &Connection, word: &str) -> Option<DictBaseEntry> {
     conn.query_row(
         "SELECT word, pos, phonetic, meanings, phrases, source FROM dict_base WHERE word = ?1",
@@ -221,6 +407,93 @@ mod tests {
             .expect("bring 应该在 ECDICT 种子里(实测确认过)");
         assert_eq!(got.source, "seed");
         assert!(!got.meanings.is_empty());
+    }
+
+    #[test]
+    fn import_jsonl_appends_new_words_and_ignores_existing() {
+        let db = temp_db();
+        let repo = DictBaseRepo::new(&db);
+        // 预先有一条(模拟种子/别人已经查过), 导入不该覆盖它。
+        repo.upsert_if_absent("existing", "NOUN", "/old/", &["旧释义".into()], &[])
+            .unwrap();
+        let path =
+            std::env::temp_dir().join(format!("aidulc_custom_dict_{}.jsonl", std::process::id()));
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"word\": \"existing\", \"phonetic\": \"/new/\", \"pos\": \"VERB\", \"meanings\": [\"新释义\"]}\n",
+                "{\"word\": \"newword\", \"phonetic\": \"/nw/\", \"pos\": \"NOUN\", \"meanings\": [\"新词\"], \"phrases\": [\"new word up\"]}\n",
+                "\n",
+                "{\"word\": \"\", \"meanings\": [\"该行应跳过(空词)\"]}\n",
+            ),
+        )
+        .unwrap();
+        let stats = repo.import_custom_file(path.to_str().unwrap()).unwrap();
+        assert_eq!(stats.total_rows, 2, "空词那行不该计入");
+        assert_eq!(stats.imported, 1, "existing 已存在, 只有 newword 真的插入");
+        assert_eq!(stats.skipped_existing, 1);
+        assert_eq!(
+            repo.get("existing").unwrap().phonetic,
+            "/old/",
+            "已有词条不该被导入覆盖"
+        );
+        let nw = repo.get("newword").expect("新词应导入成功");
+        assert_eq!(nw.meanings, vec!["新词"]);
+        assert_eq!(nw.phrases, vec!["new word up"]);
+        assert_eq!(nw.source, "custom");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn import_csv_with_ecdict_style_headers_and_embedded_commas() {
+        let db = temp_db();
+        let repo = DictBaseRepo::new(&db);
+        let path =
+            std::env::temp_dir().join(format!("aidulc_custom_dict_{}.csv", std::process::id()));
+        // 释义字段内嵌逗号(现实 ECDICT 数据的常态), 必须用真 CSV 解析而不是裸 split(',')
+        // 才能拿到完整字段(不然 "带来, 产生" 会被逗号切成两截, 数据错位)。
+        std::fs::write(
+            &path,
+            "word,phonetic,translation,pos\nbring,briŋ,\"带来, 产生\",VERB\n",
+        )
+        .unwrap();
+        let stats = repo.import_custom_file(path.to_str().unwrap()).unwrap();
+        assert_eq!(stats.imported, 1);
+        let got = repo.get("bring").expect("应导入成功");
+        assert_eq!(got.phonetic, "briŋ");
+        assert_eq!(
+            got.meanings,
+            vec!["带来, 产生"],
+            "带内嵌逗号的引号字段不该被裸逗号拆碎"
+        );
+        assert_eq!(got.source, "custom");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn import_csv_missing_word_column_gives_readable_error() {
+        let db = temp_db();
+        let repo = DictBaseRepo::new(&db);
+        let path =
+            std::env::temp_dir().join(format!("aidulc_custom_dict_bad_{}.csv", std::process::id()));
+        std::fs::write(&path, "foo,bar\n1,2\n").unwrap();
+        let err = repo
+            .import_custom_file(path.to_str().unwrap())
+            .expect_err("没有 word 列应该报可读错误, 不是崩溃");
+        assert!(err.contains("word"), "{err}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn stats_groups_by_source() {
+        let db = temp_db();
+        let repo = DictBaseRepo::new(&db);
+        repo.upsert_if_absent("a", "", "", &["x".into()], &[])
+            .unwrap();
+        repo.upsert_if_absent("b", "", "", &["y".into()], &[])
+            .unwrap();
+        let s = repo.stats().unwrap();
+        assert_eq!(s, vec![("llm".to_string(), 2)]);
     }
 
     #[test]

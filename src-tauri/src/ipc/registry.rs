@@ -620,6 +620,16 @@ pub const COMMANDS: &[CommandInfo] = &[
         domain: "运行时",
         desc: "2026-08-20: 按 PID 关闭一个进程(用户在显卡占用提示里点了才调, 不自动执行)",
     },
+    CommandInfo {
+        path: "commands::misc::dict_base_import_file",
+        domain: "查词",
+        desc: "2026-08-21: 导入用户自己的词典文件(JSONL/CSV)到全局词典基底, 追加不覆盖",
+    },
+    CommandInfo {
+        path: "commands::misc::dict_base_stats",
+        domain: "查词",
+        desc: "2026-08-21: 词典基底统计(按来源分组: seed/llm/custom 各多少词)",
+    },
     // ---- 设置/Profile/阅读状态/传输 (ipc/commands.rs) ----
     CommandInfo {
         path: "ipc::commands::profile_upsert",

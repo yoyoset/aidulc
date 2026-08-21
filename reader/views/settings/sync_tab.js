@@ -268,6 +268,11 @@
                 showPairModal(r.data);
               });
             };
+            // 2026-08-21 (用户: "你能先给我URL地址吗? 然后再是可以选择性生成二维码"):
+            // 之前把链接和二维码一起塞进弹窗, 二维码万一渲染失败(内容过长)整块显示一句
+            // 报错文案, 链接反而被挤到不起眼的位置。改成链接始终先给、始终显眼(复制
+            // 按钮就在旁边), 二维码折成"生成二维码"按钮按需展开——二维码数据其实已经
+            // 随这次调用一起返回了(纯本地渲染, 不是另一次网络请求), 只是展示时机延后。
             const showPairModal = (d) => {
               const ov = document.createElement('div');
               ov.className = 'modal-overlay';
@@ -277,17 +282,24 @@
               box.setAttribute('aria-modal', 'true');
               const title = el('h2', 'modal-title', '手机扫码连接');
               const body = el('div', 'book-settings-body');
-              const qrWrap = el('div', 'pair-qr-wrap');
-              qrWrap.innerHTML = d.qr_svg || '<span class="profile-meta">二维码生成失败 (内容过长), 请用下方链接或手动配对。</span>';
+              const linkRow = el('div', 'pair-link-row');
               const link = el('div', 'pair-link', d.qr_content || '');
-              const warn = el('div', 'pair-warn', '书签里带 token = 拿到这个链接的人就能读你的词库 (老 AIDU 同款做法)。只在信任的手机上使用; 用完随时可踢掉这台设备。');
-              const actions = el('div', 'modal-actions');
               const copyBtn = el('button', 'btn-small', '复制链接');
               copyBtn.onclick = () => {
                 navigator.clipboard.writeText(d.qr_content || '').then(() => {
                   AiduToast.show('配对链接已复制', 'success');
                 }).catch(() => AiduToast.show('复制失败, 请手动选中链接', 'error'));
               };
+              linkRow.append(link, copyBtn);
+              const warn = el('div', 'pair-warn', '书签里带 token = 拿到这个链接的人就能读你的词库 (老 AIDU 同款做法)。只在信任的手机上使用; 用完随时可踢掉这台设备。');
+              const qrToggle = el('button', 'btn-small', '生成二维码');
+              const qrWrap = el('div', 'pair-qr-wrap hidden');
+              qrToggle.onclick = () => {
+                qrWrap.classList.remove('hidden');
+                qrWrap.innerHTML = d.qr_svg || '<span class="profile-meta">二维码生成失败 (内容过长), 用上面的链接手动配对。</span>';
+                qrToggle.disabled = true;
+              };
+              const actions = el('div', 'modal-actions');
               const kickBtn = el('button', 'btn-small btn-danger', '踢掉这台设备');
               kickBtn.onclick = () => {
                 kickBtn.disabled = true;
@@ -305,8 +317,8 @@
               };
               const close = el('button', 'btn-small', '关闭');
               close.onclick = () => ov.remove();
-              actions.append(copyBtn, kickBtn, close);
-              body.append(qrWrap, link, warn);
+              actions.append(kickBtn, close); // 复制按钮已挪到链接行, 这里只放踢除/关闭
+              body.append(linkRow, warn, qrToggle, qrWrap);
               box.append(title, body, actions);
               ov.appendChild(box);
               ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });

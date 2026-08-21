@@ -130,8 +130,14 @@
 }
 .profile-actions { display: flex; gap: 6px; }
 
-/* ---- P0-C (2026-08-10): 手机扫码配对弹窗 ---- */
+/* ---- P0-C (2026-08-10): 手机扫码配对弹窗 ----
+   2026-08-21 (用户: "先给我 URL 地址, 再选择性生成二维码"): 链接始终先显示,
+   二维码折成按需展开——.pair-qr-wrap.hidden 才需要这条(本文件之前没有全局
+   .hidden 工具类, 只在这个弹窗内需要, 就近定义)。 */
+.pair-link-row { display: flex; align-items: center; gap: 8px; }
+.pair-link-row .pair-link { flex: 1; }
 .pair-qr-wrap { display: flex; justify-content: center; padding: 8px 0; }
+.pair-qr-wrap.hidden { display: none; }
 .pair-qr-wrap svg { width: 220px; height: 220px; border-radius: var(--md-sys-radius-sm); }
 .pair-link {
   font-size: var(--md-sys-font-size-label-m);

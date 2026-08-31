@@ -710,6 +710,14 @@ body::before {
 .preview-body { max-height: 60vh; overflow-y: auto; margin: 12px 0; }
 .preview-meta { font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 10px; }
 .preview-chapter { margin-bottom: 14px; }
+/* R3.3 处理前体检异常 (碎片章/巨章/无正文)。2026-08-31: 原本是 JS 里的内联 style,
+   带一个裸 hex 兜底值 —— css:no-raw-hex 门禁只扫 styles/*.css, 扫不到 JS 里的,
+   拆分 preview_modal.js 时顺手收进令牌体系。 */
+.preview-anomalies {
+  color: var(--md-sys-color-error);
+  margin: 8px 0;
+  font-size: 0.8rem;
+}
 .preview-ch-title { font-weight: 700; margin-bottom: 4px; }
 .preview-sentence { line-height: 1.6; margin: 3px 0; }
 .preview-more { color: var(--md-sys-color-outline); font-size: 0.8rem; }

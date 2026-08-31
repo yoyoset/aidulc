@@ -12,7 +12,7 @@
   "src-tauri/src/application/library_asset_service.rs": 662,
   "src-tauri/src/main.rs": 659,
   "reader/views/reader_view.js": 1230,
-  "reader/views/library_view.js": 1063,
+  "reader/views/library_view.js": 732,
   "reader/views/models_view.js": 1079,
   "reader/views/prep_view.js": 648,
   "reader/views/review_view.js": 546,

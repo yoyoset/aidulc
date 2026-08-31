@@ -78,6 +78,22 @@ pub const COMMANDS: &[CommandInfo] = &[
         domain: "书库",
         desc: "分块读音频(长章避免整文件跨 IPC)",
     },
+    // ---- 跟读时间轴校准 (commands/timing.rs) ----
+    CommandInfo {
+        path: "commands::timing::timing_offsets_list",
+        domain: "阅读",
+        desc: "取一本成品的全部时间轴校准锚点(打开书时一次)",
+    },
+    CommandInfo {
+        path: "commands::timing::timing_offset_set",
+        domain: "阅读",
+        desc: "落一条校准锚点(从某句起整体平移),返回该章锚点",
+    },
+    CommandInfo {
+        path: "commands::timing::timing_offset_reset",
+        domain: "阅读",
+        desc: "复位一章的时间轴校准",
+    },
     CommandInfo {
         path: "commands::library::read_image",
         domain: "书库",

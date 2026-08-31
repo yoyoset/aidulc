@@ -29,6 +29,7 @@ mod commands {
     pub mod reader;
     pub mod srs;
     pub mod sync_backend;
+    pub mod timing;
     pub mod vocab;
     pub mod vocab_audio;
 }
@@ -57,6 +58,7 @@ mod store {
     pub mod settings_repo;
     pub mod store_mod;
     pub mod sync_state_repo;
+    pub mod timing_repo;
     pub mod users_repo;
     pub mod vocab_repo;
     pub use store_mod::{now_ms_for_store, Db};
@@ -523,6 +525,9 @@ fn main() {
             commands::library::load_bookpack_chapter,
             commands::library::read_audio,
             commands::library::read_audio_range,
+            commands::timing::timing_offsets_list,
+            commands::timing::timing_offset_set,
+            commands::timing::timing_offset_reset,
             commands::library::read_image,
             commands::library::pick_files,
             commands::book_audit::book_audit_sources,

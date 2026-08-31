@@ -1110,6 +1110,37 @@ impl Db {
             )
             .map_err(|e| format!("迁移 v33 失败: {e}"))?;
         }
+        if version < 34 {
+            // 跟读时间轴人工校准锚点 (2026-08-31)。设计理由与"防无限成长"三条护栏
+            // 见 store/timing_repo.rs 头注释, 这里只放建表。
+            // 复合主键 = 反复微调走 UPSERT, 行数等于锚点数而不是点击次数;
+            // 最左前缀 edition_id 同时充当 list_for_edition 的索引, 不另建 index。
+            let has_table: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='timing_offsets'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            if has_table == 0 {
+                conn.execute_batch(
+                    "CREATE TABLE timing_offsets (
+                        edition_id TEXT NOT NULL,
+                        chapter_index INTEGER NOT NULL,
+                        from_sentence INTEGER NOT NULL,
+                        offset_ms INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY (edition_id, chapter_index, from_sentence)
+                    );",
+                )
+                .map_err(|e| format!("迁移 v34 失败: {e}"))?;
+            }
+            conn.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (34, strftime('%s','now')*1000)",
+                [],
+            )
+            .map_err(|e| format!("迁移 v34 失败: {e}"))?;
+        }
         Ok(())
     }
 }

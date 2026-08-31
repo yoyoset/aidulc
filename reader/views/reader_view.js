@@ -30,6 +30,11 @@
       this.renderer = null;
       this.container = null;
       this.onBack = null;
+      // 跟读时间轴校准 (2026-08-31): 锚点状态与落库编排, 见 views/reader/timing_controller.js
+      this.timing = new TimingController({
+        getBookId: () => this.bookId,
+        onStatus: (t) => this._setStatus(t),
+      });
       this._saveTimer = null;
       this._generation = 0;
       this._chapterGen = 0;
@@ -194,13 +199,15 @@
 
       const profileId = (this.bookpack.profile && this.bookpack.profile.id) || 'default';
       // M7 R19 (2026-08-08): 四个 fetch 互不依赖, 并行拉取 —— 打开大书首屏不再等串行 IPC。
-      const [rdRes, hlRes, sres, vres] = await Promise.all([
+      // 2026-08-31: 时间轴校准锚点并进这一组(通常 0 行), 不新增串行往返、不拖慢开书。
+      const [rdRes, hlRes, sres, vres, toRes] = await Promise.all([
         AiduReadingService.get(bookId),
         this.highlights.load(bookId),
         // F25: 阅读器设置是用户级偏好(字号/主题/粒度/儿童模式/显示模式), 一律读 'default',
         // 不按书 profile 读 —— 否则 kid 书永远拿不到设置页写给 'default' 的儿童取值。
         AiduSettingsService.get('default'),
         AiduDictionaryService.list(profileId),
+        AiduLibraryService.timingOffsetsList(bookId),
       ]);
       if (gen !== this._generation) return;
 
@@ -212,6 +219,9 @@
         const bm = rdRes.data.bookmarks;
         this._bookmarksByChapter = (bm && typeof bm === 'object' && !Array.isArray(bm)) ? bm : {};
       }
+
+      // 校准锚点按章分组进内存: 切章时直接取, 不再发 IPC。
+      this.timing.ingest(toRes && toRes.ok ? toRes.data : []);
 
       if (sres.ok && sres.data) this._applySettings(sres.data);
       else this._applySettings({
@@ -422,6 +432,14 @@
       notesBtn.textContent = '📕';
       notesBtn.title = '笔记(摘录)';
       notesBtn.onclick = () => this.highlights.togglePanel();
+      // 2026-08-31: 顶栏「⏱ 跟读校准」—— 高亮和声音对不上时从当前句起整体平移
+      const syncBtn = document.createElement('button');
+      syncBtn.className = 'rd-gear rd-sync-btn';
+      syncBtn.textContent = '⏱';
+      syncBtn.title = '跟读校准 (高亮和声音对不上时用)';
+      syncBtn.hidden = true; // 无音频的章节没有可校准的时间轴, 由 _loadChapter 按章开关
+      syncBtn.onclick = () => this.calibrator.toggle();
+      this.syncBtn = syncBtn;
       const gear = document.createElement('button');
       gear.className = 'rd-gear';
       gear.textContent = '⚙';
@@ -437,7 +455,7 @@
         this.settingsOverlay.setSettings(this._settings);
         this.settingsOverlay.toggle();
       };
-      top.append(back, title, today, count, bookmarksBtn, notesBtn, gear);
+      top.append(back, title, today, count, bookmarksBtn, notesBtn, syncBtn, gear);
       wrap.appendChild(top);
 
       // 正文容器 (滚动条归窗口)
@@ -476,6 +494,24 @@
         }),
       });
       wrap.appendChild(this.supportPanel.el);
+
+      // 跟读校准面板 (2026-08-31)。状态/落库在 views/reader/timing_controller.js,
+      // 时间计算在 core/timing_offsets.js(纯函数, 有单测), 这里只接线。
+      const nudge = (from, delta) => {
+        if (this.timing.nudge(this.sentences, this.chapterIndex, from, delta)) this.calibrator.refresh();
+      };
+      this.calibrator = new SyncCalibrator({
+        getAnchorIndex: () => this._anchorIndex,
+        getPlayheadMs: () => this.player.currentTimeMs,
+        getAnchors: () => this.timing.anchorsFor(this.chapterIndex),
+        onNudge: nudge,
+        onAlign: (from, ms) => nudge(from, AiduTimingOffsets.alignDelta(this.sentences, from, ms)),
+        onReset: () => {
+          this.timing.reset(this.sentences, this.chapterIndex);
+          this.calibrator.refresh();
+        },
+      });
+      wrap.appendChild(this.calibrator.el);
 
       // 页面设置浮层
       this.settingsOverlay = new SettingsOverlay({
@@ -629,6 +665,10 @@
       }
       const ch = res.data;
       this.sentences = ch.sentences;
+      // 2026-08-31: 人工校准的偏移在这里**一次性**平移进 sentence.audio(一趟 O(n)),
+      // 之后 _tick/highlightAt/findSentenceIndex 全部不受影响 —— 每帧零额外开销。
+      // 词时间轴是句内相对的, 句子一挪词自动跟着走, 不需要遍历词。
+      this.timing.applyTo(this.sentences, this.chapterIndex);
       this._chapterImages = ch.images || [];
       content.innerHTML = '';
       this.renderer = new ReaderRenderer(content);
@@ -658,6 +698,11 @@
       if (ch.audioFile) this.player.loadChapter(ch);
       else this.player.audio = null;
       if (this.globalStop) this.globalStop.setVisible(!!ch.audioFile);
+      // 校准入口跟着"本章有没有音频"走 (样书等无音频章节没有可校准的时间轴);
+      // 切章必须 refresh, 否则面板还显示上一章的偏移值。
+      if (this.syncBtn) this.syncBtn.hidden = !ch.audioFile;
+      if (!ch.audioFile) this.calibrator.hide();
+      else this.calibrator.refresh();
       this.rd.restoreVerified((this._verifiedMap && this._verifiedMap[this.chapterIndex]) || []);
       // UX7 #3: 本章书签从按章分组的 map 里读回 (不再是切章就清空不回填)。
       // K26: 条目现在是 [{i, at}, ...](带创建时间); restore() 内部处理新旧两种形状。

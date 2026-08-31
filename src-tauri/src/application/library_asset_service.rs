@@ -29,6 +29,11 @@ pub fn cleanup_orphans(db: &store::Db) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
         conn.execute(
+            "DELETE FROM timing_offsets WHERE edition_id NOT IN (SELECT id FROM editions)",
+            [],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
             "DELETE FROM jobs WHERE (edition_id IS NOT NULL AND edition_id NOT IN (SELECT id FROM editions))
                 OR (edition_id IS NULL AND NOT EXISTS (
                     SELECT 1 FROM books b WHERE b.kind='original' AND b.source_path=jobs.book_path
@@ -145,6 +150,13 @@ pub fn delete_edition(db: &store::Db, edition_id: &str) -> Result<Vec<String>, S
             .map_err(|e| e.to_string())?;
         conn.execute("DELETE FROM highlights WHERE book_key=?1", [edition_id])
             .map_err(|e| e.to_string())?;
+        // 2026-08-31: 时间轴校准锚点跟着成品走, 删成品必须一起删 —— 否则删书重导后
+        // 旧锚点会被新 edition_id 之外的孤儿行永久堆在库里 (无限成长)。
+        conn.execute(
+            "DELETE FROM timing_offsets WHERE edition_id=?1",
+            [edition_id],
+        )
+        .map_err(|e| e.to_string())?;
         conn.execute("DELETE FROM jobs WHERE edition_id=?1 OR output_dir IN (SELECT pack_dir FROM editions WHERE id=?1)", [edition_id]).map_err(|e| e.to_string())?;
         conn.execute("DELETE FROM editions WHERE id=?1", [edition_id])
             .map_err(|e| e.to_string())?;

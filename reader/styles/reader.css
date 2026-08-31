@@ -866,3 +866,90 @@ body.reader-active ::selection {
   outline-offset: 2px;
   transition: outline-color 0.2s ease;
 }
+
+/* ---- 跟读时间轴人工校准面板 (2026-08-31) ----
+   实测背景: 章节 opus 可能与时间轴阶跃式错开几秒到十几秒(见 core/timing_offsets.js),
+   用户读到错位处从当前句起平移一次即可管到章尾。面板固定右下, 不遮正文。 */
+.rd-calibrator {
+  position: fixed;
+  right: 24px;
+  bottom: 96px;
+  z-index: 310;
+  width: 232px;
+  padding: var(--md-sys-space-4);
+  border-radius: var(--md-sys-radius-md);
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  box-shadow: var(--md-sys-elevation-2);
+}
+.rd-calibrator[hidden] { display: none; }
+.rd-calibrator-head {
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-space-2);
+  margin-bottom: var(--md-sys-space-1);
+}
+.rd-calibrator-title {
+  font-size: var(--md-sys-font-size-label-l);
+  font-weight: 600;
+}
+.rd-calibrator-value {
+  margin-left: auto;
+  font-size: var(--md-sys-font-size-label-l);
+  font-variant-numeric: tabular-nums;
+  color: var(--md-sys-color-primary);
+}
+.rd-calibrator-value.is-zero { color: var(--md-sys-color-on-surface-variant); }
+.rd-calibrator-close {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-font-size-body-l);
+  line-height: 1;
+}
+.rd-calibrator-hint {
+  margin-bottom: var(--md-sys-space-2);
+  font-size: var(--md-sys-font-size-label-s);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.rd-calibrator-align {
+  width: 100%;
+  margin-bottom: var(--md-sys-space-2);
+  padding: var(--md-sys-space-2);
+  border: none;
+  border-radius: var(--md-sys-radius-sm);
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  font-size: var(--md-sys-font-size-label-l);
+  cursor: pointer;
+}
+.rd-calibrator-align:hover { filter: brightness(1.08); }
+.rd-calibrator-row {
+  display: flex;
+  gap: var(--md-sys-space-1);
+  margin-bottom: var(--md-sys-space-2);
+}
+.rd-calibrator-step {
+  flex: 1;
+  padding: var(--md-sys-space-1) 0;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-sm);
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font-size: var(--md-sys-font-size-label-s);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.rd-calibrator-step:hover { background: var(--md-sys-color-surface-variant); }
+.rd-calibrator-reset {
+  width: 100%;
+  padding: var(--md-sys-space-1) 0;
+  border: none;
+  background: none;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-font-size-label-s);
+  cursor: pointer;
+}
+.rd-calibrator-reset:hover { color: var(--md-sys-color-primary); }

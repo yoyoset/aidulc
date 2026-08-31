@@ -37,6 +37,15 @@
     setBookProfile(bookId, profileId) {
       return AiduBridge.invoke('library_book_set_profile', { bookId, profileId });
     },
+    // 2026-08-31 跟读时间轴人工校准 (见 core/timing_offsets.js)。
+    // list 在打开书时随已有的并行组一起拉一次(通常 0 行), 之后切章零 IPC。
+    timingOffsetsList(bookId) { return AiduBridge.invoke('timing_offsets_list', { bookId }); },
+    timingOffsetSet(bookId, chapterIndex, fromSentence, offsetMs) {
+      return AiduBridge.invoke('timing_offset_set', { bookId, chapterIndex, fromSentence, offsetMs });
+    },
+    timingOffsetReset(bookId, chapterIndex) {
+      return AiduBridge.invoke('timing_offset_reset', { bookId, chapterIndex });
+    },
   };
 
   global.AiduLibraryService = LibraryService;

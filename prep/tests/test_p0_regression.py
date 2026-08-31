@@ -104,7 +104,7 @@ class TestMapTimings:
         timings = [{"word": "a", "start_ms": 0, "end_ms": 100},
                    {"word": "daisy-chain", "start_ms": 100, "end_ms": 500},
                    {"word": "swings", "start_ms": 500, "end_ms": 800}]
-        words, uncovered = _map_timings_to_segments(timings, segments)
+        words, uncovered, _interp = _map_timings_to_segments(timings, segments)
         assert [w.seg_idx for w in words] == [0, 1, 2, 3, 4]
         assert uncovered == []
 
@@ -116,7 +116,7 @@ class TestMapTimings:
                    {"word": "it", "start_ms": 200, "end_ms": 350},
                    {"word": "in", "start_ms": 350, "end_ms": 500},
                    {"word": "it", "start_ms": 500, "end_ms": 650}]
-        words, uncovered = _map_timings_to_segments(timings, segments)
+        words, uncovered, _interp = _map_timings_to_segments(timings, segments)
         its = [w for w in words if w.seg_idx in (1, 3)]
         assert len(its) == 2
         assert uncovered == []

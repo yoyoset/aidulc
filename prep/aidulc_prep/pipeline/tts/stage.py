@@ -27,19 +27,25 @@ DUR_PER_CHAR_MAX = 0.3
 SILENCE_PLACEHOLDER_SECS = 0.5
 
 
-def _map_timings_to_segments(timings: list[dict], segments) -> tuple[list[WordTiming], list[int]]:
+def _map_timings_to_segments(
+    timings: list[dict], segments
+) -> tuple[list[WordTiming], list[int], list[int]]:
     """把 Kokoro 的 (word, start_ms, end_ms) 映射到 segments 下标。
 
-    用 core/word_alignment 的顺序贪心拼接匹配 (审查确认的坑: 旧实现精确匹配失败
-    直接 break, 导致 daisy-chain 之后所有词丢失)。返回 (WordTiming 列表, 未覆盖的
-    非标点 segment 下标)。
+    用 core/word_alignment 的顺序贪心拼接匹配 + 前视重同步 + 空洞插值
+    (两次踩过的坑: 旧实现精确匹配失败直接 break; 改成 continue 后指针仍原地卡死,
+    照样让整句从失配处起全丢时间轴 —— 详见 word_alignment 模块头注释)。
+
+    返回 (WordTiming 列表, 未覆盖的非标点 segment 下标, 靠插值补出来的下标)。
+    第三项是**近似值**, 必须单独计入质量指标 —— 插值让覆盖率恒为 100%, 不单独记的话
+    等于把对齐质量下降这件事藏起来, 以后回归了没人发现。
     """
-    ordered, uncovered = align_tts_words_to_segments(timings, segments)
+    ordered, uncovered, interpolated = align_tts_words_to_segments(timings, segments)
     word_timings = [
         WordTiming(seg_idx=t["seg_idx"], start_ms=t["start_ms"], end_ms=t["end_ms"])
         for t in ordered
     ]
-    return word_timings, uncovered
+    return word_timings, uncovered, interpolated
 
 
 def _write_silence_wav(path: str, seconds: float = SILENCE_PLACEHOLDER_SECS) -> None:
@@ -185,7 +191,7 @@ def synth_chapter(
             quality.add_failure(chapter.index, i, ["tts"], f"时长/字符比异常: {per_char:.3f}s/char")
             continue
 
-        words, uncovered = _map_timings_to_segments(timings, s.segments)
+        words, uncovered, interpolated = _map_timings_to_segments(timings, s.segments)
         start_ms = chapter_start_ms
         end_ms = start_ms + int(dur_s * 1000)
         s.audio = SentenceAudio(chapter=chapter.index, start_ms=start_ms, end_ms=end_ms)
@@ -202,6 +208,16 @@ def synth_chapter(
                 chapter.index, i, ["align"],
                 f"{len(uncovered)} 个词无时间轴: " + ", ".join(
                     s.segments[u].word for u in uncovered[:10]
+                ),
+            )
+        # 插值补出来的词: 覆盖率是 100% 了, 但那几个词的时间是**近似**的。单独记一条
+        # notice —— 不记的话插值等于把"对齐质量下降"这件事藏起来, 以后回归了没人发现。
+        # 用 notice 而不是 failure: 它不是错误 (高亮仍然单调、不冻结), 只是精度提示。
+        if interpolated:
+            quality.add_notice(
+                chapter.index, i, "align_interpolated",
+                f"{len(interpolated)} 个词靠插值补时间轴: " + ", ".join(
+                    s.segments[u].word for u in interpolated[:10]
                 ),
             )
         # 重试契约 (2026-08-13): 合成/对齐成功后清掉失败标记 (否则重跑仍粘着 tts/align 失败)

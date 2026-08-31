@@ -294,3 +294,64 @@ ch025:          opus−wav = +6                 ; 时间轴−wav = −1675  →
 ch025 那类(有 wav 却没写 audio checkpoint 的句子, 时间轴不认账)是 tts/bookpack 侧的
 **独立缺陷, 尚未修** —— 早前 ch006/ch011 的"尾部句 status=ok、磁盘有 wav、checkpoint
 无 audio 字段"是同一个病。
+
+## 2026-08-31 对齐器指针停滞根治 (word_alignment 重写)
+
+### 根因 (代码上可直接验证, 不是猜测)
+`align_tts_words_to_segments` 里 token 失配后 **`si` 原地不动**, 之后每个正常 token 都拿去
+和卡住的位置比、必然全败 → 整句从失配处起全丢时间轴。唯一恢复路径只有"跳过标点"。
+(2026-08-04 那次修复把 `break` 改成 `continue`, 只解决了"提前终止", 没解决"指针不推进"。)
+
+**ch7 #42 的确切机制**: spaCy 把 `little-miss-know-it-all` 切成 **9 个** segment
+(little/-/miss/-/know/-/it/-/all), 而 `MAX_SPAN = 6` —— 拼接最多试到 6 个, **永远拼不出
+这个词**, 必然失配。这条不需要跑 Kokoro 就能确认。
+
+### 实测触发的是缩写和连字符复合词, 不是拟声词
+狗叫台词实测是**好的**(9/9 全覆盖 + 能量包络逐格吻合), 早先怀疑它们是错的。
+真实失配 (Winn-Dixie 11 个位置 / The Giver 17 例):
+```
+ch018 #0   34 segs 只覆盖 6   "Gloria Dump's" 的 's 卡住 → 后面 28 个全丢
+ch007 #24  21 segs 覆盖 11    little-miss-know-it-all
+ch005 #30   4 segs 覆盖 3     wasn't 的 n't
+ch002/016/017/018/025  1-2 segs 覆盖 0  "Bad." / "Yes" / "Now."
+```
+**最后那类是另一回事**: 单词句 Kokoro 压根没吐 token, 没有任何锚点, 插值也救不了 ——
+照旧上报 uncovered 才是对的, 不要为了让覆盖率好看去硬填。
+
+### 三条修复
+1. `MAX_SPAN` 6 → 12: 直接覆盖多段连字符复合词。
+2. **前视窗口重同步** (`RESYNC_WINDOW=4`): 失配时在窗口内往后找落脚点, 不再原地卡死。
+   原来那条"跳过标点"是它的特例, 已并入。
+3. **锚点间空洞插值**: 两个成功锚点之间没对上的 segment 按字符比例分摊中间时间。
+
+### 两条防线 (都是被自己写的测试逼出来的)
+- **反误锚**: 短 token ("a"/"it"/"to") 满仓都是, 允许它跳着找落脚点几乎必然锚错, 而
+  **锚错比不匹配更糟**(后面全跟着错位)。所以 `len(tok) < 3` 只允许原地匹配。
+- **缩写附着成分要能跳过** (`CLITIC_PREFIXES`): spaCy 把缩写切成"词根 + 附着成分"
+  (`wasn't`→[was, n't], `Dump's`→[Dump, 's]), 这些成分**从不单独发音**, 和标点一样可
+  安全跳过。**第一版漏了这条**, 结果 `'s` 后面紧跟的短词 "I" 被挡住 —— 正是 ch018 #0
+  的形状。测试 `test_unmatchable_token_at_head_does_not_kill_the_rest` 抓到的。
+
+### 诚实边界
+- **只插值"两个锚点之间"的内部空洞**, 头尾空洞照旧上报 uncovered。尾部缺失通常意味着
+  Kokoro 真的没念那个词, 硬填等于伪造时间轴。
+- **只插非标点**: 标点本来就常常没时间轴 (`check_segment_coverage` 从不把标点算缺失),
+  给它补一个既无意义又会改变既有行为。第一版填了标点, 被既有测试
+  `test_punct_segment_between_words` 抓到。
+- **插值必须单独上报**: `align_tts_words_to_segments` 返回第三项 `interpolated`,
+  tts/stage 记成 `quality.add_notice(..., "align_interpolated", ...)` 进 `noticeCounts`。
+  插值让覆盖率恒为 100%, **不单独记等于把对齐质量下降藏起来**, 以后回归了没人发现。
+  用 notice 而不是 failure: 它不是错误(高亮仍单调、不冻结), 只是精度提示。
+
+### 真实数据验证 (拿 checkpoint 里的真 segment 列表 + 按 Kokoro 习惯合成的 token 流)
+```
+位置        segs  旧覆盖  新覆盖  插值   结果
+ch018 #0     34      6     31     0    全覆盖
+ch007 #24    21     11     18     0    全覆盖
+ch007 #42    42     22     41     0    全覆盖
+ch005 #30     4      3      4     0    全覆盖
+ch008 #21    16     14     14     0    全覆盖
+ch017 #100   55     53     51     0    全覆盖
+```
+**插值次数全是 0** —— 说明重同步 + MAX_SPAN 提升就已经精确对上了, 没有退化成近似值。
+插值是兜底, 不是主力。

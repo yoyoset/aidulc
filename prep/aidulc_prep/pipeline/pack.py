@@ -25,6 +25,11 @@ FFMPEG = "ffmpeg"  # 运行时依赖 (Phase 8 打包时绑定绝对路径)
 # job_orchestrator.rs 等), 这里(prep 这边唯一调 subprocess 的地方)漏掉了。
 _SUBPROCESS_KW = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
 
+# 缺失句的静音占位时长。_encode_chapter 写占位 wav 与 _chapter_opus_ok 算期望时长
+# 必须用同一个值 —— 两边对不上会让"完好的章"被判成陈旧、每次重跑都全量重编。
+# 与 tts/stage.py 的 SILENCE_PLACEHOLDER_SECS 是同一语义(那边推进时间轴, 这边补音频)。
+SILENCE_PLACEHOLDER_SECS = 0.5
+
 
 def _atomic_write_json(path: str, obj) -> None:
     """原子写 JSON (tmp + rename) — Bug fix 审查确认: 旧实现直接写, 崩溃留半截 JSON"""
@@ -237,49 +242,124 @@ def _copy_chapter_images(ch, images_dir: str, source_book: str) -> None:
         zf.close()
 
 
-def _chapter_opus_ok(out_dir: str, audio_dir: str, ch_index: int, sentence_count: int) -> bool:
-    """该章 opus 是否已存在且完整。opus(32kbps=4000B/s) ≈ wav 总量/24 —— wav 是 float32
-    (24000Hz×4B/s 单声道, tts/stage 用 sf.write float32), 不是 16-bit(48000B/s)。之前按
-    /12 (16-bit 口径) 算期望值恒偏大 2× → "已编码可跳过"永远不成立, 重试总是全量重编码。
+def _wav_duration_ms(path: str) -> float:
+    """读 wav 头拿时长 (只读头, 不读采样点)。读不出来返回 0。"""
+    import wave
+    try:
+        with wave.open(path) as w:
+            return w.getnframes() / float(w.getframerate()) * 1000.0
+    except Exception:
+        return 0.0
 
-    2026-08-19 (用户报"TTS 错位, 它读了章节标题"实测追出的第二个 bug): 这条字节量
-    校验只看**总字节数**的比例, 抓不住"章节被重新解析、句子数变少了, 但音频总量
-    变化幅度小于 10% 容差"这种情况——实测 Number the Stars 全书 19 章, 每章磁盘上都
-    比当前句数多 3~12 个孤儿 wav/checkpoint 文件(早前解析切出的句子比现在细, 后来
-    的分词修复合并/裁掉了尾部几句), 孤儿只占该章总字节 ~2%, 远低于 10% 容差, 靠
-    字节比例这条判据完全测不出来——继续判定"已完整, 跳过重编码", opus 停留在
-    8/13 的老版本, 跟当天已经改过的句子结构(和今天修的时间戳)完全对不上。
-    加一条硬性检查: 只要磁盘上存在**任何**索引 >= 当前句数的 sN 文件(不管字节量
-    差多少), 就说明这章音频是拿旧的、更大的句子集合编的, 必须重新编码——不能靠
-    比例容差, 这类"结构变了但总量凑巧接近"的情况正是容差本身失效的场景。"""
+
+def _find_ffprobe(ff: str | None) -> str | None:
+    """ffprobe 通常和 ffmpeg 同目录, 找不到再退 PATH。"""
+    if ff:
+        cand = os.path.join(os.path.dirname(ff), "ffprobe" + (".exe" if ff.lower().endswith(".exe") else ""))
+        if os.path.exists(cand):
+            return cand
+    from shutil import which
+    return which("ffprobe")
+
+
+def _opus_duration_ms(ff: str | None, path: str) -> float | None:
+    """opus 实际时长 (ms)。测不出来返回 None —— 调用方应据此判定"不可信, 重编"。"""
+    probe = _find_ffprobe(ff)
+    if not probe:
+        return None
+    try:
+        r = subprocess.run(
+            [probe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=30, **_SUBPROCESS_KW,
+        )
+        return float(r.stdout.strip()) * 1000.0
+    except Exception:
+        return None
+
+
+# 判定 opus 与输入 wav 是否吻合的时长容差。
+# 实测 Winn-Dixie 28 章: 真正是本轮编出来的章, 差值**稳定就是 +6ms**(opus 编码前导),
+# 没有一个例外; 而输入变过的章最小也差到 32~44ms、往上到 -13544ms。50ms 卡在这条清晰
+# 的分界上 —— 比编码噪声大一个量级, 比任何真实偏差小一个量级。
+# 不要为了少重编几章把它调大: 这个数字是拿实测分布定的, 不是拍的。
+OPUS_DURATION_TOLERANCE_MS = 50.0
+
+
+def _chapter_opus_ok(
+    out_dir: str, audio_dir: str, ch_index: int, sentence_count: int, ff: str | None = None
+) -> bool:
+    """该章 opus 是否已存在且**与当前输入吻合**, 可以跳过重编码。
+
+    2026-08-31 重写判据 (用户报 Because of Winn-Dixie "跟读错位且无法修正", 实测追因)。
+
+    旧判据是"opus 文件大小 >= 预期 * 0.9", 预期按 `total_wav / 24` 算。两个问题:
+
+    1. **字节率口径本身是错的**。注释断言"wav 是 float32(96000B/s)", 但 tts/stage.py
+       走 `sf.write(path, float32数组, SR)` —— soundfile 的 WAV 默认 subtype 是 PCM_16,
+       **数组是 float32 不代表文件是 float32**。实测 wav 头: audioFormat=1(PCM)、
+       位深=16、字节率=48000。所以真实期望应该是 total/12, 用 /24 让期望值只有真值
+       的一半 → 实际容差是 **55%** 而不是以为的 10%。
+    2. **就算口径对了, 用文件大小当缓存失效判据也是错的**。它只能看出"产物被截断",
+       看不出"产物是上一轮跑的、和现在的句子对不上"。
+
+    后果: 陈旧 opus 被判"完好"永远跳过重编码, 重跑备料也修不好 —— 这正是用户说的
+    "无法修正"。实测 Winn-Dixie 28 章里 4 章真坏(ch005 -3944ms / ch007 -9694ms /
+    ch016 -13544ms / ch025 +1682ms), 旧判据**一个都没抓到**; 全库扫描 10 本书共
+    137 章 opus 陈旧。
+
+    新判据直接比**时长** —— 这不是启发式, 它就是判定"坏"的那把尺子本身:
+    - 期望时长 = 逐句 wav 时长之和(缺失句按 0.5s 静音占位, 与 _encode_chapter 的拼接
+      规则严格一致), 与字节率/位深无关, 绕开上面第 1 类错误。
+    - 测不出实际时长(没有 ffprobe / 文件损坏) → 判定不可信, 重编。宁可多花几秒, 不留错位。
+
+    **为什么不用 mtime**(第一版写过, 拿真实数据验完删掉的): "opus 比输入 wav 旧就判陈旧"
+    看着很合理, 实测却把 28 章里的 24 章判成陈旧 —— 因为 Kokoro 是确定性的, **同样的
+    文本重新合成得到同样的音频**, wav 被重写不代表内容变了(ch001~ch004 的 wav 都比
+    opus 新, 时长却只差 -118/-68/-94/+82ms)。硬否决会让"重试不全量重编"这个优化基本
+    失效。它也提供不了加速: ch025 是 mtime 说完好、时长说坏, 所以 ffprobe 每章都得跑,
+    mtime 省不掉任何一次。既不安全也不省事, 整条删掉。
+
+    **为什么删掉了孤儿文件检查**(2026-08-19 加的那条: 磁盘上存在索引 >= 当前句数的 sN
+    文件就强制重编): 它是**代理指标**, 而时长是**直接测量**, 前者已被后者完全覆盖。
+    孤儿 wav 只是磁盘残留, 并不证明 opus 是拿它们编的 —— `_encode_chapter` 只遍历
+    `range(len(ch.sentences))`, 本来就不会把孤儿拼进去。真要是拿旧的、更大的句集编的,
+    多出来的句子是**以秒计**的时长差, 50ms 容差一定抓得到。留着它的代价是实测把 28 章
+    里的 21 个好章判成坏的(章节重新解析后普遍留 2~12 个孤儿), "重试不全量重编"这个
+    优化基本失效。它当初能立功, 是因为当时唯一的另一条判据(比文件大小)本身是坏的。
+    """
     out_path = os.path.join(audio_dir, f"ch_{ch_index:03d}.opus")
     if not os.path.exists(out_path):
         return False
     wav_dir = os.path.join(out_dir, "audio_raw", f"ch{ch_index:03d}")
     if not os.path.isdir(wav_dir):
         return False
-    total_wav = 0
-    for name in os.listdir(wav_dir):
-        if not name.endswith(".wav"):
-            continue
-        total_wav += os.path.getsize(os.path.join(wav_dir, name))
-        idx_str = name[1:6] if name[:1] == "s" and name[1:6].isdigit() else None
-        if idx_str is not None and int(idx_str) >= sentence_count:
-            return False  # 孤儿文件: 音频是拿旧的、更大的句子集合编的, 必须重编
-    if total_wav == 0:
+
+    # 期望时长: 逐句累加, 缺失句按静音占位 —— 与 _encode_chapter 的拼接规则严格一致。
+    # 只认精确的 s{i:05d}.wav: `_sil.wav` 是 _encode_chapter 编码过程中才写的占位文件,
+    # 它的时长已经通过"缺失句 += SILENCE_PLACEHOLDER_SECS"算进去了, 再数一遍就重复了。
+    expected_ms = 0.0
+    for i in range(sentence_count):
+        w = os.path.join(wav_dir, f"s{i:05d}.wav")
+        if os.path.exists(w):
+            expected_ms += _wav_duration_ms(w)
+        else:
+            expected_ms += SILENCE_PLACEHOLDER_SECS * 1000.0
+    if expected_ms <= 0:
         return False
-    expected = total_wav / 24
-    return os.path.getsize(out_path) >= expected * 0.9
+
+    actual_ms = _opus_duration_ms(ff, out_path)
+    if actual_ms is None:
+        return False  # 测不出来 = 不可信, 重编
+    return abs(actual_ms - expected_ms) <= OPUS_DURATION_TOLERANCE_MS
 
 
 def _encode_chapter(ff, ch, out_dir, audio_dir, bookpack_dir, emit, total_chapters=1):
     """合并一章的句 wav → 一条 opus。静音占位失败句 (0.3s 静音)。"""
     import time
     out_path = os.path.join(audio_dir, f"ch_{ch.index:03d}.opus")
-    # 已完成的章跳过 (重试时不全量重编码)。校验: opus 大小 ≈ wav 总量/12 (32kbps vs 48000B/s pcm),
-    # <90% 视为不完整 (超时 kill 的部分产物) → 重新编码; 磁盘上存在当前句数之外的孤儿
-    # wav 文件(章节被重新解析过, 句数变了)同样强制重编, 见 _chapter_opus_ok 说明。
-    if _chapter_opus_ok(out_dir, audio_dir, ch.index, len(ch.sentences)):
+    # 已完成的章跳过 (重试时不全量重编码)。判据 2026-08-31 重写成"比时长"而不是"比文件
+    # 大小", 见 _chapter_opus_ok 说明 —— 旧判据放行陈旧 opus, 是"跟读错位且无法修正"的根因。
+    if _chapter_opus_ok(out_dir, audio_dir, ch.index, len(ch.sentences), ff):
         if emit:
             emit({"type": "stage_progress", "ts": int(time.time() * 1000), "stage": "pack",
                   "current": ch.index + 1, "total": total_chapters})
@@ -291,7 +371,7 @@ def _encode_chapter(ff, ch, out_dir, audio_dir, bookpack_dir, emit, total_chapte
             wavs.append(wav)
         else:
             # 静音占位 (0.5s 静音 @24k)
-            _write_silence(os.path.join(out_dir, "audio_raw", f"ch{ch.index:03d}", f"s{i:05d}_sil.wav"), 0.5)
+            _write_silence(os.path.join(out_dir, "audio_raw", f"ch{ch.index:03d}", f"s{i:05d}_sil.wav"), SILENCE_PLACEHOLDER_SECS)
             wavs.append(os.path.join(out_dir, "audio_raw", f"ch{ch.index:03d}", f"s{i:05d}_sil.wav"))
 
     if not wavs:

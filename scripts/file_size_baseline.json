@@ -1,23 +1,53 @@
 {
-  "_comment": "docs/GOAL_2026-08-13_FILESIZE.md 的文件规模基线, 抄 check.ps1 里 clippy 基线同一套治理方式: 只能降不能加。这里登记的是已审计过、确认'长但没混域, 拆了反而伤可审计性/事务原子性'的正当例外 —— 事务链/顺序迁移/单一大命令域这类。不在这份清单里的文件按 scripts/check.ps1 里的默认阈值(见 file-size 检查步骤)判定, 超过默认阈值且没有登记进这里 = 门禁失败。新文件不要为了让门禁绿而随手加进这份清单, 要能说清楚'为什么拆了更糟'才能加。",
-  "src-tauri/src/store/store_mod.rs": 2061,
-  "src-tauri/src/ipc/registry.rs": 1112,
-  "src-tauri/src/infrastructure/data_migration.rs": 1363,
-  "src-tauri/src/commands/library.rs": 1123,
-  "src-tauri/src/application/job_orchestrator.rs": 1505,
-  "src-tauri/src/application/sync_service.rs": 1593,
-  "src-tauri/src/application/model_service.rs": 968,
-  "src-tauri/src/store/vocab_repo.rs": 506,
-  "src-tauri/src/application/dictionary_service.rs": 611,
-  "src-tauri/src/application/library_asset_service.rs": 662,
-  "src-tauri/src/main.rs": 659,
-  "reader/views/reader_view.js": 1230,
-  "reader/views/library_view.js": 732,
-  "reader/views/models_view.js": 1079,
-  "reader/views/prep_view.js": 648,
-  "reader/views/review_view.js": 546,
-  "reader/views/vocab_view.js": 612,
-  "prep/aidulc_prep/pipeline/loader/epub.py": 534,
-  "cloud/mobile/app.js": 559,
-  "src-tauri/src/commands/sync_backend.rs": 635
+  "_comment": "文件/函数规模治理配置。2026-08-31 重构过治理方式, 原因写在 _why, 改之前先读。",
+
+  "_why": [
+    "旧结构是 '文件 -> 最大行数' 的一张表, 规则是'只能降不能加'。实测它失效了:",
+    "审计当天 10 个文件同时超出登记值却没有任何人发现 —— 因为对 registry.rs(每加一条",
+    "命令就长)/store_mod.rs(每加一条迁移就长) 这类**结构性增长**的文件, 撞线是必然的,",
+    "于是每次加代码的人要么手动调大数字、要么无视门禁, 久而久之门禁常年是红的、大家",
+    "学会了不看它。一个没人看的门禁比没有门禁更糟, 它给人'有人管着'的错觉。",
+    "",
+    "而且文件总行数本身就是个代理指标。真正让代码难读难改的是**单个函数塞了太多事**:",
+    "settings_view.js 当年的病是一个 render() 塞了 5 个 tab, library_view.js 的病是三个",
+    "上百行的模态挤在一个类里 —— 两次都是函数级问题, 文件行数只是它的影子。",
+    "",
+    "所以改成两条判据:",
+    "  1. 文件行数: 未登记的文件一律 defaultMaxFileLines 硬上限 (这条最有价值 —— 它拦的",
+    "     是新长胖的文件)。登记进 exempt 的文件不再限行数, 但必须写明'为什么拆了更糟',",
+    "     且每次门禁都会把它们的当前行数**打印出来**, 让增长保持可见而不是悄悄发生。",
+    "  2. 函数行数: 单个函数不超过 maxFunctionLines; 超标函数**总数**不得增加",
+    "     (functionOverBaseline, 治理方式抄 clippy 基线那一套, 只能降不能加)。",
+    "     不按文件登记豁免清单 —— 免得又变成一份没人维护的名册。"
+  ],
+
+  "_rules": [
+    "往 exempt 里加文件: 要能说清'为什么拆了更糟', 通常是这三类之一 —— 拆分会破坏事务",
+    "原子性 / 破坏顺序可审计性 / 破坏校验脚本的路径耦合。图省事不算理由。",
+    "调 functionOverBaseline: 只能降。新函数超过上限说明它塞了多件事, 按职责拆开, 不是改数字。"
+  ],
+
+  "defaultMaxFileLines": 600,
+  "maxFunctionLines": 150,
+  "functionOverBaseline": 18,
+
+  "exempt": {
+    "src-tauri/src/store/store_mod.rs": "v1→v34 顺序迁移链, 顺序本身就是文档; 拆开就读不出'先后发生了什么'。每加一条真实迁移必然变长 —— 正是旧行数基线年年撞线的典型。",
+    "src-tauri/src/ipc/registry.rs": "F29 门禁校验用的命令注册表本身, CommandInfo.path 会被解析成文件路径去反查函数签名 —— 挪动命令的物理文件位置必须同步改这里的 path, 漏改不报错、只会让校验静默去错的文件里找。每加一条命令必然变长。",
+    "src-tauri/src/infrastructure/data_migration.rs": "跨表级联删除/迁移必须在单个事务里原子完成; 各 repo 各自锁 db.conn(std Mutex 不可重入), 在已持锁的事务里调 repo 会死锁。拆开会破坏事务原子性。",
+    "src-tauri/src/application/library_asset_service.rs": "同上, 级联删除路径 (数据丢失敏感, 有单测锁定行为)。",
+    "src-tauri/src/application/job_orchestrator.rs": "单一命令域 (备料任务编排), 方法数量正常、没混域。",
+    "src-tauri/src/application/sync_service.rs": "单一命令域 (同步), 没混域。",
+    "src-tauri/src/application/model_service.rs": "单一命令域 (模型管理), 没混域。",
+    "src-tauri/src/application/transfer_service.rs": "单一命令域 (导入导出/数据迁移), 没混域。",
+    "src-tauri/src/application/dictionary_service.rs": "单一命令域 (查词三层: 全局词典基底 / 个人词典 / 在线兜底), 没混域。",
+    "src-tauri/src/commands/library.rs": "单一命令域 (书库命令注册), 方法数量正常。",
+    "src-tauri/src/commands/sync_backend.rs": "单一命令域 (同步后端管理)。",
+    "src-tauri/src/main.rs": "组合根: 模块声明 + Tauri invoke_handler 注册表 + 启动装配。每加一条命令必然变长, 与 registry.rs 同源。",
+    "reader/views/reader_view.js": "阅读器组合根, 方法数量正常、没有 settings_view 那种巨型函数。",
+    "reader/views/library_view.js": "2026-08-31 已从 1192 拆到 732 (三个模态 + 导入导出移到 views/library/)。剩下的是书卡渲染这一个域。",
+    "reader/views/models_view.js": "单一域 (模型中心), 方法数量正常。",
+    "reader/views/prep_view.js": "单一域 (备料处理台), 方法数量正常。",
+    "reader/views/vocab_view.js": "单一域 (生词本), 方法数量正常。"
+  }
 }

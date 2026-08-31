@@ -77,32 +77,40 @@
 
 ## 文件规模(强制)
 
-`scripts/check.ps1` 的 `file-size` 一项扫描 `src-tauri/src/`、`reader/`(排除 `node_modules`、
-`tests/`、`*.test.js`)下所有 `.rs`/`.js` 文件,**默认上限 600 行**,超过即门禁失败。不是任何超过
-600 行的文件都必须拆——判断标准是"是不是真的塞了多个不相关域",不是行数本身(2026-08-13
-`docs/GOAL_2026-08-13_FILESIZE.md` 审计确认过):
+2026-08-31 重构过治理方式(旧的"每个大文件登记一个最大行数、只能降不能加"实测失效了:
+审计当天 10 个文件同时超出登记值却没人发现——对 `registry.rs`(每加一条命令就长)、
+`store_mod.rs`(每加一条迁移就长)这类**结构性增长**的文件,撞线是必然的,于是门禁常年
+是红的、大家学会了不看它。**一个没人看的门禁比没有门禁更糟,它给人"有人管着"的错觉**)。
 
+现在是两条判据,配置都在 `scripts/file_size_baseline.json`(那份文件的 `_why` 写了完整原委):
+
+**① 文件行数(`check.ps1` 的 `file-size`)**
+- 未登记的文件一律 `defaultMaxFileLines`(600)硬上限。这条最有价值——它拦的是**新长胖的文件**。
+- 登记进 `exempt` 的不再限行数,但**必须写明"为什么拆了更糟"**,通常是这三类之一:
+  拆分会破坏事务原子性 / 破坏顺序可审计性 / 破坏校验脚本的路径耦合。图省事不算理由。
+- 每次门禁都会把 exempt 文件的**当前行数打印出来**,让增长保持可见而不是悄悄发生。
+
+**② 函数行数(`check.ps1` 的 `fn-size`,跑 `scripts/fn_size_check.mjs`)**
+- 单个函数不超过 `maxFunctionLines`(150);超标函数**总数**不得增加
+  (`functionOverBaseline`,治理方式抄 clippy 基线那一套,**只能降不能加**)。
+- 不按文件登记豁免清单——免得又变成一份没人维护的名册。
+- 为什么补这条:文件总行数只是代理指标,真正让代码难读难改的是**单个函数塞了太多事**。
+  `settings_view.js` 当年的病是一个 `render()` 塞了 5 个 tab,`library_view.js` 的病是三个
+  上百行的模态挤在一个类里——两次都是函数级问题,文件行数只是它的影子。
+
+**判断标准仍然是"是不是真的塞了多个不相关域",不是行数本身**:
 - **该拆的例子**:原 `commands/reader.rs`(1710 行)实际注册了词典/生词本/背单词/同步后端管理/
-  日志五个不相关命令域,已拆成 `dictionary.rs`/`vocab.rs`/`srs.rs`/`sync_backend.rs`/`log.rs`/
-  `reader.rs`(瘦身);原 `settings_view.js`(1178 行)一个 `render()` 方法塞了 5 个设置页 tab,
-  已拆成 `reader/views/settings/{system,models,profiles,sync,reading}_tab.js`。
-- **正当例外(登记进 `scripts/file_size_baseline.json`,只能降不能加)**:`store_mod.rs`(v1→v29
-  顺序迁移链,顺序本身是文档——这份"只能降不能加"对这一个文件天然会随新迁移持续走高,
-  2026-08-14 加 v27 时已把基线从 1395 提到 1518,加 v28(K21, 生词本归并回 default 档案)时
-  再提到 1674,加 v29(K26, 书签升级带创建时间)时再提到 1811,加 v31(回填 batches.total_books)
-  时再提到 1905,原则不变: 只登记"确实新增了一条真实迁移"带来的行数,不为图省事随手加大。
-  **加 v31 时踩到的坑,后来者必看**: 7 个"撤旧版本重跑"的测试原本逐个列版本号删
-  `schema_migrations`(`WHERE version=26; =27; …=30`),新加一条迁移后 `MAX(version)` 仍等于
-  新版本号,**整条迁移链被跳过**,报出来的却是 `no such table: editions` 这类完全指不到根因的
-  错。已全部改成 `WHERE version >= N`,新迁移不必再回来改这 7 处)、`ipc/registry.rs`(F29 门禁校验用的注册表本身,`CommandInfo.path`
-  字段会被解析成文件路径去反查函数签名——**挪动任何命令的物理文件位置,必须同步改这里对应的
-  `path`,漏改不会报错,只会让 F29 校验静默去错的文件里找函数**)、`data_migration.rs`(单事务
-  级联删除)、`job_orchestrator.rs`/`commands/library.rs`/`application/model_service.rs`(单一
-  命令域,方法数量正常、没混域——`model_service.rs` 此前只在基线 JSON 里、没写进这份说明,
-  2026-08-14 加 K15 磁盘清理安全检查+3 条测试后从 817 涨到 910,顺带补上文字说明)、
-  `reader_view.js`/`library_view.js`/`models_view.js`/`prep_view.js`(方法数量正常, 没有
-  `settings_view.js` 那种巨型函数)等。新文件想加进这份基线,要能说清楚"拆了为什么更糟"
-  (通常是"拆分会破坏事务原子性/顺序可审计性/校验脚本的路径耦合"这三类理由之一),不是图省事。
+  日志五个不相关命令域,已拆成 `dictionary.rs`/`vocab.rs`/`srs.rs`/`sync_backend.rs`/`log.rs`;
+  原 `settings_view.js`(1178 行)一个 `render()` 塞了 5 个设置页 tab,已拆成
+  `reader/views/settings/{system,models,profiles,sync,reading}_tab.js`;
+  原 `library_view.js`(1192 行)一个类里同时装着书卡渲染、任务进度、三个巨型模态、导入导出、
+  备料启动、在线整本外发,2026-08-31 拆成 `views/library/{preview,edition_profile,book_settings}_modal.js`
+  + `import_export.js`,主文件降到 732 行。
+- **正当例外**见 `file_size_baseline.json` 的 `exempt`,每条都带理由。其中
+  `ipc/registry.rs` 有个坑必看:`CommandInfo.path` 字段会被 F29 校验解析成文件路径去反查函数
+  签名——**挪动任何命令的物理文件位置,必须同步改这里对应的 `path`,漏改不会报错,只会让
+  F29 校验静默去错的文件里找函数**。
+
 
 ## 前端(reader/)编码规约
 

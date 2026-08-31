@@ -64,42 +64,58 @@ Run-Check "cargo clippy (baseline<=$ClippyBaseline)" {
     }
 }
 
-# 3b. 单文件规模基线 (docs/GOAL_2026-08-13_FILESIZE.md, 2026-08-13): 抄 clippy 基线同一套
-# 治理方式 —— scripts/file_size_baseline.json 登记了审计过的"长但没混域, 拆了反而伤可
-# 审计性/事务原子性"的正当例外(顺序迁移链/F29 注册表/单事务级联删除等), 只能降不能加;
-# 不在这份清单里的文件超过默认阈值(600 行)即失败, 逼着新代码在变胖之前就被看见,
-# 不是攒到 1000+ 行才有人想起来管。范围: src-tauri/src、reader/(排除 node_modules 和
-# 前端独立测试文件, JS 测试不与生产代码同文件, 不需要像 Rust 那样排除 #[cfg(test)])。
-Run-Check "file-size (基线见 scripts/file_size_baseline.json)" {
+# 3b. 单文件规模 (2026-08-31 重构治理方式, 原委详见 scripts/file_size_baseline.json 的 _why)。
+# 旧做法是"每个大文件登记一个最大行数, 只能降不能加", 实测失效了: 审计当天 10 个文件同时
+# 超出登记值却没人发现 —— 对 registry.rs(每加一条命令就长)/store_mod.rs(每加一条迁移就长)
+# 这类结构性增长的文件, 撞线是必然的, 于是门禁常年是红的、大家学会了不看它。
+# 现在: 未登记文件一律 defaultMaxFileLines 硬上限(拦的是新长胖的文件, 这条最有价值);
+# 登记进 exempt 的不再限行数, 但必须写明"为什么拆了更糟", 且每次都把当前行数打印出来,
+# 让增长保持可见而不是悄悄发生。文件内部结构改由 3c 的函数长度门禁把关。
+# 范围: src-tauri/src、reader/(排除 node_modules 和前端独立测试文件)。
+Run-Check "file-size (未登记文件硬上限; exempt 见 scripts/file_size_baseline.json)" {
     $baselineJson = [System.IO.File]::ReadAllText("$root\scripts\file_size_baseline.json", [System.Text.Encoding]::UTF8)
     $baseline = $baselineJson | ConvertFrom-Json
-    $baselineMap = @{}
-    $baseline.PSObject.Properties | Where-Object { $_.Name -ne '_comment' } | ForEach-Object {
-        $baselineMap[$_.Name] = $_.Value
-    }
-    $defaultMax = 600
+    $exempt = @{}
+    $baseline.exempt.PSObject.Properties | ForEach-Object { $exempt[$_.Name] = $_.Value }
+    $defaultMax = $baseline.defaultMaxFileLines
     $violations = @()
+    $exemptSizes = @()
     $files = Get-ChildItem "$root\src-tauri\src" -Recurse -Include *.rs
     $files += Get-ChildItem "$root\reader" -Recurse -Include *.js |
         Where-Object { $_.FullName -notmatch '[\\/]node_modules[\\/]' -and $_.FullName -notmatch '[\\/]tests[\\/]' -and $_.Name -notlike '*.test.js' }
     foreach ($f in $files) {
         $rel = $f.FullName.Substring($root.Length + 1) -replace '\\', '/'
         $lines = (Get-Content $f.FullName | Measure-Object -Line).Lines
-        $max = if ($baselineMap.ContainsKey($rel)) { $baselineMap[$rel] } else { $defaultMax }
-        if ($lines -gt $max) {
-            $violations += "  $rel : $lines 行 (上限 $max)"
+        if ($exempt.ContainsKey($rel)) {
+            $exemptSizes += "  $rel : $lines 行"
+            continue
+        }
+        if ($lines -gt $defaultMax) {
+            $violations += "  $rel : $lines 行 (上限 $defaultMax)"
         }
     }
+    if ($exemptSizes.Count -gt 0) {
+        Write-Output "已登记豁免的文件 (不限行数, 但增长要看得见):"
+        $exemptSizes | Sort-Object | ForEach-Object { Write-Output $_ }
+    }
     if ($violations.Count -gt 0) {
-        Write-Output "超过文件规模基线:"
+        Write-Output "超过 $defaultMax 行且未登记豁免:"
         $violations | ForEach-Object { Write-Output $_ }
-        Write-Output "—— 新文件先看能不能按真实职责边界拆(参考 docs/GOAL_2026-08-13_FILESIZE.md);"
-        Write-Output "确认'长但没混域、拆了更糟'才登记进 scripts/file_size_baseline.json, 不要为了让门禁绿随手改数字。"
+        Write-Output "—— 先看能不能按真实职责边界拆(参考 docs/GOAL_2026-08-13_FILESIZE.md);"
+        Write-Output "确认'长但没混域、拆了更糟'再登记进 scripts/file_size_baseline.json 的 exempt, 并写明理由。"
         $global:LASTEXITCODE = 1
     } else {
-        Write-Output "全部文件在基线内 ($($files.Count) 个文件扫描)"
+        Write-Output "未登记文件全部在 $defaultMax 行内 (共扫描 $($files.Count) 个文件)"
         $global:LASTEXITCODE = 0
     }
+}
+
+# 3c. 单函数规模 (2026-08-31 新增)。文件行数是代理指标, 真正让代码难读难改的是**单个函数
+# 塞了太多事** —— settings_view.js 当年是一个 render() 塞 5 个 tab, library_view.js 是三个
+# 上百行的模态挤在一个类里, 两次都是函数级问题。这条判据直接对着病因, 且只有一个数字
+# (超标函数总数), 抄 clippy 基线那一套: 只能降不能加, 不按文件登记豁免名册。
+Run-Check "fn-size (单函数上限 + 超标计数只能降)" {
+    node "$root\scripts\fn_size_check.mjs"
 }
 
 # 4. Rust 产物构建 (R0, 2026-08-07): "门禁全绿"必须蕴含"exe 是最新的"。

@@ -61,6 +61,29 @@
   }
 
   /**
+   * 整章平移: 在**当前句现行偏移**的基础上叠加 deltaMs, 结果覆盖全章 (from = 0)。
+   *
+   * 2026-09-01 从"从当前句起生效"改成整章 (用户拍板)。原来的分段语义在实际使用中
+   * 有个躲不掉的坏处:
+   *
+   *   偏移在第 N 句处跳变 δ, 就意味着 N 之前那几句和 N 之后抢同一段时间。单调性修复
+   *   只能把其中一边压成零长度 —— 于是**往回退一句就没有声音**, 面板还告诉用户
+   *   "声音已经念过去了"。用户原话: "我这句读完返回到上一句, 你不出声应该不对吧"。
+   *
+   * 整章平移就没有接缝, 也就没有零长度句: 前面的句子跟着一起提前, 退回去照样能听。
+   * 代价是"已经读对的前半段"会跟着动 —— 用户明确表态这不要紧, 原话是"如果声音还是
+   * 错的话, 我再修正一下或者是复位就可以了"。
+   *
+   * base 取**当前句**的现行偏移而不是章首的: 库里可能还留着旧的分段锚点, 从当前听感
+   * 出发接着调才不会跳。
+   */
+  function shiftWhole(anchors, currentIndex, deltaMs) {
+    const cur = normalize(anchors);
+    const off = offsetAt(cur, currentIndex || 0) + Math.round(deltaMs);
+    return off === 0 ? [] : [{ from: 0, offset: off }];
+  }
+
+  /**
    * 把锚点应用到句子数组的 audio 时间上(**原地修改**,调用方传的是刚加载的章节数据)。
    *
    * 关键: core/timeline.js 的 findSentenceIndex 是二分查找,**要求 start_ms 单调不减**。
@@ -149,6 +172,7 @@
     offsetAt,
     normalize,
     nudge,
+    shiftWhole,
     applyToSentences,
     repairMonotonic,
     formatOffset,

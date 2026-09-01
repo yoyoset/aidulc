@@ -2692,42 +2692,37 @@ console.log('== 14. UX7 #3 (2026-08-13): 书签按章持久化 + 跨章遍历面
   check('UX7#3: 点跨章书签行 → 调 onJumpChapter(0, 1)', jumpCalls.length === 1 && jumpCalls[0][0] === 0 && jumpCalls[0][1] === 1, JSON.stringify(jumpCalls));
 }
 
-console.log('== 15. 跟读校准: 目标句冻结 + 观感方向 ==');
+console.log('== 15. 跟读校准: 整章平移 + 观感方向 ==');
 {
   load('core/timing_offsets.js');
   load('views/reader/sync_calibrator.js');
-  let highlight = 40;          // 高亮停在哪句 (播放推进时会变)
+  let current = 40;
   const nudges = [];
   const cal = new globalThis.SyncCalibrator({
-    getHighlightIndex: () => highlight,
-    getSentenceText: (i) => `They were there from when it was sentence ${i} and this tail should be cut off.`,
-    getAnchors: () => [{ from: 40, offset: -4832 }],
-    onNudge: (from, delta) => nudges.push([from, delta]),
+    getHighlightIndex: () => current,
+    getAnchors: () => [{ from: 0, offset: -4832 }],
+    onNudge: (idx, delta) => nudges.push([idx, delta]),
     onReset: () => {},
   });
   cal.show();
   // 读数说观感, 不摆裸 ±ms —— 负偏移 = 高亮提前
   check('校准: 读数用观感描述', cal.valueEl.textContent === '高亮提前 4.83s', cal.valueEl.textContent);
+  // 面板不再提"第 N 句": 正文里句子没有编号, 用户对不上; 且现在是整章平移
+  check('校准: 提示说整章平移, 不提"第 N 句"',
+    cal.hintEl.textContent.includes('整章') && !cal.hintEl.textContent.includes('句起生效'),
+    cal.hintEl.textContent);
 
-  // 回归: 通篇模式下高亮随播放前进, 微调仍必须落在**打开面板时冻结的那一句**上,
-  // 否则连按几次会在几个不同句上各建一条锚点 (实测库里 ch5 留下 55/56/57/60 四条)。
-  highlight = 47;
   const steps = queryAll(cal.el, '.rd-calibrator-step');
   steps[0].onclick();
+  current = 47;               // 播放推进
   steps[0].onclick();
-  check('校准: 微调目标冻结, 不随播放漂移', nudges.length === 2 && nudges[0][0] === 40 && nudges[1][0] === 40, JSON.stringify(nudges));
+  check('校准: 每次微调都取**当前**句当基准 (整章语义下不需要冻结)',
+    nudges.length === 2 && nudges[0][0] === 40 && nudges[1][0] === 47, JSON.stringify(nudges));
   // 四个按钮 = 提前2s / 提前0.5s / 延后0.5s / 延后2s
   check('校准: 「高亮提前」= 负偏移', nudges[0][1] === -2000, String(nudges[0][1]));
   steps[3].onclick();
   check('校准: 「高亮延后」= 正偏移', nudges[2][1] === 2000, String(nudges[2][1]));
   check('校准: 只剩微调 + 复位, 没有自动对齐按钮', queryAll(cal.el, '.rd-calibrator-align').length === 0);
-  // 收起再打开 = 把目标句改到当前句 (删掉自动对齐后, 这是唯一的改锚方式)
-  cal.hide();
-  cal.show();
-  check('校准: 收起再打开 → 目标句改到当前句', cal._from === 47, String(cal._from));
-  // 标签要给原文摘要, 不能只给序号 —— 正文里句子没有编号, 用户对不上"第 55 句"是哪句
-  check('校准: 目标句标签带原文摘要', cal.hintEl.textContent.includes('They were there from when it was'), cal.hintEl.textContent);
-  check('校准: 长句摘要被截断', cal.hintEl.textContent.includes('…'), cal.hintEl.textContent);
 }
 
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);

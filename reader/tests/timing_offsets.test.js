@@ -1,3 +1,20 @@
+  it('整章平移不产生零长度句 (章首被钳的除外), 退回上一句照样有音频', () => {
+    // 用户报"我这句读完返回到上一句, 你不出声应该不对吧"。根因是分段锚点在接缝处
+    // 必然把一边压成零长度 —— 整章平移没有接缝, 只有章首会被 0ms 钳住。
+    const s = mkSentences(60, 3000);
+    T.applyToSentences(s, T.shiftWhole([], 40, -13000));
+    const zero = [];
+    for (let i = 0; i < s.length; i++) {
+      const a = s[i].audio;
+      if (a.end_ms <= a.start_ms) zero.push(i);
+    }
+    // 平移 -13s 而每句 3s → 只有开头 4 句会被 0ms 钳住, 其余全部保持原长
+    expect(zero.every((i) => i < 5)).toBe(true);
+    for (const i of [10, 39, 40, 41, 59]) {
+      expect(s[i].audio.end_ms - s[i].audio.start_ms).toBe(3000);
+      expect(s[i].audio.start_ms).toBe(s[i].audio._base_start - 13000);
+    }
+  });
 // timing_offsets.js —— 跟读时间轴人工校准纯逻辑
 // 用例里的数字来自 2026-08-31 对 Because of Winn-Dixie 的真实测量(见 memory/pipeline.md):
 // ch007 在句 50 处一次性跳变 -9500ms; ch005 不是阶跃而是从句 34 起持续累积到 -3.9s
@@ -145,6 +162,28 @@ describe('applyToSentences', () => {
     s[1].audio = null;
     expect(() => T.applyToSentences(s, [{ from: 0, offset: 500 }])).not.toThrow();
     expect(s[0].audio.start_ms).toBe(500);
+  });
+});
+
+describe('shiftWhole —— 整章平移 (2026-09-01 取代分段锚点)', () => {
+  it('结果永远是单条 from=0 的锚点', () => {
+    expect(T.shiftWhole([], 40, -2000)).toEqual([{ from: 0, offset: -2000 }]);
+  });
+
+  it('基准取**当前句**的现行偏移, 接着调不跳', () => {
+    const cur = [{ from: 0, offset: -4000 }];
+    expect(T.shiftWhole(cur, 40, -500)).toEqual([{ from: 0, offset: -4500 }]);
+  });
+
+  it('库里留着旧的分段锚点时, 从当前句的听感接着调', () => {
+    // 旧数据形状: ch5 曾经存过 55/56/57/60 四条
+    const legacy = [{ from: 55, offset: -4832 }, { from: 60, offset: -4232 }];
+    expect(T.shiftWhole(legacy, 57, -500)).toEqual([{ from: 0, offset: -5332 }]);
+    expect(T.shiftWhole(legacy, 10, -500)).toEqual([{ from: 0, offset: -500 }]);
+  });
+
+  it('归零时不留空锚点 (不让行数无限长)', () => {
+    expect(T.shiftWhole([{ from: 0, offset: -500 }], 3, 500)).toEqual([]);
   });
 });
 

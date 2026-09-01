@@ -21,9 +21,12 @@
  * 高亮对齐"。**一个用不上的按钮比没有更糟**, 所以是删而不是留着当摆设。
  *
  * 另外两条设计约束是实测踩出来的, 改这个文件前先读:
- * - **校准目标句要冻结**。通篇模式下高亮随播放不断前进, 不冻结的话连按几次微调会在
- *   几个不同句上各建一条锚点 (实测库里 ch5 留下 55/56/57/60 四条)。目标句在**打开
- *   面板时**取当前句并冻结; 想换一句就收起再打开 (⏱ 按两下)。
+ * - **整章一起平移, 没有"从第 N 句起"**。2026-09-01 改的(用户拍板): 分段语义会在
+ *   接缝处把一边的句子压成零长度, 于是往回退一句就没有声音、面板还说"声音已经念过去
+ *   了"。整章平移没有接缝, 退回去照样能听。代价是已读对的前半段会跟着动 —— 用户明确
+ *   表态这不要紧: "如果声音还是错的话, 我再修正一下或者是复位就可以了"。
+ *   (这也顺带治了另一个毛病: 原来锚点按句冻结, 面板上写"从第 55 句起生效", 而正文里
+ *   句子并没有编号, 用户根本认不出第 55 句是哪句。)
  * - **面板里不出现裸的 ±ms**。"偏移 +0.5s"= 句子区间整体后移 = 用户看到的高亮**变晚**,
  *   数值方向和观感方向天生相反, 实测没人能一次按对。按钮和读数一律用观感说话。
  *
@@ -46,17 +49,14 @@
   class SyncCalibrator {
     /**
      * @param {object} deps {
-     *   getHighlightIndex(): number,   // 高亮此刻停在哪句 (打开面板时取一次, 之后冻结)
-     *   getSentenceText(i): string,    // 第 i 句原文 (面板要显示它, 光给句号没人认得出)
+     *   getHighlightIndex(): number,   // 当前句 (取现行偏移当基准, 每次微调都现取)
      *   getAnchors(): Array,           // 本章锚点
-     *   onNudge(fromSentence, deltaMs),// 叠加增量 (落库 + 重新应用)
+     *   onNudge(currentIndex, deltaMs),// 整章叠加增量 (落库 + 重新应用)
      *   onReset(),                     // 复位本章
      * }
      */
     constructor(deps) {
       this.deps = deps;
-      /** 校准目标句: 冻结值。所有微调都落到这一条锚点上, 不随播放漂移 (见文件头) */
-      this._from = 0;
       this.el = document.createElement('div');
       this.el.className = 'rd-calibrator';
       this.el.hidden = true;
@@ -132,33 +132,22 @@
     }
 
     _nudge(delta) {
-      if (this.deps.onNudge) this.deps.onNudge(this._from, delta);
+      if (this.deps.onNudge) this.deps.onNudge(this._current(), delta);
       this.refresh();
+    }
+
+    _current() {
+      const i = this.deps.getHighlightIndex ? this.deps.getHighlightIndex() : -1;
+      return i >= 0 ? i : 0;
     }
 
     /** 锚点变化后刷新显示 */
     refresh() {
       if (this.el.hidden) return; // 收起时不做无谓计算 (播放中每次切句都会调到这里)
-      const off = T().offsetAt(this.deps.getAnchors ? this.deps.getAnchors() : [], this._from);
+      const off = T().offsetAt(this.deps.getAnchors ? this.deps.getAnchors() : [], this._current());
       this.valueEl.textContent = T().describeOffset(off);
       this.valueEl.classList.toggle('is-zero', !off);
-      this.hintEl.textContent = this._fromLabel();
-    }
-
-    /**
-     * 校准目标句的人话标签。
-     *
-     * 2026-09-01 从"从第 55 句起生效"改成带原文摘要 —— 用户原话: "你这个句子的标签
-     * 没有意义, 没有人知道这第 55 句是什么"。正文里句子并没有编号, 光给一个序号,
-     * 用户没法把它和眼前的文字对上, 也就无从判断锚点打对没有。
-     */
-    _fromLabel() {
-      const get = this.deps.getSentenceText;
-      const raw = get ? (get(this._from) || '') : '';
-      const text = String(raw).replace(/\s+/g, ' ').trim();
-      const head = text.length > 34 ? text.slice(0, 34) + '…' : text;
-      const who = head ? `「${head}」` : `第 ${this._from + 1} 句`;
-      return `从 ${who} 起生效, 之前的不受影响 (收起再打开可改到当前句)`;
+      this.hintEl.textContent = '整章一起平移 —— 前后都跟着动, 退回上一句照样能听';
     }
 
     toggle() {
@@ -167,9 +156,6 @@
     }
 
     show() {
-      // 打开时把校准目标冻结在当前句, 之后微调不再随播放漂移。
-      const i = this.deps.getHighlightIndex ? this.deps.getHighlightIndex() : -1;
-      this._from = i >= 0 ? i : 0;
       this.el.hidden = false;
       this.refresh();
     }

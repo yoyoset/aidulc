@@ -9,6 +9,8 @@
  * 性能约定:
  * - 锚点在**开书时随已有的并行组一次性**拉回(通常 0 行), 之后切章零 IPC。
  * - 偏移在**章节加载时一次性**平移进 sentence.audio(一趟 O(n)), 每帧高亮零额外开销。
+ * - 2026-09-01 起是**整章一个偏移**(见 core/timing_offsets.js::shiftWhole), 表结构仍是
+ *   分段的(from_sentence 是主键的一部分), 只是现在恒写 0 —— 不动 schema 免一次迁移。
  * - 微调先本地应用(即时反馈, 用户正在听), 再后台落库。
  */
 (function (global) {
@@ -50,19 +52,30 @@
     }
 
     /**
-     * 从第 from 句起叠加 delta 毫秒。
+     * 整章平移 delta 毫秒 (在 currentIndex 句现行偏移的基础上叠加)。
      * 落库失败只提示、不回滚本地 —— "这一次阅读能对上"比"存住"更要紧。
      */
-    nudge(sentences, chapterIndex, from, delta) {
+    nudge(sentences, chapterIndex, currentIndex, delta) {
       if (!delta) return false;
       const T = global.AiduTimingOffsets;
-      const next = T.nudge(this.anchorsFor(chapterIndex), from, delta);
+      const prev = this.anchorsFor(chapterIndex);
+      const next = T.shiftWhole(prev, currentIndex, delta);
+      // 库里可能留着旧的分段锚点 (from > 0)。整章语义下它们必须先清掉, 否则
+      // timingOffsetSet 只 UPSERT from=0 那一行, 旧行还在, 下次开书又被读回来。
+      const hasSegmented = prev.some((a) => a.from !== 0);
       this.byChapter[String(chapterIndex)] = next;
       T.applyToSentences(sentences, next);
-      const off = T.offsetAt(next, from);
-      AiduLibraryService.timingOffsetSet(this.deps.getBookId(), chapterIndex, from, off)
-        .then((r) => { if (!r.ok) this._warn(r.error); })
-        .catch((e) => this._warn(e && e.message));
+      const off = next.length ? next[0].offset : 0;
+      const bookId = this.deps.getBookId();
+      const write = () =>
+        AiduLibraryService.timingOffsetSet(bookId, chapterIndex, 0, off)
+          .then((r) => { if (!r.ok) this._warn(r.error); })
+          .catch((e) => this._warn(e && e.message));
+      if (hasSegmented) {
+        AiduLibraryService.timingOffsetReset(bookId, chapterIndex).then(write).catch(write);
+      } else {
+        write();
+      }
       return true;
     }
 

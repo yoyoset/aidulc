@@ -227,11 +227,13 @@
       this.shadow.sentenceStarted(index);
       this._lastAnchorSi = index;
       this._onAnchorChange(index);
-      // 校准把这一句平移覆盖掉之后, 它可能没有音频区间 (end == start)。
+      // 零长度句 (end == start): 整章平移到章首之外时, 开头几句会被钳在 0ms 处。
       // 不守卫的话 _tick 第一帧就判越界 → 立刻 pause → play() 的 promise 被打断抛
-      // AbortError → 面板报"播放失败"。实测用户就是这么撞上的 (ch16 锚点 -13s)。
+      // AbortError → 面板报"播放失败"(实测用户撞上过)。
+      // 提示必须给**下一步怎么办**, 只说"声音已经念过去了"是把问题丢回给用户 ——
+      // 这是用户当场提的: "这个引导不太对吧, 是不是应该引导我该怎么做"。
       if (s.audio.end_ms <= s.audio.start_ms) {
-        this._onStatus('这一句校准后没有对应的音频区间 (声音已经念过去了)');
+        this._onStatus('这一句被校准推到章首之外了 —— 用 ⏱ 里的「高亮延后」调回来, 或「复位本章」');
         return;
       }
       this._oneShot = true;

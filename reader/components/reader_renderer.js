@@ -79,6 +79,7 @@
 
       this.images = (state.images || []).sort((a, b) => a.at - b.at);
       this._pendingImages = Object.create(null);
+      this._figureLoads = [];
       this.images.forEach(img => {
         const key = String(img.at);
         if (!this._pendingImages[key]) this._pendingImages[key] = [];
@@ -238,11 +239,43 @@
         return;
       }
       if (!this.basePath || !img || !img.file) return;
-      AiduLibraryService.readImage(this.basePath, img.file).then((res) => {
-        if (!res.ok || !res.data) return;
+      // 2026-09-01: 登记"这张图什么时候真正落位", 供 figuresSettled 等 —— 见那个方法。
+      // 必须等 <img> 的 load 事件而不是 IPC 返回: 设完 src 还要解码+回流才有高度。
+      const done = AiduLibraryService.readImage(this.basePath, img.file).then((res) => {
+        if (!res.ok || !res.data) return null;
         const data = res.data.data_b64;
-        if (data) imgEl.src = 'data:' + this._mimeForFile(img.file) + ';base64,' + data;
-      });
+        if (!data) return null;
+        return new Promise((resolve) => {
+          imgEl.addEventListener('load', resolve, { once: true });
+          imgEl.addEventListener('error', resolve, { once: true });
+          imgEl.src = 'data:' + this._mimeForFile(img.file) + ';base64,' + data;
+        });
+      }).catch(() => null);
+      this._figureLoads = this._figureLoads || [];
+      this._figureLoads.push({ at: img.at, promise: done });
+    }
+
+    /**
+     * 等"第 uptoIndex 句之前"的插图都落位 —— 量位置之前必须等它。
+     *
+     * 2026-09-01 (用户报"第一次点开这本书时点书签, 会滚到书签下面很多行"):
+     * 插图是 `<img>` + **异步**设 src (base64 走 IPC 读盘), 而 bookpack 的图片记录只有
+     * `{file, at}`、**没有宽高**, CSS 也只给了 max-width/max-height —— 所以 src 到位之前
+     * 每张图的高度是 **0**。第一次打开时 scrollIntoView 是照着"没有图"的短布局算的, 图
+     * 随后陆续撑到 60vh, 目标句被一路顶到视口下方。第二次就正常, 因为图已经读过一遍 ——
+     * "只有第一次错"正是这类资源未就绪问题的签名。
+     *
+     * 有上限地等 (默认 2s): 读盘慢/图特别多时不能把跳转卡死, 宁可位置略偏也要跳过去。
+     */
+    figuresSettled(uptoIndex, timeoutMs = 2000) {
+      const ps = (this._figureLoads || [])
+        .filter((f) => f.at <= uptoIndex)
+        .map((f) => f.promise);
+      if (!ps.length) return Promise.resolve();
+      return Promise.race([
+        Promise.all(ps),
+        new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+      ]);
     }
 
     _attachFigureLoading() {

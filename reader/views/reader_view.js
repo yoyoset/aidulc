@@ -502,7 +502,6 @@
       };
       this.calibrator = new SyncCalibrator({
         getHighlightIndex: () => this._anchorIndex,
-        getSentenceText: (i) => (this.sentences[i] || {}).original_text || '',
         getAnchors: () => this.timing.anchorsFor(this.chapterIndex),
         onNudge: nudge,
         onReset: () => {
@@ -898,6 +897,12 @@
     async _scrollToSentence(index, center) {
       if (this.renderer && index > this.renderer._renderedUpTo) {
         await this.renderer.ensureRendered(index);
+      }
+      // 目标句之前的插图没落位就量位置 = 照着"没有图"的短布局算, 图撑开后目标被顶到
+      // 视口下方 (用户报"第一次点开这本书时点书签会滚到书签下面很多行")。
+      // 见 reader_renderer.js::figuresSettled, 那里有完整原委与 2s 上限。
+      if (this.renderer && this.renderer.figuresSettled) {
+        await this.renderer.figuresSettled(index);
       }
       const block = document.querySelector(`.atomic-block[data-index="${index}"]`);
       if (!block) return;

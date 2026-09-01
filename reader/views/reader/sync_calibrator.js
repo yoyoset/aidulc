@@ -1,24 +1,31 @@
 /**
- * views/reader/sync_calibrator.js —— 跟读时间轴人工校准面板 (2026-08-31, 09-01 重做交互)
+ * views/reader/sync_calibrator.js —— 跟读时间轴人工校准面板
  *
- * 为什么需要人工校准: 章节 opus 可能与时间轴差出几秒到十几秒 (陈旧 opus, 根因已修但
+ * 为什么需要人工校准: 章节 opus 可能与时间轴差出几秒到十几秒 (陈旧产物, 根因已修但
  * 存量书需重跑)。算法治不了拟声词/哑音这类东西, 所以留一条人工纠偏的路。
  *
- * 2026-09-01 重做, 起因是第一版实测三处不可用 (每处都有数据佐证, 见各条注释):
+ * 只有两个操作: **手动微调** 和 **复位本章**。
  *
- * 1. **「以当前句对齐」算的是废数** —— 它拿"高亮当前停在哪句"当作"用户听到的是哪句",
- *    可这两者不同正是要校准的原因。delta = 播放头 - 该句起点, 永远落在 [0, 句长) 里,
- *    是个几百毫秒的正数, 修不了几秒的错位。实测残留在库里的锚点 (ch5 句54 = +4146ms)
- *    就是这么来的。**必须由用户指出他真正听到的是哪一句**, 所以改成"点正文选句"。
- * 2. **微调按钮会撒锚点** —— 通篇模式下 _anchorIndex 随播放不断前进, 连按四次 ±0.1s
- *    会在四个不同句上各建一条锚点 (实测库里 ch5 有 55/56/57/60 四条)。现在校准目标
- *    在打开面板/选句时**冻结**, 之后所有微调都改同一条锚点。
- * 3. **±号读反** —— "偏移 +0.5s"意味着句子区间整体后移, 用户看到的是**高亮变晚**。
- *    数值方向和观感方向相反, 没人能一次按对。现在按钮和读数一律用观感说话:
- *    「高亮提前 / 高亮延后」, 面板里不出现裸的 ±ms。
+ * 2026-09-01 删掉了「自动对齐」(让用户点出自己正听到的那一句, 按两句起点之差平移)。
+ * 不是嫌它麻烦, 是它**分辨率不够**, 用户实测两轮各撞到一个坎:
  *
- * 步长也从 ±0.1/±0.5 改成 ±0.5/±2 —— 实测错位是秒级 (ch5 末尾 3.9s), 0.1s 一格要按
- * 四十次。
+ *   第一轮: 锚点打在"听到的那句"上, 而锚点语义是"从第 N 句起平移、之前的原封不动",
+ *           高亮落后时播放头所在的那句排在锚点前面, 于是当场纹丝不动。改成锚在靠前
+ *           那句后, 真实时间轴 9/9 全对 (见 git 1402c69)。
+ *   第二轮: **句子够长时它根本无解**。错位小于句长时, 用户听到的就是高亮那一句
+ *           (H == A), 起点之差 = 0, 按下去显示"未校准"、什么也没发生。而句子长到
+ *           十几秒是常态 —— 也就是说在最常见的量级上它是失效的。
+ *
+ * 要做到句内精度, 选择粒度就得降到**词**(词级时间轴是有的)。那是另一套交互, 在
+ * 手动微调已经够用的前提下不值得再叠一层 —— 用户的原话是"我可以通过调整来把语音和
+ * 高亮对齐"。**一个用不上的按钮比没有更糟**, 所以是删而不是留着当摆设。
+ *
+ * 另外两条设计约束是实测踩出来的, 改这个文件前先读:
+ * - **校准目标句要冻结**。通篇模式下高亮随播放不断前进, 不冻结的话连按几次微调会在
+ *   几个不同句上各建一条锚点 (实测库里 ch5 留下 55/56/57/60 四条)。目标句在**打开
+ *   面板时**取当前句并冻结; 想换一句就收起再打开 (⏱ 按两下)。
+ * - **面板里不出现裸的 ±ms**。"偏移 +0.5s"= 句子区间整体后移 = 用户看到的高亮**变晚**,
+ *   数值方向和观感方向天生相反, 实测没人能一次按对。按钮和读数一律用观感说话。
  *
  * 本组件只做 UI 与交互, 时间计算全在 core/timing_offsets.js (纯函数, 有单测)。
  */
@@ -28,6 +35,7 @@
   const T = () => global.AiduTimingOffsets;
 
   // 观感方向 → 偏移符号: "高亮提前" = 句子区间整体前移 = 负偏移。
+  // 步长 ±0.5/±2s: 实测错位是秒级 (Winn-Dixie ch16 差 13.5s), 0.1s 一格要按上百次。
   const STEPS = [
     { label: '2s', delta: -2000, dir: 'earlier' },
     { label: '0.5s', delta: -500, dir: 'earlier' },
@@ -38,21 +46,16 @@
   class SyncCalibrator {
     /**
      * @param {object} deps {
-     *   getHighlightIndex(): number,   // 高亮此刻停在哪句 (时间轴说的, 可能是错的那句)
+     *   getHighlightIndex(): number,   // 高亮此刻停在哪句 (打开面板时取一次, 之后冻结)
      *   getAnchors(): Array,           // 本章锚点
      *   onNudge(fromSentence, deltaMs),// 叠加增量 (落库 + 重新应用)
-     *   onAlign(heardIndex, highlightedIndex), // 「我听到的其实是这句」
      *   onReset(),                     // 复位本章
-     *   beginPick(cb),                 // 进入选句模式, 用户点正文某句后回调 cb(index)
-     *   cancelPick(),                  // 退出选句模式
-     *   pausePlayback(),               // 进选句模式前暂停 (否则边听边点, 听到的句一直在变)
      * }
      */
     constructor(deps) {
       this.deps = deps;
-      /** 校准目标句: 冻结值。所有微调都落到这一条锚点上, 不随播放漂移 (见文件头 #2) */
+      /** 校准目标句: 冻结值。所有微调都落到这一条锚点上, 不随播放漂移 (见文件头) */
       this._from = 0;
-      this._picking = false;
       this.el = document.createElement('div');
       this.el.className = 'rd-calibrator';
       this.el.hidden = true;
@@ -85,14 +88,7 @@
       this.hintEl.className = 'rd-calibrator-hint';
       this.el.appendChild(this.hintEl);
 
-      // 主操作: 由用户指出他**真正听到**的是哪一句 (见文件头 #1)
-      this.alignBtn = document.createElement('button');
-      this.alignBtn.type = 'button';
-      this.alignBtn.className = 'rd-calibrator-align';
-      this.alignBtn.onclick = () => this._togglePick();
-      this.el.appendChild(this.alignBtn);
-
-      // 微调: 按观感分成"提前"和"延后"两组, 面板里不出现裸的 ±ms (见文件头 #3)
+      // 微调: 按观感分成"提前"和"延后"两组, 面板里不出现裸的 ±ms (见文件头)
       const row = document.createElement('div');
       row.className = 'rd-calibrator-row';
       const groups = {
@@ -115,10 +111,7 @@
       reset.type = 'button';
       reset.className = 'rd-calibrator-reset';
       reset.textContent = '复位本章 (回到原始时间轴)';
-      reset.onclick = () => {
-        this._cancelPick();
-        if (this.deps.onReset) this.deps.onReset();
-      };
+      reset.onclick = () => this.deps.onReset && this.deps.onReset();
       this.el.appendChild(reset);
     }
 
@@ -138,53 +131,18 @@
     }
 
     _nudge(delta) {
-      this._cancelPick();
       if (this.deps.onNudge) this.deps.onNudge(this._from, delta);
       this.refresh();
     }
 
-    _togglePick() {
-      if (this._picking) { this._cancelPick(); return; }
-      if (!this.deps.beginPick) return;
-      // 暂停再选: 边播边选的话, "我正在听的这句"在用户抬手点下去时已经过去了。
-      if (this.deps.pausePlayback) this.deps.pausePlayback();
-      const highlighted = this.deps.getHighlightIndex ? this.deps.getHighlightIndex() : -1;
-      this._picking = true;
-      this._syncPickUI();
-      this.deps.beginPick((picked) => {
-        this._picking = false;
-        const shown = highlighted >= 0 ? highlighted : picked;
-        // 锚点由 onAlign 决定 (靠前那句, 见 core/timing_offsets.js::alignAnchor),
-        // 不是用户点的那句 —— 后续微调必须落到同一条锚点上, 否则又是撒一片。
-        const from = this.deps.onAlign ? this.deps.onAlign(picked, shown) : picked;
-        this._from = Number.isFinite(from) ? from : picked;
-        this.refresh();
-      });
-    }
-
-    _cancelPick() {
-      if (!this._picking) return;
-      this._picking = false;
-      if (this.deps.cancelPick) this.deps.cancelPick();
-      this._syncPickUI();
-    }
-
-    _syncPickUI() {
-      this.alignBtn.textContent = this._picking
-        ? '↓ 现在点正文里你听到的那一句 (再点此处取消)'
-        : '对齐: 我听到的其实是另一句';
-      this.alignBtn.classList.toggle('is-picking', this._picking);
-      this.el.classList.toggle('is-picking', this._picking);
-    }
-
-    /** 锚点或当前句变化后刷新显示 */
+    /** 锚点变化后刷新显示 */
     refresh() {
       if (this.el.hidden) return; // 收起时不做无谓计算 (播放中每次切句都会调到这里)
       const off = T().offsetAt(this.deps.getAnchors ? this.deps.getAnchors() : [], this._from);
       this.valueEl.textContent = T().describeOffset(off);
       this.valueEl.classList.toggle('is-zero', !off);
-      this.hintEl.textContent = `从第 ${this._from + 1} 句起生效, 之前的不受影响`;
-      this._syncPickUI();
+      this.hintEl.textContent =
+        `从第 ${this._from + 1} 句起生效, 之前的不受影响 (收起再打开可改到当前句)`;
     }
 
     toggle() {
@@ -201,7 +159,6 @@
     }
 
     hide() {
-      this._cancelPick();
       this.el.hidden = true;
     }
 

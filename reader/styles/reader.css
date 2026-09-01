@@ -914,18 +914,6 @@ body.reader-active ::selection {
   font-size: var(--md-sys-font-size-label-s);
   color: var(--md-sys-color-on-surface-variant);
 }
-.rd-calibrator-align {
-  width: 100%;
-  margin-bottom: var(--md-sys-space-2);
-  padding: var(--md-sys-space-2);
-  border: none;
-  border-radius: var(--md-sys-radius-sm);
-  background: var(--md-sys-color-primary);
-  color: var(--md-sys-color-on-primary);
-  font-size: var(--md-sys-font-size-label-l);
-  cursor: pointer;
-}
-.rd-calibrator-align:hover { filter: brightness(1.08); }
 .rd-calibrator-row {
   display: flex;
   gap: var(--md-sys-space-1);
@@ -959,20 +947,6 @@ body.reader-active ::selection {
 .rd-calibrator-btns {
   display: flex;
   gap: var(--md-sys-space-1);
-}
-/* 选句模式: 面板按钮点亮, 正文每一句露出可点的边框 */
-.rd-calibrator-align.is-picking {
-  background: var(--md-sys-color-warning);
-  color: var(--md-sys-color-on-warning);
-}
-.reader-content.is-picking-sentence .atomic-block {
-  cursor: pointer;
-  /* 设计 §07: 虚线只给空态用, 这里走实线细描边 (门禁会拦) */
-  outline: 1px solid var(--md-sys-color-outline-variant);
-  outline-offset: 2px;
-}
-.reader-content.is-picking-sentence .atomic-block:hover {
-  outline: 2px solid var(--md-sys-color-primary);
 }
 .rd-calibrator-reset {
   width: 100%;

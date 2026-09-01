@@ -2692,49 +2692,38 @@ console.log('== 14. UX7 #3 (2026-08-13): 书签按章持久化 + 跨章遍历面
   check('UX7#3: 点跨章书签行 → 调 onJumpChapter(0, 1)', jumpCalls.length === 1 && jumpCalls[0][0] === 0 && jumpCalls[0][1] === 1, JSON.stringify(jumpCalls));
 }
 
-console.log('== 15. 跟读校准 (2026-09-01 重做): 目标句冻结 + 选句对齐 + 观感方向 ==');
+console.log('== 15. 跟读校准: 目标句冻结 + 观感方向 ==');
 {
   load('core/timing_offsets.js');
   load('views/reader/sync_calibrator.js');
   let highlight = 40;          // 高亮停在哪句 (播放推进时会变)
   const nudges = [];
-  const aligns = [];
-  let pickCb = null;
-  let paused = 0;
   const cal = new globalThis.SyncCalibrator({
     getHighlightIndex: () => highlight,
     getAnchors: () => [{ from: 40, offset: -4832 }],
     onNudge: (from, delta) => nudges.push([from, delta]),
-    onAlign: (heard, shown) => { aligns.push([heard, shown]); return Math.min(heard, shown); },
     onReset: () => {},
-    beginPick: (cb) => { pickCb = cb; },
-    cancelPick: () => { pickCb = null; },
-    pausePlayback: () => { paused++; },
   });
   cal.show();
   // 读数说观感, 不摆裸 ±ms —— 负偏移 = 高亮提前
   check('校准: 读数用观感描述', cal.valueEl.textContent === '高亮提前 4.83s', cal.valueEl.textContent);
 
-  // 缺陷 2 回归: 通篇模式下高亮随播放前进, 微调仍必须落在**打开面板时冻结的那一句**上,
+  // 回归: 通篇模式下高亮随播放前进, 微调仍必须落在**打开面板时冻结的那一句**上,
   // 否则连按几次会在几个不同句上各建一条锚点 (实测库里 ch5 留下 55/56/57/60 四条)。
   highlight = 47;
-  const step = queryAll(cal.el, '.rd-calibrator-step')[0];
-  step.onclick();
-  step.onclick();
+  const steps = queryAll(cal.el, '.rd-calibrator-step');
+  steps[0].onclick();
+  steps[0].onclick();
   check('校准: 微调目标冻结, 不随播放漂移', nudges.length === 2 && nudges[0][0] === 40 && nudges[1][0] === 40, JSON.stringify(nudges));
-  // 第一个按钮是"高亮提前 2s" = 负偏移
+  // 四个按钮 = 提前2s / 提前0.5s / 延后0.5s / 延后2s
   check('校准: 「高亮提前」= 负偏移', nudges[0][1] === -2000, String(nudges[0][1]));
-
-  // 缺陷 1 回归: 对齐必须由用户点出"我听到的其实是这句", 不能拿高亮位置自问自答
-  highlight = 50;
-  cal.alignBtn.onclick();
-  check('校准: 进选句模式先暂停', paused === 1 && typeof pickCb === 'function', 'paused=' + paused);
-  highlight = 58;              // 进选句后即使高亮又动了, 对齐也要用进入时冻结的那个
-  pickCb(53);
-  check('校准: onAlign(听到的句, 进入时的高亮句)', aligns.length === 1 && aligns[0][0] === 53 && aligns[0][1] === 50, JSON.stringify(aligns));
-  // 锚点是"靠前那句"(这里高亮 50 < 听到的 53), 不是用户点的那句 —— 打错端会让播放头
-  // 所在的句落在平移范围外, 高亮当场纹丝不动 (用户报"只对齐了一部分")。
-  check('校准: 目标句 = onAlign 返回的锚点(靠前那句)', cal._from === 50, String(cal._from));
+  steps[3].onclick();
+  check('校准: 「高亮延后」= 正偏移', nudges[2][1] === 2000, String(nudges[2][1]));
+  check('校准: 只剩微调 + 复位, 没有自动对齐按钮', queryAll(cal.el, '.rd-calibrator-align').length === 0);
+  // 收起再打开 = 把目标句改到当前句 (删掉自动对齐后, 这是唯一的改锚方式)
+  cal.hide();
+  cal.show();
+  check('校准: 收起再打开 → 目标句改到当前句', cal._from === 47, String(cal._from));
 }
 
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);

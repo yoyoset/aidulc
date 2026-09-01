@@ -122,47 +122,6 @@
     }
   }
 
-  /**
-   * 「我听到的其实是另一句」: 高亮停在 highlightedIndex, 但用户指认此刻念的是
-   * heardIndex —— 求需要叠加的增量, 即把 heardIndex 搬到高亮现在所在的位置。
-   *
-   * 2026-09-01 重写。旧签名是 (sentences, sentenceIndex, playheadMs), 拿"高亮停在哪句"
-   * 当"用户听到哪句", 而这两者不同**正是**要校准的原因; 算出来的 playhead - start
-   * 永远落在 [0, 句长) 里, 是个几百毫秒的正数, 修不了几秒的错位。库里残留的废锚点
-   * (ch5 句54 = +4146ms) 就是这么产生的。
-   *
-   * 用"两句起点之差"而不是"播放头 - 听到那句的起点": 后者会把该句起点顶到播放头上,
-   * 而用户按下按钮时已经念到句子中段了, 等于凭空多错半句。用起点差则保留"念到句内
-   * 多少毫秒"这个量, 句长相近时正好对上。
-   */
-  function alignDelta(sentences, heardIndex, highlightedIndex) {
-    const heard = sentences && sentences[heardIndex];
-    const shown = sentences && sentences[highlightedIndex];
-    if (!heard || !heard.audio || !shown || !shown.audio) return 0;
-    return Math.round(shown.audio.start_ms - heard.audio.start_ms);
-  }
-
-  /**
-   * 对齐要打在**哪一句**上 —— 取"听到的"和"高亮的"里**靠前**的那一句。
-   *
-   * 2026-09-01 第二次修 (用户实测: "自动对齐没用, 我要提前 13 秒, 它只提前了 4 秒")。
-   * 上一版把锚点打在"听到的那句 A"上, 是错的:
-   *
-   *   锚点语义是"从第 from 句起平移", **from 之前的句子原封不动**。高亮落后时
-   *   A 在 H **后面**, 于是 H 这一句根本不在平移范围里 —— 播放头此刻正落在 H 上,
-   *   它的时间没变, 高亮当然纹丝不动。修正只在几句之后才"追上", 看起来就像
-   *   "只对齐了一部分"。实测 Winn-Dixie ch16/ch7/ch5 各取三个位置, 9 例里错 6 例
-   *   (只有 H 和 A 恰好相邻时碰巧对)。改成锚在靠前那句后 9/9 全对。
-   *
-   * 两个方向都要覆盖:
-   *   高亮落后 (A > H): 锚必须在 H —— 平移范围要包含播放头所在的 H。
-   *   高亮超前 (A < H): 锚必须在 A —— A 要被搬到播放头上, 它得在范围里。
-   * 合起来就是 min(A, H)。
-   */
-  function alignAnchor(heardIndex, highlightedIndex) {
-    return Math.min(heardIndex, highlightedIndex);
-  }
-
   /** 原始数值显示: -4150 → "-4.15s";0 → "无偏移" (调试/日志用, 面板不再用它, 见下) */
   function formatOffset(ms) {
     if (!ms) return '无偏移';
@@ -187,8 +146,6 @@
     nudge,
     applyToSentences,
     repairMonotonic,
-    alignDelta,
-    alignAnchor,
     formatOffset,
     describeOffset,
   };

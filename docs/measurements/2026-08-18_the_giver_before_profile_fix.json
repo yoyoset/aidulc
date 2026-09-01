@@ -1,0 +1,139 @@
+{
+  "book": "The Giver (Lowry Lois)",
+  "job_dir": "E:/aidulc_data/jobs_out/jobs/job-1787055849539-24084-1",
+  "run": "2026-08-18 20:24 -> 21:56 (92 min)",
+  "profile_in_job_request": {
+    "explain_strategy": "brief",
+    "highlight_granularity": "word",
+    "id": "default",
+    "name": "成人自读",
+    "speed": 1,
+    "voice": "af_heart"
+  },
+  "why": "这一轮 profile 缺 explain_max_chars/explain_min_sentence_chars(前端白名单漏字段, commit 16e1fc1 已修), 所以提示词里没有长度指令。这份快照是同书 A/B 的改前一侧。",
+  "chapters": 24,
+  "distinct_titles": 24,
+  "sentences": 3962,
+  "nonspace_chars": 201904,
+  "fragments_lt6": 7,
+  "stages": {
+    "align": [
+      3953,
+      17
+    ],
+    "explain": [
+      3960,
+      2
+    ],
+    "nlp": [
+      24,
+      0
+    ],
+    "translate": [
+      3962,
+      0
+    ],
+    "tts": [
+      3961,
+      1
+    ]
+  },
+  "noticeCounts": {
+    "health": 2
+  },
+  "real_failures": 20,
+  "empty_explanation": 2,
+  "explain_median": 63,
+  "explain_p90": 95,
+  "explain_max": 194,
+  "explain_over_150": 5,
+  "short_n": 1137,
+  "short_filler_pct": 12.49,
+  "short_explain_median": 48,
+  "long_n": 283,
+  "long_explain_median": 89,
+  "filler_samples": [
+    {
+      "original": "I don't have it.",
+      "explanation": "it 指代前文提到的某物，是代词指代，需结合上下文判断具体指什么。"
+    },
+    {
+      "original": "His father looked concerned.",
+      "explanation": "concerned 是形容词，表示'担忧的'，常用于描述人的情绪状态。"
+    },
+    {
+      "original": "Jonas said angrily.",
+      "explanation": "angrily 是副词，修饰谓语 said，表示说话时的情绪状态。"
+    },
+    {
+      "original": "The Giver nodded.",
+      "explanation": "nodded 是动词过去式，表示动作完成；'The Giver' 为专有名词，指代角色，是句子主语。"
+    },
+    {
+      "original": "Jonas obeyed cheerfully.",
+      "explanation": "cheerfully 是副词，修饰动词 obeyed，表示态度积极。核心语法：副词修饰动词，增强行为情感色彩。"
+    },
+    {
+      "original": "\"Jonas. Jonas.\"",
+      "explanation": "重复呼名，体现强调或焦虑；'Jonas' 为专有名词，无生词；结构简单，仅用于突出人物或情绪。"
+    },
+    {
+      "original": "Asher poked Jonas's arm.",
+      "explanation": "poked 是动词，表示轻戳，常用于描述肢体接触；poked 后接名词作宾语，是典型及物动词用法。"
+    },
+    {
+      "original": "It was as simple as that.",
+      "explanation": "as simple as that 是固定搭配，表示‘事情很简单，无需多说’，强调结果的直接性。"
+    },
+    {
+      "original": "\"That's all,\" he said.",
+      "explanation": "句子结构简单，主句为一般过去时，'that's all' 是固定搭配，表示‘结束’或‘全部’。"
+    },
+    {
+      "original": "He looked up suddenly.",
+      "explanation": "suddenly 是副词，修饰动词 looked up，强调动作突发性；looked up 为固定搭配，表示‘抬头看’，非‘向上看’的泛义。"
+    },
+    {
+      "original": "Jonas asked.",
+      "explanation": "句子结构简单，主干为 'Jonas asked'。'asked' 为过去式，表示动作发生于过去，无复杂从句或时态对比，无需深入解析。"
+    },
+    {
+      "original": "Mother nodded.",
+      "explanation": "noded 是动词 'nod' 的过去式，表示动作完成；主句简单，无复杂结构或时态变化。"
+    }
+  ],
+  "long_samples": [
+    {
+      "original": "The only thing that happened was the announcement later that evening over the speaker, the announcement that had singled him out without using his name, that ha",
+      "explanation": "that had singled him out 是定语从句，修饰announcement，表‘明确指出他’；that had caused... 是另一定语从句，说明公告导致父母反应。两个that指同一事件，指代清晰。"
+    },
+    {
+      "original": "Usually it was some foolish thing that no one cared about—opening his tunic if it was a day with a breeze; taking a brief try on a friend's bicycle, just to exp",
+      "explanation": "固定搭配：'just to experience' 表‘只为体验’，非谓语作目的状语；'a brief try' 是固定表达，意为‘短暂尝试’。"
+    },
+    {
+      "original": "Now there were three Assignments gone, none of them ones that Jonas would have liked—not that he could have been a Birthmother, anyway, he realized with amuseme",
+      "explanation": "none of them ones that... 是固定搭配，意为‘其中没有一个是……’；with amusement 表示‘带着 amused 的心情’，体现语气与认知反差。"
+    },
+    {
+      "original": "He had hesitated for a moment, standing beside the bikeport in the darkness, not wanting anything of his father's and uncertain, as well, whether he could comfo",
+      "explanation": "had hesitated 表过去完成时，强调犹豫发生在‘决定之前’；uncertain whether... 是宾语从句，修饰‘he’的内心状态；as well 作状语，表示‘同样’，连接并列的怀疑。"
+    },
+    {
+      "original": "He wanted to share them, but he wasn't eager to begin the process of sifting through his own complicated emotions, even with the help that he knew his parents c",
+      "explanation": "not eager to begin... 指不愿启动动作；sifting through emotions 是固定搭配，意为‘梳理内心感受’；even with... 表让步，强调尽管有帮助仍拒绝行动。"
+    },
+    {
+      "original": "There was new clothing: different undergarments for the females, whose bodies were beginning to change; and longer trousers for the males, with a specially shap",
+      "explanation": "whose 引导定语从句，修饰 females，指身体变化的女性；with 引导后置定语，修饰 trousers，说明口袋功能；but 引出转折，对比‘有包装’与‘无演讲’，体现细节缺失。"
+    },
+    {
+      "original": "Using his final strength, and a special knowledge that was deep inside him, Jonas found the sled that was waiting for them at the top of the hill.",
+      "explanation": "using his final strength 是现在分词短语作状语，表示原因；that was waiting 是定语从句，修饰 sled，说明其状态；deep inside him 是后置定语，强调知识的来源。"
+    },
+    {
+      "original": "Now he understood about animals; and in the moment that the horse turned from the stream and nudged Jonas's shoulder affectionately with its head, he perceived ",
+      "explanation": "现在时表当前理解；'in the moment that' 引导时间从句，表示动作同时发生；'nudged... affectionately' 是固定搭配，表达温柔触碰。"
+    }
+  ]
+}

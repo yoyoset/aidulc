@@ -285,9 +285,51 @@ def _opus_duration_ms(ff: str | None, path: str) -> float | None:
 OPUS_DURATION_TOLERANCE_MS = 50.0
 
 
-def _chapter_opus_ok(
-    out_dir: str, audio_dir: str, ch_index: int, sentence_count: int, ff: str | None = None
-) -> bool:
+# 一个句 wav 的时长与时间轴对不上多少就算"不是这句的音频"。取值同 opus 容差,
+# 反正真正的陈旧残留差的是**秒**级 (实测 Hatchet ch000#158: 时间轴 500ms, 磁盘 21800ms)。
+WAV_MATCH_TOLERANCE_MS = 50.0
+
+
+def _sentence_plan(out_dir: str, ch) -> list[tuple[str | None, float]]:
+    """这一章每句实际要拼进 opus 的 (wav 路径 | None 表示静音, 时长 ms)。
+
+    2026-09-01 新增, 修的是与"陈旧 opus"同族、但更隐蔽的一个缺陷:
+    **同一句的时长有两个来源, 而且会打架**。原来 _encode_chapter 是"磁盘上有
+    s{i:05d}.wav 就拼它, 没有就补 0.5s 静音", 完全不看时间轴怎么说。于是:
+
+      Hatchet ch000 句158 = "Bad." —— checkpoint 里 audio=null / failedStages=[tts,align],
+      时间轴按占位给了 500ms, 磁盘上却同时躺着两个文件:
+        s00158_sil.wav   500ms  (2026-08-18 这一轮写的占位)
+        s00158.wav     21800ms  (2026-08-13 上一轮留下的, 那轮句子切分不同,
+                                 158 号指的是**另一句话**)
+      concat 挑了 s00158.wav, 于是章节音轨里凭空多出 21.8 秒不相干的朗读,
+      **从这句起后面每一句都错位 -21.3s, 恒定到章尾**。
+
+    这类残留全库 40 章 (Wonder 14 / Wild Robot 11 / Hatchet 7 / Despereaux 6 /
+    Winn-Dixie 1 / First State 1), 且**重跑修不好** —— tts 阶段命中 checkpoint 就
+    只从 checkpoint 借时长, 从来不看磁盘上那个 wav 多长; pack 又只看磁盘不看时间轴。
+    两边各信各的, 谁也发现不了。
+
+    修法是定一个唯一权威: **时间轴说了算**。句 wav 只有时长对得上才用, 对不上就当它
+    不是这句的音频, 按时间轴的时长补静音。这样拼出来的 opus 与时间轴逐句吻合是
+    **构造保证**的, 不再依赖"磁盘是干净的"这个假设。
+    """
+    wav_dir = os.path.join(out_dir, "audio_raw", f"ch{ch.index:03d}")
+    plan: list[tuple[str | None, float]] = []
+    for i, s in enumerate(ch.sentences):
+        a = getattr(s, "audio", None)
+        want_ms = float(a.end_ms - a.start_ms) if a else SILENCE_PLACEHOLDER_SECS * 1000.0
+        wav = os.path.join(wav_dir, f"s{i:05d}.wav")
+        if os.path.exists(wav):
+            got = _wav_duration_ms(wav)
+            if got > 0 and abs(got - want_ms) <= WAV_MATCH_TOLERANCE_MS:
+                plan.append((wav, got))
+                continue
+        plan.append((None, want_ms))
+    return plan
+
+
+def _chapter_opus_ok(out_dir: str, audio_dir: str, ch, ff: str | None = None) -> bool:
     """该章 opus 是否已存在且**与当前输入吻合**, 可以跳过重编码。
 
     2026-08-31 重写判据 (用户报 Because of Winn-Dixie "跟读错位且无法修正", 实测追因)。
@@ -308,8 +350,9 @@ def _chapter_opus_ok(
     137 章 opus 陈旧。
 
     新判据直接比**时长** —— 这不是启发式, 它就是判定"坏"的那把尺子本身:
-    - 期望时长 = 逐句 wav 时长之和(缺失句按 0.5s 静音占位, 与 _encode_chapter 的拼接
-      规则严格一致), 与字节率/位深无关, 绕开上面第 1 类错误。
+    - 期望时长 = `_sentence_plan` 逐句时长之和。用**同一份计划**而不是"照着同一条规则
+      各算一遍" —— 后者是 2026-09-01 那个缺陷的形状(拼接看磁盘、时间轴看 checkpoint,
+      两边各信各的)。与字节率/位深无关, 绕开上面第 1 类错误。
     - 测不出实际时长(没有 ffprobe / 文件损坏) → 判定不可信, 重编。宁可多花几秒, 不留错位。
 
     **为什么不用 mtime**(第一版写过, 拿真实数据验完删掉的): "opus 比输入 wav 旧就判陈旧"
@@ -327,6 +370,7 @@ def _chapter_opus_ok(
     里的 21 个好章判成坏的(章节重新解析后普遍留 2~12 个孤儿), "重试不全量重编"这个
     优化基本失效。它当初能立功, 是因为当时唯一的另一条判据(比文件大小)本身是坏的。
     """
+    ch_index = ch.index
     out_path = os.path.join(audio_dir, f"ch_{ch_index:03d}.opus")
     if not os.path.exists(out_path):
         return False
@@ -334,16 +378,9 @@ def _chapter_opus_ok(
     if not os.path.isdir(wav_dir):
         return False
 
-    # 期望时长: 逐句累加, 缺失句按静音占位 —— 与 _encode_chapter 的拼接规则严格一致。
-    # 只认精确的 s{i:05d}.wav: `_sil.wav` 是 _encode_chapter 编码过程中才写的占位文件,
-    # 它的时长已经通过"缺失句 += SILENCE_PLACEHOLDER_SECS"算进去了, 再数一遍就重复了。
-    expected_ms = 0.0
-    for i in range(sentence_count):
-        w = os.path.join(wav_dir, f"s{i:05d}.wav")
-        if os.path.exists(w):
-            expected_ms += _wav_duration_ms(w)
-        else:
-            expected_ms += SILENCE_PLACEHOLDER_SECS * 1000.0
+    # 期望时长 = _sentence_plan 的逐句时长之和 —— 与 _encode_chapter 拼的是**同一份计划**,
+    # 不是"照着规则各算一遍"。两边各写一份规则正是 2026-09-01 那个缺陷的形状。
+    expected_ms = sum(d for _, d in _sentence_plan(out_dir, ch))
     if expected_ms <= 0:
         return False
 
@@ -359,20 +396,21 @@ def _encode_chapter(ff, ch, out_dir, audio_dir, bookpack_dir, emit, total_chapte
     out_path = os.path.join(audio_dir, f"ch_{ch.index:03d}.opus")
     # 已完成的章跳过 (重试时不全量重编码)。判据 2026-08-31 重写成"比时长"而不是"比文件
     # 大小", 见 _chapter_opus_ok 说明 —— 旧判据放行陈旧 opus, 是"跟读错位且无法修正"的根因。
-    if _chapter_opus_ok(out_dir, audio_dir, ch.index, len(ch.sentences), ff):
+    if _chapter_opus_ok(out_dir, audio_dir, ch, ff):
         if emit:
             emit({"type": "stage_progress", "ts": int(time.time() * 1000), "stage": "pack",
                   "current": ch.index + 1, "total": total_chapters})
         return
+    # 拼什么由 _sentence_plan 决定 (时间轴说了算), 不再是"磁盘上有什么就拼什么" ——
+    # 后者会把上一轮留下的、属于**别的句子**的 wav 拼进来, 见 _sentence_plan 说明。
     wavs = []
-    for i, s in enumerate(ch.sentences):
-        wav = os.path.join(out_dir, "audio_raw", f"ch{ch.index:03d}", f"s{i:05d}.wav")
-        if os.path.exists(wav):
+    for i, (wav, dur_ms) in enumerate(_sentence_plan(out_dir, ch)):
+        if wav is not None:
             wavs.append(wav)
         else:
-            # 静音占位 (0.5s 静音 @24k)
-            _write_silence(os.path.join(out_dir, "audio_raw", f"ch{ch.index:03d}", f"s{i:05d}_sil.wav"), SILENCE_PLACEHOLDER_SECS)
-            wavs.append(os.path.join(out_dir, "audio_raw", f"ch{ch.index:03d}", f"s{i:05d}_sil.wav"))
+            sil = os.path.join(out_dir, "audio_raw", f"ch{ch.index:03d}", f"s{i:05d}_sil.wav")
+            _write_silence(sil, dur_ms / 1000.0)
+            wavs.append(sil)
 
     if not wavs:
         # 整章全失败: 用 ffmpeg 生成真实空 opus (soundfile 不支持 .opus 扩展名, 已实测崩溃)

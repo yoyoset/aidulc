@@ -2700,6 +2700,7 @@ console.log('== 15. 跟读校准: 目标句冻结 + 观感方向 ==');
   const nudges = [];
   const cal = new globalThis.SyncCalibrator({
     getHighlightIndex: () => highlight,
+    getSentenceText: (i) => `They were there from when it was sentence ${i} and this tail should be cut off.`,
     getAnchors: () => [{ from: 40, offset: -4832 }],
     onNudge: (from, delta) => nudges.push([from, delta]),
     onReset: () => {},
@@ -2724,6 +2725,9 @@ console.log('== 15. 跟读校准: 目标句冻结 + 观感方向 ==');
   cal.hide();
   cal.show();
   check('校准: 收起再打开 → 目标句改到当前句', cal._from === 47, String(cal._from));
+  // 标签要给原文摘要, 不能只给序号 —— 正文里句子没有编号, 用户对不上"第 55 句"是哪句
+  check('校准: 目标句标签带原文摘要', cal.hintEl.textContent.includes('They were there from when it was'), cal.hintEl.textContent);
+  check('校准: 长句摘要被截断', cal.hintEl.textContent.includes('…'), cal.hintEl.textContent);
 }
 
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);

@@ -163,15 +163,36 @@ describe('formatOffset / describeOffset', () => {
 });
 
 describe('repairMonotonic —— 区间不得重叠', () => {
-  it('向下接缝处上一句的 end 被压回到下一句的 start', () => {
-    // 实测复现 (ch005 库里残留的废锚点): 句 54 被顶到 +4146, 句 55 起被拉回 -4832,
-    // 只修 start 的话句 54 的区间会盖住后面 9 秒, findSentenceIndex 二分前提失效。
+  it('区间不重叠且 start 不减 (findSentenceIndex 二分的前提)', () => {
+    // 实测复现 (ch005 库里残留的废锚点): 句 54 被顶到 +4146, 句 55 起被拉回 -4832。
     const s = mkSentences(60, 2000);
     T.applyToSentences(s, [{ from: 54, offset: 4146 }, { from: 55, offset: -4832 }]);
     for (let i = 1; i < s.length; i++) {
       expect(s[i - 1].audio.end_ms).toBeLessThanOrEqual(s[i].audio.start_ms);
       expect(s[i - 1].audio.start_ms).toBeLessThanOrEqual(s[i].audio.start_ms);
     }
+  });
+
+  it('锚点句自己不被压成零长度 —— 该牺牲的是它**前面**那几句', () => {
+    // 用户报"我对齐了这一句, 结果这一句根本对不上, 还弹播放失败"。旧实现先从前往后
+    // 钳 start, 等于把刚平移过来的句子往前挤, 锚点句自己首当其冲被压成 end == start:
+    // 零长度既永远命中不了 findSentenceIndex(高亮不上), playOne 又会第一帧就 pause
+    // 打断 play() 抛 AbortError(报"播放失败")。实测 ch16 锚点 -13000 时句 39/40/41 全没。
+    const s = mkSentences(60, 3000);
+    T.applyToSentences(s, [{ from: 40, offset: -13000 }]);
+    const a = s[40].audio;
+    expect(a.end_ms - a.start_ms).toBe(3000);          // 锚点句保持原长
+    expect(a.start_ms).toBe(a._base_start - 13000);    // 且落在平移后的真实位置
+    for (const i of [41, 42, 45]) {
+      expect(s[i].audio.end_ms - s[i].audio.start_ms).toBe(3000);
+    }
+    // 被压掉的是前面那几句 —— 往前平移 13 秒的语义就是"声音早念过去了"
+    const zero = [];
+    for (let i = 0; i < s.length; i++) {
+      const b = s[i].audio;
+      if (b.end_ms <= b.start_ms) zero.push(i);
+    }
+    expect(zero.every((i) => i < 40)).toBe(true);
   });
 
   it('干净时间轴上是空操作', () => {

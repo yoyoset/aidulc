@@ -93,29 +93,34 @@
   }
 
   /**
-   * 单调性修复: start 不得小于前一句的 start,end 不得小于自己的 start。
-   * 只在锚点处的接缝上真正起作用(段内平移量相同,顺序天然保持)。
+   * 单调性修复: 让区间满足 findSentenceIndex 二分查找的前提 ——
+   * start 不减、end 不越过下一句的 start、end 不小于自己的 start。
+   *
+   * **必须从后往前扫**(2026-09-01 第二次改, 用户报"我对齐了这一句, 结果这一句根本
+   * 对不上, 还弹播放失败")。原来是"从前往后钳 start, 再从后往前钳 end"两趟, 结果是
+   * **锚点句自己被压成零长度**:
+   *
+   *   实测 Winn-Dixie ch16, 锚点 {from:40, offset:-13000}
+   *     旧: 句 39/40/41 全部 end == start (零长度), 40 正是用户要对齐的那句
+   *     零长度的后果有两个, 用户两个都撞上了:
+   *       - findSentenceIndex 用 `t >= start && t < end` 判命中, 零长度**永远不命中**
+   *         → 那一句怎么也高亮不上
+   *       - playOne 把 _stopAtMs 设成句末 == 句首, 第一帧就判越界 → 立刻 pause,
+   *         而 play() 的 promise 被 pause 打断, 抛 AbortError → 面板报"播放失败"
+   *
+   * 从前往后钳 start 是把**后面**的句子往前挤, 而"后面"正是用户刚平移过去、想要对齐
+   * 的那些 —— 等于优先牺牲了目标。语义上该牺牲的是**前面**那几句: 往前平移 13 秒的
+   * 意思就是"声音早就念过去了", 被覆盖掉的那 4~5 句在这个时间点上本来就没有音频。
+   *
+   * 从后往前扫一趟同时满足全部三条约束, 且天然优先保住靠后的(刚平移过来的)句子。
    */
   function repairMonotonic(sentences) {
-    let prevStart = -Infinity;
-    for (let i = 0; i < sentences.length; i++) {
-      const a = sentences[i] && sentences[i].audio;
-      if (!a) continue;
-      if (a.start_ms < prevStart) a.start_ms = prevStart;
-      if (a.start_ms < 0) a.start_ms = 0;
-      if (a.end_ms < a.start_ms) a.end_ms = a.start_ms;
-      prevStart = a.start_ms;
-    }
-    // 第二趟 (2026-09-01 补): end 不得越过下一句的 start。
-    // 只修 start 是不够的 —— 向下(负偏移)的接缝上, 上一句的 end 会盖住后面好几句,
-    // 区间一重叠 findSentenceIndex 的二分前提就失效: 二分先命中前一句直接返回,
-    // 高亮在那句上卡十几秒再突然连跳好几句 (用户报"高亮明显快很多")。
-    // 实测复现: ch005 锚点 {54:+4146, 55:-4832} → 句54 区间变成 207921..222271,
-    // 而句55 起点 213293, 重叠 9 秒。
     let nextStart = Infinity;
     for (let i = sentences.length - 1; i >= 0; i--) {
       const a = sentences[i] && sentences[i].audio;
       if (!a) continue;
+      if (a.start_ms > nextStart) a.start_ms = nextStart;
+      if (a.start_ms < 0) a.start_ms = 0;
       if (a.end_ms > nextStart) a.end_ms = nextStart;
       if (a.end_ms < a.start_ms) a.end_ms = a.start_ms;
       nextStart = a.start_ms;

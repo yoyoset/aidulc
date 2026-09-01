@@ -502,6 +502,7 @@
       };
       this.calibrator = new SyncCalibrator({
         getHighlightIndex: () => this._anchorIndex,
+        getSentenceText: (i) => (this.sentences[i] || {}).original_text || '',
         getAnchors: () => this.timing.anchorsFor(this.chapterIndex),
         onNudge: nudge,
         onReset: () => {

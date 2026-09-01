@@ -208,9 +208,7 @@
       this._onAnchorChange(index);
       this.audio.currentTime = s.audio.start_ms / 1000;
       this.audio.playbackRate = this.speed;
-      this.audio.play().catch(e => {
-        this._onStatus('播放失败: ' + e.message);
-      });
+      this.audio.play().catch(e => this._reportPlayError(e));
     }
 
     /** S5: 只播这一句 (逐句模式 / 句前按钮)。
@@ -229,14 +227,26 @@
       this.shadow.sentenceStarted(index);
       this._lastAnchorSi = index;
       this._onAnchorChange(index);
+      // 校准把这一句平移覆盖掉之后, 它可能没有音频区间 (end == start)。
+      // 不守卫的话 _tick 第一帧就判越界 → 立刻 pause → play() 的 promise 被打断抛
+      // AbortError → 面板报"播放失败"。实测用户就是这么撞上的 (ch16 锚点 -13s)。
+      if (s.audio.end_ms <= s.audio.start_ms) {
+        this._onStatus('这一句校准后没有对应的音频区间 (声音已经念过去了)');
+        return;
+      }
       this._oneShot = true;
       this._stopAtMs = s.audio.end_ms;
       this._stopIndex = index;
       this.audio.currentTime = s.audio.start_ms / 1000;
       this.audio.playbackRate = this.speed;
-      this.audio.play().catch(e => {
-        this._onStatus('播放失败: ' + e.message);
-      });
+      this.audio.play().catch(e => this._reportPlayError(e));
+    }
+
+    /** play() 的 promise 被 pause/新的 play 打断会抛 AbortError —— 那是正常的时序,
+     *  不是故障。原来一律报"播放失败: ..." 是噪音, 实测被用户当成真故障报上来。 */
+    _reportPlayError(e) {
+      if (e && e.name === 'AbortError') return;
+      this._onStatus('播放失败: ' + ((e && e.message) || e));
     }
 
     /** 停止播放 (暂停; 锚点留在当前句, 下次开始从锚点句播) */

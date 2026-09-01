@@ -47,6 +47,7 @@
     /**
      * @param {object} deps {
      *   getHighlightIndex(): number,   // 高亮此刻停在哪句 (打开面板时取一次, 之后冻结)
+     *   getSentenceText(i): string,    // 第 i 句原文 (面板要显示它, 光给句号没人认得出)
      *   getAnchors(): Array,           // 本章锚点
      *   onNudge(fromSentence, deltaMs),// 叠加增量 (落库 + 重新应用)
      *   onReset(),                     // 复位本章
@@ -141,8 +142,23 @@
       const off = T().offsetAt(this.deps.getAnchors ? this.deps.getAnchors() : [], this._from);
       this.valueEl.textContent = T().describeOffset(off);
       this.valueEl.classList.toggle('is-zero', !off);
-      this.hintEl.textContent =
-        `从第 ${this._from + 1} 句起生效, 之前的不受影响 (收起再打开可改到当前句)`;
+      this.hintEl.textContent = this._fromLabel();
+    }
+
+    /**
+     * 校准目标句的人话标签。
+     *
+     * 2026-09-01 从"从第 55 句起生效"改成带原文摘要 —— 用户原话: "你这个句子的标签
+     * 没有意义, 没有人知道这第 55 句是什么"。正文里句子并没有编号, 光给一个序号,
+     * 用户没法把它和眼前的文字对上, 也就无从判断锚点打对没有。
+     */
+    _fromLabel() {
+      const get = this.deps.getSentenceText;
+      const raw = get ? (get(this._from) || '') : '';
+      const text = String(raw).replace(/\s+/g, ' ').trim();
+      const head = text.length > 34 ? text.slice(0, 34) + '…' : text;
+      const who = head ? `「${head}」` : `第 ${this._from + 1} 句`;
+      return `从 ${who} 起生效, 之前的不受影响 (收起再打开可改到当前句)`;
     }
 
     toggle() {

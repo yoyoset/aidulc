@@ -153,8 +153,11 @@
       this._syncPickUI();
       this.deps.beginPick((picked) => {
         this._picking = false;
-        this._from = picked;
-        if (this.deps.onAlign) this.deps.onAlign(picked, highlighted >= 0 ? highlighted : picked);
+        const shown = highlighted >= 0 ? highlighted : picked;
+        // 锚点由 onAlign 决定 (靠前那句, 见 core/timing_offsets.js::alignAnchor),
+        // 不是用户点的那句 —— 后续微调必须落到同一条锚点上, 否则又是撒一片。
+        const from = this.deps.onAlign ? this.deps.onAlign(picked, shown) : picked;
+        this._from = Number.isFinite(from) ? from : picked;
         this.refresh();
       });
     }

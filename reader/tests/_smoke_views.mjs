@@ -2705,7 +2705,7 @@ console.log('== 15. 跟读校准 (2026-09-01 重做): 目标句冻结 + 选句�
     getHighlightIndex: () => highlight,
     getAnchors: () => [{ from: 40, offset: -4832 }],
     onNudge: (from, delta) => nudges.push([from, delta]),
-    onAlign: (heard, shown) => aligns.push([heard, shown]),
+    onAlign: (heard, shown) => { aligns.push([heard, shown]); return Math.min(heard, shown); },
     onReset: () => {},
     beginPick: (cb) => { pickCb = cb; },
     cancelPick: () => { pickCb = null; },
@@ -2732,7 +2732,9 @@ console.log('== 15. 跟读校准 (2026-09-01 重做): 目标句冻结 + 选句�
   highlight = 58;              // 进选句后即使高亮又动了, 对齐也要用进入时冻结的那个
   pickCb(53);
   check('校准: onAlign(听到的句, 进入时的高亮句)', aligns.length === 1 && aligns[0][0] === 53 && aligns[0][1] === 50, JSON.stringify(aligns));
-  check('校准: 选完句后目标句改成用户点的那句', cal._from === 53, String(cal._from));
+  // 锚点是"靠前那句"(这里高亮 50 < 听到的 53), 不是用户点的那句 —— 打错端会让播放头
+  // 所在的句落在平移范围外, 高亮当场纹丝不动 (用户报"只对齐了一部分")。
+  check('校准: 目标句 = onAlign 返回的锚点(靠前那句)', cal._from === 50, String(cal._from));
 }
 
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);

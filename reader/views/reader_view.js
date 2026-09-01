@@ -504,9 +504,15 @@
         getHighlightIndex: () => this._anchorIndex,
         getAnchors: () => this.timing.anchorsFor(this.chapterIndex),
         onNudge: nudge,
-        // heard = 用户点的那句(他真听到的), highlighted = 进选句模式那一刻高亮停在哪句
-        onAlign: (heard, highlighted) =>
-          nudge(heard, AiduTimingOffsets.alignDelta(this.sentences, heard, highlighted)),
+        // heard = 用户点的那句(他真听到的), highlighted = 进选句模式那一刻高亮停在哪句。
+        // 锚点打在**靠前**那句上 (alignAnchor), 不是打在 heard 上 —— 打错端会让
+        // 播放头所在的那句落在平移范围外, 高亮当场纹丝不动, 见 alignAnchor 说明。
+        // 返回实际锚点, 让面板把后续微调也落到同一条锚点上。
+        onAlign: (heard, highlighted) => {
+          const from = AiduTimingOffsets.alignAnchor(heard, highlighted);
+          nudge(from, AiduTimingOffsets.alignDelta(this.sentences, heard, highlighted));
+          return from;
+        },
         onReset: () => {
           this.timing.reset(this.sentences, this.chapterIndex);
           this.calibrator.refresh();

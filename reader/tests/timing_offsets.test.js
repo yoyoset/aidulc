@@ -175,6 +175,49 @@ describe('alignDelta —— 「我听到的其实是另一句」', () => {
   });
 });
 
+describe('alignAnchor —— 对齐锚在哪一句 (2026-09-01 第二次修)', () => {
+  // 用户实测: "自动对齐没用, 我要提前 13 秒, 它只提前了 4 秒"。
+  // 根因不是 delta 算错, 是锚点打在了"听到的那句"上 —— 锚点语义是"从第 from 句起
+  // 平移, 之前的原封不动", 高亮落后时播放头所在的那句排在 from 前面, 于是纹丝不动。
+  const mk = () => mkSentences(80, 3000);
+  // 模拟"高亮落后 δ 毫秒": 播放头在句 H 内, 真正在念的是时间轴上 H 之后 δ 的那句
+  function simulate(drift, H, useAnchor) {
+    const s = mk();
+    const t = s[H].audio.start_ms + 800;
+    let A = 0;
+    for (let i = 0; i < s.length; i++) if (s[i].audio.start_ms <= t + drift) A = i;
+    const d = T.alignDelta(s, A, H);
+    const from = useAnchor ? T.alignAnchor(A, H) : A;
+    T.applyToSentences(s, T.nudge([], from, d));
+    for (let i = 0; i < s.length; i++) {
+      const a = s[i].audio;
+      if (t >= a.start_ms && t < a.end_ms) return { hit: i, want: A };
+    }
+    return { hit: -1, want: A };
+  }
+
+  it('高亮落后: 锚在靠前那句 → 对齐后播放头处高亮正是听到的那句', () => {
+    for (const drift of [4000, 9700, 13500]) {
+      for (const H of [10, 30, 50]) {
+        const r = simulate(drift, H, true);
+        expect(r.hit).toBe(r.want);
+      }
+    }
+  });
+
+  it('回归: 锚在"听到的那句"时高亮纹丝不动 (这就是用户报的"只对齐了一部分")', () => {
+    const r = simulate(13500, 30, false);
+    expect(r.hit).toBe(30);      // 还停在原来那句
+    expect(r.hit).not.toBe(r.want);
+  });
+
+  it('两个方向都取靠前那句', () => {
+    expect(T.alignAnchor(43, 40)).toBe(40); // 高亮落后 → 锚在高亮那句
+    expect(T.alignAnchor(37, 40)).toBe(37); // 高亮超前 → 锚在听到的那句
+    expect(T.alignAnchor(40, 40)).toBe(40);
+  });
+});
+
 describe('formatOffset / describeOffset', () => {
   it('原始数值显示', () => {
     expect(T.formatOffset(0)).toBe('无偏移');

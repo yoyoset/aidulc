@@ -13,7 +13,7 @@
       this._blobUrl = null;
       this._generation = 0;
       this.playing = false;
-      this.speed = 1.0;
+      this._speed = 1.0;
       this.anchorIndex = -1; // 锚点句: 三角/全局键停止后, 重新开始时从这里播
       this.timeSpentMs = 0;  // M7 R18: 累计阅读时长 (播放计时, ms)
       this._lastTickTs = null;
@@ -37,6 +37,21 @@
       this._onShadowAction = null;  // (action) => void (S5: 跟读动作, 供 view 刷节拍点)
       this._onPlayingChange = null; // (playing: bool) => void (S5: 供 view 复位 ▶/❙❙)
       this._lastAnchorSi = -1;
+    }
+
+    /**
+     * 语速: 写 player.speed 会**立刻**推给正在播的 audio。
+     * 2026-09-01 补 setter —— 原来只在 playFrom/playOne 里设 playbackRate, 所以在设置页
+     * 改语速对正在播的这一章不生效, 要等下一次点句才变。(高亮本身与语速无关:
+     * audio.currentTime 是媒体时间, 不随 playbackRate 变快慢, 所以这不是"高亮跑太快"
+     * 的原因 —— 那是时间轴区间重叠, 见 core/timing_offsets.js repairMonotonic。)
+     */
+    get speed() { return this._speed; }
+
+    set speed(v) {
+      const rate = (typeof v === 'number' && v > 0) ? v : 1.0;
+      this._speed = rate;
+      if (this.audio) this.audio.playbackRate = rate;
     }
 
     /**
@@ -117,6 +132,7 @@
       this._blobUrl = URL.createObjectURL(blob);
       this.audio = audio;  // 修复: blob 就绪后才设 this.audio (旧调用不覆盖)
       audio.src = this._blobUrl;
+      audio.playbackRate = this._speed; // 新建的 audio 元素默认 1.0, 补回当前语速
       audio.load();
       audio.addEventListener('loadedmetadata', finishReady, { once: true });
       audio.addEventListener('error', finishReady, { once: true });

@@ -2,9 +2,14 @@
  * timing_offsets.js —— 跟读时间轴人工校准的纯逻辑(无 DOM,可单测)
  *
  * 背景 (2026-08-31 实测): 打包出来的章节 opus 可能是**陈旧**的(上一轮跑的那份),
- * 与当前时间轴差出几秒到十几秒。实测误差形状是**阶跃函数** —— 跳变点前恒定、之后恒定,
- * 用单一常量偏移能让该段所有句边界落在真实静音 150ms 内(Winn-Dixie ch007 命中 10/10)。
- * 所以"从某句起整体平移一个常量"是有效的校正方式,而不是权宜之计。
+ * 与当前时间轴差出几秒到十几秒。
+ *
+ * 误差形状 —— 这里有一处要更正 (2026-09-01 复测): 最初只看了 Winn-Dixie ch007, 那一章
+ * 确实是**阶跃**的(跳变点前后各自恒定, 单一常量能让该段句边界全落在真实静音 150ms 内,
+ * 10/10 命中), 于是写成了"误差是阶跃函数"。同日用 silencedetect 逐句核 ch005 发现不是:
+ * 前 34 句吻合(残差恒定 -140ms, 是静音中点与句边界的取法差), 从第 34 句起残差**持续
+ * 累积**, 到章尾攒到 -3.9s。也就是说一章里可能要打好几个锚点, 而不是一个。
+ * 所以锚点设计成"从某句起生效、可以有多条"是对的, 但"一次平移管到章尾"只对部分章成立。
  *
  * 锚点语义: `{from, offset}` 表示"从第 from 句起平移 offset 毫秒",生效到下一条锚点为止。
  * 存的是**绝对偏移**不是增量 —— 增量在反复微调时会累积浮动,也没法直接显示"当前偏移多少"。
@@ -101,24 +106,58 @@
       if (a.end_ms < a.start_ms) a.end_ms = a.start_ms;
       prevStart = a.start_ms;
     }
+    // 第二趟 (2026-09-01 补): end 不得越过下一句的 start。
+    // 只修 start 是不够的 —— 向下(负偏移)的接缝上, 上一句的 end 会盖住后面好几句,
+    // 区间一重叠 findSentenceIndex 的二分前提就失效: 二分先命中前一句直接返回,
+    // 高亮在那句上卡十几秒再突然连跳好几句 (用户报"高亮明显快很多")。
+    // 实测复现: ch005 锚点 {54:+4146, 55:-4832} → 句54 区间变成 207921..222271,
+    // 而句55 起点 213293, 重叠 9 秒。
+    let nextStart = Infinity;
+    for (let i = sentences.length - 1; i >= 0; i--) {
+      const a = sentences[i] && sentences[i].audio;
+      if (!a) continue;
+      if (a.end_ms > nextStart) a.end_ms = nextStart;
+      if (a.end_ms < a.start_ms) a.end_ms = a.start_ms;
+      nextStart = a.start_ms;
+    }
   }
 
   /**
-   * 「以当前句对齐」: 用户听到正在念的是第 sentenceIndex 句、而播放头在 playheadMs,
-   * 求需要叠加的增量 —— 即把这一句的起点搬到播放头上。
-   * 比手动试 ±0.1s 快得多,是主操作。
+   * 「我听到的其实是另一句」: 高亮停在 highlightedIndex, 但用户指认此刻念的是
+   * heardIndex —— 求需要叠加的增量, 即把 heardIndex 搬到高亮现在所在的位置。
+   *
+   * 2026-09-01 重写。旧签名是 (sentences, sentenceIndex, playheadMs), 拿"高亮停在哪句"
+   * 当"用户听到哪句", 而这两者不同**正是**要校准的原因; 算出来的 playhead - start
+   * 永远落在 [0, 句长) 里, 是个几百毫秒的正数, 修不了几秒的错位。库里残留的废锚点
+   * (ch5 句54 = +4146ms) 就是这么产生的。
+   *
+   * 用"两句起点之差"而不是"播放头 - 听到那句的起点": 后者会把该句起点顶到播放头上,
+   * 而用户按下按钮时已经念到句子中段了, 等于凭空多错半句。用起点差则保留"念到句内
+   * 多少毫秒"这个量, 句长相近时正好对上。
    */
-  function alignDelta(sentences, sentenceIndex, playheadMs) {
-    const s = sentences && sentences[sentenceIndex];
-    if (!s || !s.audio) return 0;
-    return Math.round(playheadMs - s.audio.start_ms);
+  function alignDelta(sentences, heardIndex, highlightedIndex) {
+    const heard = sentences && sentences[heardIndex];
+    const shown = sentences && sentences[highlightedIndex];
+    if (!heard || !heard.audio || !shown || !shown.audio) return 0;
+    return Math.round(shown.audio.start_ms - heard.audio.start_ms);
   }
 
-  /** 人话显示: -4150 → "-4.15s";0 → "无偏移" */
+  /** 原始数值显示: -4150 → "-4.15s";0 → "无偏移" (调试/日志用, 面板不再用它, 见下) */
   function formatOffset(ms) {
     if (!ms) return '无偏移';
     const sign = ms > 0 ? '+' : '-';
     return sign + (Math.abs(ms) / 1000).toFixed(2) + 's';
+  }
+
+  /**
+   * 观感显示: 面板里给人看的一律是"高亮怎么动了", 不是偏移数值的正负。
+   * 负偏移 = 句子区间整体前移 = 同一时刻高亮落到更靠后的句子 = **高亮提前**。
+   * 数值方向和观感方向天生相反, 第一版直接把 ±ms 摆在面板上, 实测没人能一次按对。
+   */
+  function describeOffset(ms) {
+    if (!ms) return '未校准';
+    const s = (Math.abs(ms) / 1000).toFixed(2) + 's';
+    return (ms < 0 ? '高亮提前 ' : '高亮延后 ') + s;
   }
 
   global.AiduTimingOffsets = {
@@ -129,5 +168,6 @@
     repairMonotonic,
     alignDelta,
     formatOffset,
+    describeOffset,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

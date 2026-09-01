@@ -1,6 +1,7 @@
 // timing_offsets.js —— 跟读时间轴人工校准纯逻辑
 // 用例里的数字来自 2026-08-31 对 Because of Winn-Dixie 的真实测量(见 memory/pipeline.md):
-// ch007 在句 50 处一次性跳变 -9500ms, ch005 后半恒定 -4150ms。
+// ch007 在句 50 处一次性跳变 -9500ms; ch005 不是阶跃而是从句 34 起持续累积到 -3.9s
+// (2026-09-01 用 silencedetect 逐句复测更正, 见 core/timing_offsets.js 文件头)。
 import { describe, it, expect, beforeAll } from 'vitest';
 
 let T;
@@ -147,31 +148,65 @@ describe('applyToSentences', () => {
   });
 });
 
-describe('alignDelta —— 「以当前句对齐」', () => {
-  it('把当前句起点搬到播放头上', () => {
-    const s = mkSentences(5, 2000); // 句 2 起点 4000
-    expect(T.alignDelta(s, 2, 8150)).toBe(4150);
-    expect(T.alignDelta(s, 2, 4000)).toBe(0);
+describe('alignDelta —— 「我听到的其实是另一句」', () => {
+  it('增量 = 两句起点之差 (把听到的那句搬到高亮现在所在的位置)', () => {
+    const s = mkSentences(50, 2000);
+    // 高亮停在句 40 (起点 80000), 用户指认此刻念的是句 42 (起点 84000)
+    expect(T.alignDelta(s, 42, 40)).toBe(-4000);
+    expect(T.alignDelta(s, 40, 42)).toBe(4000);
+    expect(T.alignDelta(s, 40, 40)).toBe(0);
   });
 
-  it('对齐后该句起点正好等于播放头', () => {
+  // 接缝处的诚实边界: 负增量大于句间隔时, 目标句自己会被单调性修复钳回去
+  // (它不能跑到前一句前面)。往后几句钳制解除, 平移量就完整生效了 —— 这正是
+  // 实际观感: 校准点那一两句略糙, 之后整段对上。
+  it('负增量在接缝处被钳, 但往后几句拿到完整平移量', () => {
     const s = mkSentences(50, 2000);
-    const playhead = 91850;
-    const d = T.alignDelta(s, 44, playhead);
-    T.applyToSentences(s, T.nudge([], 44, d));
-    expect(s[44].audio.start_ms).toBe(playhead);
+    const baseLater = s[46].audio.start_ms;
+    T.applyToSentences(s, T.nudge([], 42, T.alignDelta(s, 42, 40)));
+    expect(s[42].audio.start_ms).toBe(s[41].audio.start_ms); // 被钳到前一句起点
+    expect(s[46].audio.start_ms).toBe(baseLater - 4000);     // 已完整生效
   });
 
   it('句子不存在时返回 0 而不是抛错', () => {
-    expect(T.alignDelta(mkSentences(2), 99, 1000)).toBe(0);
-    expect(T.alignDelta(null, 0, 1000)).toBe(0);
+    expect(T.alignDelta(mkSentences(2), 99, 0)).toBe(0);
+    expect(T.alignDelta(mkSentences(2), 0, 99)).toBe(0);
+    expect(T.alignDelta(null, 0, 1)).toBe(0);
   });
 });
 
-describe('formatOffset', () => {
-  it('人话显示', () => {
+describe('formatOffset / describeOffset', () => {
+  it('原始数值显示', () => {
     expect(T.formatOffset(0)).toBe('无偏移');
     expect(T.formatOffset(-4150)).toBe('-4.15s');
     expect(T.formatOffset(1000)).toBe('+1.00s');
+  });
+
+  it('观感显示: 负偏移 = 高亮提前 (面板里给人看的是这一个)', () => {
+    expect(T.describeOffset(0)).toBe('未校准');
+    expect(T.describeOffset(-4150)).toBe('高亮提前 4.15s');
+    expect(T.describeOffset(1000)).toBe('高亮延后 1.00s');
+  });
+});
+
+describe('repairMonotonic —— 区间不得重叠', () => {
+  it('向下接缝处上一句的 end 被压回到下一句的 start', () => {
+    // 实测复现 (ch005 库里残留的废锚点): 句 54 被顶到 +4146, 句 55 起被拉回 -4832,
+    // 只修 start 的话句 54 的区间会盖住后面 9 秒, findSentenceIndex 二分前提失效。
+    const s = mkSentences(60, 2000);
+    T.applyToSentences(s, [{ from: 54, offset: 4146 }, { from: 55, offset: -4832 }]);
+    for (let i = 1; i < s.length; i++) {
+      expect(s[i - 1].audio.end_ms).toBeLessThanOrEqual(s[i].audio.start_ms);
+      expect(s[i - 1].audio.start_ms).toBeLessThanOrEqual(s[i].audio.start_ms);
+    }
+  });
+
+  it('干净时间轴上是空操作', () => {
+    const s = mkSentences(10, 2000);
+    T.applyToSentences(s, []);
+    s.forEach((x, i) => {
+      expect(x.audio.start_ms).toBe(i * 2000);
+      expect(x.audio.end_ms).toBe((i + 1) * 2000);
+    });
   });
 });

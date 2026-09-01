@@ -2692,5 +2692,48 @@ console.log('== 14. UX7 #3 (2026-08-13): 书签按章持久化 + 跨章遍历面
   check('UX7#3: 点跨章书签行 → 调 onJumpChapter(0, 1)', jumpCalls.length === 1 && jumpCalls[0][0] === 0 && jumpCalls[0][1] === 1, JSON.stringify(jumpCalls));
 }
 
+console.log('== 15. 跟读校准 (2026-09-01 重做): 目标句冻结 + 选句对齐 + 观感方向 ==');
+{
+  load('core/timing_offsets.js');
+  load('views/reader/sync_calibrator.js');
+  let highlight = 40;          // 高亮停在哪句 (播放推进时会变)
+  const nudges = [];
+  const aligns = [];
+  let pickCb = null;
+  let paused = 0;
+  const cal = new globalThis.SyncCalibrator({
+    getHighlightIndex: () => highlight,
+    getAnchors: () => [{ from: 40, offset: -4832 }],
+    onNudge: (from, delta) => nudges.push([from, delta]),
+    onAlign: (heard, shown) => aligns.push([heard, shown]),
+    onReset: () => {},
+    beginPick: (cb) => { pickCb = cb; },
+    cancelPick: () => { pickCb = null; },
+    pausePlayback: () => { paused++; },
+  });
+  cal.show();
+  // 读数说观感, 不摆裸 ±ms —— 负偏移 = 高亮提前
+  check('校准: 读数用观感描述', cal.valueEl.textContent === '高亮提前 4.83s', cal.valueEl.textContent);
+
+  // 缺陷 2 回归: 通篇模式下高亮随播放前进, 微调仍必须落在**打开面板时冻结的那一句**上,
+  // 否则连按几次会在几个不同句上各建一条锚点 (实测库里 ch5 留下 55/56/57/60 四条)。
+  highlight = 47;
+  const step = queryAll(cal.el, '.rd-calibrator-step')[0];
+  step.onclick();
+  step.onclick();
+  check('校准: 微调目标冻结, 不随播放漂移', nudges.length === 2 && nudges[0][0] === 40 && nudges[1][0] === 40, JSON.stringify(nudges));
+  // 第一个按钮是"高亮提前 2s" = 负偏移
+  check('校准: 「高亮提前」= 负偏移', nudges[0][1] === -2000, String(nudges[0][1]));
+
+  // 缺陷 1 回归: 对齐必须由用户点出"我听到的其实是这句", 不能拿高亮位置自问自答
+  highlight = 50;
+  cal.alignBtn.onclick();
+  check('校准: 进选句模式先暂停', paused === 1 && typeof pickCb === 'function', 'paused=' + paused);
+  highlight = 58;              // 进选句后即使高亮又动了, 对齐也要用进入时冻结的那个
+  pickCb(53);
+  check('校准: onAlign(听到的句, 进入时的高亮句)', aligns.length === 1 && aligns[0][0] === 53 && aligns[0][1] === 50, JSON.stringify(aligns));
+  check('校准: 选完句后目标句改成用户点的那句', cal._from === 53, String(cal._from));
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

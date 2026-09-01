@@ -501,15 +501,19 @@
         if (this.timing.nudge(this.sentences, this.chapterIndex, from, delta)) this.calibrator.refresh();
       };
       this.calibrator = new SyncCalibrator({
-        getAnchorIndex: () => this._anchorIndex,
-        getPlayheadMs: () => this.player.currentTimeMs,
+        getHighlightIndex: () => this._anchorIndex,
         getAnchors: () => this.timing.anchorsFor(this.chapterIndex),
         onNudge: nudge,
-        onAlign: (from, ms) => nudge(from, AiduTimingOffsets.alignDelta(this.sentences, from, ms)),
+        // heard = 用户点的那句(他真听到的), highlighted = 进选句模式那一刻高亮停在哪句
+        onAlign: (heard, highlighted) =>
+          nudge(heard, AiduTimingOffsets.alignDelta(this.sentences, heard, highlighted)),
         onReset: () => {
           this.timing.reset(this.sentences, this.chapterIndex);
           this.calibrator.refresh();
         },
+        pausePlayback: () => this.player.stop(),
+        beginPick: (cb) => this._beginSentencePick(cb),
+        cancelPick: () => this._endSentencePick(),
       });
       wrap.appendChild(this.calibrator.el);
 
@@ -743,6 +747,7 @@
     _jumpChapter(idx) {
       if (idx < 0 || idx >= this.bookpack.chapters.length || idx === this.chapterIndex) return;
       this._saveProgress();
+      this._endSentencePick(); // 切章前退出选句模式, 否则监听器挂在已被清空的 DOM 上
       this.chapterIndex = idx;
       this._anchorIndex = -1;
       // R4-1 (2026-08-08): 书签下标只在"当前章"有意义 —— 切章清空, 防旧章下标套到新章
@@ -872,6 +877,48 @@
       const vh = window.innerHeight || 1;
       if (r.top >= 0 && r.bottom <= vh) return; // 完全在视口内, 不动
       window.scrollTo({ top: window.scrollY + r.top - vh * 0.4, behavior: 'smooth' });
+    }
+
+    /**
+     * 校准选句模式 (2026-09-01): 让用户在正文里点出"我此刻真正听到的是这一句"。
+     *
+     * 为什么必须由用户点: 高亮停在哪句是**时间轴说的**, 而时间轴错了正是要校准的事,
+     * 拿它当"听到哪句"就是自问自答 —— 第一版就是这么算的, 结果永远算出几百毫秒的
+     * 正数, 修不了几秒的错位。
+     *
+     * 实现上用 capture 阶段的一次性监听器接管点击: 不改渲染器、不给每个句块挂额外
+     * 事件, 退出后完全不留痕 (跟读高亮每帧都在跑, 不能为一个偶尔用的功能加常驻开销)。
+     */
+    _beginSentencePick(cb) {
+      this._endSentencePick();
+      const content = document.getElementById('reader-content');
+      if (!content) return;
+      content.classList.add('is-picking-sentence');
+      const onClick = (e) => {
+        const block = e.target && e.target.closest && e.target.closest('.atomic-block');
+        if (!block) return;
+        const idx = parseInt(block.dataset.index, 10);
+        if (!Number.isFinite(idx)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this._endSentencePick();
+        cb(idx);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { this._endSentencePick(); this.calibrator.refresh(); }
+      };
+      this._pick = { content, onClick, onKey };
+      content.addEventListener('click', onClick, true);
+      window.addEventListener('keydown', onKey, true);
+    }
+
+    _endSentencePick() {
+      if (!this._pick) return;
+      const { content, onClick, onKey } = this._pick;
+      this._pick = null;
+      content.classList.remove('is-picking-sentence');
+      content.removeEventListener('click', onClick, true);
+      window.removeEventListener('keydown', onKey, true);
     }
 
     _setAnchor(index, opts = {}) {
@@ -1290,6 +1337,7 @@
       this._chapterGen++;
       this.chapterLoader.invalidate();
       this.player.cleanup();
+      this._endSentencePick();
       window.removeEventListener('keydown', this._onKeydown);
       window.removeEventListener('scroll', this._onScroll);
       if (this._onPageHide) {

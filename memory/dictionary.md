@@ -64,6 +64,46 @@
    选**: 豁免要求"拆分会更糟"(破坏事务原子性/顺序审计/脚本路径耦合), 这次没有
    那三条理由, 硬撑理由等于"图省事", 所以选择真拆。
 
+6. **查词失败结果之前会被永久当成答案缓存进词典——已修(2026-09-05, 用户实测复现
+   两个连带 bug)**:
+   - **bug A: JSON 截断**。`prep/aidulc_prep/application/dict_lookup.py` 固定
+     `max_tokens=200`, 词典要生成 7 个字段, 有些词(如 "dixie")生成量超预算,
+     JSON 右花括号还没写完就被截断, `json.loads` 报"字符串未闭合"。修法照抄
+     `llm/stage.py` 已验证过的 EXPLAIN_MAX_TOKENS/EXPLAIN_RETRY_MAX_TOKENS 套路:
+     首次 200 token, 只对 `json.JSONDecodeError`(不是任意异常, 会误吞
+     `complete()` 本身的推理失败, 单测 `test_failure_isolated_and_continue` 锁
+     住了这条边界)重试一次 400 token。新增 `LOOKUP_MAX_TOKENS`/
+     `LOOKUP_RETRY_MAX_TOKENS` 常量。
+   - **bug B(更严重, 独立根因): 失败结果被当成真答案存库**。`word_lookup`
+     (`commands/dictionary.rs`)之前不管 daemon 调用成功还是失败, 都无条件把
+     结果元组传给 `persist_llm`——失败时元组的 meanings[0] 是"XX 的词义查询失败
+     (原因)"这句人话, 这句话就被当成词义写进个人缓存(`dictionary` 表)+ 合并进
+     first-write-wins 的共享基底(`dict_base`)。下次查同一个词, `lookup_local`
+     直接命中这条缓存瞬间返回"失败"——**从没有真正再碰过本地 LLM**, 这才是
+     用户报的"suggested 点重置也秒失败"的真正原因: 重置杀的是守护进程, 但
+     请求在 `word_lookup` 第一步(`lookup_local`)就返回了, 根本没走到守护进程
+     那一步。"未配置 LLM 模型"的占位分支有同一个毛病。
+     - 修法: `daemon_outcome_to_tuple` 和占位分支都带上一个"是否真生成成功"的
+       bool, `word_lookup` 只在 true 时调 `persist_llm`(写库), false 时改调新增
+       的 `dictionary_service::unsaved_llm_lookup`(只组装 `WordLookup` 给面板
+       识别失败态渲染, 绝不碰 `DictRepo`/`DictBaseRepo`)。
+     - **这个 bug 存在了一段时间**(K1 的 fallback_tuple 设计从 2026-08-11 就有,
+       无条件 persist 是同期写的), 老用户机器上大概率已经有历史脏数据, 光修
+       "以后不再写"不够——加了 `DictRepo`/`DictBaseRepo::cleanup_failed_entries`
+       (按 `meanings`/`payload` 里 LIKE 匹配"词义查询失败"/"词义待补充"清行),
+       在 `main.rs` 启动流程里常驻调用(清完之后恒为 no-op, 代价可忽略, 不需要
+       专门的一次性迁移标记)。
+   - **教训**: "把失败原因编码成一条假答案返回给上层"这个模式(K1 设计, 为了让
+     面板用统一渲染路径识别失败态)本身没问题, 但**分不清"这是失败占位"和"这是
+     真答案"的调用方**——只看返回类型是同一个 `LookupTuple`——迟早会有人在决定
+     "要不要持久化"的地方漏掉这个区分。以后类似"用统一类型编码正常值和错误信号"
+     的设计, 落库/缓存这类有副作用的调用点必须显式检查, 不能默认"能构造出这个
+     类型就是可信结果"。
+   - `dict_base_repo.rs` 加完 `cleanup_failed_entries` 后到 633 行, 撞了 600
+     行硬上限——这次没有再拆文件(前一条已经把能拆的 `dict_base_sources` 拆出去
+     了, 剩下的都是直接操作 `dict_base` 表本身的方法, 再拆会制造第二个写者),
+     登记进了 `scripts/file_size_baseline.json` 的 `exempt`。
+
 ## 已知缺口 / 未做的事
 
 - **MDX 格式导入没做**(2026-09-04 调研, 未落地): 用户想直接导入朗文/牛津这类商业

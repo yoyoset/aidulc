@@ -184,13 +184,17 @@ pub fn lookup_base(db: &Db, user_id: &str, key: &str) -> Option<WordLookup> {
 
 /// K2 (2026-08-11): LLM 补全结果沉淀词典并组装 WordLookup。从 lookup 拆出,
 /// 供异步命令在 spawn_blocking 拿到 tuple 后回主线程写库 (写库是快操作)。
+///
+/// **只应该在拿到真正生成成功的结果时调用**——见 `unsaved_llm_lookup` 头注释,
+/// 失败/占位结果绝不能走这个函数, 否则会把失败原因当成词义永久存进词典。
 pub fn persist_llm(
     db: &Db,
     user_id: &str,
     profile_id: &str,
     key: &str,
-    (pos, phonetic, meanings, examples, example_zh, usage, phrases): crate::commands::dictionary::LookupTuple,
+    tuple: crate::commands::dictionary::LookupTuple,
 ) -> Result<WordLookup, String> {
+    let (pos, phonetic, meanings, examples, example_zh, usage, phrases) = tuple.clone();
     let payload = serde_json::json!({
         "word": key, "lemma": key, "pos": pos, "phonetic": phonetic,
         "meanings": meanings, "examples": examples,
@@ -207,7 +211,30 @@ pub fn persist_llm(
                                                              // 失败不阻断(基底是积累性质, 不是查词成功与否的必要条件)。
     let _ = DictBaseRepo::new(db).upsert_if_absent(key, &pos, &phonetic, &meanings, &phrases);
 
-    Ok(WordLookup {
+    Ok(tuple_to_word_lookup(key, tuple))
+}
+
+/// 2026-09-05 (用户实测复现: "suggested" 秒失败, 点重置也秒失败, 根因排查确认):
+/// 查词失败时 word_lookup 会构造一个"元组"把失败原因编进 meanings[0](见
+/// commands/dictionary.rs::fallback_tuple), 让面板能用统一的方式渲染 + 识别失败
+/// 状态。**但这个元组之前被无条件传给 persist_llm 存库**——第一次失败就把"XX 的
+/// 词义查询失败(...)"这句话当成真实词义写进个人缓存 + 合并进全体共享的
+/// dict_base(first-write-wins, 一旦写入几乎不会再被覆盖)。下次查同一个词,
+/// `lookup_local` 直接命中这条缓存瞬间返回, 从来没有真正再碰一次本地 LLM ——
+/// 这才是"点重置也秒失败"的真正原因(重置杀的是守护进程, 但请求根本没走到
+/// 守护进程那一步)。这个函数只组装 WordLookup 给前端识别渲染, 不写任何库。
+pub fn unsaved_llm_lookup(
+    key: &str,
+    tuple: crate::commands::dictionary::LookupTuple,
+) -> WordLookup {
+    tuple_to_word_lookup(key, tuple)
+}
+
+fn tuple_to_word_lookup(
+    key: &str,
+    (pos, phonetic, meanings, examples, example_zh, usage, phrases): crate::commands::dictionary::LookupTuple,
+) -> WordLookup {
+    WordLookup {
         word: key.to_string(),
         pos,
         phonetic,
@@ -219,7 +246,7 @@ pub fn persist_llm(
         source: "llm".into(),
         confidence: 0.7,
         in_vocab: false,
-    })
+    }
 }
 
 /// 2026-09-04 (用户设计: 在线 AI 确认结果只入个人词典, 不碰共享的 dict_base):
@@ -584,6 +611,41 @@ mod tests {
         assert!(
             r.examples.is_empty() && r.example_zh.is_empty() && r.usage.is_empty(),
             "基底层不该有语境相关字段"
+        );
+    }
+
+    #[test]
+    fn unsaved_llm_lookup_never_writes_personal_cache_or_dict_base() {
+        // 2026-09-05 实测复现根因回归: 之前查词失败会把失败原因当词义存进库,
+        // 下次查同一个词直接命中这条缓存瞬间"失败", 从没真正再碰过本地 LLM
+        // (用户报"suggested 点重置也秒失败"就是这个)。unsaved_llm_lookup 只该
+        // 组装出 WordLookup 给面板识别失败态, 绝不能碰 DictRepo/DictBaseRepo。
+        let db = temp_db();
+        let r = unsaved_llm_lookup(
+            "suggested",
+            (
+                "NOUN".into(),
+                String::new(),
+                vec!["suggested 的词义查询失败 (词典守护响应超时)".into()],
+                vec![],
+                vec![],
+                String::new(),
+                vec![],
+            ),
+        );
+        assert_eq!(
+            r.meanings,
+            vec!["suggested 的词义查询失败 (词典守护响应超时)"]
+        );
+        assert!(
+            DictRepo::new(&db)
+                .get("suggested", "me", "default")
+                .is_none(),
+            "失败结果不该写进个人缓存"
+        );
+        assert!(
+            DictBaseRepo::new(&db).get("suggested").is_none(),
+            "失败结果不该合并进共享基底"
         );
     }
 

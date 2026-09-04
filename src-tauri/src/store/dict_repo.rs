@@ -122,6 +122,20 @@ impl<'a> DictRepo<'a> {
             .map_err(|e| format!("删词典条目失败: {e}"))?;
         Ok(())
     }
+
+    /// 2026-09-05 (实测复现修复): 在 word_lookup 收紧"只有真生成成功才落库"之前,
+    /// 查词失败会把失败原因当词义写进这张表(payload 里含"词义查询失败"/"词义
+    /// 待补充"字样)——下次查同一个词 `lookup_local` 直接命中这条缓存瞬间"失败",
+    /// 从没真正再碰过 LLM。这是一次性清理: 启动时把这类历史脏数据删掉, 让这些
+    /// 词能重新走一次真实查询。返回值给日志/诊断用, 不是必须消费的信号。
+    pub fn cleanup_failed_entries(&self) -> usize {
+        let conn = self.db.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM dictionary WHERE payload LIKE '%词义查询失败%' OR payload LIKE '%词义待补充%'",
+            [],
+        )
+        .unwrap_or(0)
+    }
 }
 
 #[cfg(test)]
@@ -202,6 +216,37 @@ mod tests {
         );
         assert_eq!(repo.list_by_profile("me", "default").len(), 1);
         assert_eq!(repo.list_by_profile("u-kid", "default").len(), 1);
+    }
+
+    #[test]
+    fn cleanup_failed_entries_removes_poisoned_rows_only() {
+        let db = temp_db();
+        let repo = DictRepo::new(&db);
+        repo.upsert(
+            "suggested",
+            &serde_json::json!({"word": "suggested", "meanings": ["suggested 的词义查询失败 (词典守护响应超时)"]}),
+            "me", "default",
+        ).unwrap();
+        repo.upsert(
+            "placeholder",
+            &serde_json::json!({"word": "placeholder", "meanings": ["placeholder 的词义待补充(未配置 LLM 模型)"]}),
+            "me", "default",
+        ).unwrap();
+        repo.upsert(
+            "bank",
+            &serde_json::json!({"word": "bank", "meanings": ["银行"]}),
+            "me",
+            "default",
+        )
+        .unwrap();
+        let n = repo.cleanup_failed_entries();
+        assert_eq!(n, 2, "两条失败占位应被清掉");
+        assert!(repo.get("suggested", "me", "default").is_none());
+        assert!(repo.get("placeholder", "me", "default").is_none());
+        assert!(
+            repo.get("bank", "me", "default").is_some(),
+            "正常词条不受影响"
+        );
     }
 
     #[test]

@@ -72,47 +72,65 @@ pub async fn word_lookup(
             let call = crate::infrastructure::dict_daemon::lookup(&prep_path, &llm_model, &w, &ctx);
             daemon_outcome_to_tuple(call, &w)
         } else {
-            // 兜底: 未配置 → 占位 (不阻断查词), 措辞保持原样"待补充"
+            // 兜底: 未配置 → 占位 (不阻断查词), 措辞保持原样"待补充"。false = 不
+            // 落库, 否则配置好模型之后这条占位还赖在缓存里, 永远查不到真答案。
             (
-                "NOUN".into(),
-                String::new(),
-                vec![format!("{w} 的词义待补充(未配置 LLM 模型)")],
-                vec![],
-                vec![],
-                String::new(),
-                vec![],
+                false,
+                (
+                    "NOUN".into(),
+                    String::new(),
+                    vec![format!("{w} 的词义待补充(未配置 LLM 模型)")],
+                    vec![],
+                    vec![],
+                    String::new(),
+                    vec![],
+                ),
             )
         }
     })
     .await
     .map_err(|e| format!("查词任务执行失败: {e}"))?;
 
-    // 3. 回主线程写库 (快操作) + 组装响应
-    let result =
-        dictionary_service::persist_llm(db.inner(), &user_id, &profile_id, &key, daemon_result)?;
+    // 3. 回主线程组装响应。2026-09-05 实测复现修复("suggested" 点重置也秒失败,
+    // 根因见 dictionary_service::unsaved_llm_lookup 头注释): 只有 succeeded=true
+    // (真的拿到生成结果)才落库——失败/占位结果只组装出来给面板识别渲染, 绝不
+    // 写进个人缓存或共享基底, 否则第一次失败就会把失败原因永久缓存成"词义"。
+    let (succeeded, tuple) = daemon_result;
+    let result = if succeeded {
+        dictionary_service::persist_llm(db.inner(), &user_id, &profile_id, &key, tuple)?
+    } else {
+        dictionary_service::unsaved_llm_lookup(&key, tuple)
+    };
     crate::infrastructure::log::info("cmd", "exit: word_lookup (llm)");
     serde_json::to_value(result).map_err(|e| e.to_string())
 }
 
-/// K1 (2026-08-11): 词典守护调用结果 → 面板元组。真实失败原因上屏 + 记日志,
-/// 不再统一说成"未返回结果"。纯函数, 便于对四种失败逐类单测。
-fn daemon_outcome_to_tuple(call: Result<serde_json::Value, String>, w: &str) -> LookupTuple {
+/// K1 (2026-08-11): 词典守护调用结果 → (是否真生成成功, 面板元组)。真实失败原因
+/// 上屏 + 记日志, 不再统一说成"未返回结果"。纯函数, 便于对四种失败逐类单测。
+/// 2026-09-05: 加返回值里的 bool ——调用方据此决定要不要落库(见 word_lookup)。
+fn daemon_outcome_to_tuple(
+    call: Result<serde_json::Value, String>,
+    w: &str,
+) -> (bool, LookupTuple) {
     match call {
         Ok(v) => match daemon_result_to_tuple(&v) {
-            Ok(parsed) => parsed,
+            Ok(parsed) => (true, parsed),
             Err(parse_err) => {
                 // 侧车回了, 但内容看不懂 —— 一句话说清"不是没回, 是回了看不懂"
                 crate::infrastructure::log::error(
                     "dict",
                     &format!("{w} 词典守护响应解析失败: {parse_err}"),
                 );
-                fallback_tuple(w, "侧车已返回但结果无法解析, 详见 aidulc.log")
+                (
+                    false,
+                    fallback_tuple(w, "侧车已返回但结果无法解析, 详见 aidulc.log"),
+                )
             }
         },
         Err(call_err) => {
             // 侧车没回 —— 把调用层的真实原因直接上屏
             crate::infrastructure::log::error("dict", &format!("{w} 词典守护调用失败: {call_err}"));
-            fallback_tuple(w, &call_err)
+            (false, fallback_tuple(w, &call_err))
         }
     }
 }
@@ -451,7 +469,8 @@ mod k1_tests {
             "examples": ["knock the door"], "example_zh": ["敲门"],
             "usage": "可数名词", "phrases": ["next door"]
         });
-        let t = daemon_outcome_to_tuple(Ok(v), "door");
+        let (ok, t) = daemon_outcome_to_tuple(Ok(v), "door");
+        assert!(ok, "真解析成功应标记可落库");
         assert_eq!(t.0, "NOUN");
         assert_eq!(t.2, vec!["门"]);
     }
@@ -468,19 +487,26 @@ mod k1_tests {
             // 返回 ok:false (侧车自报)
             "模型加载失败: 显存不足",
         ];
-        let msgs: Vec<String> = failures
+        let results: Vec<(bool, String)> = failures
             .iter()
             .map(|e| {
-                let t = daemon_outcome_to_tuple(Err(e.to_string()), "doorway");
-                t.2.join(" ")
+                let (ok, t) = daemon_outcome_to_tuple(Err(e.to_string()), "doorway");
+                (ok, t.2.join(" "))
             })
             .collect();
+        // 2026-09-05: 四种失败都不该标记可落库——否则失败原因会被当成词义存进
+        // 词典(实测复现的"suggested 点重置也秒失败"根因, 见 word_lookup 调用点注释)。
+        assert!(
+            results.iter().all(|(ok, _)| !*ok),
+            "四种失败都不该标记可落库: {results:?}"
+        );
+        let msgs: Vec<&String> = results.iter().map(|(_, m)| m).collect();
         // 四条文案互不相同
         let mut uniq = std::collections::HashSet::new();
         for m in &msgs {
             assert!(!m.contains("未返回结果"), "不应再出现笼统文案: {m}");
             assert!(m.contains("doorway"), "应含词: {m}");
-            uniq.insert(m.clone());
+            uniq.insert((*m).clone());
         }
         assert_eq!(uniq.len(), 4, "四种失败应给四种不同文案: {msgs:?}");
         // 各自带上原始原因
@@ -498,7 +524,8 @@ mod k1_tests {
             daemon_result_to_tuple(&v).is_err(),
             "缺 meanings 应解析失败"
         );
-        let t = daemon_outcome_to_tuple(Ok(v), "door");
+        let (ok, t) = daemon_outcome_to_tuple(Ok(v), "door");
+        assert!(!ok, "解析失败不该标记可落库");
         let msg = t.2.join(" ");
         assert!(!msg.contains("未返回结果"), "解析失败 ≠ 未返回: {msg}");
         assert!(msg.contains("无法解析"), "应说明是解析问题: {msg}");

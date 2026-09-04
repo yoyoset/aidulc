@@ -41,6 +41,7 @@
     "src-tauri/src/application/model_service.rs": "单一命令域 (模型管理), 没混域。",
     "src-tauri/src/application/transfer_service.rs": "单一命令域 (导入导出/数据迁移), 没混域。",
     "src-tauri/src/application/dictionary_service.rs": "单一命令域 (查词三层: 全局词典基底 / 个人词典 / 在线兜底), 没混域。",
+    "src-tauri/src/store/dict_base_repo.rs": "dict_base 表唯一写者(CLAUDE.md 存储所有权表)。可分离的记账逻辑(dict_base_sources 表)2026-09-04 已拆到 dict_base_sources_repo.rs; 剩下的导入/统计/清理都是直接操作 dict_base 表本身的 CRUD, 拆到别的文件会制造这张表的第二个写者, 违反单一写者规则。",
     "src-tauri/src/commands/library.rs": "单一命令域 (书库命令注册), 方法数量正常。",
     "src-tauri/src/commands/sync_backend.rs": "单一命令域 (同步后端管理)。",
     "src-tauri/src/main.rs": "组合根: 模块声明 + Tauri invoke_handler 注册表 + 启动装配。每加一条命令必然变长, 与 registry.rs 同源。",

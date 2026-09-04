@@ -482,6 +482,13 @@ fn main() {
                 // N6b (2026-08-10): 清终态且超保留期的任务行 (不删 running/queued 和
                 // 仍被 edition 引用的), 任务表不再无界累积
                 let _ = store::jobs_repo::JobsRepo::new(db.inner()).cleanup_old(30);
+                // 2026-09-05 一次性清理: 收紧"查词失败不落库"之前遗留的脏数据——失败
+                // 原因被当成词义存进个人缓存/共享基底, 导致同一个词永远秒失败(见
+                // dict_repo.rs::cleanup_failed_entries 头注释)。清完之后这两条恒为
+                // no-op(没有脏数据可清), 常驻在启动流程里代价可忽略。
+                let _ = store::dict_repo::DictRepo::new(db.inner()).cleanup_failed_entries();
+                let _ =
+                    store::dict_base_repo::DictBaseRepo::new(db.inner()).cleanup_failed_entries();
                 // 修复: 任务死 (进程被强杀) 但书状态卡 processing → 恢复 pending (书库可见可重试)
                 let books_repo = store::books_repo::BooksRepo::new(db.inner());
                 for b in books_repo.list_by_kind("original") {

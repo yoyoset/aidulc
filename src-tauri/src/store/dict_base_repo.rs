@@ -51,6 +51,18 @@ impl<'a> DictBaseRepo<'a> {
         get_on_conn(&conn, word)
     }
 
+    /// 2026-09-05: 同 dict_repo.rs::cleanup_failed_entries, 一次性清历史脏数据
+    /// (收紧"只有真生成成功才落库"之前, 失败原因经 upsert_if_absent 固化进了这张
+    /// first-write-wins 的共享基底, 几乎不会被后续成功结果覆盖)。
+    pub fn cleanup_failed_entries(&self) -> usize {
+        let conn = self.db.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM dict_base WHERE meanings LIKE '%词义查询失败%' OR meanings LIKE '%词义待补充%'",
+            [],
+        )
+        .unwrap_or(0)
+    }
+
     /// LLM 补全后把稳定字段并入基底。first-write-wins: 已经有条目(不管是种子还是
     /// 之前别的 profile 查到的)就不覆盖——避免不同来源反复互相改写造成churn,
     /// "第一次查到就定下来、后面持续复用"足够满足"积累"这个目标。
@@ -437,6 +449,26 @@ mod tests {
         let db = temp_db();
         let repo = DictBaseRepo::new(&db);
         assert!(repo.get("nonexistentword123").is_none());
+    }
+
+    #[test]
+    fn cleanup_failed_entries_removes_poisoned_rows_only() {
+        let db = temp_db();
+        let repo = DictBaseRepo::new(&db);
+        repo.upsert_if_absent(
+            "suggested",
+            "NOUN",
+            "",
+            &["suggested 的词义查询失败 (词典守护响应超时)".into()],
+            &[],
+        )
+        .unwrap();
+        repo.upsert_if_absent("bank", "NOUN", "", &["银行".into()], &[])
+            .unwrap();
+        let n = repo.cleanup_failed_entries();
+        assert_eq!(n, 1);
+        assert!(repo.get("suggested").is_none());
+        assert!(repo.get("bank").is_some(), "正常词条不受影响");
     }
 
     #[test]

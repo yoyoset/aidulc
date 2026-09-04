@@ -48,6 +48,7 @@ mod store {
     pub mod batches_repo;
     pub mod books_repo;
     pub mod dict_base_repo;
+    pub mod dict_base_sources_repo;
     pub mod dict_repo;
     pub mod editions_repo;
     pub mod highlights_repo;
@@ -637,6 +638,8 @@ fn main() {
             commands::misc::gpu_kill_process,
             commands::misc::dict_base_import_file,
             commands::misc::dict_base_stats,
+            commands::misc::dict_base_sources_list,
+            commands::misc::dict_base_source_delete,
             ipc::commands::profile_upsert,
             ipc::commands::profile_list,
             ipc::commands::profile_delete,

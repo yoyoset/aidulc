@@ -1141,6 +1141,50 @@ impl Db {
             )
             .map_err(|e| format!("迁移 v34 失败: {e}"))?;
         }
+        if version < 35 {
+            // 多词典源管理 (2026-09-04, 用户: "词典这个位置放出来...可以加多个词典")。
+            // dict_base 表本身不变(仍是 word 主键的全局基底), 新增一张记账表 + 一列
+            // source_id, 让"导入自定义词典文件"从一次性追加变成可列出/可单独删除的
+            // 命名批次。旧数据(种子/LLM 积累/迁移前导入的 custom)source_id 天然是
+            // NULL——它们本来就不该出现在"我的词典源"列表里, 不用回填。
+            let has_table: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dict_base_sources'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            if has_table == 0 {
+                conn.execute_batch(
+                    "CREATE TABLE dict_base_sources (
+                        id TEXT PRIMARY KEY,
+                        label TEXT NOT NULL,
+                        file_name TEXT NOT NULL DEFAULT '',
+                        imported_at INTEGER NOT NULL DEFAULT 0,
+                        word_count INTEGER NOT NULL DEFAULT 0
+                    );",
+                )
+                .map_err(|e| format!("迁移 v35 失败: {e}"))?;
+            }
+            // ALTER TABLE ADD COLUMN 判幂等: 撤旧版本重跑的测试会让这条语句在已有该列的
+            // 库上重复执行, 重复 ALTER 会报 duplicate column, 先查 pragma 再决定要不要加。
+            let has_col: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('dict_base') WHERE name='source_id'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            if has_col == 0 {
+                conn.execute("ALTER TABLE dict_base ADD COLUMN source_id TEXT", [])
+                    .map_err(|e| format!("迁移 v35 失败: {e}"))?;
+            }
+            conn.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (35, strftime('%s','now')*1000)",
+                [],
+            )
+            .map_err(|e| format!("迁移 v35 失败: {e}"))?;
+        }
         Ok(())
     }
 }

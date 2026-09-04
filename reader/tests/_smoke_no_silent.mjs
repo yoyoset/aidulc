@@ -291,6 +291,8 @@ globalThis.AiduMiscService = {
   gpuStatus: async () => ({ ok: true, data: { available: false, shouldWarn: false, foreignProcesses: [] } }),
   dictBaseStats: async () => ({ ok: true, data: [{ source: 'seed', count: 19139 }] }),
   dictBaseImportFile: async () => ({ ok: true, data: { imported: 0, skipped_existing: 0, total_rows: 0 } }),
+  dictBaseSourcesList: async () => ({ ok: true, data: [] }),
+  dictBaseSourceDelete: async () => ({ ok: true, data: 0 }),
 };
 globalThis.AiduJobService = {
   list: async () => ({ ok: true, data: [

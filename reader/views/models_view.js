@@ -133,25 +133,31 @@
     }
 
     /** 2026-08-21: 词典基底(查词第一层, 不碰 GPU)统计 + 导入自定义词典文件。
-     *  跟模型无关但同属"设置里配置查词相关的东西", 放在模型页顺理成章。 */
+     *  跟模型无关但同属"设置里配置查词相关的东西", 放在模型页顺理成章。
+     *  2026-09-04 (用户: "可以加多个词典"): 加"我的词典源"列表——每次导入不再是
+     *  混进一个笼统的"自定义"桶, 而是记成一条可单独删除的具名批次。 */
     _loadDictBaseSection(container) {
       container.innerHTML = '';
       const sec = el('div', 'model-group');
       sec.appendChild(el('h2', null, '词典基底'));
       sec.appendChild(el('div', 'import-tip',
         '查词第一层, 瞬时返回不占显卡。种子来自 ECDICT(开源, 约 1.9 万核心词), 加上大家' +
-        '查过的词持续积累。可以导入自己的词典文件补充(不会覆盖已有词条, 只追加新词)。'));
+        '查过的词持续积累。可以导入自己的词典文件补充(不会覆盖已有词条, 只追加新词), 可以加多个。'));
       const statLine = el('div', 'settings-hint', '统计中…');
       sec.appendChild(statLine);
+      const sourcesEl = el('div', 'model-dir-list');
+      sec.appendChild(sourcesEl);
       const importBtn = el('button', 'btn-small', '导入自定义词典文件');
       importBtn.title = '支持 JSONL(word/phonetic/pos/meanings) 或 CSV(表头含 word 列 + translation/meaning/definition/释义 任一列)';
       importBtn.onclick = () => {
         AiduBridge.pickFiles(['jsonl', 'ndjson', 'csv', 'txt']).then((r) => {
           if (!r.ok || !r.data || !r.data.length) return;
+          const path = r.data[0];
+          const fileName = String(path).split(/[\\/]/).pop();
           importBtn.disabled = true;
           const originalText = importBtn.textContent;
           importBtn.textContent = '导入中…';
-          AiduMiscService.dictBaseImportFile(r.data[0]).then((res) => {
+          AiduMiscService.dictBaseImportFile(path, fileName).then((res) => {
             importBtn.disabled = false;
             importBtn.textContent = originalText;
             if (!res.ok) { AiduToast.show('导入失败: ' + res.error, 'error'); return; }
@@ -177,6 +183,38 @@
           ? `共 ${total} 词条 (${parts})`
           : '基底暂无数据(应用启动时会自动种入 ECDICT, 若一直空请检查日志)';
       }).catch(() => { statLine.textContent = '统计失败'; });
+
+      this._renderDictBaseSources(sourcesEl, container);
+    }
+
+    /** 我的词典源: 逐条列出自定义导入批次(文件名/词数/时间), 可单独删除。
+     *  没有任何自定义源时留空, 不显示"暂无数据"占位噪音。 */
+    _renderDictBaseSources(sourcesEl, container) {
+      AiduMiscService.dictBaseSourcesList().then((res) => {
+        sourcesEl.innerHTML = '';
+        if (!res.ok || !res.data || !res.data.length) return;
+        res.data.forEach((s) => {
+          const row = el('div', 'model-dir-row');
+          const when = s.imported_at ? new Date(s.imported_at).toLocaleString() : '';
+          const code = el('code', 'j0-path', `${s.label} · ${s.word_count} 词${when ? ' · ' + when : ''}`);
+          const rm = el('button', 'btn-small scan-path-rm', '×');
+          rm.title = '删除这个词典源(连同它导入的所有词条)';
+          rm.onclick = () => {
+            AiduModal.confirm({
+              title: `删除词典源「${s.label}」?`,
+              message: `将删除这批导入的 ${s.word_count} 个词条, 不影响种子词典和其它来源。`,
+              confirmText: '删除', danger: true,
+              onConfirm: () => AiduMiscService.dictBaseSourceDelete(s.id).then((r) => {
+                if (!r.ok) { AiduToast.show('删除失败: ' + r.error, 'error'); return; }
+                AiduToast.show(`已删除 ${r.data} 个词条`, 'info');
+                this._loadDictBaseSection(container);
+              }),
+            });
+          };
+          row.append(code, rm);
+          sourcesEl.appendChild(row);
+        });
+      }).catch(() => { /* 列表加载失败不阻断其它区块 */ });
     }
 
     _renderModelDirs(dirsEl) {

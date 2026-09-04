@@ -639,12 +639,22 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         path: "commands::misc::dict_base_import_file",
         domain: "查词",
-        desc: "2026-08-21: 导入用户自己的词典文件(JSONL/CSV)到全局词典基底, 追加不覆盖",
+        desc: "2026-08-21: 导入用户自己的词典文件(JSONL/CSV)到全局词典基底, 追加不覆盖; 2026-09-04 加 label 参数记成一个可管理的词典源",
     },
     CommandInfo {
         path: "commands::misc::dict_base_stats",
         domain: "查词",
         desc: "2026-08-21: 词典基底统计(按来源分组: seed/llm/custom 各多少词)",
+    },
+    CommandInfo {
+        path: "commands::misc::dict_base_sources_list",
+        domain: "查词",
+        desc: "2026-09-04: 列出所有自定义词典源(文件名/词数/导入时间), 用于逐个管理",
+    },
+    CommandInfo {
+        path: "commands::misc::dict_base_source_delete",
+        domain: "查词",
+        desc: "2026-09-04: 删除一个自定义词典源(连同它导入的词条), 返回删除词条数",
     },
     // ---- 设置/Profile/阅读状态/传输 (ipc/commands.rs) ----
     CommandInfo {

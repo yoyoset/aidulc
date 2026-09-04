@@ -25,6 +25,18 @@ pub struct DictBaseEntry {
     pub source: String, // seed | llm
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ImportStats {
+    pub imported: usize,
+    pub skipped_existing: usize,
+    pub total_rows: usize,
+}
+
+// DictBaseSource + list/record/delete 的原始 SQL 在 dict_base_sources_repo.rs
+// (它才是 dict_base_sources 表的唯一写者); 这里的方法只是薄封装, 把两张表的
+// 读写(dict_base 词条本身仍只能在这个文件里写)串起来给命令层一个入口。
+pub use crate::store::dict_base_sources_repo::DictBaseSource;
+
 pub struct DictBaseRepo<'a> {
     db: &'a Db,
 }
@@ -66,16 +78,7 @@ impl<'a> DictBaseRepo<'a> {
         .map_err(|e| format!("写词典基底失败: {e}"))?;
         Ok(())
     }
-}
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-pub struct ImportStats {
-    pub imported: usize,
-    pub skipped_existing: usize,
-    pub total_rows: usize,
-}
-
-impl<'a> DictBaseRepo<'a> {
     /// 2026-08-21 (用户: "设置里增加字典文件的选择"): 导入用户自己的词典文件,
     /// 追加进基底(跟种子/别人查过的词共存, INSERT OR IGNORE——不覆盖已有词条,
     /// 只补充新词/生僻词)。支持两种格式, 按内容自动判断:
@@ -83,11 +86,34 @@ impl<'a> DictBaseRepo<'a> {
     ///     (word/phonetic/pos/meanings, meanings 是数组)。
     ///   - CSV: 表头里找 word 列 + 释义列(translation/meaning/meanings/definition/
     ///     释义 任一, 大小写不敏感), phonetic/pos 列可选。用 csv 库解析(不是手写
-    ///     split(',')——ECDICT 这类词典的释义字段常见内嵌逗号/换行, 裸 split 会
-    ///     悄悄错位)。
-    pub fn import_custom_file(&self, path: &str) -> Result<ImportStats, String> {
+    ///     split(',')——ECDICT 这类词典的释义字段常见内嵌逗号/换行, 裸 split 会悄悄错位)。
+    ///
+    /// 2026-09-04: 加 `label` —— 每次导入记一条可列出/可单独删除的 `dict_base_sources`。
+    pub fn import_custom_file(
+        &self,
+        path: &str,
+        label: Option<&str>,
+    ) -> Result<ImportStats, String> {
         let conn = self.db.conn.lock().unwrap();
-        import_file_on_conn(&conn, path)
+        let file_name = std::path::Path::new(path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string());
+        let label = label.filter(|s| !s.trim().is_empty()).unwrap_or(&file_name);
+        let now = crate::store::now_ms_for_store();
+        let source_id = format!("custom_{now}");
+        let stats = import_file_on_conn(&conn, path, &source_id)?;
+        if stats.imported > 0 {
+            crate::store::dict_base_sources_repo::record(
+                &conn,
+                &source_id,
+                label,
+                &file_name,
+                now,
+                stats.imported as i64,
+            )?;
+        }
+        Ok(stats)
     }
 
     /// 基底统计(按来源分), 给设置页展示"当前基底有多少词、种子/自己积累各多少"。
@@ -102,18 +128,39 @@ impl<'a> DictBaseRepo<'a> {
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("查基底统计失败: {e}"))
     }
+
+    /// 列出所有自定义词典源, 设置页渲染"我的词典源"列表用。
+    pub fn list_sources(&self) -> Result<Vec<DictBaseSource>, String> {
+        let conn = self.db.conn.lock().unwrap();
+        crate::store::dict_base_sources_repo::list(&conn)
+    }
+
+    /// 删除一个自定义词典源: 先删它导入的所有 dict_base 词条(这张表只能在这个文件
+    /// 写), 再删源记录本身——两步在同一把已持有的 conn 锁内顺序执行, 不需要再包
+    /// 一层事务。返回删除的词条数。
+    pub fn delete_source(&self, source_id: &str) -> Result<usize, String> {
+        let conn = self.db.conn.lock().unwrap();
+        let deleted = conn
+            .execute(
+                "DELETE FROM dict_base WHERE source_id = ?1",
+                params![source_id],
+            )
+            .map_err(|e| format!("删词典源词条失败: {e}"))?;
+        crate::store::dict_base_sources_repo::delete(&conn, source_id)?;
+        Ok(deleted)
+    }
 }
 
-fn import_file_on_conn(conn: &Connection, path: &str) -> Result<ImportStats, String> {
+fn import_file_on_conn(conn: &Connection, path: &str, sid: &str) -> Result<ImportStats, String> {
     let content = std::fs::read_to_string(path).map_err(|e| format!("读文件失败: {e}"))?;
     let lower = path.to_lowercase();
     let looks_jsonl = lower.ends_with(".jsonl")
         || lower.ends_with(".ndjson")
         || content.trim_start().starts_with('{');
     if looks_jsonl {
-        import_jsonl_on_conn(conn, &content)
+        import_jsonl_on_conn(conn, &content, sid)
     } else {
-        import_csv_on_conn(conn, &content)
+        import_csv_on_conn(conn, &content, sid)
     }
 }
 
@@ -130,17 +177,16 @@ struct CustomJsonlRow {
     phrases: Vec<String>,
 }
 
-fn import_jsonl_on_conn(conn: &Connection, content: &str) -> Result<ImportStats, String> {
-    let mut total_rows = 0usize;
-    let mut imported = 0usize;
+fn import_jsonl_on_conn(conn: &Connection, text: &str, sid: &str) -> Result<ImportStats, String> {
+    let (mut total_rows, mut imported) = (0usize, 0usize);
     let mut stmt = conn
         .prepare(
-            "INSERT OR IGNORE INTO dict_base (word, pos, phonetic, meanings, phrases, source, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'custom', ?6)",
+            "INSERT OR IGNORE INTO dict_base (word, pos, phonetic, meanings, phrases, source, updated_at, source_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'custom', ?6, ?7)",
         )
         .map_err(|e| format!("导入准备语句失败: {e}"))?;
     let now = crate::store::now_ms_for_store();
-    for line in content.lines() {
+    for line in text.lines() {
         if line.trim().is_empty() {
             continue;
         }
@@ -161,6 +207,7 @@ fn import_jsonl_on_conn(conn: &Connection, content: &str) -> Result<ImportStats,
                 serde_json::to_string(&row.meanings).unwrap_or_else(|_| "[]".into()),
                 serde_json::to_string(&row.phrases).unwrap_or_else(|_| "[]".into()),
                 now,
+                sid,
             ])
             .map_err(|e| format!("导入失败 (word={word}): {e}"))?;
         imported += n;
@@ -198,7 +245,7 @@ fn split_meanings(raw: &str) -> Vec<String> {
         .collect()
 }
 
-fn import_csv_on_conn(conn: &Connection, content: &str) -> Result<ImportStats, String> {
+fn import_csv_on_conn(conn: &Connection, content: &str, sid: &str) -> Result<ImportStats, String> {
     let mut rdr = csv::ReaderBuilder::new()
         .flexible(true)
         .from_reader(content.as_bytes());
@@ -214,12 +261,11 @@ fn import_csv_on_conn(conn: &Connection, content: &str) -> Result<ImportStats, S
     let phonetic_idx = find_col(&headers, PHONETIC_HEADERS);
     let pos_idx = find_col(&headers, POS_HEADERS);
 
-    let mut total_rows = 0usize;
-    let mut imported = 0usize;
+    let (mut total_rows, mut imported) = (0usize, 0usize);
     let mut stmt = conn
         .prepare(
-            "INSERT OR IGNORE INTO dict_base (word, pos, phonetic, meanings, phrases, source, updated_at)
-             VALUES (?1, ?2, ?3, ?4, '[]', 'custom', ?5)",
+            "INSERT OR IGNORE INTO dict_base (word, pos, phonetic, meanings, phrases, source, updated_at, source_id)
+             VALUES (?1, ?2, ?3, ?4, '[]', 'custom', ?5, ?6)",
         )
         .map_err(|e| format!("导入准备语句失败: {e}"))?;
     let now = crate::store::now_ms_for_store();
@@ -243,6 +289,7 @@ fn import_csv_on_conn(conn: &Connection, content: &str) -> Result<ImportStats, S
                 phonetic,
                 serde_json::to_string(&meanings).unwrap_or_else(|_| "[]".into()),
                 now,
+                sid,
             ])
             .map_err(|e| format!("导入失败 (word={word}): {e}"))?;
         imported += n;
@@ -428,7 +475,9 @@ mod tests {
             ),
         )
         .unwrap();
-        let stats = repo.import_custom_file(path.to_str().unwrap()).unwrap();
+        let stats = repo
+            .import_custom_file(path.to_str().unwrap(), None)
+            .unwrap();
         assert_eq!(stats.total_rows, 2, "空词那行不该计入");
         assert_eq!(stats.imported, 1, "existing 已存在, 只有 newword 真的插入");
         assert_eq!(stats.skipped_existing, 1);
@@ -457,7 +506,9 @@ mod tests {
             "word,phonetic,translation,pos\nbring,briŋ,\"带来, 产生\",VERB\n",
         )
         .unwrap();
-        let stats = repo.import_custom_file(path.to_str().unwrap()).unwrap();
+        let stats = repo
+            .import_custom_file(path.to_str().unwrap(), None)
+            .unwrap();
         assert_eq!(stats.imported, 1);
         let got = repo.get("bring").expect("应导入成功");
         assert_eq!(got.phonetic, "briŋ");
@@ -478,7 +529,7 @@ mod tests {
             std::env::temp_dir().join(format!("aidulc_custom_dict_bad_{}.csv", std::process::id()));
         std::fs::write(&path, "foo,bar\n1,2\n").unwrap();
         let err = repo
-            .import_custom_file(path.to_str().unwrap())
+            .import_custom_file(path.to_str().unwrap(), None)
             .expect_err("没有 word 列应该报可读错误, 不是崩溃");
         assert!(err.contains("word"), "{err}");
         let _ = std::fs::remove_file(&path);
@@ -494,6 +545,45 @@ mod tests {
             .unwrap();
         let s = repo.stats().unwrap();
         assert_eq!(s, vec![("llm".to_string(), 2)]);
+    }
+
+    /// 多词典源 (2026-09-04): 带 label 导入 / 不带 label 默认取文件名 / 旧数据
+    /// (source_id=NULL, 如 legacy) 不混进列表 / 删除只影响自己那批词条 —— 一次
+    /// 走完整个生命周期, 省得每个子场景各自重建 db+repo。
+    #[test]
+    fn dict_base_sources_lifecycle() {
+        let db = temp_db();
+        let repo = DictBaseRepo::new(&db);
+        repo.upsert_if_absent("kept", "", "", &["保留".into()], &[])
+            .unwrap(); // 旧数据, source_id=NULL
+
+        let p1 = std::env::temp_dir().join(format!("aidulc_src_a_{}.jsonl", std::process::id()));
+        std::fs::write(&p1, "{\"word\": \"gadfly\", \"meanings\": [\"牛虻\"]}\n").unwrap();
+        repo.import_custom_file(p1.to_str().unwrap(), Some("我的牛津词典"))
+            .unwrap();
+        let p2 = std::env::temp_dir().join(format!("aidulc_src_b_{}.jsonl", std::process::id()));
+        std::fs::write(&p2, "{\"word\": \"zed\", \"meanings\": [\"Z\"]}\n").unwrap();
+        repo.import_custom_file(p2.to_str().unwrap(), None).unwrap();
+        let _ = std::fs::remove_file(&p1);
+        let _ = std::fs::remove_file(&p2);
+
+        let sources = repo.list_sources().unwrap();
+        assert_eq!(sources.len(), 2, "旧数据(source_id=NULL)不该混进来");
+        let labeled = sources.iter().find(|s| s.label == "我的牛津词典").unwrap();
+        assert_eq!(labeled.word_count, 1);
+        assert_eq!(repo.get("gadfly").unwrap().source, "custom");
+        let defaulted = sources.iter().find(|s| s.id != labeled.id).unwrap();
+        assert_eq!(
+            defaulted.label, defaulted.file_name,
+            "无 label 时默认取文件名"
+        );
+
+        let deleted = repo.delete_source(&defaulted.id).unwrap();
+        assert_eq!(deleted, 1);
+        assert!(repo.get("zed").is_none(), "已删除词典源的词条应消失");
+        assert!(repo.get("gadfly").is_some(), "不该动其它来源的词条");
+        assert!(repo.get("kept").is_some(), "不该动 source_id=NULL 的旧数据");
+        assert_eq!(repo.list_sources().unwrap().len(), 1, "只删了一个源记录");
     }
 
     #[test]

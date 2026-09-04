@@ -48,8 +48,12 @@
     gpuKillProcess(pid) { return AiduBridge.invoke('gpu_kill_process', { pid }); },
     // 2026-08-21 (查词三层重构, 用户: "设置里增加字典文件的选择"): 导入自定义
     // 词典文件到全局基底 + 查基底统计(种子/自己积累各多少词)。
-    dictBaseImportFile(path) { return AiduBridge.invoke('dict_base_import_file', { path }); },
+    // 2026-09-04: dictBaseImportFile 加 label(默认前端传文件名)——每次导入记成
+    // 一个可列出/可单独删除的"词典源"(用户: "可以加多个词典")。
+    dictBaseImportFile(path, label) { return AiduBridge.invoke('dict_base_import_file', { path, label: label || null }); },
     dictBaseStats() { return AiduBridge.invoke('dict_base_stats'); },
+    dictBaseSourcesList() { return AiduBridge.invoke('dict_base_sources_list'); },
+    dictBaseSourceDelete(sourceId) { return AiduBridge.invoke('dict_base_source_delete', { sourceId }); },
   };
 
   global.AiduMiscService = MiscService;

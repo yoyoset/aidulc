@@ -229,13 +229,17 @@ pub fn gpu_kill_process(pid: u32) -> Result<(), String> {
 /// 2026-08-21 (用户: "设置里增加字典文件的选择"): 导入用户自己的词典文件, 追加进
 /// 全局词典基底(不覆盖已有词条)。支持 JSONL(同 resources/dict_seed.jsonl 形状)
 /// 或 CSV(表头含 word + translation/meaning/definition/释义 任一列)。
+/// 2026-09-04: 加 `label` —— 每次导入记一条可命名/可单独删除的"词典源"
+/// (见 dict_base_sources_list/dict_base_source_delete), 不再是只能整体统计的
+/// 一个笼统 'custom' 桶。
 #[tauri::command]
 pub fn dict_base_import_file(
     db: State<crate::store::Db>,
     path: String,
+    label: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let stats =
-        crate::store::dict_base_repo::DictBaseRepo::new(db.inner()).import_custom_file(&path)?;
+    let stats = crate::store::dict_base_repo::DictBaseRepo::new(db.inner())
+        .import_custom_file(&path, label.as_deref())?;
     serde_json::to_value(stats).map_err(|e| e.to_string())
 }
 
@@ -247,6 +251,23 @@ pub fn dict_base_stats(db: State<crate::store::Db>) -> Result<serde_json::Value,
         .into_iter()
         .map(|(source, count)| serde_json::json!({ "source": source, "count": count }))
         .collect::<Vec<_>>()))
+}
+
+/// 2026-09-04 (用户: "可以加多个词典"): 列出所有自定义词典源(文件名/词数/导入时间),
+/// 设置页渲染"我的词典源"列表用。
+#[tauri::command]
+pub fn dict_base_sources_list(db: State<crate::store::Db>) -> Result<serde_json::Value, String> {
+    let sources = crate::store::dict_base_repo::DictBaseRepo::new(db.inner()).list_sources()?;
+    serde_json::to_value(sources).map_err(|e| e.to_string())
+}
+
+/// 删除一个自定义词典源(连同它导入的所有词条), 返回删除的词条数。
+#[tauri::command]
+pub fn dict_base_source_delete(
+    db: State<crate::store::Db>,
+    source_id: String,
+) -> Result<usize, String> {
+    crate::store::dict_base_repo::DictBaseRepo::new(db.inner()).delete_source(&source_id)
 }
 
 #[cfg(test)]

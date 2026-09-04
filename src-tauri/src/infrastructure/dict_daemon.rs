@@ -190,13 +190,35 @@ fn stderr_tail_string(d: &DictDaemon) -> String {
 
 /// 查词: 懒启动/重建守护 → 写一行请求 → 带超时读一行响应。
 /// K2: 读响应用 recv_timeout; 超时 → kill 守护并清出注册表, 下次查词重建。
+///
+/// 2026-09-05 (用户: "为什么不重新指定即使失败也可以重新用本地来查询的方式从
+/// 结构上杜绝这个问题"): 单次失败(挂死超时/进程提前退出/写请求失败)大概率是
+/// 守护卡在坏状态, 不是这个词真查不到——不再要求用户手动点"重置并重试", 这里
+/// 自己强制清一次注册表再试一次。这样"查词失败面板点重置也失败"这类问题, 只要
+/// 第二次真能成功, 用户压根看不到失败态。仍失败才把(第二次的)原因交给上层。
 pub fn lookup(
     prep_path: &std::path::Path,
     model: &str,
     word: &str,
     context: &str,
 ) -> Result<serde_json::Value, String> {
-    lookup_with_timeout(prep_path, model, word, context, LOOKUP_TIMEOUT)
+    lookup_with_retry(prep_path, model, word, context, LOOKUP_TIMEOUT)
+}
+
+/// 可注入超时版本的 lookup(重试)(K2 单测写法的延续: 短超时验证重试路径不用
+/// 真等 LOOKUP_TIMEOUT)。
+fn lookup_with_retry(
+    prep_path: &std::path::Path,
+    model: &str,
+    word: &str,
+    context: &str,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    if let Ok(v) = lookup_with_timeout(prep_path, model, word, context, timeout) {
+        return Ok(v);
+    }
+    stop();
+    lookup_with_timeout(prep_path, model, word, context, timeout)
 }
 
 /// 可注入超时版本的 lookup (K2 单测: 用永不响应的假进程 + 短超时验证超时路径)。
@@ -330,6 +352,90 @@ mod tests {
         assert!(
             elapsed < Duration::from_secs(5),
             "应在短超时内返回, 实耗 {elapsed:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retry_recovers_when_first_attempt_hangs_and_second_succeeds() {
+        // 2026-09-05 (用户: "为什么不重新指定即使失败也可以重新用本地来查询的方式
+        // 从结构上杜绝这个问题"): lookup_with_retry 第一次失败后自己 stop()+重试
+        // 一次, 不需要用户手动点"重置并重试"。假守护用标记文件模拟"第一次挂死,
+        // 重建后第二次能正常应答"——同一个 .bat 被 spawn 两次(第一次超时后旧进程
+        // 被杀、注册表清空, 第二次 stale=true 会真的重新起一个新进程)。
+        let dir = std::env::temp_dir().join(format!(
+            "aidulc_dd_retry_ok_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("fake_prep.bat");
+        std::fs::write(
+            &fake,
+            "@echo off\r\n\
+             if exist \"%~dp0marker.txt\" goto respond\r\n\
+             echo x > \"%~dp0marker.txt\"\r\n\
+             echo {\"ok\":true,\"ready\":true}\r\n\
+             ping -n 30 127.0.0.1 >nul\r\n\
+             exit /b\r\n\
+             :respond\r\n\
+             echo {\"ok\":true,\"ready\":true}\r\n\
+             set /p REQ=\r\n\
+             echo {\"ok\":true,\"result\":{\"pos\":\"NOUN\",\"phonetic\":\"\",\"meanings\":[\"斑马\"],\"examples\":[],\"example_zh\":[],\"usage\":\"\",\"phrases\":[]}}\r\n",
+        )
+        .unwrap();
+
+        let r = lookup_with_retry(
+            &fake,
+            "fake-model",
+            "zebra",
+            "ctx",
+            Duration::from_millis(300),
+        );
+        stop();
+        let v = r.expect("第二次应该成功, 不该把第一次的失败当最终结果");
+        assert_eq!(v["meanings"][0], "斑马");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retry_gives_up_after_second_attempt_also_fails() {
+        // 两次都挂死: 只重试一次, 不无限重试; 返回第二次的失败, 总耗时约 2x 单次超时
+        // (不是无界拖长)。
+        let dir = std::env::temp_dir().join(format!(
+            "aidulc_dd_retry_fail_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("fake_prep.bat");
+        std::fs::write(
+            &fake,
+            "@echo off\r\necho {\"ok\":true,\"ready\":true}\r\nping -n 30 127.0.0.1 >nul\r\n",
+        )
+        .unwrap();
+
+        let t0 = Instant::now();
+        let r = lookup_with_retry(
+            &fake,
+            "fake-model",
+            "zebra",
+            "ctx",
+            Duration::from_millis(300),
+        );
+        let elapsed = t0.elapsed();
+        stop();
+        let msg = r.expect_err("两次都挂死应该最终失败, 不能假装成功");
+        assert!(msg.contains("超时"), "应为超时文案: {msg}");
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "重试次数应有界(1 次), 不该拖成无界等待, 实耗 {elapsed:?}"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

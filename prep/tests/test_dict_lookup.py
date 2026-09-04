@@ -55,6 +55,34 @@ class TestLookupWord:
         except Exception:
             pass
 
+    def test_truncated_json_retries_with_bigger_budget(self, monkeypatch):
+        # 2026-09-05 实测复现: "dixie" 报 "Unterminated string starting at:
+        # line 1 column 478" —— 首次 200 token 预算把 JSON 截断在字符串中间,
+        # 重试用更大预算(LOOKUP_RETRY_MAX_TOKENS)应该能拿到完整 JSON。
+        calls = []
+
+        class TruncatingServer:
+            def complete(self, messages, temperature=0.3, max_tokens=400):
+                calls.append(max_tokens)
+                if max_tokens == dl.LOOKUP_MAX_TOKENS:
+                    return '{"pos": "NOUN", "meanings": ["一种南方风格'  # 截断, 非法 JSON
+                return '{"pos": "NOUN", "meanings": ["一种南方风格"], "examples": []}'
+
+        monkeypatch.setattr(dl, "get_server", lambda p: TruncatingServer())
+        r = dl.lookup_word("m.bin", "dixie", "")
+        assert r["meanings"] == ["一种南方风格"]
+        assert calls == [dl.LOOKUP_MAX_TOKENS, dl.LOOKUP_RETRY_MAX_TOKENS], \
+            "应先用基础预算, 解析失败后正好重试一次(不是重试无限次)"
+
+    def test_retry_also_fails_still_raises(self, monkeypatch):
+        # 两次预算都截断/非法 —— 不该死循环, 第二次失败直接抛出。
+        monkeypatch.setattr(dl, "get_server", lambda p: FakeServer("坏输出 坏输出"))
+        try:
+            dl.lookup_word("m.bin", "x", "")
+            assert False, "两次都失败应抛异常"
+        except Exception:
+            pass
+
     def test_main_exit_code(self, monkeypatch, capsys):
         monkeypatch.setattr(dl, "get_server", lambda p: FakeServer('{"pos": "NOUN", "meanings": ["银行"], "examples": []}'))
         rc = dl.main(["--model", "m.bin", "--word", "bank", "--context", "ctx"])

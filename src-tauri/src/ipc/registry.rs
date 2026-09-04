@@ -144,6 +144,16 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "K3: 用在线 AI 查一次(本地失败后用户显式点击, 绝不自动回退)",
     },
     CommandInfo {
+        path: "commands::dictionary::dict_daemon_reset",
+        domain: "生词",
+        desc: "2026-09-04: 强制重置词典守护进程(杀掉并清注册表, 下次查词重新拉起), 查词失败面板点击用",
+    },
+    CommandInfo {
+        path: "commands::dictionary::word_lookup_online_confirm",
+        domain: "在线引擎",
+        desc: "2026-09-04: 用户确认收入在线查词结果, 只写个人词典缓存, 不碰共享的 dict_base",
+    },
+    CommandInfo {
         path: "commands::reader::book_online_translate",
         domain: "在线引擎",
         desc: "L8② (UX5): 整本在线翻译/讲解 —— 书卡入口确认外发量后逐句调用在线引擎, 生成无音频在线版译本",

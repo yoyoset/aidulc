@@ -539,6 +539,8 @@ fn main() {
             commands::library::book_import,
             commands::dictionary::word_lookup,
             commands::dictionary::word_lookup_online,
+            commands::dictionary::dict_daemon_reset,
+            commands::dictionary::word_lookup_online_confirm,
             commands::reader::book_online_translate,
             commands::vocab::add_vocab,
             commands::dictionary::dict_list,

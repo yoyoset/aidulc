@@ -19,6 +19,19 @@
     lookupOnline(word, context) {
       return AiduBridge.invoke('word_lookup_online', { word, context: context || '' });
     },
+    // 2026-09-04 (用户: "没有拉起来给我检查或者重置的按钮"): 强制重置词典守护进程,
+    // 查词失败面板点"重置本地模型并重试"时先调这个再重新查词。
+    dictDaemonReset() { return AiduBridge.invoke('dict_daemon_reset'); },
+    // 2026-09-04 (用户设计: "查完的...确认，然后返回给词典里"): 在线查词只展示不落库,
+    // 用户看完点"存入我的词典"才调这个——只写个人缓存, 不碰共享的词典基底。d 是
+    // _render 里已经渲染过的那份 {pos,phonetic,meanings,examples,example_zh,usage,phrases}。
+    confirmOnlineSave(word, profileId, d) {
+      return AiduBridge.invoke('word_lookup_online_confirm', { req: {
+        userId: currentUser(), profileId, word,
+        pos: d.pos || '', phonetic: d.phonetic || '', meanings: d.meanings || [],
+        examples: d.examples || [], exampleZh: d.example_zh || [], usage: d.usage || '', phrases: d.phrases || [],
+      } });
+    },
     addToVocab(word, profileId, context, source) {
       // 阶段6 设计交付 §04: 记录来源句上下文 (词条卡显示"从哪里读到的")
       // V4: source = { editionId, chapterIndex, sentenceIndex } 来源定位

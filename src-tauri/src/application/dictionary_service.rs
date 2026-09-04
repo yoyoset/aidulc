@@ -222,6 +222,28 @@ pub fn persist_llm(
     })
 }
 
+/// 2026-09-04 (用户设计: 在线 AI 确认结果只入个人词典, 不碰共享的 dict_base):
+/// 一个人用付费在线引擎查到的结果, 不该悄悄改变这台机器上其他人/其他档案默认
+/// 看到的答案——那份是全体共用、无审核的积累表, 而在线结果只有点了"确认收入
+/// 词典"的这个人认可过。跟 persist_llm 的区别只有这一点: 不调 DictBaseRepo。
+pub fn persist_online(
+    db: &Db,
+    user_id: &str,
+    profile_id: &str,
+    key: &str,
+    (pos, phonetic, meanings, examples, example_zh, usage, phrases): crate::commands::dictionary::LookupTuple,
+) -> Result<(), String> {
+    let payload = serde_json::json!({
+        "word": key, "lemma": key, "pos": pos, "phonetic": phonetic,
+        "meanings": meanings, "examples": examples,
+        "example_zh": example_zh, "usage": usage, "phrases": phrases,
+        "source": "online", "confidence": 0.85,
+        "createdAt": crate::store::now_ms_for_store(),
+        "updatedAt": crate::store::now_ms_for_store(),
+    });
+    DictRepo::new(db).upsert(key, &payload, user_id, profile_id)
+}
+
 /// V4 (2026-08-09): 来源定位 (从哪本书哪章哪句划出来的)。打包成结构体避免
 /// add_to_vocab 参数过多 (clippy 基线只降不升)。
 #[derive(Debug, Clone, Default)]
@@ -579,6 +601,39 @@ mod tests {
         let base = DictBaseRepo::new(&db).get("zebra").expect("应写入基底");
         assert_eq!(base.source, "llm");
         assert_eq!(base.pos, "NOUN");
+    }
+
+    #[test]
+    fn persist_online_writes_personal_cache_but_not_dict_base() {
+        // 2026-09-04: 在线 AI 确认结果只应影响这个人自己的词典, 不该悄悄改变
+        // 共享基底(dict_base)给其他人/其他档案看到的默认答案。
+        let db = temp_db();
+        persist_online(
+            &db,
+            "me",
+            "default",
+            "zebra",
+            (
+                "NOUN".into(),
+                "/onl/".into(),
+                vec!["斑马(在线)".into()],
+                vec!["ex".into()],
+                vec!["例句".into()],
+                "用法".into(),
+                vec!["搭配".into()],
+            ),
+        )
+        .unwrap();
+        let cached = DictRepo::new(&db).get("zebra", "me", "default").unwrap();
+        assert_eq!(
+            cached.get("meanings").unwrap(),
+            &serde_json::json!(["斑马(在线)"])
+        );
+        assert_eq!(cached.get("source").unwrap(), "online");
+        assert!(
+            DictBaseRepo::new(&db).get("zebra").is_none(),
+            "在线结果不该写入共享的 dict_base"
+        );
     }
 
     #[test]

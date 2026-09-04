@@ -772,7 +772,9 @@ console.log('== 2d3. UX6 #4 (2026-08-13): 词典面板治理 —— 点正文收
   check('开关①开: 查词成功也提供在线入口(本地给了答案仍可再确认)', queryAll(p4.body, 'button').some((b) => b.textContent === '用在线 AI 查一次'), queryAll(p4.body, 'button').map((b) => b.textContent).join(','));
 
   // 2026-08-21 (查词三层重构): 基底命中(source='base')只有稳定字段, 面板要
-  // 给一个"结合这句话再讲一下"的手动按钮触发本地小模型补全语境例句。
+  // 给一个手动按钮触发本地小模型补全语境例句。
+  // 2026-09-04 (用户: "不管它显示什么, 你都可以本地 AI 再点一下, 因为模型会有
+  // 更新"): 这个按钮改成不分来源常驻可点, 按钮文案也改成"用本地 AI 再查一次"。
   globalThis.AiduMiscService.onlineConfigGet = async () => ({ ok: true, data: { lookup_enabled: false } });
   const enrichCalls = [];
   globalThis.AiduDictionaryService.lookup = async (w, profileId, ctx, forceLlm) => {
@@ -786,15 +788,27 @@ console.log('== 2d3. UX6 #4 (2026-08-13): 词典面板治理 —— 点正文收
   pBase._render({ word: 'zebra', pos: 'NOUN', phonetic: '/ˈziː.brə/', meanings: ['斑马'], examples: [], example_zh: [], usage: '', phrases: ['zebra crossing'], in_vocab: false, source: 'base' });
   const srcBadge = queryAll(pBase.body, '.dict-source-base')[0];
   check('基底命中: 来源徽章显示"词典基底"', srcBadge && srcBadge.textContent === '词典基底', srcBadge && srcBadge.textContent);
-  const enrichBtn = queryAll(pBase.body, 'button').find((b) => b.textContent === '结合这句话再讲一下');
-  check('基底命中: 有"结合这句话再讲一下"按钮', !!enrichBtn);
+  const enrichBtn = queryAll(pBase.body, 'button').find((b) => b.textContent === '用本地 AI 再查一次');
+  check('基底命中: 有"用本地 AI 再查一次"按钮', !!enrichBtn);
   enrichBtn.onclick();
   await new Promise((r) => setTimeout(r, 20));
   check('点按钮 → 强制走 LLM (forceLlm=true)', enrichCalls.length === 1 && enrichCalls[0].forceLlm === true, JSON.stringify(enrichCalls));
   check('点按钮后重新渲染出语境例句', queryAll(pBase.body, '.dict-examples').length > 0);
-  // 对照组: 非基底命中(llm/local)不该出现这个按钮
+  // 对照组: 非基底命中(llm/local)也该有这个按钮 (常驻, 不分来源) —— 模型可能已更新
   pBase._render({ word: 'zebra', pos: 'NOUN', phonetic: '/x/', meanings: ['斑马'], examples: ['e'], example_zh: ['y'], usage: 'u', phrases: [], in_vocab: false, source: 'llm' });
-  check('非基底命中: 无"结合这句话再讲一下"按钮', !queryAll(pBase.body, 'button').some((b) => b.textContent === '结合这句话再讲一下'));
+  check('非基底命中: 仍有"用本地 AI 再查一次"按钮(常驻)', queryAll(pBase.body, 'button').some((b) => b.textContent === '用本地 AI 再查一次'));
+
+  // 2026-09-04: 在线查词结果需要显式"存入我的词典"才落库, 不自动写。
+  globalThis.AiduDictionaryService.confirmOnlineSave = async () => ({ ok: true });
+  pBase._render({ word: 'zebra', pos: 'NOUN', phonetic: '/x/', meanings: ['斑马(在线)'], examples: ['e'], example_zh: ['y'], usage: 'u', phrases: [], in_vocab: false, source: 'online' });
+  const saveBtn = queryAll(pBase.body, 'button').find((b) => b.textContent === '存入我的词典');
+  check('在线来源: 有"存入我的词典"按钮', !!saveBtn);
+  saveBtn.onclick();
+  await new Promise((r) => setTimeout(r, 20));
+  check('点击存入后按钮文案变成已存入', saveBtn.textContent === '✓ 已存入我的词典', saveBtn.textContent);
+  // 对照组: 非在线来源不该出现这个按钮
+  pBase._render({ word: 'zebra', pos: 'NOUN', phonetic: '/x/', meanings: ['斑马'], examples: ['e'], example_zh: ['y'], usage: 'u', phrases: [], in_vocab: false, source: 'llm' });
+  check('非在线来源: 无"存入我的词典"按钮', !queryAll(pBase.body, 'button').some((b) => b.textContent === '存入我的词典'));
 
   // 点正文 (面板外) → 自动收起
   p4._bindDocClick();

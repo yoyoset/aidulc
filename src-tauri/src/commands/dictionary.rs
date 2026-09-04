@@ -130,6 +130,15 @@ fn fallback_tuple(w: &str, detail: &str) -> LookupTuple {
     )
 }
 
+/// 2026-09-04 (用户: "没有拉起来给我检查或者重置的按钮"): 强制重置词典守护进程——
+/// 杀掉当前 dict_daemon(如果还活着)并清出注册表, 下次查词会重新 spawn。
+/// `dict_daemon::stop()` 本身已幂等(见其头注释), 这里只是给它一个 command 出口,
+/// 让查词失败面板能点击立即重置, 不用等 30 秒 LOOKUP_TIMEOUT 被动检测。
+#[tauri::command]
+pub fn dict_daemon_reset() {
+    crate::infrastructure::dict_daemon::stop();
+}
+
 /// K3 (2026-08-11): 用在线 AI 查一次 —— 本地失败后由用户显式点击触发, 绝不自动回退。
 /// 外发内容: 1 个词 + 所在那 1 句 (~200 字符)。发前 UI 已显示"将发送: word + 该句"。
 /// 读 endpoint/model 从 config, key 从 Credential Manager, 从本机直连服务商。
@@ -163,6 +172,49 @@ pub async fn word_lookup_online(
     .map_err(|e| format!("在线查词任务执行失败: {e}"))??;
     crate::infrastructure::log::info("cmd", "exit: word_lookup_online");
     serde_json::to_value(r).map_err(|e| e.to_string())
+}
+
+/// 2026-09-04 (用户: "查完的...确认，然后返回给词典里"): 在线查词结果不会自动落库
+/// (word_lookup_online 只展示, 见其头注释), 用户看完确认要留下这个答案才调这个
+/// 命令——只写个人词典缓存, 不碰共享的 dict_base(见 dictionary_service::persist_online
+/// 头注释)。嵌套请求体字段需要显式 camelCase(Tauri 只转顶层参数名, 见 vocab.rs
+/// AddVocabRequest 的坑注)。
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnlineConfirmRequest {
+    pub user_id: String,
+    pub profile_id: String,
+    pub word: String,
+    pub pos: String,
+    pub phonetic: String,
+    pub meanings: Vec<String>,
+    pub examples: Vec<String>,
+    pub example_zh: Vec<String>,
+    pub usage: String,
+    pub phrases: Vec<String>,
+}
+
+#[tauri::command]
+pub fn word_lookup_online_confirm(
+    db: State<store::Db>,
+    req: OnlineConfirmRequest,
+) -> Result<(), String> {
+    let key = req.word.trim().to_lowercase();
+    crate::application::dictionary_service::persist_online(
+        db.inner(),
+        &req.user_id,
+        &req.profile_id,
+        &key,
+        (
+            req.pos,
+            req.phonetic,
+            req.meanings,
+            req.examples,
+            req.example_zh,
+            req.usage,
+            req.phrases,
+        ),
+    )
 }
 
 /// 词典守护的 result JSON → dictionary_service 的元组。字段缺失给空值, 不报错。

@@ -96,13 +96,55 @@
       err.textContent = msg || '查词失败, 本地与 AI 均未找到释义';
       this.body.append(err);
 
+      // 2026-09-04 (用户: "没有拉起来给我检查或者重置的按钮"): 先强制重置词典守护
+      // 进程(杀掉可能挂死/卡住的旧进程)再重新查词——不再是"重试"这种可能原地
+      // 撞同一个死进程的模糊语义, 点一下就是"真的重来一次"。
       const retry = document.createElement('button');
       retry.className = 'btn-small';
-      retry.textContent = '重试本地';
-      retry.onclick = () => this._lookup();
+      retry.textContent = '重置本地模型并重试';
+      retry.onclick = () => {
+        retry.disabled = true;
+        retry.textContent = '重置中…';
+        Promise.resolve(AiduDictionaryService.dictDaemonReset()).catch(() => {}).then(() => this._lookup());
+      };
       this.body.appendChild(retry);
 
+      // 2026-09-04 (用户: "如果模型占用了应该是可以通过点击修复"): 查词失败时也
+      // 顺带查一次显卡占用——最常见的"模型没拉起来"根因是显卡被外部进程(如用户
+      // 自己起的 llama-server.exe)占着, 之前这个检测只接在"打开书"流程,
+      // 查词失败面板看不到、也点不到"关掉它"。
+      this._maybeAppendGpuFix();
       this._maybeAppendOnlineLookup();
+    }
+
+    /** 查词失败时顺带检测显卡占用, 命中就给"关闭占用进程并重试"——逻辑抄
+     *  reader_view.js::_maybeWarnGpuOccupied, 只是这里不弹确认框(用户已经在
+     *  处理一次失败, 面板内联按钮比再弹一层模态更顺手), 点击后立即执行。 */
+    _maybeAppendGpuFix() {
+      if (typeof AiduMiscService === 'undefined' || !AiduMiscService.gpuStatus) return;
+      AiduMiscService.gpuStatus().then((res) => {
+        if (!res.ok || !res.data) return;
+        const status = res.data;
+        const procs = status.foreignProcesses || [];
+        if (!status.shouldWarn || !procs.length) return;
+        const names = procs.map((p) => p.name.split(/[\\/]/).pop()).join('、');
+        const freeGb = (status.freeMb / 1024).toFixed(1);
+        const hint = document.createElement('div');
+        hint.className = 'dict-error';
+        hint.textContent = `检测到显卡剩余显存只有 ${freeGb}GB, ${names} 正占着显卡, 本地模型可能因此拉不起来。`;
+        this.body.appendChild(hint);
+        const fixBtn = document.createElement('button');
+        fixBtn.className = 'btn-small';
+        fixBtn.textContent = '关闭占用进程并重试';
+        fixBtn.onclick = () => {
+          fixBtn.disabled = true;
+          fixBtn.textContent = '处理中…';
+          Promise.all(procs.map((p) => AiduMiscService.gpuKillProcess(p.pid).catch(() => {})))
+            .then(() => AiduDictionaryService.dictDaemonReset().catch(() => {}))
+            .then(() => this._lookup());
+        };
+        this.body.appendChild(fixBtn);
+      }).catch(() => { /* 查显卡状态失败 = 不提供这个入口, 不拦其它恢复路径 */ });
     }
 
     /** L8 (2026-08-11) + 2026-08-21 改: 「用在线 AI 查一次」出口只在用户开启①时
@@ -290,27 +332,51 @@
         parts.push(sec('搭配', ph));
       }
 
-      // 2026-08-21 (查词三层重构): 基底命中只有稳定字段, 没有结合上下文的例句/
-      // 用法——"看得到但没看懂"是主观判断, 系统猜不出来, 给个常驻按钮让用户自己点。
-      if (d.source === 'base') {
-        const enrichBtn = document.createElement('button');
-        enrichBtn.className = 'btn-small';
-        enrichBtn.textContent = '结合这句话再讲一下';
-        enrichBtn.title = '用本地小模型结合当前这句话生成例句/用法说明';
-        enrichBtn.onclick = () => {
-          enrichBtn.disabled = true;
-          enrichBtn.textContent = '生成中…';
-          AiduDictionaryService.lookup(this._word, this._profileId, this._context, true).then((res) => {
+      // 2026-09-04 (用户: "不管它显示什么, 你都可以本地 AI 再点一下, 因为模型会有
+      // 更新"): 不再只在基底命中(source==='base')时才出现——不管当前显示的是
+      // 哪一层的结果, 都留一个常驻入口重新跑一次本地 LLM, 不置灰、不因为"已经有
+      // 结果了"就收起来, 换了新模型也能拿这个按钮重查。
+      const enrichBtn = document.createElement('button');
+      enrichBtn.className = 'btn-small';
+      enrichBtn.textContent = '用本地 AI 再查一次';
+      enrichBtn.title = '结合当前这句话, 用本地模型重新生成一次释义/例句/用法(比如换了新模型之后)';
+      enrichBtn.onclick = () => {
+        enrichBtn.disabled = true;
+        enrichBtn.textContent = '生成中…';
+        AiduDictionaryService.lookup(this._word, this._profileId, this._context, true).then((res) => {
+          if (!res.ok) {
+            enrichBtn.disabled = false;
+            enrichBtn.textContent = '用本地 AI 再查一次';
+            AiduToast.show(res.error || '生成失败', 'error');
+            return;
+          }
+          this._render(res.data);
+        });
+      };
+      parts.push(enrichBtn);
+
+      // 2026-09-04 (用户: "查完的...确认，然后返回给词典里"): 在线查词只展示不落库
+      // (word_lookup_online 头注释), 这里给一个显式确认动作——只写这个人自己的
+      // 词典缓存, 不碰共享的词典基底(设计决定见 dictionary_service::persist_online)。
+      if (d.source === 'online') {
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn-small';
+        saveBtn.textContent = '存入我的词典';
+        saveBtn.title = '把这次在线 AI 的结果存进你自己的词典缓存(不影响其他人/其他档案看到的默认答案)';
+        saveBtn.onclick = () => {
+          saveBtn.disabled = true;
+          saveBtn.textContent = '存入中…';
+          AiduDictionaryService.confirmOnlineSave(this._word, this._profileId, d).then((res) => {
             if (!res.ok) {
-              enrichBtn.disabled = false;
-              enrichBtn.textContent = '结合这句话再讲一下';
-              AiduToast.show(res.error || '生成失败', 'error');
+              saveBtn.disabled = false;
+              saveBtn.textContent = '存入我的词典';
+              AiduToast.show(res.error || '存入失败', 'error');
               return;
             }
-            this._render(res.data);
+            saveBtn.textContent = '✓ 已存入我的词典';
           });
         };
-        parts.push(enrichBtn);
+        parts.push(saveBtn);
       }
 
       // UX6 #4: 底部讲清楚 —— 这不是查询历史, 是这个词的来源说明 + 加词动作。
@@ -320,6 +386,8 @@
         ? '以上为本词详情: 释义/例句/用法/搭配 (不是查询历史)。已存入本地词典, 不会自动加入生词本。'
         : d.source === 'base'
         ? '以上为本词详情 (不是查询历史)。来源: 词典基底(种子词典 + 大家查词积累)。'
+        : d.source === 'online'
+        ? '以上为本词详情 (不是查询历史)。来源: 在线 AI, 尚未存入词典——点上面「存入我的词典」才会留下。'
         : '以上为本词详情: 释义/例句/用法/搭配 (不是查询历史)。来源: 本地词典。';
       parts.push(src);
 

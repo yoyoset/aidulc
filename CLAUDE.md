@@ -14,7 +14,8 @@
 |---|---|---|
 | `vocab` | `vocab_repo.rs` | SRS 学习状态 (V1 起带 user_id, user ≠ profile) |
 | `dictionary` | `dict_repo.rs` | 个人词典资产 (V1 起带 user_id) |
-| `dict_base` | `dict_base_repo.rs` | **v33 新增**: 全局词典基底, 不分 user/profile——种子(ECDICT, `resources/dict_seed.jsonl`, build 时 `include_str!` 编进二进制)+ 历次查词积累的稳定字段(pos/phonetic/meanings/phrases), 例句/用法等语境字段不进这张表(仍在 `dictionary` 里按人隔离) |
+| `dict_base` | `dict_base_repo.rs` | **v33 新增**: 全局词典基底, 不分 user/profile——种子(ECDICT, `resources/dict_seed.jsonl`, build 时 `include_str!` 编进二进制)+ 历次查词积累的稳定字段(pos/phonetic/meanings/phrases), 例句/用法等语境字段不进这张表(仍在 `dictionary` 里按人隔离)。**在线 AI 查词结果不进这张表**——只写 `dictionary`(个人缓存), 见下方 memory 链接的产品决定 |
+| `dict_base_sources` | `dict_base_sources_repo.rs` | **v35 新增**: 自定义词典导入批次的记账表(文件名/标签/词数/时间), 支持"多词典源"管理(列出/单独删除)。`dict_base.source_id` 列指回这张表。跟 `dict_base` 是两张不同表, 但 `dict_base_repo.rs` 仍是 `dict_base` 唯一写者(删词典源时先删 `dict_base` 里对应词条这步留在 `dict_base_repo.rs`, 只把 `dict_base_sources` 自身的读写拆出去)——拆分理由/坑见 `memory/dictionary.md` |
 | `users` | `users_repo.rs` | **V1 新增**: 身份 ("谁"), 与 profile("讲解策略")分开; 顶栏切人 |
 | `profiles` | `profile_repo.rs` | 讲解策略/音色/语速/高亮粒度 |
 | `reading_state` | `reading_repo.rs` | 阅读进度/书签/播放位置 (V1 起复合主键 user_id+book_key) |

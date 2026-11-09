@@ -27,6 +27,13 @@
       // UX5 #1 (2026-08-13): 译本展开状态持久化 —— 整列重建/轮巡不冲掉用户展开的书。
       // 重建卡片时按 set 决定 .edition-body 是否保留 collapsed; toggle 时加入/移出。
       this._expanded = new Set();
+      // P1-4 (2026-11-09): 首次向导没走完时, 书库页顶部显示「继续」横条。
+      this._wizardIncomplete = false;
+    }
+
+    /** P1-4: 由 main.js 根据 wizard_state 设置; 书库页据此渲染继续向导横条。 */
+    setWizardIncomplete(incomplete) {
+      this._wizardIncomplete = !!incomplete;
     }
 
     /** F33/F34 (2026-08-09): 路由离开时注销事件订阅, 不残留拖拽监听/轮询 (与 prep_view 对称) */
@@ -66,6 +73,18 @@
         const tip = el('div', 'import-notice',
           `已导入 ${notice.count} 本原书。下一步: 在书卡上点击"创建译本"生成可阅读版本。`);
         wrap.appendChild(tip);
+      }
+
+      // P1-4 (2026-11-09): 首次设置没走完 → 书库页顶部给一个明确的「继续」入口,
+      // 而不是只在启动时拦一次 (用户从向导跳过/中途退出后仍能回来补完)。
+      if (this._wizardIncomplete) {
+        const resume = el('button', 'wizard-resume-banner', '首次设置还没完成 · 继续');
+        resume.type = 'button';
+        resume.onclick = () => {
+          if (typeof this.onResumeWizard === 'function') this.onResumeWizard();
+          else window.location.hash = '#/wizard';
+        };
+        wrap.appendChild(resume);
       }
 
       // 区隔: 书籍导入卡片 (只原版书库显示; 成品架只负责阅读)

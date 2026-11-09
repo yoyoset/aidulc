@@ -87,6 +87,8 @@ body::before {
 }
 /* H1 (2026-08-11): 复习专注模式 —— 隐藏顶栏, 只留三栏 */
 .app-nav.focus-hidden { display: none; }
+/* P1-4 (2026-11-09): 首次向导未完成 → 侧栏整体禁用, 用户只能从向导里的「跳过」离开 */
+.app-nav.nav-disabled { opacity: .5; pointer-events: none; }
 .app-brand {
   font-weight: 650;
   font-size: 1.02rem;
@@ -613,6 +615,23 @@ span.dict-source-online { background: var(--md-sys-color-warning-container); col
   color: var(--md-sys-color-on-secondary-container);
   font-size: 0.9rem;
 }
+/* P1-4 (2026-11-09): 首次设置未完成的「继续」横条 —— 整行可点, 视觉上是一级提示
+   但不用报错色 (不是错误, 只是还没完成)。 */
+.wizard-resume-banner {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border: none;
+  border-radius: var(--md-sys-radius-sm);
+  background: var(--md-sys-color-warning-container);
+  color: var(--md-sys-color-on-warning-container);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.wizard-resume-banner:hover { filter: brightness(0.97); }
 .prep-subtitle { font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-top: 4px; }
 
 /* ---- 鍏ㄥ眬 toast (鑻规灉绾? ---- */

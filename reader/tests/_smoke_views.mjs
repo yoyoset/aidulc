@@ -2811,5 +2811,39 @@ console.log('== 17. P1-3 (2026-11-09): 向导「书库位置」步骤可改位�
     warn.includes('找不到了') && warn.includes('E:/aidulc_data'), warn);
 }
 
+console.log('== 18. P1-4 (2026-11-09): 向导期间侧栏禁用 + 未完成时书库页继续横条 ==');
+{
+  load('views/shell_view.js');
+  const appEl = makeElement('div');
+  const sh = new globalThis.ShellView(appEl);
+  sh.setRouter({ navigate: () => {} });
+  sh.render();
+  await new Promise((r) => setTimeout(r, 20));
+  sh.setNavEnabled(false);
+  const navButtons = queryAll(sh.navEl, 'button');
+  check('P1-4: 向导显示时侧栏加 nav-disabled', sh.navEl.classList.contains('nav-disabled'));
+  check('P1-4: 侧栏按钮全部不可点',
+    navButtons.length > 0 && navButtons.every((b) => b.disabled === true),
+    'n=' + navButtons.length + ' disabled=' + navButtons.filter((b) => b.disabled).length);
+  sh.setNavEnabled(true);
+  check('P1-4: 离开向导后侧栏恢复可点',
+    !sh.navEl.classList.contains('nav-disabled') && queryAll(sh.navEl, 'button').every((b) => !b.disabled));
+
+  const lv = new globalThis.LibraryView(new globalThis.AiduStore(), 'original');
+  lv.setWizardIncomplete(true);
+  const lc = makeElement('div');
+  lv.render(lc);
+  await new Promise((r) => setTimeout(r, 30));
+  const banner = queryAll(lc, '.wizard-resume-banner')[0];
+  check('P1-4: 未完成时书库页有「首次设置还没完成 · 继续」横条',
+    banner && banner.textContent.includes('首次设置还没完成') && banner.textContent.includes('继续'),
+    banner && banner.textContent);
+  lv.setWizardIncomplete(false);
+  const lc2 = makeElement('div');
+  lv.render(lc2);
+  await new Promise((r) => setTimeout(r, 20));
+  check('P1-4: 完成后书库页不再显示横条', queryAll(lc2, '.wizard-resume-banner').length === 0);
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

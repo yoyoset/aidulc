@@ -57,12 +57,20 @@
       startupLoading.remove();
       if (!res.ok) throw new Error(res.error || '无法读取首次启动状态');
       if (res.ok && res.data && res.data.status === 'done') {
+        libraryView.setWizardIncomplete(false);
+        shell.setNavEnabled(true);
         router.start();
       } else {
-        // 向导未完成 → 全屏向导
+        // 向导未完成 → 全屏向导, 侧栏禁用 (只能从向导内「跳过」离开)
+        libraryView.setWizardIncomplete(true);
+        shell.setNavEnabled(false);
         shell.setActiveNav('');
         shell.getViewContainer().innerHTML = '';
-        wizardView.onDone = () => router.navigate('library');
+        wizardView.onDone = () => {
+          libraryView.setWizardIncomplete(false);
+          shell.setNavEnabled(true);
+          router.navigate('library');
+        };
         wizardView.render(shell.getViewContainer());
       }
     }).catch((err) => {
@@ -194,11 +202,17 @@
   // N1 (2026-08-12): 向导可重入 —— 设置页「重新运行首次向导」跳到 #/wizard
   router.register('wizard', (container) => {
     shell.setActiveNav('');
+    // P1-4: 向导显示期间侧栏不可点, 只能从向导内「跳过」离开。
+    shell.setNavEnabled(false);
     readerView.cleanup();
     prepView.cleanup();
     libraryView.cleanup();
     reviewView.cleanup();
-    wizardView.onDone = () => router.navigate('library');
+    wizardView.onDone = () => {
+      libraryView.setWizardIncomplete(false);
+      shell.setNavEnabled(true);
+      router.navigate('library');
+    };
     wizardView.render(container);
   });
 

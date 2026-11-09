@@ -37,6 +37,8 @@
       this.store = null;    // 由 setStore 补接 (P0-B: 顶栏同步 chip 点击直达设置同步区)
       this.navEl = null;
       this.errorEl = null;
+      // P1-4 (2026-11-09): 首次向导未完成时禁用侧栏, 只能从向导内「跳过」离开
+      this.navEnabled = true;
     }
 
     /** 绑定路由 (main.js 先 render 后创建 router, 这里补接) */
@@ -259,6 +261,22 @@
       this.viewContainer = el('div', 'app-view');
 
       this.app.append(this.navEl, this.errorEl, this.viewContainer);
+      this._applyNavEnabled();
+    }
+
+    /** P1-4 (2026-11-09): 向导显示时禁用整个侧栏 (按钮 + 成员下拉),
+     *  避免用户从顶栏直接跳走, 留下没走完的首次设置。 */
+    setNavEnabled(enabled) {
+      this.navEnabled = !!enabled;
+      this._applyNavEnabled();
+    }
+
+    _applyNavEnabled() {
+      if (!this.navEl) return;
+      const enabled = this.navEnabled !== false;
+      this.navEl.classList.toggle('nav-disabled', !enabled);
+      this.navEl.querySelectorAll('button').forEach((b) => { b.disabled = !enabled; });
+      this.navEl.querySelectorAll('select').forEach((s) => { s.disabled = !enabled; });
     }
 
     showError(msg) {

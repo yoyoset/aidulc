@@ -675,7 +675,9 @@ body.reader-active ::selection {
   position: fixed;
   right: 12px;
   top: 90px;
-  width: 340px;
+  /* 2026-09-05: 340 → 380——加了导出 HTML/打印/管理标签三个按钮后单独占一行,
+     稍微加宽让这行按钮少换行一次。 */
+  width: 380px;
   max-height: 70vh;
   background: var(--rd-surface-raised);
   border: 1px solid var(--rd-surface-sunken);
@@ -695,6 +697,68 @@ body.reader-active ::selection {
   font-weight: 600;
   color: var(--rd-ink);
 }
+/* 2026-09-05: 导出(MD/HTML/打印)+ 管理标签, 单独一行工具条, 允许换行——
+   380px 宽度下大概率能塞下两行, 强行不换行会挤成看不清的小字。 */
+.hl-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--rd-surface-sunken);
+}
+/* 2026-09-05 自定义标签管理: 折叠面板(按"管理标签"展开), 结构简单——
+   每行一个标签名(可编辑 input)+ 删除按钮, 底部一个新建输入框。 */
+.hltag-manager {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rd-surface-sunken);
+  background: var(--rd-surface-sunken);
+}
+.hltag-manager-empty { color: var(--rd-ink-3); font-size: var(--md-sys-font-size-body-s); padding: 4px 0; }
+.hltag-manager-row, .hltag-manager-add {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0;
+}
+.hltag-name-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--rd-surface-sunken);
+  border-radius: var(--md-sys-radius-sm);
+  padding: 4px 8px;
+  background: var(--rd-surface);
+  color: var(--rd-ink);
+  font-family: var(--md-sys-font-sans);
+  font-size: var(--md-sys-font-size-body-s);
+}
+/* 2026-09-05: 摘录成功后原地弹出的小标签选择器, 复用 .hl-tool 的定位/外观,
+   只是内容从纯文字按钮换成"✓ 已摘录"+ 一个 <select>。 */
+.hl-capture-tag { display: flex; align-items: center; gap: 8px; }
+.hl-capture-tag select { border: none; border-radius: var(--md-sys-radius-sm); padding: 2px 6px; }
+/* 2026-09-05: 摘录搜索 —— 一本书精读到后期摘录条数可观, 翻列表不如搜关键词。
+   分类筛选和搜索框并排, 同一行(两者都是"缩小范围", 不用分两处占地方)。 */
+.hl-panel-search { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--rd-surface-sunken); }
+.hl-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--rd-surface-sunken);
+  border-radius: var(--md-sys-radius-sm);
+  padding: 6px 8px;
+  background: var(--rd-surface);
+  color: var(--rd-ink);
+  font-family: var(--md-sys-font-sans);
+  font-size: var(--md-sys-font-size-body-s);
+}
+.hl-kind-filter {
+  flex: 0 0 auto;
+  border: 1px solid var(--rd-surface-sunken);
+  border-radius: var(--md-sys-radius-sm);
+  padding: 6px 4px;
+  background: var(--rd-surface);
+  color: var(--rd-ink);
+  font-family: var(--md-sys-font-sans);
+  font-size: var(--md-sys-font-size-body-s);
+}
 .hl-panel-list { overflow-y: auto; padding: 6px; }
 .hl-panel-empty { padding: 16px 12px; color: var(--rd-ink-3); font-size: var(--md-sys-font-size-body-s); }
 .hl-row {
@@ -707,7 +771,32 @@ body.reader-active ::selection {
   cursor: pointer;
 }
 .hl-row:hover { background: var(--md-sys-state-hover); }
-.hl-row-meta { font-size: var(--md-sys-font-size-label-m); color: var(--rd-ink-3); }
+.hl-row-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--md-sys-font-size-label-m);
+  color: var(--rd-ink-3);
+}
+/* 2026-09-05 自定义标签(取代原来的固定三分类): 标签是用户自己起名的、数量不定,
+   没法像"待复习/生词相关"那样每个值各配一种颜色——退回到"有没有打标签"这一档
+   区分: 未分类用中性底色, 打了任意标签(不管哪个)统一用 info 底色高亮出来,
+   具体是哪个标签靠下拉本身的文字看。复用 dictionary_panel 徽章那套浅色容器
+   令牌(tokens.css 的 neutral/info-container), 纯粹是视觉语言统一, 跟词典徽章
+   的语义无关联。 */
+.hl-kind-select {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: var(--md-sys-radius-pill);
+  padding: 1px 6px;
+  font-size: var(--md-sys-font-size-label-s);
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--md-sys-color-neutral-container);
+  color: var(--md-sys-color-on-neutral-container);
+}
+.hl-kind-select.hl-kind-tagged { background: var(--md-sys-color-info-container); color: var(--md-sys-color-on-info-container); }
 .hl-row-text {
   font-family: var(--md-sys-font-serif);
   font-size: var(--md-sys-font-size-body-m);
@@ -717,6 +806,17 @@ body.reader-active ::selection {
   overflow: hidden;
 }
 .hl-row .btn-danger { align-self: flex-end; }
+/* 2026-09-05: 摘录关联生词 —— 命中生词本才出现, 用 info 语义色跟"生词相关"
+   分类(hl-kind-vocab)呼应, 但这里是纯展示, 不可点(命中的词是原文里的具体拼写,
+   不是生词本词条本身的操作入口, 点它没有明确该干什么, 不做成按钮)。 */
+.hl-row-vocab {
+  font-size: var(--md-sys-font-size-body-s);
+  color: var(--md-sys-color-on-info-container);
+  background: var(--md-sys-color-info-container);
+  border-radius: var(--md-sys-radius-sm);
+  padding: 3px 8px;
+  margin: 2px 0;
+}
 /* R22: 摘录批注 */
 .hl-row-note {
   font-size: var(--md-sys-font-size-body-s);

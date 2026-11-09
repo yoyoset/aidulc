@@ -26,12 +26,20 @@ pub struct Highlight {
     pub start_seg: Option<i64>,
     #[serde(default)]
     pub end_seg: Option<i64>,
+    /// 2026-09-05: 摘录分类标记 ('default' | 'review' | 'vocab', 前端定义具体取值
+    /// 和文案/配色, 后端只透传存取)。旧数据/未传值一律 'default'。
+    #[serde(default = "default_kind")]
+    pub kind: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
 fn default_user_id() -> String {
     crate::store::users_repo::DEFAULT_USER_ID.to_string()
+}
+
+fn default_kind() -> String {
+    "default".to_string()
 }
 
 pub struct HighlightsRepo<'a> {
@@ -46,15 +54,16 @@ impl<'a> HighlightsRepo<'a> {
     pub fn upsert(&self, h: &Highlight) -> Result<(), String> {
         let conn = self.db.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO highlights (id, user_id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO highlights (id, user_id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, kind, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(id) DO UPDATE SET
                 selected_text = excluded.selected_text, note = excluded.note,
                 start_seg = excluded.start_seg, end_seg = excluded.end_seg,
+                kind = excluded.kind,
                 updated_at = excluded.updated_at",
             params![
                 h.id, h.user_id, h.book_key, h.chapter, h.sentence_index,
-                h.selected_text, h.note, h.start_seg, h.end_seg, h.created_at, h.updated_at
+                h.selected_text, h.note, h.start_seg, h.end_seg, h.kind, h.created_at, h.updated_at
             ],
         )
         .map_err(|e| format!("写摘录失败: {e}"))?;
@@ -65,7 +74,7 @@ impl<'a> HighlightsRepo<'a> {
         let conn = self.db.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, created_at, updated_at
+                "SELECT id, user_id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, kind, created_at, updated_at
                  FROM highlights WHERE user_id = ?1 AND book_key = ?2 ORDER BY chapter, sentence_index, created_at",
             )
             .unwrap();
@@ -80,8 +89,9 @@ impl<'a> HighlightsRepo<'a> {
                 note: r.get(6)?,
                 start_seg: r.get(7)?,
                 end_seg: r.get(8)?,
-                created_at: r.get(9)?,
-                updated_at: r.get(10)?,
+                kind: r.get(9)?,
+                created_at: r.get(10)?,
+                updated_at: r.get(11)?,
             })
         })
         .unwrap()
@@ -94,7 +104,7 @@ impl<'a> HighlightsRepo<'a> {
         let conn = self.db.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, created_at, updated_at
+                "SELECT id, user_id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, kind, created_at, updated_at
                  FROM highlights ORDER BY book_key, chapter, sentence_index",
             )
             .unwrap();
@@ -109,8 +119,9 @@ impl<'a> HighlightsRepo<'a> {
                 note: r.get(6)?,
                 start_seg: r.get(7)?,
                 end_seg: r.get(8)?,
-                created_at: r.get(9)?,
-                updated_at: r.get(10)?,
+                kind: r.get(9)?,
+                created_at: r.get(10)?,
+                updated_at: r.get(11)?,
             })
         })
         .unwrap()
@@ -128,6 +139,20 @@ impl<'a> HighlightsRepo<'a> {
             params![id, user_id],
         )
         .map_err(|e| format!("删摘录失败: {e}"))?;
+        Ok(())
+    }
+
+    /// 2026-09-05: 删自定义标签时把引用它的摘录清成"未打标签", 由
+    /// ipc/commands.rs::highlight_tag_delete 在删 highlight_tags 那行之后调用——
+    /// 这是跨表写, 按项目约定只能由 highlights 表自己的 repo 方法来改 highlights
+    /// 表, 不能让 highlight_tags_repo.rs 直接写这张表。
+    pub fn clear_kind_for_tag(&self, user_id: &str, tag_id: &str) -> Result<(), String> {
+        let conn = self.db.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE highlights SET kind = '' WHERE user_id = ?1 AND kind = ?2",
+            params![user_id, tag_id],
+        )
+        .map_err(|e| format!("清除标签引用失败: {e}"))?;
         Ok(())
     }
 }
@@ -153,9 +178,49 @@ mod tests {
             note: String::new(),
             start_seg: None,
             end_seg: None,
+            kind: default_kind(),
             created_at: 100,
             updated_at: 100,
         }
+    }
+
+    #[test]
+    fn kind_defaults_and_roundtrips() {
+        let db = temp_db();
+        let repo = HighlightsRepo::new(&db);
+        // 未显式设置 kind 时用默认值 (default_kind, 反序列化路径走的是这个而不是
+        // #[serde(default)] 的空字符串——旧客户端/旧存档不带这个字段也不会写坏数据)。
+        let mut x = h("1", "book_a", 0, 0, "plain");
+        assert_eq!(x.kind, "default");
+        x.kind = "vocab".into();
+        repo.upsert(&x).unwrap();
+        let got = repo.list_by_book("me", "book_a").pop().unwrap();
+        assert_eq!(got.kind, "vocab");
+    }
+
+    #[test]
+    fn clear_kind_for_tag_only_touches_matching_rows() {
+        // 2026-09-05: 删自定义标签的级联清理——只清 kind 等于被删标签 id 的行,
+        // 不碰其它标签/未打标签的行, 也不跨 user 误清。
+        let db = temp_db();
+        let repo = HighlightsRepo::new(&db);
+        let mut tagged = h("1", "book_a", 0, 0, "tagged one");
+        tagged.kind = "tag-good-sentence".into();
+        let mut other_tag = h("2", "book_a", 0, 1, "tagged other");
+        other_tag.kind = "tag-proverb".into();
+        let mut untagged = h("3", "book_a", 0, 2, "no tag");
+        untagged.kind = "".into();
+        repo.upsert(&tagged).unwrap();
+        repo.upsert(&other_tag).unwrap();
+        repo.upsert(&untagged).unwrap();
+
+        repo.clear_kind_for_tag("me", "tag-good-sentence").unwrap();
+
+        let list = repo.list_by_book("me", "book_a");
+        let by_id = |id: &str| list.iter().find(|x| x.id == id).unwrap().kind.clone();
+        assert_eq!(by_id("1"), "");
+        assert_eq!(by_id("2"), "tag-proverb");
+        assert_eq!(by_id("3"), "");
     }
 
     #[test]

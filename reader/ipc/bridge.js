@@ -132,6 +132,14 @@
     remove: (id, userId) => invoke('highlights_remove', { id, userId }),
   };
 
+  // ---- 摘录自定义标签 (2026-09-05, 取代固定三分类) ----
+  const highlightTags = {
+    list: (userId) => invoke('highlight_tag_list', { userId }),
+    create: (tag) => invoke('highlight_tag_create', { tag }),
+    rename: (userId, id, label) => invoke('highlight_tag_rename', { userId, id, label }),
+    remove: (userId, id) => invoke('highlight_tag_delete', { userId, id }),
+  };
+
   // ---- 背单词调度器 (V2) ----
   const srs = {
     preview: (userId, profileId, lemma) => invoke('srs_preview', { userId, profileId, lemma }),
@@ -139,5 +147,5 @@
     restore: (userId, profileId, entry) => invoke('vocab_restore', { userId, profileId, entry }),
   };
 
-  global.AiduBridge = { invoke, listen, pickFiles, openPath, library, bookpack, profiles, users, settings, reading, transfer, highlights, srs };
+  global.AiduBridge = { invoke, listen, pickFiles, openPath, library, bookpack, profiles, users, settings, reading, transfer, highlights, highlightTags, srs };
 })(window);

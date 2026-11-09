@@ -51,6 +51,7 @@ mod store {
     pub mod dict_base_sources_repo;
     pub mod dict_repo;
     pub mod editions_repo;
+    pub mod highlight_tags_repo;
     pub mod highlights_repo;
     pub mod jobs_repo;
     pub mod model_repo;
@@ -658,6 +659,10 @@ fn main() {
             ipc::commands::highlights_list,
             ipc::commands::highlights_save,
             ipc::commands::highlights_remove,
+            ipc::commands::highlight_tag_list,
+            ipc::commands::highlight_tag_create,
+            ipc::commands::highlight_tag_rename,
+            ipc::commands::highlight_tag_delete,
             ipc::commands::reading_save,
             ipc::commands::reading_get,
             ipc::commands::reading_stats,

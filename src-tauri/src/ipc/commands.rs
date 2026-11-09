@@ -129,6 +129,48 @@ pub fn highlights_remove(db: State<Db>, id: String, user_id: String) -> Result<(
     repo.remove(&user_id, &id)
 }
 
+// ---- 摘录自定义标签 (2026-09-05, 取代 v36 那版固定三分类) ----
+
+/// 某个用户定义过的全部标签
+#[tauri::command]
+pub fn highlight_tag_list(db: State<Db>, user_id: String) -> Result<serde_json::Value, String> {
+    let repo = crate::store::highlight_tags_repo::HighlightTagsRepo::new(db.inner());
+    serde_json::to_value(repo.list_by_user(&user_id)).map_err(|e| e.to_string())
+}
+
+/// 新建一个标签
+#[tauri::command]
+pub fn highlight_tag_create(
+    db: State<Db>,
+    tag: crate::store::highlight_tags_repo::HighlightTag,
+) -> Result<(), String> {
+    let repo = crate::store::highlight_tags_repo::HighlightTagsRepo::new(db.inner());
+    repo.create(&tag)
+}
+
+/// 改标签名(不影响已经打了这个标签的摘录——它们存的是 id, label 改了自动跟着变)
+#[tauri::command]
+pub fn highlight_tag_rename(
+    db: State<Db>,
+    user_id: String,
+    id: String,
+    label: String,
+) -> Result<(), String> {
+    let repo = crate::store::highlight_tags_repo::HighlightTagsRepo::new(db.inner());
+    repo.rename(&user_id, &id, &label)
+}
+
+/// 删标签: 删标签定义本身 + 把引用它的摘录清成"未打标签"(见
+/// highlights_repo.rs::clear_kind_for_tag 头注释, 这是两步操作, 不是一个事务,
+/// 但两步都是幂等的, 中途失败不会留下用户可见的错误状态)。
+#[tauri::command]
+pub fn highlight_tag_delete(db: State<Db>, user_id: String, id: String) -> Result<(), String> {
+    let tags_repo = crate::store::highlight_tags_repo::HighlightTagsRepo::new(db.inner());
+    tags_repo.remove(&user_id, &id)?;
+    let highlights_repo = crate::store::highlights_repo::HighlightsRepo::new(db.inner());
+    highlights_repo.clear_kind_for_tag(&user_id, &id)
+}
+
 // ---- 阅读状态 ----
 
 #[tauri::command]

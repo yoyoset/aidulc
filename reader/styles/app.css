@@ -441,8 +441,17 @@ body::before {
   flex: 0 0 auto;
   line-height: 1.6;
 }
-.dict-source-local { background: var(--md-sys-color-success); color: var(--md-sys-color-on-success); }
-.dict-source-llm, .dict-source-online { background: var(--md-sys-color-info); color: var(--md-sys-color-on-info); }
+/* 2026-09-05: 四个来源徽章改浅色容器底, 互相区分度更高(此前 llm/online 共用同一个
+   info 实心色, 用户反馈"AI 生成不清晰"连带着颜色也分不出本地模型/在线模型)。
+   选择器带 span. 前缀是刻意的——徽章(span)和下方来源说明文字(div, 同名 .dict-source
+   类, 见 dictionary_panel.js `src.className = 'dict-source'` 那处)历史上共用了
+   `.dict-source` 类名, 后面那条 `.dict-source { font-size:.78rem; color:outline }`
+   规则(见下文)会覆盖同名类选择器；tag 限定把徽章规则的特异性提高一档,
+   不用改 JS 也能让两处各自吃到自己的样式。 */
+span.dict-source-local { background: var(--md-sys-color-success-container); color: var(--md-sys-color-on-success-container); }
+span.dict-source-base { background: var(--md-sys-color-neutral-container); color: var(--md-sys-color-on-neutral-container); }
+span.dict-source-llm { background: var(--md-sys-color-info-container); color: var(--md-sys-color-on-info-container); }
+span.dict-source-online { background: var(--md-sys-color-warning-container); color: var(--md-sys-color-on-warning-container); }
 /* 2026-08-18: 发音改成纯图标 —— 去掉文字后按钮不该还留着为文字准备的宽度 */
 .dict-speak {
   flex: 0 0 auto;

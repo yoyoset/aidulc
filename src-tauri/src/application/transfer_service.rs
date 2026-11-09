@@ -547,6 +547,7 @@ mod tests {
             note: "重点".into(),
             start_seg: Some(1),
             end_seg: Some(2),
+            kind: "default".into(),
             created_at: 100,
             updated_at: 100,
         };

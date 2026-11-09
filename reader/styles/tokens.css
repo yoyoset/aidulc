@@ -51,6 +51,18 @@
   --md-sys-color-on-info: #ffffff;
   --md-sys-color-neutral: #9a9387;
   --md-sys-color-on-neutral: #ffffff;
+  /* 浅色徽章变体(2026-09-05): 词典来源徽章需要"差别明显但不抢戏"的浅底深字,
+     实心 success/info/... 饱和度太高、四个来源挤在一起时反而分不清谁是谁——
+     浅色容器 + 同色系深字对比度更够, 且四色并排更好区分。取值参照
+     primary-container 的浅色容器手法(取色相、大幅提亮/降饱和)。 */
+  --md-sys-color-success-container: #dce8d6;
+  --md-sys-color-on-success-container: #2c3d28;
+  --md-sys-color-warning-container: #f3e6c8;
+  --md-sys-color-on-warning-container: #4a3a15;
+  --md-sys-color-info-container: #d9e4ea;
+  --md-sys-color-on-info-container: #263138;
+  --md-sys-color-neutral-container: #ece9e0;
+  --md-sys-color-on-neutral-container: #3c382f;
   /* 固定深色, 不随主题反转(toast 默认态用): 不能用 inverse-surface——inverse-surface
      语义是"和当前主题相反", 深色模式下会变浅, 反而对比度变差。这个颜色刻意只在
      :root 定义一次、深色 body[data-theme="dark"] 块不覆盖它。 */
@@ -185,8 +197,18 @@ body[data-theme="dark"] {
   --md-sys-color-inverse-surface: #e6e0d4;
   --md-sys-color-inverse-on-surface: #2b2722;
   --md-sys-color-inverse-primary: #9c6a4a;
-  /* shadow/scrim 深浅色取值相同(纯黑/暖深), 不覆盖。语义状态色深色下原样使用:
-     已调成暖调低饱和, 在暖深背景上仍有足够对比度(与文字均为白字, 达标)。 */
+  /* shadow/scrim 深浅色取值相同(纯黑/暖深), 不覆盖。语义状态色(实心)深色下原样
+     使用: 已调成暖调低饱和, 在暖深背景上仍有足够对比度(与文字均为白字, 达标)。
+     浅色徽章容器变体(2026-09-05)则必须覆盖——浅色的 -container 直接搬到深色页面
+     会刺眼, 深色下改用同色相的深底浅字, 手法同 primary-container 深色取值。 */
+  --md-sys-color-success-container: #33402e;
+  --md-sys-color-on-success-container: #d7e4cd;
+  --md-sys-color-warning-container: #4a3c1f;
+  --md-sys-color-on-warning-container: #f0dfb3;
+  --md-sys-color-info-container: #2d3a41;
+  --md-sys-color-on-info-container: #cfe0e8;
+  --md-sys-color-neutral-container: #3c3a34;
+  --md-sys-color-on-neutral-container: #e6e2d8;
 
   /* 深色不加阴影 (设计 §10: 层级靠 --rd-surface-raised 的明度点差, 不靠投影)。
      浅色的暖棕阴影在深底上几乎不可见又占 GPU 合成, 一律置 none。 */

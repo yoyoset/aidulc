@@ -229,14 +229,15 @@
       // K13 (2026-08-14): 释义来源徽章——之前 confidence/source 字段后端存了、传了,
       // 前端就是没渲染。用户看一条释义分不清是词典查到的还是 AI 现编的, 对英语学习
       // 场景这个区分不是锦上添花(AI 生成偶尔会有错, 该多留一个心眼)。
-      const SOURCE_LABEL = { local: '词典', base: '词典基底', llm: 'AI 生成', online: '在线 AI 生成' };
+      const SOURCE_LABEL = { local: '本地词典', base: '词典基底', llm: '本地模型', online: '在线模型' };
       if (d.source && SOURCE_LABEL[d.source]) {
         const src = document.createElement('span');
         src.className = 'dict-source dict-source-' + d.source;
         src.textContent = SOURCE_LABEL[d.source];
         src.title = d.source === 'local' ? '本地词典查到的释义'
           : d.source === 'base' ? '词典基底(种子词典 + 大家查词积累), 瞬时且不占显卡'
-          : '本地/在线 AI 生成的释义, 偶尔可能有误';
+          : d.source === 'llm' ? '本地模型生成的释义, 偶尔可能有误'
+          : '在线模型生成的释义, 偶尔可能有误';
         wordRow.appendChild(src);
       }
       if (d.phonetic) {
@@ -362,7 +363,7 @@
         const saveBtn = document.createElement('button');
         saveBtn.className = 'btn-small';
         saveBtn.textContent = '存入我的词典';
-        saveBtn.title = '把这次在线 AI 的结果存进你自己的词典缓存(不影响其他人/其他档案看到的默认答案)';
+        saveBtn.title = '把这次在线模型的结果存进你自己的词典缓存(不影响其他人/其他档案看到的默认答案)';
         saveBtn.onclick = () => {
           saveBtn.disabled = true;
           saveBtn.textContent = '存入中…';
@@ -387,7 +388,7 @@
         : d.source === 'base'
         ? '以上为本词详情 (不是查询历史)。来源: 词典基底(种子词典 + 大家查词积累)。'
         : d.source === 'online'
-        ? '以上为本词详情 (不是查询历史)。来源: 在线 AI, 尚未存入词典——点上面「存入我的词典」才会留下。'
+        ? '以上为本词详情 (不是查询历史)。来源: 在线模型, 尚未存入词典——点上面「存入我的词典」才会留下。'
         : '以上为本词详情: 释义/例句/用法/搭配 (不是查询历史)。来源: 本地词典。';
       parts.push(src);
 

@@ -1185,6 +1185,66 @@ impl Db {
             )
             .map_err(|e| format!("迁移 v35 失败: {e}"))?;
         }
+        // v36 (摘录多色标记, 2026-09-05): highlights 加 kind —— 摘录不只是"留痕",
+        // 精读到后期几十上百条混在一起, 用户需要按用途分类(默认/待复习/生词相关)。
+        // 不新开一张表: kind 是摘录自身的属性, 跟 note 同级, 没有独立的增删改查
+        // 语义, 该表唯一写者仍是 highlights_repo.rs。老数据一律 'default'。
+        if version < 36 {
+            let has_col: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('highlights') WHERE name='kind'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            if has_col == 0 {
+                conn.execute(
+                    "ALTER TABLE highlights ADD COLUMN kind TEXT NOT NULL DEFAULT 'default'",
+                    [],
+                )
+                .map_err(|e| format!("迁移 v36 失败: {e}"))?;
+            }
+            conn.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (36, strftime('%s','now')*1000)",
+                [],
+            )
+            .map_err(|e| format!("迁移 v36 失败: {e}"))?;
+        }
+        // v37 (摘录自定义标签, 2026-09-05): v36 上线当天用户实测反馈——固定的三个分类
+        // (默认/待复习/生词相关)不够用, 而且"怎么加标签"本身藏在摘录面板每一行的小
+        // 下拉里, 没有一个明确的"管理标签"入口。改成用户自己定义标签(比如"好句子"
+        // "谚语""情感强烈"), highlight_tags 是这些标签定义的唯一存放处, 唯一写者
+        // highlight_tags_repo.rs。highlights.kind 列(v36 刚加)不用再迁移——它本来就是
+        // 自由文本, 现在语义从"三选一枚举值"变成"某个 highlight_tags.id, 或空串=未
+        // 打标签", 值域收窄是前端约束, 不需要数据库层面改动。
+        if version < 37 {
+            // 判幂等: 撤旧版本重跑迁移测试的场景下这条语句可能重复跑到已建过表的库上,
+            // 跟 v35 的 dict_base_sources 同一个坑, 抄同一个解法(先查 sqlite_master)。
+            let has_table: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='highlight_tags'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            if has_table == 0 {
+                conn.execute_batch(
+                    "CREATE TABLE highlight_tags (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        label TEXT NOT NULL,
+                        created_at INTEGER NOT NULL
+                    );
+                    CREATE INDEX idx_highlight_tags_user ON highlight_tags (user_id);",
+                )
+                .map_err(|e| format!("迁移 v37 失败: {e}"))?;
+            }
+            conn.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (37, strftime('%s','now')*1000)",
+                [],
+            )
+            .map_err(|e| format!("迁移 v37 失败: {e}"))?;
+        }
         Ok(())
     }
 }

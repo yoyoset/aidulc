@@ -97,6 +97,14 @@
         bookKey: () => this.bookId,
         getChapterIndex: () => this.chapterIndex,
         getSentences: () => this.sentences,
+        // 2026-09-05: 正文容器引用, 让选区工具条只在正文内响应 mouseup(见
+        // highlights.js attach() 头注释)——#reader-content 在阅读器生命周期内
+        // 是稳定节点(切章只清空 innerHTML, 见 _loadChapter), 这里查询一次即可。
+        getContainer: () => document.getElementById('reader-content'),
+        // 2026-09-05: 摘录关联生词提示要按 profile 查 vocab_all——镜像 dictPanel.show()
+        // 那处已有的取值写法(见 _onWordClick), 生词本没有独立 profile 概念时退化为
+        // 当前书挂的讲解档案。
+        getProfileId: () => (this.bookpack && this.bookpack.profile && this.bookpack.profile.id) || 'default',
         onJump: (chapter, index) => this._jumpToHighlight(chapter, index),
         onChanged: () => this._renderSentences(),
       });

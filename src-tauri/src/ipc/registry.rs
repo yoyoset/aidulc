@@ -713,6 +713,26 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "删除摘录",
     },
     CommandInfo {
+        path: "ipc::commands::highlight_tag_list",
+        domain: "摘录",
+        desc: "某用户定义过的全部摘录标签",
+    },
+    CommandInfo {
+        path: "ipc::commands::highlight_tag_create",
+        domain: "摘录",
+        desc: "新建一个摘录标签",
+    },
+    CommandInfo {
+        path: "ipc::commands::highlight_tag_rename",
+        domain: "摘录",
+        desc: "改摘录标签名",
+    },
+    CommandInfo {
+        path: "ipc::commands::highlight_tag_delete",
+        domain: "摘录",
+        desc: "删摘录标签(级联清空引用它的摘录 kind)",
+    },
+    CommandInfo {
         path: "ipc::commands::reading_save",
         domain: "阅读状态",
         desc: "保存阅读进度/书签/播放位置",

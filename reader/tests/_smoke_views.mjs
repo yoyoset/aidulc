@@ -2234,10 +2234,10 @@ console.log('== 9c. M4 (2026-08-12): 分词/NLP 无空下载按钮 + 扫描候�
   check('UX5#5: 未识别候选版本标「版本未知」', unrecVerOk, verTexts9.join(','));
   // K10 (2026-08-14): "已是最新"改成如实描述——只说是内置目录版本, 不再暗示做过在线检查
   const mkVer = (c, reg) => mv9._versionStatus(Object.assign({}, c, { registered: reg }));
-  check('K10: 已登记 Qwen → 内置目录版本(不暗示已做在线检查)', mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Q4_K_M.gguf' }, true).text.includes('内置目录版本'),
-    mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Q4_K_M.gguf' }, true).text);
-  check('UX5#5: 未登记 Qwen → 可下载/可登记', mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Q4_K_M.gguf' }, false).text.includes('可下载'),
-    mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Q4_K_M.gguf' }, false).text);
+  check('K10: 已登记 Qwen → 内置目录版本(不暗示已做在线检查)', mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf' }, true).text.includes('内置目录版本'),
+    mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf' }, true).text);
+  check('UX5#5: 未登记 Qwen → 可下载/可登记', mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf' }, false).text.includes('可下载'),
+    mkVer({ family_hint: 'llm', file_name: 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf' }, false).text);
   const unrecRow9 = cands9 && cands9.find((c) => c.querySelector('.book-badge') && c.querySelector('.book-badge').textContent === '未识别');
   check('M4-3③: 未识别候选带家族下拉', unrecRow9 && queryAll(unrecRow9, 'select.scan-fam').length === 1);
   // 勾选登记: 默认全勾 (未登记), 点登记 → register 被调且只登记未注册的

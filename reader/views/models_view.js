@@ -13,14 +13,19 @@
     return e;
   }
 
-  // M7 R8 (2026-08-08): 已知可下载模型目录 —— URL/sha256/大小全部实测验证过
-  // (HF API 2026-08-08 查得), 不是猜的。
+  // M7 R8 (2026-08-08; 2026-11-09 更新 LLM): 已知可下载模型目录 —— URL/sha256/大小
+  // 全部经 HF API 实测验证过, 不是猜的。
+  // 2026-11-09: 原来的 Qwen/Qwen3-4B-GGUF 是 2025 年的初版 Qwen3-4B; 换成
+  // Qwen3-4B-Instruct-2507 非思考版 —— 同 4B/Q4_K_M 体量 (~2.5GB), 架构不变,
+  // 现有 llama_cpp_python 可直接加载; 官方基准 WritingBench/Arena-Hard 明显高于
+  // 初版, 且不再输出思考块, 翻译/讲解更省 token。sha256 来自 HF API blobs=true。
   const DOWNLOAD_CATALOG = [
     {
-      family: 'llm', label: '翻译/讲解引擎', name: 'Qwen3-4B', file: 'Qwen3-4B-Q4_K_M.gguf',
-      url: 'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf',
-      sha256: '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5',
-      sizeBytes: 2497280256, version: 'Q4_K_M',
+      family: 'llm', label: '翻译/讲解引擎', name: 'Qwen3-4B-Instruct-2507',
+      file: 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
+      url: 'https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
+      sha256: '3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597',
+      sizeBytes: 2497281120, version: '2507-Q4_K_M',
     },
     {
       family: 'tts', label: '语音引擎', name: 'Kokoro-82M', file: 'kokoro-v1_0.pth',

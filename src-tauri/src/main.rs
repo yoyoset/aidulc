@@ -79,6 +79,7 @@ mod infrastructure {
     pub mod gpu_check;
     pub mod log;
     pub mod online_client;
+    pub mod snapshot;
     pub mod model_store {
         pub mod scan;
     }
@@ -373,6 +374,13 @@ fn main() {
             .unwrap_or_else(|| data_dir.join("data.db").to_string_lossy().to_string())
     });
     let db = store::Db::open(&db_path).expect("打开 SQLite 失败");
+    // P0-2 (2026-11-09): 每天第一次启动给数据库做一份快照, 放在默认数据目录下
+    // (与当前数据根无关)。失败只记日志, 不阻断启动。
+    if let Err(e) =
+        infrastructure::snapshot::ensure_daily_snapshot(&db, &services::config::user_data_dir())
+    {
+        infrastructure::log::error("snapshot", &format!("每日数据库快照失败(不阻断启动): {e}"));
+    }
     // 2026-08-21 (查词三层重构): 词典基底种子只在真正启动时导入一次(COUNT>0 就
     // 跳过, 见 dict_base_repo.rs 顶部注释——不能放进 migrate(), 会拖慢整个测试
     // 套件)。失败不阻断启动: 基底缺失只是查词退化回全走 LLM, 不是致命错误。

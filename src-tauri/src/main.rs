@@ -80,6 +80,7 @@ mod infrastructure {
     pub mod log;
     pub mod online_client;
     pub mod snapshot;
+    pub mod startup_log;
     pub mod model_store {
         pub mod scan;
     }
@@ -318,6 +319,22 @@ fn main() {
     infrastructure::log::info("app", &format!("exe_dir={}", exe_dir.to_string_lossy()));
     infrastructure::log::info("app", &format!("data_dir={}", data_dir.to_string_lossy()));
     infrastructure::log::info("app", &format!("portable={}", portable));
+
+    // P2-7 (2026-11-09): 固定位置启动日志。它必须写在默认数据目录里, 不能跟着
+    // 数据根走 (事故里数据根被整根删除, logs/ 一起没了)。失败不阻断启动。
+    let pointer_value = if portable {
+        None
+    } else {
+        services::config::read_data_root(&default_data_dir)
+    };
+    if let Err(e) = infrastructure::startup_log::append_startup_log(
+        &services::config::user_data_dir(),
+        &data_dir,
+        data_root_missing.is_some(),
+        pointer_value.as_deref(),
+    ) {
+        infrastructure::log::warn("startup", &format!("写 startup.log 失败(不阻断): {e}"));
+    }
 
     // J0 Phase 2: 上次迁移的旧文件在此刻已解锁 (数据库还没开), 按标记清理。
     // 幂等, 无标记即无事可做。失败只记日志, 不阻断启动 (旧文件留着不影响正确性)。

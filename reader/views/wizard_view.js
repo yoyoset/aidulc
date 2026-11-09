@@ -105,12 +105,39 @@
     _stepDataDir(content) {
       // UX5 #4 (2026-08-13): 书库位置 = 数据根 —— 首次默认推荐 我的文档/aidulc
       // (可见、可预期), 显示完整结构引导; 用户可改 (走整根迁移)。
+      // P1-3 (2026-11-09): 增加「选择其他位置…」「找回已有书库…」和当前位置显示;
+      // P0-1 判定指针失效时在这里加一行红字。
       content.appendChild(el('p', null, '书库、模型和音频都保存在一个数据根目录里。推荐放在「我的文档」下, 随时可见。'));
+
+      const curBox = el('div', 'wizard-info');
+      curBox.appendChild(el('div', 'wizard-hint', '当前位置:'));
+      const curPath = el('code', 'j0-path', '读取中…');
+      curBox.appendChild(curPath);
+      const missingLine = el('div', 'settings-warn', '');
+      curBox.appendChild(missingLine);
+      content.appendChild(curBox);
+
+      const refreshCurrent = () => {
+        AiduMiscService.libraryDirGet().then((r) => {
+          curPath.textContent = (r.ok && r.data) || '未知';
+          curPath.title = curPath.textContent;
+        }).catch(() => { curPath.textContent = '未知'; });
+        if (AiduMiscService.dataRootStatus) {
+          AiduMiscService.dataRootStatus().then((r) => {
+            const d = r.ok && r.data;
+            missingLine.textContent = d && d.missing
+              ? '⚠ 上次的书库位置找不到了: ' + d.pointer + ' (本次临时使用 ' + d.fallback + ')'
+              : '';
+          }).catch(() => {});
+        }
+      };
+      refreshCurrent();
+
       const recBox = el('div', 'wizard-info');
+      const recTitle = el('div', 'wizard-hint', '推荐位置:');
       const recPath = el('code', 'j0-path', '读取中…');
       recPath.id = 'wizard-recommended-root';
-      const hint = el('div', 'wizard-hint', '');
-      recBox.append(recPath, hint);
+      recBox.append(recTitle, recPath);
       content.appendChild(recBox);
       // 完整结构引导 (每行一项说明)
       const struct = el('div', 'wizard-struct');
@@ -129,13 +156,16 @@
       });
       content.appendChild(struct);
 
-      // 用推荐位置 / 保持当前默认
+      // 用推荐位置 / 选择其他位置 / 找回已有书库 / 保持当前默认
       const useRec = el('button', 'btn-primary', '使用推荐位置');
+      const chooseOther = el('button', 'btn-small', '选择其他位置…');
+      const recover = el('button', 'btn-small', '找回已有书库…');
       const keep = el('button', 'btn-small', '保持当前默认');
       const status = el('div', 'sync-status', '');
       const actions = el('div', 'prep-empty');
-      actions.append(useRec, keep, status);
+      actions.append(useRec, chooseOther, recover, keep);
       content.appendChild(actions);
+      content.appendChild(status);
 
       const loadRec = () => AiduMiscService.dataRootRecommended().then((r) => {
         const path = (r.ok && r.data && r.data.path) || '';
@@ -164,15 +194,71 @@
               if (d.cancelled) { status.textContent = '已取消, 保持当前位置。'; useRec.disabled = false; return; }
               status.textContent = '已设置书库位置为「' + d.new_dir + '」。重启后生效, 现在可以继续。';
               useRec.textContent = '✓ 已设置推荐位置';
+              refreshCurrent();
             });
           });
         });
       };
+      // P1-3: 不传参数 —— 让后端弹出系统目录选择框, 选中后走整根迁移。
+      chooseOther.onclick = () => {
+        if (chooseOther.disabled) return;
+        chooseOther.disabled = true;
+        status.textContent = '请选择新的书库位置…';
+        Promise.resolve(AiduMiscService.libraryDirPickAndSet()).then((m) => {
+          chooseOther.disabled = false;
+          if (!m.ok) { status.textContent = '设置失败: ' + m.error; return; }
+          const d = m.data || {};
+          if (d.cancelled) { status.textContent = '已取消, 保持当前位置。'; return; }
+          status.textContent = '已设置书库位置为「' + d.new_dir + '」。重启后生效, 现在可以继续。';
+          refreshCurrent();
+        }).catch((e) => {
+          chooseOther.disabled = false;
+          status.textContent = '设置失败: ' + String(e && (e.message || e));
+        });
+      };
+      recover.onclick = () => this._recoverExistingLibrary(status);
       keep.onclick = () => { status.textContent = '保持当前默认位置, 随时可在设置里更改。'; this._advance(); };
 
       const next = el('button', 'btn-primary', '下一步');
       next.onclick = () => this._advance();
       content.appendChild(next);
+    }
+
+    /** P1-3: 「找回已有书库…」—— 选目录 → 扫描成品书包 → 确认 → 只登记路径
+     *  (复用 library_dir_pick / scan / import, 不复制不移动文件)。 */
+    _recoverExistingLibrary(status) {
+      status.textContent = '请选择已有书库所在的目录…';
+      Promise.resolve(AiduMiscService.libraryDirPick()).then((p) => {
+        if (!p.ok) { status.textContent = '选择目录失败: ' + p.error; return; }
+        const d = p.data || {};
+        if (d.cancelled || !d.path) { status.textContent = '已取消。'; return; }
+        status.textContent = '正在扫描「' + d.path + '」…';
+        return AiduMiscService.libraryDirScan(d.path).then((s) => {
+          if (!s.ok) { status.textContent = '扫描失败: ' + s.error; return; }
+          const importable = (s.data && s.data.importable) || [];
+          const existing = (s.data && s.data.existing) || [];
+          if (!importable.length) {
+            status.textContent = existing.length
+              ? '这个目录里的 ' + existing.length + ' 本书都已登记, 无需导入。'
+              : '这个目录里没有找到成品书包。';
+            return;
+          }
+          AiduModal.confirm({
+            title: '找到 ' + importable.length + ' 本可导入的书',
+            message: '只登记路径, 不复制、不移动文件。' +
+              (existing.length ? '另有 ' + existing.length + ' 本已在书库中。' : ''),
+            confirmText: '登记进书库',
+            onConfirm: () => AiduMiscService.libraryDirImport(importable).then((r) => {
+              if (!r.ok) throw new Error(r.error);
+              const n = (r.data && r.data.imported) || 0;
+              status.textContent = '已登记 ' + n + ' 本, 到书库页即可看到。';
+              if (global.AiduToast) global.AiduToast.show('已找回 ' + n + ' 本书', 'success');
+            }),
+          });
+        });
+      }).catch((e) => {
+        status.textContent = '找回失败: ' + String(e && (e.message || e));
+      });
     }
 
     _stepHardware(content) {

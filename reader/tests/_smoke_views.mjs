@@ -2766,5 +2766,50 @@ console.log('== 16. P0-1 (2026-11-09): 找不到书库时阻断式提示, 不再
   check('P0-1: 写明当前临时位置', text.includes('当前临时位置') && text.includes('C:/Users/x/AppData/Roaming/aidulc'), text.slice(0, 200));
 }
 
+console.log('== 17. P1-3 (2026-11-09): 向导「书库位置」步骤可改位置/找回已有书库 ==');
+{
+  load('views/wizard_view.js');
+  const pickSetCalls = [];
+  globalThis.AiduMiscService.libraryDirPickAndSet = function (...args) {
+    pickSetCalls.push(args);
+    return Promise.resolve({ ok: true, data: { cancelled: true } });
+  };
+  globalThis.AiduMiscService.libraryDirGet = async () => ({ ok: true, data: 'C:/current-root' });
+  globalThis.AiduMiscService.dataRootRecommended = async () => ({ ok: true, data: { path: 'C:/recommended' } });
+  globalThis.AiduMiscService.dataRootStatus = async () => ({ ok: true, data: { missing: false, pointer: '', fallback: 'C:/current-root' } });
+  globalThis.AiduMiscService.libraryDirPick = async () => ({ ok: true, data: { cancelled: true } });
+  globalThis.AiduMiscService.libraryDirScan = async () => ({ ok: true, data: { importable: [], existing: [] } });
+
+  const wv = new globalThis.WizardView(new globalThis.AiduStore());
+  wv.step = 1;
+  const c = makeElement('div');
+  wv.render(c);
+  await new Promise((r) => setTimeout(r, 80));
+  const text = textOf(c);
+  check('P1-3: 显示当前位置', text.includes('当前位置') && text.includes('C:/current-root'), text.slice(0, 120));
+  const otherBtn = queryAll(c, 'button').find((b) => b.textContent === '选择其他位置…');
+  check('P1-3: 有「选择其他位置…」按钮', !!otherBtn);
+  otherBtn && otherBtn.onclick();
+  await new Promise((r) => setTimeout(r, 60));
+  check('P1-3: 点击后调用 libraryDirPickAndSet, 且不传参数',
+    pickSetCalls.length === 1 && pickSetCalls[0].length === 0,
+    JSON.stringify(pickSetCalls));
+  check('P1-3: 有「找回已有书库…」按钮', queryAll(c, 'button').some((b) => b.textContent === '找回已有书库…'));
+
+  // P0-1 联动: 指针失效时这一行红字必须出现
+  globalThis.AiduMiscService.dataRootStatus = async () => ({
+    ok: true,
+    data: { missing: true, pointer: 'E:/aidulc_data', fallback: 'C:/current-root' },
+  });
+  const wv2 = new globalThis.WizardView(new globalThis.AiduStore());
+  wv2.step = 1;
+  const c2 = makeElement('div');
+  wv2.render(c2);
+  await new Promise((r) => setTimeout(r, 80));
+  const warn = queryAll(c2, '.settings-warn').map((n) => n.textContent).join(' ');
+  check('P1-3/P0-1: 指针失效时向导加红字 (含失效路径)',
+    warn.includes('找不到了') && warn.includes('E:/aidulc_data'), warn);
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

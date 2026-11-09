@@ -210,6 +210,23 @@ pub fn get_server_user_for_endpoint(user_id: &str, url: &str) -> Result<String, 
     }
 }
 
+/// P2-6 (2026-11-09): 删除某后端记录的服务端 user。
+/// 此前只有 save/get, 没有删除函数 —— 测试 `m3_sync_now_all_pushes_to_enabled_backends_only`
+/// 用随机端口的 mock worker 写 `cf-server-user-me-<hash>` 却从不清理, 实测凭据管理器里
+/// 累积了 400+ 条垃圾。测试结尾改用这个函数清理; 条目本来就不存在时视为成功。
+// 仅测试清理路径调用 (release 二进制里没有调用点): 保留为 save/get 的对称 API,
+// 不为了消警告把测试清理逻辑塞进业务代码。
+#[allow(dead_code)]
+pub fn delete_server_user_for_endpoint(user_id: &str, url: &str) -> Result<(), String> {
+    let entry = Entry::new(SERVICE, &server_user_account(user_id, url))
+        .map_err(|e| format!("创建凭据条目失败: {e}"))?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(KeyringError::NoEntry) => Ok(()),
+        Err(e) => Err(format!("删除服务端 user 失败: {e}")),
+    }
+}
+
 // TODO(未接线): 写了测试但没有 command/前端调用它 —— 界面上没有"断开 CF 同步"入口。
 #[allow(dead_code)]
 pub fn delete_cf_token() -> Result<(), String> {

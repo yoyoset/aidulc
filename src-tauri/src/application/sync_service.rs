@@ -1044,9 +1044,13 @@ mod tests {
         assert_eq!(results2.len(), 1, "取消勾选的后端不再同步: {results2:?}");
         assert_eq!(results2[0]["name"], "a", "{results2:?}");
 
-        // 清理 CM (测试不污染真实凭据库)
+        // 清理 CM (测试不污染真实凭据库)。P2-6 (2026-11-09): 这里以前只删 token,
+        // 服务端 user 的 `cf-server-user-me-<hash>` 从不删 —— 随机端口的 mock worker
+        // 每跑一次测试就留一条, 实测凭据管理器里累积了 400+ 条垃圾。
         let _ = credentials::delete_cf_token_for_endpoint("me", &ep_a);
         let _ = credentials::delete_cf_token_for_endpoint("me", &ep_b);
+        let _ = credentials::delete_server_user_for_endpoint("me", &url_a);
+        let _ = credentials::delete_server_user_for_endpoint("me", &url_b);
     }
 
     #[test]

@@ -652,7 +652,13 @@ def _is_real_sentence(text: str) -> bool:
     if re.match(r"^[\w-]+(\.[\w-]+)+\.[a-z]{2,}(/\S*)?$", text, re.I):
         return False
     # - 纯"名+姓"人名残句 (Tom Zieber / Diane Hargreaves — 讲解失败无意义)
-    words = text.split()
+    # 2026-11-09: 先去掉词尾标点再判断。此前 "Second sentence." 的第二个词
+    # "sentence." 因 isalpha()=False 被排除在 all() 之外，只剩首词大写 →
+    # 被误判成"人名残句"丢掉；同理 "He left." / "She smiled." 这类正常短句
+    # 也会整句消失 (实测本测试只解析出 1/2 句)。人名 "Tom Zieber." 去掉标点后
+    # 仍两词都大写, 过滤行为不变。
+    words = [w.strip(".,;:!?\"'“”‘’()[]…—") for w in text.split()]
+    words = [w for w in words if w]
     if 2 <= len(words) <= 3 and all(w[0].isupper() for w in words if w.isalpha()):
         return False
     # - 以 "." 结尾的残句碎片 (the park. / them. — nlp 拆句残留)

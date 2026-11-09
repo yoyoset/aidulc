@@ -14,12 +14,24 @@
     return e;
   }
 
+  // 推荐模型一改, 依赖组件那几行要跟着刷新 (不能继续显示旧的"兜底用 Sakura")。
+  let activeCompSec = null;
+  if (global.window && typeof global.window.addEventListener === 'function') {
+    global.window.addEventListener('aidulc:models-changed', () => {
+      if (activeCompSec && activeCompSec.pane) activeCompSec.render(activeCompSec.pane);
+    });
+  }
+
   class SettingsModelsCompSec {
     /** @param {HTMLElement} pane 挂载点(「模型与依赖」tab 的 pane, 追加在 ModelsView 之后) */
     render(pane) {
+            this.pane = pane;
+            activeCompSec = this;
+            if (this.compSec && this.compSec.parentNode) this.compSec.parentNode.removeChild(this.compSec);
             // J3 (2026-08-11): 依赖并入「模型与依赖」tab —— 组件健康检查 (prep/ffmpeg/PyMuPDF/
             // CUDA) 与模型同页呈现, 不再藏在"系统与书库"里。
             const compSec = el('div', 'settings-section');
+            this.compSec = compSec;
             compSec.appendChild(el('h2', null, '依赖组件'));
             const compList = el('div', 'component-list');
             compSec.appendChild(compList);
@@ -27,9 +39,20 @@
             // S0 (2026-08-10): 探测侧车可能耗时 (异步命令 + 5 秒超时), 先出"检测中…",
             // 结果到了再填充 —— 不阻塞设置页渲染; 失败也显示原因 (后台失败必须可见)。
             compList.appendChild(el('div', 'component-row', '检测中…'));
-            AiduMiscService.componentsHealth().then((res) => {
+            // 2026-11-10: 同时取模型列表, 把"健康检查通过"翻译成"实际选中的是哪个模型"。
+            // 只看 OK (4250.3 MB) 用户不知道那是 Sakura, 也看不出没设推荐。
+            const modelsP = (global.AiduModelService && global.AiduModelService.list)
+              ? global.AiduModelService.list().catch(() => ({ ok: false, data: [] }))
+              : Promise.resolve({ ok: false, data: [] });
+            Promise.all([AiduMiscService.componentsHealth(), modelsP]).then(([res, mres]) => {
               compList.innerHTML = '';
               if (!res.ok) { compList.appendChild(el('div', 'global-error', '检查失败: ' + res.error)); return; }
+              const models = (mres && mres.ok && Array.isArray(mres.data)) ? mres.data : [];
+              const activeOf = (family) => models.find((m) => m.family === family && m.active);
+              const fallbackOf = (family) => models.find((m) => m.family === family);
+              const labelOf = (m) => (global.AiduModelActiveCard
+                ? global.AiduModelActiveCard.labelFor(m)
+                : ((m && (m.model_id || m.id)) || ''));
               (res.data || []).forEach(c => {
                 // J3 (2026-08-11): 当前版本 · 状态 · 操作 (有版本显示, 无则省略)
                 const ver = c.version ? ' · 当前 ' + c.version : '';
@@ -51,6 +74,33 @@
                     how.style.opacity = '.7';
                     how.style.fontSize = '0.78rem';
                     row.appendChild(how);
+                  }
+                }
+                // 2026-11-10: LLM/TTS 行补上"当前实际用哪个模型" —— 否则
+                // "LLM 模型 ✓ OK (4250.3 MB)" 用户根本不知道那是 Sakura, 也看不出没设推荐。
+                if (c.id === 'llm' || c.id === 'tts') {
+                  const active = activeOf(c.id);
+                  const fallback = fallbackOf(c.id);
+                  const actual = active || fallback;
+                  if (actual) {
+                    const who = el('span', 'component-model',
+                      (active ? ' 当前推荐：' : ' 未设推荐，兜底用：') + labelOf(actual));
+                    who.style.marginLeft = '8px';
+                    row.appendChild(who);
+                    const warn = (global.AiduModelActiveCard && global.AiduModelActiveCard.whyBad)
+                      ? global.AiduModelActiveCard.whyBad(c.id, actual) : '';
+                    if (warn) row.appendChild(el('div', 'settings-warn', warn));
+                    if (!active) {
+                      const go = el('button', 'btn-small', '去设推荐');
+                      go.style.marginLeft = '8px';
+                      go.onclick = () => {
+                        const card = document.querySelector && document.querySelector('.model-active-card');
+                        if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      };
+                      row.appendChild(go);
+                    }
+                  } else {
+                    row.appendChild(el('span', 'settings-warn', ' 未登记模型'));
                   }
                 }
                 // R3.4/J3: 文档解析器缺失 → 一键安装按钮 (这是真实渠道)

@@ -2901,5 +2901,59 @@ console.log('== 19. P1-5 (2026-11-09): 模型登记为空时自动发现 + 一�
     regCalls.map((m) => m.family).join(','));
 }
 
+console.log('== 19b. 2026-11-10: 顶部「当前全局推荐」必须说清实际兜底模型 ==');
+{
+  load('views/settings/model_active_card.js');
+  load('views/models_view.js');
+  const setCalls = [];
+  globalThis.AiduModelService.setRecommended = async (id) => { setCalls.push(id); return { ok: true }; };
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [
+    { id: 'llm|en|sakura-7b|scanned', family: 'llm', language: 'en', model_id: 'sakura-7b-qwen2.5-v1.0-iq4xs', path: 'F:/hf_cache/sakura-7b.gguf', size_bytes: 4250298208, active: false, custom: true, complete: true },
+    { id: 'llm|en|qwen4b|scanned', family: 'llm', language: 'en', model_id: 'Qwen3-4B-Instruct-2507-Q4_K_M', path: 'F:/hf_cache/Qwen3-4B-Instruct-2507-Q4_K_M.gguf', size_bytes: 2497281120, active: false, custom: true, complete: true },
+    { id: 'tts|en|kokoro-v1_1-zh|scanned', family: 'tts', language: 'en', model_id: 'kokoro-v1_1-zh', path: 'F:/hf_cache/hub/models--hexgrad--Kokoro-82M-v1.1-zh/snapshots/x/kokoro-v1_1-zh.pth', size_bytes: 327247856, active: false, custom: true, complete: true },
+    { id: 'tts|en|kokoro-v1_0|scanned', family: 'tts', language: 'en', model_id: 'kokoro-v1_0', path: 'F:/hf_cache/hub/models--hexgrad--Kokoro-82M/snapshots/y/kokoro-v1_0.pth', size_bytes: 327212226, active: false, custom: true, complete: true },
+  ] });
+  globalThis.AiduMiscService.runtimeConfig = async () => ({ ok: true, data: { default_model_dir: 'F:/hf_cache', hf_cache_dir: 'F:/hf_cache' } });
+  const mv = new globalThis.ModelsView(new globalThis.AiduStore());
+  const mc = makeElement('div');
+  mv.render(mc);
+  await new Promise((r) => setTimeout(r, 100));
+  const card = queryAll(mc, '.model-active-card')[0];
+  const cardText = textOf(card);
+  check('全局推荐卡存在', !!card);
+  check('未设推荐时写明会兜底 Sakura', cardText.includes('未设置推荐') && cardText.includes('Sakura'), cardText.slice(0, 200));
+  check('未设推荐时写明会兜底 Kokoro v1.1-zh', cardText.includes('Kokoro v1.1-zh'), cardText.slice(0, 260));
+  const fix = card && queryAll(card, 'button').find((b) => b.textContent.includes('一键使用推荐组合'));
+  check('有「一键使用推荐组合」按钮', !!fix);
+  fix && fix.onclick();
+  await new Promise((r) => setTimeout(r, 80));
+  check('一键组合把 Qwen3-4B 设为推荐', setCalls.includes('llm|en|qwen4b|scanned'), JSON.stringify(setCalls));
+  check('一键组合把 Kokoro v1.0 设为推荐', setCalls.includes('tts|en|kokoro-v1_0|scanned'), JSON.stringify(setCalls));
+}
+
+console.log('== 19c. 2026-11-10: 依赖组件行必须写出实际选中的模型 ==');
+{
+  load('views/settings/model_active_card.js');
+  load('views/settings/models_tab.js');
+  globalThis.AiduMiscService.componentsHealth = async () => ({ ok: true, data: [
+    { id: 'llm', name: 'LLM 模型', healthy: true, detail: 'OK (4250.3 MB)', update_channel: '无更新渠道' },
+    { id: 'tts', name: 'TTS 模型', healthy: true, detail: 'OK (Kokoro: kokoro-v1_1-zh.pth + config.json + voices/)', update_channel: '无更新渠道' },
+  ] });
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [
+    { id: 'llm|en|sakura', family: 'llm', language: 'en', model_id: 'sakura-7b-qwen2.5-v1.0-iq4xs', path: 'F:/hf_cache/sakura.gguf', size_bytes: 4250298208, active: false, complete: true },
+    { id: 'llm|en|qwen', family: 'llm', language: 'en', model_id: 'Qwen3-4B-Instruct-2507-Q4_K_M', path: 'F:/hf_cache/qwen.gguf', size_bytes: 2497281120, active: false, complete: true },
+    { id: 'tts|en|zh', family: 'tts', language: 'en', model_id: 'kokoro-v1_1-zh', path: 'F:/hf_cache/zh/kokoro-v1_1-zh.pth', size_bytes: 327247856, active: false, complete: true },
+    { id: 'tts|en|en', family: 'tts', language: 'en', model_id: 'kokoro-v1_0', path: 'F:/hf_cache/hub/models--hexgrad--Kokoro-82M/snapshots/x/kokoro-v1_0.pth', size_bytes: 327212226, active: false, complete: true },
+  ] });
+  const sec = new globalThis.SettingsModelsCompSec();
+  const pane = makeElement('div');
+  sec.render(pane);
+  await new Promise((r) => setTimeout(r, 80));
+  const text = textOf(pane);
+  check('依赖行显示兜底 LLM 是 Sakura', text.includes('未设推荐，兜底用') && text.includes('Sakura'), text.slice(0, 260));
+  check('依赖行显示兜底 TTS 是中文版 v1.1-zh', text.includes('Kokoro v1.1-zh'), text.slice(0, 320));
+  check('依赖行给「去设推荐」入口', queryAll(pane, 'button').some((b) => b.textContent === '去设推荐'));
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

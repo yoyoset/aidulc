@@ -366,6 +366,39 @@ body::before {
 .wizard-nav { display: flex; gap: 10px; margin-top: 20px; }
 
 /* ---- 妯″瀷涓績 (H4) ---- */
+/* 2026-11-10: 当前全局推荐摘要 —— 放在模型页最上面, 用三行回答
+   "处理这本书时实际会用哪个模型", 不再让用户从「换一个」里猜。 */
+.model-active-card {
+  margin: 4px 0 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-radius-md);
+  background: var(--md-sys-color-surface);
+  box-shadow: var(--md-sys-elevation-1);
+}
+.model-active-card h2 { margin: 0 0 6px; font-size: 1.1rem; }
+.model-active-rows { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.model-active-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: var(--md-sys-radius-sm);
+  background: var(--md-sys-color-surface-container);
+}
+.model-active-label {
+  flex: 0 0 92px;
+  font-weight: 650;
+  color: var(--md-sys-color-on-surface);
+}
+.model-active-value { flex: 1; min-width: 0; line-height: 1.6; }
+.model-active-warn {
+  margin-top: 2px;
+  color: var(--md-sys-color-error);
+  font-size: 0.82rem;
+}
+.model-active-card > .btn-primary { margin-top: 2px; }
+
 .model-group { margin-bottom: 24px; }
 .model-group h2 { font-size: 1.1rem; margin: 12px 0 8px; }
 .model-group h3 { font-size: 0.9rem; color: var(--md-sys-color-on-surface-variant); margin: 8px 0 4px; }
@@ -709,6 +742,7 @@ span.dict-source-online { background: var(--md-sys-color-warning-container); col
 /* ---- 涔﹁缃脊绐?---- */
 .book-settings-body { margin: 12px 0; }
 .settings-hint { font-size: 0.82rem; color: var(--md-sys-color-on-surface-variant); margin: 10px 0 4px; }
+.component-model { color: var(--md-sys-color-on-surface-variant); font-size: 0.82rem; }
 .settings-warn { color: var(--md-sys-color-error); line-height: 1.5; }
 .settings-loading { color: var(--md-sys-color-on-surface-variant); padding: 8px 0; }
 .settings-error { color: var(--md-sys-color-error); padding: 8px 0; }

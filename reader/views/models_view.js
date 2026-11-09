@@ -72,6 +72,11 @@
           })();
       wrap.appendChild(header);
 
+      // 2026-11-10: 当前全局推荐摘要 —— 放在模型目录/分组之前, 先回答
+      // "处理这本书时实际会用哪个模型", 而不是让用户从「换一个」里猜。
+      const activeHost = el('div', 'model-active-host');
+      wrap.appendChild(activeHost);
+
       // UX5 #5 (2026-08-13): 模型目录显示 —— 扫描/下载默认在这些目录进行, 可增删。
       // 与扫描弹窗的默认路径同一份数据 (this._modelDirs)。
       const dirsEl = el('div', 'model-dirs');
@@ -94,6 +99,7 @@
         if (!res.ok) { listEl.appendChild(el('div', 'global-error', '读模型列表失败: ' + res.error)); return; }
         const models = res.data || [];
         this._models = models;
+        this._renderActiveCard(activeHost, models);
         this._renderGrouped(listEl, models);
         // P1-5 (2026-11-09): 登记数为 0 且本地扫得到模型 → 「发现 N 个」横条
         if (!models.length) this._maybeDiscoverModels(listEl);
@@ -107,6 +113,7 @@
         }
       }).catch((err) => {
         listEl.innerHTML = '';
+        activeHost.innerHTML = '';
         const error = el('div', 'global-error', '读模型列表失败: ' + String(err));
         const retry = el('button', 'btn-small', '重试');
         retry.onclick = () => this.render(this.host);
@@ -333,6 +340,79 @@
       };
       sec.appendChild(addBtn);
       dirsEl.appendChild(sec);
+    }
+
+    /** 2026-11-10: 顶部「当前全局推荐」摘要卡片。把真正的生效模型摆到最上面,
+     *  并在没有推荐/选错语言时给出人话原因和一键设置推荐组合。 */
+    _renderActiveCard(host, models) {
+      if (!global.AiduModelActiveCard) return;
+      global.AiduModelActiveCard.render(host, models, {
+        onSetRecommended: (m, btn) => {
+          btn.disabled = true;
+          btn.textContent = '设置中…';
+          AiduModelService.setRecommended(m.id).then((r) => {
+            if (!r.ok) {
+              btn.disabled = false;
+              btn.textContent = '设为推荐';
+              AiduToast.show('设置失败: ' + r.error, 'error');
+              return;
+            }
+            AiduToast.show('已设为推荐: ' + global.AiduModelActiveCard.labelFor(m), 'success');
+            this._reload();
+            this._notifyModelsChanged();
+          });
+        },
+        onFixAll: () => {
+          const llm = global.AiduModelActiveCard.pickRecommended(models, 'llm');
+          const tts = global.AiduModelActiveCard.pickRecommended(models, 'tts');
+          const jobs = [];
+          if (llm) jobs.push(AiduModelService.setRecommended(llm.id));
+          if (tts) jobs.push(AiduModelService.setRecommended(tts.id));
+          if (!jobs.length) return Promise.resolve();
+          return Promise.all(jobs).then((rs) => {
+            const bad = rs.find((r) => !r.ok);
+            if (bad) {
+              AiduToast.show('设置推荐失败: ' + bad.error, 'error');
+              this._reload();
+              return;
+            }
+            const names = [llm, tts].filter(Boolean)
+              .map((m) => global.AiduModelActiveCard.labelFor(m)).join(' + ');
+            AiduToast.show('已设置推荐: ' + names, 'success');
+            this._reload();
+            this._notifyModelsChanged();
+          });
+        },
+      });
+    }
+
+    /** 没设推荐时, 系统实际会按 models_list 顺序取第一个 (installed_at DESC)。 */
+    _fallbackFor(family) {
+      return (this._models || []).find((m) => m.family === family && m.path) || null;
+    }
+
+    _modelLabel(m) {
+      if (!m) return '未登记';
+      return global.AiduModelActiveCard
+        ? global.AiduModelActiveCard.labelFor(m)
+        : this._modelHumanName(m);
+    }
+
+    /** 2026-11-10: 扫描登记会把日文/中文模型也塞进英文 family; 选中时明确提醒,
+     *  不让它作为「可用」默默参与处理。 */
+    _purposeWarning(m) {
+      if (!m) return '';
+      const id = String(m.model_id || '');
+      if (m.family === 'llm' && /sakura/i.test(id)) {
+        return '⚠ 这是日文/中文翻译模型，英文书建议换 Qwen3-4B-Instruct-2507。';
+      }
+      if (m.family === 'tts' && /v1[_.-]?1[-_.]?zh/i.test(id)) {
+        return '⚠ 这是中文语音模型，英文书建议换 Kokoro v1.0。';
+      }
+      if (m.family === 'tts' && m.complete === false) {
+        return '⚠ 缺 config.json 或 voices/，处理到语音阶段会失败。';
+      }
+      return '';
     }
 
     /** J2 (2026-08-11): 一个功能段的下载弹窗 —— 列出该 family 的候选目录 (磁盘探测)。
@@ -809,14 +889,23 @@
             // UX5 修正: 推荐模型若是误登记的非本项目模型, 明说 (别让它默默当推荐)
             const hint = this._modelDetectedHint(active);
             if (hint) sec.appendChild(el('div', 'import-tip', '⚠ ' + hint));
+            const purposeHint = this._purposeWarning(active);
+            if (purposeHint) sec.appendChild(el('div', 'import-tip', purposeHint));
             // UX5 修正: 推荐 TTS 不完整 → 明确说怎么做 (处理时会失败)
             if (ttsIncomplete) {
               sec.appendChild(el('div', 'import-tip', '⚠ 该语音模型不完整 (同目录缺 config.json 或 voices/), 处理到语音阶段会失败。请「换一个」指向 HF 缓存里完整的 models--hexgrad--Kokoro-82M/snapshots/<sha>/kokoro-v1_0.pth。'));
             }
           } else {
             // 有登记但没设推荐 → 处理时不会用 (与依赖组件"缺引擎"一致, 不再谎称可用)
+            const fallback = this._fallbackFor(family);
+            const fallbackText = fallback
+              ? `当前系统会兜底用：${this._modelLabel(fallback)}（未手动确认，可能不适合英文书）。`
+              : '';
+            const purposeHint = fallback ? this._purposeWarning(fallback) : '';
             sec.appendChild(el('div', 'settings-hint settings-warn',
-              `已登记 ${usable.length} 个, 但都未设为推荐 —— 处理时不会自动使用, 引擎会缺 (见下方依赖组件)。点「换一个」把想用的设为推荐, 或直接下载推荐引擎。`));
+              `已登记 ${usable.length} 个，但都未设为推荐；处理时不会自动使用你指定的模型，` +
+              `${fallbackText}${purposeHint}` +
+              ' 点「换一个」把想用的设为推荐，或直接下载推荐引擎。'));
             const actions = el('div', 'model-actions');
             const switchBtn = el('button', 'btn-small', '换一个');
             switchBtn.onclick = () => this._showFamilyModels(family, usable);
@@ -891,56 +980,16 @@
       if (all.length) {
         const sec = el('div', 'model-group');
         const toggle = el('button', 'model-history-toggle', `全部模型 (${all.length}) ▸`);
+        // 2026-11-10: 保留标题栏再展开, 不再 replaceWith 把「全部模型」标题也吃掉 ——
+        // 之前展开后紧挨着「分词/NLP」文字, 用户会把 Sakura 误认为分词模型。
+        const body = this._buildAllModelsBody(all);
+        body.style.display = 'none';
         toggle.onclick = () => {
-          const body = el('div', 'model-all');
-          all.forEach((m) => {
-            const row = el('div', 'model-row');
-            const nameWrap = el('span', 'model-name');
-            nameWrap.textContent = this._modelHumanName(m) + (m.custom ? ' (自定义)' : '');
-            if (m.active) {
-              const badge = el('span', 'book-badge badge-ok', '推荐');
-              badge.style.marginLeft = '8px';
-              nameWrap.appendChild(badge);
-            }
-            const size = el('span', 'model-meta', `${Math.round(m.size_bytes / 1e6)} MB · ${m.variant || ''}`);
-            const actions = el('div', 'model-actions');
-            if (!m.active) {
-              const fav = el('button', 'btn-small', '设为推荐');
-              fav.onclick = () => AiduModelService.setRecommended(m.id)
-                .then((r) => { if (r.ok) { AiduToast.show('已设为推荐', 'success'); this._reload(); } });
-              actions.appendChild(fav);
-            }
-            const del = el('button', 'btn-small btn-danger', '移除');
-            del.onclick = () => {
-              const modalOpts = {
-                title: `移除模型 ${m.model_id}?`,
-                message: '移除后处理书籍时将不再可用。',
-                confirmText: '移除', danger: true,
-                // K15 (2026-08-14): LLM/TTS 模型几 GB, 默认只删注册表; 勾选后连磁盘文件一起删
-                checkboxLabel: `同时删除磁盘文件 (${Math.round(m.size_bytes / 1e6)} MB)`,
-                onConfirm: () => AiduModelService.remove(m.id, modalOpts.checkboxRef && modalOpts.checkboxRef.checked)
-                  .then(() => { this._reload(); AiduToast.show('已移除', 'info'); }),
-              };
-              AiduModal.confirm(modalOpts);
-            };
-            actions.appendChild(del);
-            // M4-3③: 存量误登记改家族 (whisper/silero 曾被二元判定塞进"语音合成")
-            const famBtn = el('button', 'btn-small', '改家族');
-            famBtn.title = '误登记到错误的家族时改过来 (如 whisper/silero 曾被当成语音合成)';
-            famBtn.onclick = () => this._setFamilyModal(m);
-            actions.appendChild(famBtn);
-            row.append(nameWrap, size, actions);
-            // UX5 修正: 非本项目用的模型 (asr/vad/OCR 等) 明说是干什么的, 用户不选错
-            const detHint = this._modelDetectedHint(m);
-            if (detHint) {
-              const hintEl = el('div', 'model-detected-hint', '⚠ ' + detHint);
-              row.appendChild(hintEl);
-            }
-            body.appendChild(row);
-          });
-          toggle.replaceWith(body);
+          const hidden = body.style.display === 'none';
+          body.style.display = hidden ? '' : 'none';
+          toggle.textContent = `全部模型 (${all.length}) ${hidden ? '▾' : '▸'}`;
         };
-        sec.appendChild(toggle);
+        sec.append(toggle, body);
         listEl.appendChild(sec);
       }
 
@@ -948,6 +997,60 @@
         const empty = el('div', 'book-empty', '还没有任何模型。上方按功能提供下载入口。');
         listEl.appendChild(empty);
       }
+    }
+
+    /** 2026-11-10: 「全部模型」展开后的管理清单 (和功能段分开: 这里只是登记表,
+     *  不代表分词/翻译用它们; 只有标了推荐的才会在对应功能里生效)。 */
+    _buildAllModelsBody(all) {
+      const body = el('div', 'model-all');
+      body.appendChild(el('div', 'import-tip',
+        '以下只是「全部已登记模型」的管理清单，不属于上面任何一个功能段；只有设为推荐的那个才会被处理流程使用。'));
+      all.forEach((m) => {
+        const row = el('div', 'model-row');
+        const nameWrap = el('span', 'model-name');
+        nameWrap.textContent = this._modelHumanName(m) + (m.custom ? ' (自定义)' : '');
+        if (m.active) {
+          const badge = el('span', 'book-badge badge-ok', '推荐');
+          badge.style.marginLeft = '8px';
+          nameWrap.appendChild(badge);
+        }
+        const size = el('span', 'model-meta', `${Math.round(m.size_bytes / 1e6)} MB · ${m.variant || ''}`);
+        const actions = el('div', 'model-actions');
+        if (!m.active) {
+          const fav = el('button', 'btn-small', '设为推荐');
+          fav.onclick = () => AiduModelService.setRecommended(m.id)
+            .then((r) => { if (r.ok) { AiduToast.show('已设为推荐', 'success'); this._reload(); } });
+          actions.appendChild(fav);
+        }
+        const del = el('button', 'btn-small btn-danger', '移除');
+        del.onclick = () => {
+          const modalOpts = {
+            title: `移除模型 ${m.model_id}?`,
+            message: '移除后处理书籍时将不再可用。',
+            confirmText: '移除', danger: true,
+            // K15 (2026-08-14): LLM/TTS 模型几 GB, 默认只删注册表; 勾选后连磁盘文件一起删
+            checkboxLabel: `同时删除磁盘文件 (${Math.round(m.size_bytes / 1e6)} MB)`,
+            onConfirm: () => AiduModelService.remove(m.id, modalOpts.checkboxRef && modalOpts.checkboxRef.checked)
+              .then(() => { this._reload(); AiduToast.show('已移除', 'info'); }),
+          };
+          AiduModal.confirm(modalOpts);
+        };
+        actions.appendChild(del);
+        // M4-3③: 存量误登记改家族 (whisper/silero 曾被二元判定塞进"语音合成")
+        const famBtn = el('button', 'btn-small', '改家族');
+        famBtn.title = '误登记到错误的家族时改过来 (如 whisper/silero 曾被当成语音合成)';
+        famBtn.onclick = () => this._setFamilyModal(m);
+        actions.appendChild(famBtn);
+        row.append(nameWrap, size, actions);
+        // UX5 修正: 非本项目用的模型 (asr/vad/OCR 等) 明说是干什么的, 用户不选错
+        const detHint = this._modelDetectedHint(m);
+        if (detHint) {
+          const hintEl = el('div', 'model-detected-hint', '⚠ ' + detHint);
+          row.appendChild(hintEl);
+        }
+        body.appendChild(row);
+      });
+      return body;
     }
 
     /**
@@ -973,6 +1076,8 @@
       const statusEl = el('div', 'sync-status', '');
       const resultEl = el('div', 'scan-result');
 
+      const usageHint = el('div', 'import-tip',
+        '勾选 = 登记进模型库，不等于设为推荐。登记后请回到模型页，在「当前全局推荐」里点「设为推荐」，处理时才会真正使用。');
       const pathsHint = el('div', 'settings-hint',
         '在这些路径下递归找模型文件 (HF 缓存 hub/models--…/snapshots/<sha> 深层布局也覆盖)。');
       const addPathBtn = el('button', 'btn-small', '+ 添加路径');
@@ -996,7 +1101,7 @@
       close.onclick = () => ov.remove();
       actions.append(scanBtn, close);
 
-      body.append(pathsHint, pathList, addPathBtn, statusEl, resultEl);
+      body.append(usageHint, pathsHint, pathList, addPathBtn, statusEl, resultEl);
       box.append(title, body, actions);
       ov.appendChild(box);
       ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
@@ -1143,6 +1248,12 @@
         verCell.appendChild(el('span', 'book-badge ' + verInfo.cls, verInfo.text));
         row.append(cb, name, size, famCell, verCell);
         row.appendChild(path);
+        // 2026-11-10: 扫描候选也直接说清"这是日文/中文模型" —— 只写家族
+        // "翻译/讲解/语音合成" 会让 Sakura/v1.1-zh 看起来和英文模型一样。
+        const purposeHint = this._purposeWarning({
+          family: hint, model_id: c.file_name, complete: c.complete,
+        });
+        if (purposeHint) row.appendChild(el('div', 'scan-incomplete', purposeHint));
         // UX5 修正: 不完整 TTS 明说缺什么 (非 .book-badge, 不干扰版本/家族徽章断言)
         if (incomplete) {
           const inc = el('div', 'scan-incomplete',
@@ -1190,6 +1301,13 @@
         });
       };
       resultEl.appendChild(regBtn);
+    }
+
+    /** 通知同页的「依赖组件」刷新 —— 推荐模型变了, 那几行不能继续显示旧兜底。 */
+    _notifyModelsChanged() {
+      if (typeof window.dispatchEvent === 'function' && typeof window.CustomEvent === 'function') {
+        window.dispatchEvent(new window.CustomEvent('aidulc:models-changed'));
+      }
     }
 
     _reload() {

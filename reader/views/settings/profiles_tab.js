@@ -22,6 +22,8 @@
             profSec.appendChild(el('h2', null, '学习档案'));
             profSec.appendChild(el('div', 'import-tip',
               '每个档案定义一套处理参数 (讲解深度/音色/语速/高亮粒度)。导入书籍时选一个档案, 同一本书换档案重跑就是另一套读法。'));
+            profSec.appendChild(el('div', 'import-tip',
+              '档案不决定模型；实际用哪个翻译/语音引擎看「模型与依赖 → 当前全局推荐」。'));
             const profList = el('div', 'profile-list');
             profSec.appendChild(profList);
             const addBtn = el('button', 'btn-small', '+ 新建档案');

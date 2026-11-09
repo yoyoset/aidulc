@@ -253,29 +253,57 @@ pub fn health_check(
 /// 此前只查 kokoro-v1_0.pth, 平铺的不完整模型 (如只拷了 .pth 没有 voices) 会误报 OK,
 /// 任务跑到 TTS 阶段才炸 (用户实测: manga-ocr 被扫成 tts 当推荐, voices 不存在)。
 fn check_tts(tts_path: &str) -> ComponentStatus {
-    let dir = std::path::Path::new(tts_path)
+    // 2026-11-10: 不再写死 kokoro-v1_0.pth。用户可能推荐 v1.1-zh 或
+    // 自定义命名的 Kokoro 权重; 旧逻辑拿"父目录里找不到 v1_0"报不完整,
+    // 实际选中的文件/config.json/voices 可能都是齐的 (用户实测被误导)。
+    if tts_path.trim().is_empty() {
+        return ComponentStatus {
+            id: "tts".into(),
+            name: "TTS 模型".into(),
+            present: false,
+            healthy: false,
+            detail: "未设置推荐 TTS 模型 —— 到模型中心把英文版 Kokoro (kokoro-v1_0.pth) 设为推荐"
+                .into(),
+            size_bytes: 0,
+            version: String::new(),
+            update_channel: no_channel_for("tts"),
+        };
+    }
+    let selected = std::path::Path::new(tts_path);
+    let dir = selected
         .parent()
         .unwrap_or(std::path::Path::new(""))
         .to_path_buf();
-    let model_file = dir.join("kokoro-v1_0.pth");
+    let model_file = if selected.is_file() {
+        selected.to_path_buf()
+    } else {
+        dir.join("kokoro-v1_0.pth")
+    };
+    let model_name = model_file
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "模型文件".into());
     let config = dir.join("config.json");
     let voices = dir.join("voices");
-    let missing: Vec<&str> = [
-        (!model_file.is_file(), "kokoro-v1_0.pth"),
-        (!config.is_file(), "config.json"),
-        (!voices.is_dir(), "voices/"),
+    let missing: Vec<String> = [
+        (!model_file.is_file()).then(|| model_name.clone()),
+        (!config.is_file()).then(|| "config.json".to_string()),
+        (!voices.is_dir()).then(|| "voices/".to_string()),
     ]
     .into_iter()
-    .filter(|(miss, _)| *miss)
-    .map(|(_, n)| n)
+    .flatten()
     .collect();
     if missing.is_empty() {
+        let mut detail = format!("OK (Kokoro: {} + config.json + voices/)", model_name);
+        if model_name.contains("v1_1-zh") {
+            detail.push_str("；当前是中文版，英文书建议改选 Kokoro v1.0");
+        }
         ComponentStatus {
             id: "tts".into(),
             name: "TTS 模型".into(),
             present: true,
             healthy: true,
-            detail: "OK (Kokoro: kokoro-v1_0.pth + config.json + voices/)".into(),
+            detail,
             size_bytes: std::fs::metadata(&model_file)
                 .map(|m| m.len() as i64)
                 .unwrap_or(0),
@@ -355,6 +383,27 @@ mod tests {
             "应在超时后尽快返回, 实测 elapsed={elapsed:?}"
         );
         assert!(r.unwrap_err().contains("探测超时"));
+    }
+
+    /// 2026-11-10: 健康检查必须按"实际选中的 TTS 文件名"查, 不能写死
+    /// kokoro-v1_0.pth —— 否则选中完整的 v1.1-zh 也会被误报"缺 v1_0"。
+    #[test]
+    fn check_tts_uses_selected_filename() {
+        let dir = std::env::temp_dir().join(format!("aidulc_tts_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("voices")).unwrap();
+        std::fs::write(dir.join("config.json"), b"{}").unwrap();
+        let pth = dir.join("kokoro-v1_1-zh.pth");
+        std::fs::write(&pth, b"x").unwrap();
+        let s = check_tts(&pth.to_string_lossy());
+        assert!(s.healthy, "完整 v1.1-zh 应健康: {}", s.detail);
+        assert!(
+            s.detail.contains("kokoro-v1_1-zh.pth"),
+            "应报告实际文件名: {}",
+            s.detail
+        );
+        assert!(s.detail.contains("中文版"), "应提示中文版: {}", s.detail);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// J3 (2026-08-11): 每个依赖的更新渠道 —— 没有渠道的老实写"无更新渠道" (不放假按钮)

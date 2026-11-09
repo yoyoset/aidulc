@@ -2845,5 +2845,44 @@ console.log('== 18. P1-4 (2026-11-09): 向导期间侧栏禁用 + 未完成时�
   check('P1-4: 完成后书库页不再显示横条', queryAll(lc2, '.wizard-resume-banner').length === 0);
 }
 
+console.log('== 19. P1-5 (2026-11-09): 模型登记为空时自动发现 + 一键登记 ==');
+{
+  load('views/models_view.js');
+  globalThis.AiduModelService.list = async () => ({ ok: true, data: [] });
+  globalThis.AiduMiscService.runtimeConfig = async () => ({ ok: true, data: {
+    llm_model: '', tts_model: '',
+    default_model_dir: 'C:/models', hf_cache_dir: 'F:/hf_cache',
+  } });
+  const scanCalls = [];
+  globalThis.AiduModelService.scan = async (dir) => {
+    scanCalls.push(dir);
+    return { ok: true, data: [
+      { path: 'C:/models/Qwen3.gguf', file_name: 'Qwen3.gguf', size_bytes: 1, family_hint: 'llm', registered: false },
+      { path: 'F:/hf_cache/kokoro.pth', file_name: 'kokoro.pth', size_bytes: 1, family_hint: 'tts', registered: false },
+    ] };
+  };
+  const regCalls = [];
+  globalThis.AiduModelService.register = async (m) => { regCalls.push(m); return { ok: true }; };
+  globalThis.AiduModelService.setRecommended = async () => ({ ok: true });
+
+  const mv = new globalThis.ModelsView(new globalThis.AiduStore());
+  const mc = makeElement('div');
+  mv.render(mc);
+  await new Promise((r) => setTimeout(r, 120));
+  const banner = queryAll(mc, '.model-discovery-banner')[0];
+  check('P1-5: 登记为空、扫描返回 2 个 → 出现「发现 2 个本地模型」横条',
+    !!banner && textOf(banner).includes('发现 2 个本地模型'), banner && textOf(banner));
+  const regBtn = banner && queryAll(banner, 'button').find((b) => b.textContent === '一键登记');
+  check('P1-5: 横条有「一键登记」按钮', !!regBtn);
+  const before = scanCalls.length;
+  regBtn && regBtn.onclick();
+  await new Promise((r) => setTimeout(r, 120));
+  check('P1-5: 点击后调用 models_scan', scanCalls.length > before, 'before=' + before + ' after=' + scanCalls.length);
+  check('P1-5: 只登记 llm/tts 两个模型', regCalls.length === 2, 'n=' + regCalls.length);
+  check('P1-5: 登记家族用扫描识别结果',
+    regCalls.some((m) => m.family === 'llm') && regCalls.some((m) => m.family === 'tts'),
+    regCalls.map((m) => m.family).join(','));
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

@@ -90,6 +90,8 @@
         const models = res.data || [];
         this._models = models;
         this._renderGrouped(listEl, models);
+        // P1-5 (2026-11-09): 登记数为 0 且本地扫得到模型 → 「发现 N 个」横条
+        if (!models.length) this._maybeDiscoverModels(listEl);
         // K17 (2026-08-14): 从完整性检测报错跳转过来 (#/models?focus=llm|tts) 时,
         // 该 family 没有可用模型就直接弹出下载单——检测能力和修复动作之前是两件没接上的事,
         // 用户报错后要自己记住是哪个家族再手动找。只在"没有可用模型"时自动弹, 已有可用模型
@@ -116,19 +118,97 @@
     /** UX5 #5 (2026-08-13): 模型目录 —— 已登记模型所在目录 + HF 缓存, 可增删。
      *  扫描弹窗 (M4-3①) 与这里共用 this._modelDirs, 一处维护两处生效。 */
     _loadModelDirs(dirsEl) {
-      AiduMiscService.runtimeConfig().then((cfg) => {
+      this._dirsReady = AiduMiscService.runtimeConfig().then((cfg) => {
         const d = (cfg && cfg.ok && cfg.data) || {};
         const modelDir = String(d.llm_model || d.tts_model || '').replace(/[\\/][^\\/]+$/, '');
         const dirs = [];
         const modelDirN = this._normDir(modelDir);
         const hfN = this._normDir(d.hf_cache_dir);
         if (modelDirN) dirs.push(modelDirN);
+        // P1-5 (2026-11-09): 模型登记为空时自动发现也要覆盖默认模型目录
+        // (没有配置 llm/tts 路径的新机器只有 default_model_dir 可扫)。
+        if (!modelDirN) {
+          const defN = this._normDir(d.default_model_dir);
+          if (defN) dirs.push(defN);
+        }
         if (hfN && !dirs.includes(hfN)) dirs.push(hfN);
         this._modelDirs = dirs;
         this._renderModelDirs(dirsEl);
       }).catch(() => {
         this._modelDirs = [];
         this._renderModelDirs(dirsEl);
+      });
+      return this._dirsReady;
+    }
+
+    /** P1-5 (2026-11-09): 登记数为 0 时自动扫描已知模型目录 (模型目录 + HF_HOME),
+     *  扫到就显示「发现 N 个本地模型, 一键登记」横条。复用 models_scan, 不新写探测。 */
+    _maybeDiscoverModels(listEl) {
+      Promise.resolve(this._dirsReady).then(() => {
+        const dirs = (this._modelDirs || []).slice();
+        if (!dirs.length) return;
+        return this._scanModelDirs(dirs).then((found) => {
+          const usable = found.filter((m) => ['llm', 'tts', 'nlp'].includes(m.family_hint));
+          if (!usable.length) return;
+          const banner = el('div', 'import-notice model-discovery-banner');
+          banner.appendChild(el('span', null, `发现 ${usable.length} 个本地模型, 一键登记`));
+          const btn = el('button', 'btn-primary', '一键登记');
+          btn.onclick = () => this._registerDiscovered(dirs, btn, banner);
+          banner.appendChild(btn);
+          if (listEl.prepend) listEl.prepend(banner);
+          else listEl.insertBefore(banner, listEl.firstChild);
+        });
+      }).catch(() => { /* 自动发现失败不阻断模型页 */ });
+    }
+
+    /** 扫多个目录并去重 (同一文件可能被模型目录和 HF 缓存同时扫到)。 */
+    _scanModelDirs(dirs) {
+      return Promise.all(dirs.map((d) => AiduModelService.scan(d)
+        .then((r) => (r && r.ok && Array.isArray(r.data)) ? r.data : [])
+        .catch(() => []))).then((lists) => {
+        const seen = new Set();
+        const out = [];
+        lists.forEach((list) => list.forEach((m) => {
+          if (!m || !m.path || seen.has(m.path)) return;
+          seen.add(m.path);
+          out.push(m);
+        }));
+        return out;
+      });
+    }
+
+    /** 一键登记: 先重新扫描一次 (用户看到横条时文件可能刚变), 再按家族登记
+     *  llm/tts/nlp; asr/vad/unknown 不自动登记 (与向导模型发现步同一判据)。 */
+    _registerDiscovered(dirs, btn, banner) {
+      btn.disabled = true;
+      btn.textContent = '扫描中…';
+      this._scanModelDirs(dirs).then((found) => {
+        const targets = found.filter((m) => ['llm', 'tts', 'nlp'].includes(m.family_hint));
+        if (!targets.length) {
+          btn.disabled = false;
+          btn.textContent = '一键登记';
+          return;
+        }
+        btn.textContent = '登记中…';
+        return Promise.all(targets.map((m) => AiduModelService.register({
+          family: m.family_hint,
+          language: 'en',
+          model_id: m.file_name.replace(/\.[^.]+$/, ''),
+          version: 'scanned',
+          path: m.path,
+          source_type: 'local',
+          size_bytes: m.size_bytes,
+          custom: true,
+          family_hint: m.family_hint || null,
+        }))).then(() => {
+          if (global.AiduToast) global.AiduToast.show(`已登记 ${targets.length} 个本地模型`, 'success');
+          if (banner.remove) banner.remove();
+          this._reload();
+        });
+      }).catch((e) => {
+        btn.disabled = false;
+        btn.textContent = '一键登记';
+        if (global.AiduToast) global.AiduToast.show('登记失败: ' + String(e && (e.message || e)), 'error');
       });
     }
 

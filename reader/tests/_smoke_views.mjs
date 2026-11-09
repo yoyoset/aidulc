@@ -1144,6 +1144,23 @@ console.log('== 3. library_view 导入格 (G1): 网格最后一格, 无下拉, �
   check('点击直接触发一次 pickFiles', calls.pickFiles.length === before + 1);
 }
 
+console.log('== 3b-0. 空书库回归 (2026-11-09): 导入格/拖拽入口必须仍然存在 ==');
+{
+  // 用户实测: 书库为空时页面只剩"用上方导入书籍卡片"的提示, 但导入卡根本没渲染,
+  // 连拖拽监听都没注册 —— 空书库等于没有导入入口。锁死空分支也要挂导入格。
+  const oldBooks = store.state.books;
+  store.state.books = [];
+  const lvEmpty = new globalThis.LibraryView(store, 'original');
+  const cEmpty = makeElement('div');
+  lvEmpty.render(cEmpty);
+  await new Promise((r) => setTimeout(r, 30));
+  const cellEmpty = queryAll(cEmpty, '.import-grid-cell')[0];
+  const dropEmpty = cellEmpty && cellEmpty.querySelector('.import-grid-drop');
+  check('空书库仍渲染导入格 (.import-grid-cell)', !!cellEmpty);
+  check('空书库导入格有可点的 dropZone', !!dropEmpty && typeof dropEmpty.onclick === 'function');
+  store.state.books = oldBooks;
+}
+
 console.log('== 3a-3. 补封面入口 (2026-08-17): 必须真的点得到 ==');
 {
   // 背景: K12 把「补封面」只写进 kind==='product' 分支, 而 main.js 只挂了

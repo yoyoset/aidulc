@@ -200,15 +200,10 @@
       }
       loadBooks();
 
-      const books = this.store.state.books || [];
-      if (books.length === 0) {
-        const empty = el('div', 'book-empty', isOriginal
-          ? '书库还是空的。用上方"导入书籍"卡片, 拖入或选择一本 EPUB / PDF / TXT。'
-          : '还没有完成的书。书库导入 → 阅读准备处理完成后, 会出现在这里。');
-        listEl.appendChild(empty);
-      } else {
-        this._renderBooks(listEl, books, searchInput, segBar, shelfEl);
-      }
+      // 空书库也必须走 _renderBooks —— 导入格在那里渲染。此前空分支直接
+      // append 一句空态就 return, 导入卡/拖拽监听根本没有挂出来, 用户看着
+      // "用上方导入书籍卡片" 的提示却找不到任何导入入口。
+      this._renderBooks(listEl, this.store.state.books || [], searchInput, segBar, shelfEl);
       searchInput.oninput = () => this._renderBooks(listEl, this.store.state.books || [], searchInput, segBar, shelfEl);
       container.appendChild(wrap);
     }
@@ -218,8 +213,13 @@
       const parseTitle = (b) => (global.AiduTitleCleanup ? global.AiduTitleCleanup.parseBookTitle(b.title || b.id).title : (b.title || b.id));
       if (shelfEl) global.AiduLibraryCover.renderShelf(shelfEl, books, { onOpenBook: (b) => this.onOpenBook && this.onOpenBook(b), parseTitle });
       if (!books || books.length === 0) {
+        // G1 回归修复 (2026-11-09): 导入格本身是空书库时唯一入口, 不能只在
+        // "有书" 的分支里渲染。先挂导入格, 再给一句空态说明。
+        if (this.kind === 'original') {
+          listEl.appendChild(this._buildImportGridCell());
+        }
         const empty = el('div', 'book-empty', this.kind === 'original'
-          ? '书库还是空的。用上方"导入书籍"卡片, 拖入或选择一本 EPUB / PDF / TXT。'
+          ? '书库还是空的。点上面的导入格, 或把 EPUB / PDF / TXT 拖进窗口。'
           : '还没有完成的书。书库导入 → 阅读准备处理完成后, 会出现在这里。');
         listEl.appendChild(empty);
         return;

@@ -552,6 +552,16 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "组件健康检查(prep/ffmpeg/模型是否可用)",
     },
     CommandInfo {
+        path: "commands::data_root::data_root_status",
+        domain: "数据根",
+        desc: "P0-1: 启动时检查数据根指针是否还能用 (missing/pointer/fallback), 前端据此弹「找不到书库」",
+    },
+    CommandInfo {
+        path: "commands::data_root::data_root_forget_pointer",
+        domain: "数据根",
+        desc: "P0-1: 「改用默认位置」—— 删除数据根指针, 下次启动回默认数据目录",
+    },
+    CommandInfo {
         path: "commands::data_root::library_dir_get",
         domain: "设置",
         desc: "书库位置(数据根)当前生效的绝对路径",

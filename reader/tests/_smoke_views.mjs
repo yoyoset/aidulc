@@ -2742,5 +2742,29 @@ console.log('== 15. 跟读校准: 整章平移 + 观感方向 ==');
   check('校准: 只剩微调 + 复位, 没有自动对齐按钮', queryAll(cal.el, '.rd-calibrator-align').length === 0);
 }
 
+console.log('== 16. P0-1 (2026-11-09): 找不到书库时阻断式提示, 不再静默回退 ==');
+{
+  load('components/missing_library_modal.js');
+  const status = {
+    missing: true,
+    pointer: 'E:/aidulc_data',
+    fallback: 'C:/Users/x/AppData/Roaming/aidulc',
+  };
+  globalThis.AiduMissingLibraryModal.show(status, () => {});
+  const ov = (document.body._children || []).slice(-1)[0];
+  const title = ov && queryAll(ov, '.modal-title')[0];
+  const btns = ov ? queryAll(ov, 'button') : [];
+  check('P0-1: 标题为「找不到书库」', title && title.textContent === '找不到书库', title && title.textContent);
+  check('P0-1: 有 3 个处理按钮', btns.length === 3, 'n=' + btns.length);
+  check('P0-1: 三个按钮是重新指定/原位置新建/改用默认',
+    btns.some((b) => b.textContent === '重新指定书库位置…') &&
+    btns.some((b) => b.textContent === '在原位置新建空书库') &&
+    btns.some((b) => b.textContent === '改用默认位置'),
+    btns.map((b) => b.textContent).join('|'));
+  const text = textOf(ov);
+  check('P0-1: 写明失效的指针路径', text.includes('E:/aidulc_data'), text.slice(0, 120));
+  check('P0-1: 写明当前临时位置', text.includes('当前临时位置') && text.includes('C:/Users/x/AppData/Roaming/aidulc'), text.slice(0, 200));
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

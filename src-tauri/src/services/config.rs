@@ -44,6 +44,20 @@ pub fn read_data_root(default_data_dir: &Path) -> Option<PathBuf> {
     }
 }
 
+/// P0-1 (2026-11-09): 启动时解析数据根, 并且**不再静默**吞掉"指针指向的目录没了"。
+///
+/// 旧行为: 指针存在但目标不是目录 → `filter(|p| p.is_dir()).unwrap_or(default)`，
+/// 直接退回默认目录新建空库，用户看到的是书库/生词/模型登记全空却毫无提示。
+/// 新行为: 本次会话仍用默认目录启动 (否则程序打不开)，但把失效的目标路径返回给
+/// 调用方 (DataPaths.data_root_missing), 前端据此弹出不可忽略的提示。
+pub fn resolve_data_root(default_data_dir: &Path) -> (PathBuf, Option<PathBuf>) {
+    match read_data_root(default_data_dir) {
+        Some(p) if p.is_dir() => (p, None),
+        Some(p) => (default_data_dir.to_path_buf(), Some(p)),
+        None => (default_data_dir.to_path_buf(), None),
+    }
+}
+
 /// 写数据根指针 (书库位置"更改…"整根迁移完成后调用, 下次启动从新根读)。
 pub fn write_data_root(default_data_dir: &Path, root: &Path) -> Result<(), String> {
     let _ = std::fs::create_dir_all(default_data_dir);
@@ -177,6 +191,23 @@ mod data_dir_tests {
         );
         let _ = fs::remove_dir_all(&exe);
         let _ = fs::remove_dir_all(&data);
+    }
+
+    #[test]
+    fn data_root_missing_detected() {
+        // P0-1 验收: 指针存在、目标目录已被删/移动硬盘没插 → 本次会话回退默认根,
+        // 同时明确返回失效的目标路径 (不是静默当成"没有指针")。
+        let default = tmp("missing_default");
+        let missing = default.join("unplugged_library");
+        fs::write(
+            data_root_pointer_path(&default),
+            missing.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
+        let (root, missing_target) = resolve_data_root(&default);
+        assert_eq!(root, default);
+        assert_eq!(missing_target.as_deref(), Some(missing.as_path()));
+        let _ = fs::remove_dir_all(&default);
     }
 
     #[test]

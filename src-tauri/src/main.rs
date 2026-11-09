@@ -117,6 +117,9 @@ pub struct DataPaths {
     pub portable: bool,
     /// 迁移计划 (pending 时 Some, 前端据此弹提示)
     pub migration: Option<crate::infrastructure::data_migration::MigrationPlan>,
+    /// P0-1 (2026-11-09): 指针存在但目标目录已不存在时, 这里是失效的目标路径。
+    /// 本次会话已用默认目录启动, 前端据此弹「找不到书库」提示 (不再静默回退)。
+    pub data_root_missing: Option<std::path::PathBuf>,
 }
 
 /// prep 侧车路径 + 任务输出目录 + 工具路径
@@ -296,12 +299,12 @@ fn main() {
     } else {
         services::config::user_data_dir()
     };
-    let data_dir = if portable {
-        default_data_dir.clone()
+    // P0-1 (2026-11-09): 指针目标不存在时不能静默回退 —— 本次会话仍用默认目录
+    // (程序必须能启动), 但把失效路径记下来, 前端启动时弹「找不到书库」。
+    let (data_dir, data_root_missing) = if portable {
+        (default_data_dir.clone(), None)
     } else {
-        services::config::read_data_root(&default_data_dir)
-            .filter(|p| p.is_dir())
-            .unwrap_or_else(|| default_data_dir.clone())
+        services::config::resolve_data_root(&default_data_dir)
     };
 
     // 日志 (用户反馈排查: 启动时明确侧车路径, os error 3 一眼可见原因)。
@@ -444,6 +447,7 @@ fn main() {
             db_path: std::path::PathBuf::from(&db_path),
             portable,
             migration: migration.clone(),
+            data_root_missing,
         })
         .manage(svc)
         .manage(PrepState {
@@ -627,6 +631,8 @@ fn main() {
             commands::misc::runtime_config,
             commands::misc::app_version,
             commands::misc::components_health,
+            commands::data_root::data_root_status,
+            commands::data_root::data_root_forget_pointer,
             commands::data_root::library_dir_get,
             commands::data_root::library_root_status,
             commands::data_root::library_out_consolidate,

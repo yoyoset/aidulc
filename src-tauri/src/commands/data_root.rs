@@ -15,6 +15,58 @@ pub fn data_root_recommended() -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "path": p.to_string_lossy() }))
 }
 
+/// P0-1 (2026-11-09): 数据根启动状态 —— 前端在向导拦截**之前**调用。
+///
+/// `missing=true` 表示 `data_root.txt` 里记录的目标目录当前不存在 (移动硬盘没插 /
+/// 目录被移动或删除)。此时本次会话已经临时使用 `fallback` 启动, UI 必须清楚告诉
+/// 用户"书库没找到", 而不是直接展示一个空书库。
+#[tauri::command]
+pub fn data_root_status(paths: State<crate::DataPaths>) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", "enter: data_root_status");
+    let p = paths.inner();
+    let missing = p.data_root_missing.as_ref();
+    Ok(serde_json::json!({
+        "missing": missing.is_some(),
+        // 指针里记录的原始目标 (失效时就是用户上次用的书库位置)
+        "pointer": missing.map(|m| m.to_string_lossy().to_string()).unwrap_or_default(),
+        // 本次会话实际使用的临时位置 (默认数据目录)
+        "fallback": p.data_dir.to_string_lossy(),
+        "portable": p.portable,
+    }))
+}
+
+/// P0-1: 「改用默认位置」—— 删除数据根指针, 下次启动回到默认数据目录。
+/// 只删除指向记录, 不动任何书库/数据库文件。
+#[tauri::command]
+pub fn data_root_forget_pointer(
+    paths: State<crate::DataPaths>,
+) -> Result<serde_json::Value, String> {
+    crate::infrastructure::log::info("cmd", "enter: data_root_forget_pointer");
+    if paths.inner().portable {
+        return Err("便携模式不使用数据根指针, 无法切换到默认位置".into());
+    }
+    let default_dir = crate::services::config::user_data_dir();
+    let pointer = crate::services::config::data_root_pointer_path(&default_dir);
+    match std::fs::remove_file(&pointer) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("删除数据根指针失败: {e}")),
+    }
+    crate::infrastructure::log::info(
+        "cmd",
+        &format!(
+            "data_root_forget_pointer: 已清除 {} (下次启动用默认位置 {})",
+            pointer.to_string_lossy(),
+            default_dir.to_string_lossy()
+        ),
+    );
+    Ok(serde_json::json!({
+        "cleared": true,
+        "default_dir": default_dir.to_string_lossy(),
+        "restart_required": true,
+    }))
+}
+
 /// 书库位置(当前生效的数据根绝对路径, 供设置页展示 + 绿色徽章判定)。
 /// UX5 #4 (2026-08-13): 书库位置 = 数据根 —— 返回 DataPaths.data_dir (随指针迁移)。
 #[tauri::command]

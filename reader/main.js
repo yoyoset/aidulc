@@ -49,26 +49,46 @@
   vocabView.setRouter(router);
 
   // ---- 首次运行: 向导拦截 ----
-  AiduModelService.wizardState().then((res) => {
-    startupLoading.remove();
-    if (!res.ok) throw new Error(res.error || '无法读取首次启动状态');
-    if (res.ok && res.data && res.data.status === 'done') {
-      router.start();
-    } else {
-      // 向导未完成 → 全屏向导
-      shell.setActiveNav('');
+  // P0-1 (2026-11-09): 在向导拦截**之前**先确认数据根指针没失效。目标目录被删 /
+  // 移动硬盘没插时, 后端本次会话已临时退回默认目录; 这里必须先弹「找不到书库」,
+  // 不能让用户直接看到空书库还以为数据没了。
+  const bootWizardCheck = () => {
+    AiduModelService.wizardState().then((res) => {
+      startupLoading.remove();
+      if (!res.ok) throw new Error(res.error || '无法读取首次启动状态');
+      if (res.ok && res.data && res.data.status === 'done') {
+        router.start();
+      } else {
+        // 向导未完成 → 全屏向导
+        shell.setActiveNav('');
+        shell.getViewContainer().innerHTML = '';
+        wizardView.onDone = () => router.navigate('library');
+        wizardView.render(shell.getViewContainer());
+      }
+    }).catch((err) => {
+      startupLoading.remove();
       shell.getViewContainer().innerHTML = '';
-      wizardView.onDone = () => router.navigate('library');
-      wizardView.render(shell.getViewContainer());
+      const error = document.createElement('div');
+      error.className = 'global-error';
+      error.textContent = '应用启动失败：' + String(err && err.message || err);
+      shell.getViewContainer().appendChild(error);
+    });
+  };
+
+  (function checkDataRoot() {
+    if (!window.AiduMiscService || !AiduMiscService.dataRootStatus || !window.AiduMissingLibraryModal) {
+      bootWizardCheck();
+      return;
     }
-  }).catch((err) => {
-    startupLoading.remove();
-    shell.getViewContainer().innerHTML = '';
-    const error = document.createElement('div');
-    error.className = 'global-error';
-    error.textContent = '应用启动失败：' + String(err && err.message || err);
-    shell.getViewContainer().appendChild(error);
-  });
+    AiduMiscService.dataRootStatus().then((res) => {
+      const d = res && res.ok && res.data;
+      if (d && d.missing) {
+        AiduMissingLibraryModal.show(d, bootWizardCheck);
+      } else {
+        bootWizardCheck();
+      }
+    }).catch(() => bootWizardCheck());
+  })();
 
   // J0 (2026-08-11): 旧位置有数据 → 启动即提示迁移 (不等用户自己发现)。
   // 静默换目录 = 用户以为书丢了; 这里明确弹窗让用户决定。dry-run 先给数字再执行。

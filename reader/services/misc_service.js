@@ -20,6 +20,10 @@
     libraryOutConsolidate() { return AiduBridge.invoke('library_out_consolidate'); },
     // UX5 #4: 首次向导推荐的数据根 (我的文档/aidulc)
     dataRootRecommended() { return AiduBridge.invoke('data_root_recommended'); },
+    // P0-1 (2026-11-09): 启动时检查数据根指针是否失效 (missing/pointer/fallback)
+    dataRootStatus() { return AiduBridge.invoke('data_root_status'); },
+    // P0-1: 改用默认位置 —— 清除数据根指针 (下次启动回默认数据目录)
+    dataRootForgetPointer() { return AiduBridge.invoke('data_root_forget_pointer'); },
     libraryDirPick() { return AiduBridge.invoke('library_dir_pick'); },
     libraryDirPickAndSet(newDir) { return AiduBridge.invoke('library_dir_pick_and_set', { newDir: newDir || null }); },
     // L7 (2026-08-11): 扫描/登记外部书库目录 (不复制不移动文件)

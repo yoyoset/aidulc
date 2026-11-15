@@ -416,3 +416,21 @@ v1-v17。覆盖: 设计语言(暖纸陶土)→主题(5 预设+自定义色)→�
     (已经在错误路径上, 回滚失败也无事可做); 日志自身的写失败 (无处可记)。
   - 仍存、低优先: `commands/misc.rs`、`services/components.rs`、`infrastructure/*_daemon.rs` 里各 7–9 处
     多为进程清理类, 未逐条审; 需要时按上面三类归类。
+
+## 2026-11-15 评估落地: 阶段二 D1–D5
+
+- **D1 依赖锁**: pyproject 以前**没有任何运行时依赖**(文件头却写"精确版本+锁文件策略")。现在 pyproject 7 个直接依赖
+  + `prep/requirements.lock`(pip freeze 105 包) + `scripts/check_venv_lock.py` 三方比对 (负向实测: 改锁里 numpy → exit 1)。
+  **没做**: 全新目录真装 (torch 约 2.5GB)。**发现**: ① `llama_cpp_python` 是 CUDA 构建但来源无法从元数据确认,
+  且本机 venv 里 `import llama_cpp` 直接报 llama.dll 缺依赖; ② `prep/build_exe.spec` 的 CUDA DLL 取自仓库外
+  `F:\my_ai\comic-gen\.venv`, 缺失时 `os.path.exists` 过滤会**静默少带** DLL。两条都进了 ROADMAP P1。
+- **D3 归档**: 设计交付件目录/zip **不在 git 里**, 没动 (删了不可恢复, 多份文档引用)。归档后 31 个文件里的
+  `docs/GOAL_*` 路径用 sed 改成 `docs/archive/...`; 顺手改到了用户未提交的 `.gitignore` 一行注释,
+  已还原 —— **批量 sed 前先看目标文件是不是有用户自己的未提交改动**。
+- **D4**: 版本号展示 K11 早就有 (评估时我写"未核实", 事后核实确有)。联网边界: 仅用户点击、固定 UA、不带用户数据。
+  无发布时 GitHub 返回 404 (实测), 当作"还没有正式版本"而不是错误 (仓库私有时也是 404, 文案会误导, 可接受)。
+- **D2**: 写 PowerShell 5.1 脚本的坑 —— `String.Replace(string,string,StringComparison)` 不存在 (报"找不到 3 个参数的重载");
+  `Write-Host "a" + $(...)` 里的 `+` 会被当成额外参数打印。**必须在临时副本上测改写逻辑, 别直接在 -Apply 里首跑。**
+  `-Apply` 完整路径没端到端跑过。v0.2.0 故意没打 (走查前置条件)。
+- **bash 工具坑**: 长 heredoc 里含大量引号/中文时会报 `unexpected EOF while looking for matching '` 且**整条命令不执行**;
+  改成 Write 工具写脚本文件再运行 (先 `git status` 确认没有半执行)。

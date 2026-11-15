@@ -6,6 +6,15 @@
 
 ## [Unreleased]
 
+### 可交付: 侧车依赖锁 / 文档归档 / 检查更新 / 发版脚本(2026-11-15)
+
+按 `docs/EVALUATION_2026-11-15.md` 阶段二落地 (D1–D5, 每项单独提交)。
+- 侧车依赖: `prep/pyproject.toml` 声明 7 个直接依赖精确版本, `prep/requirements.lock` 锁 105 个包, `scripts/check_venv_lock.py` 三方比对并接入门禁。
+- `docs/ROADMAP.md` 从 1042 行收敛到 101 行(只留开放项), 已完成阶段文档移入 `docs/archive/`。
+- 设置页「检查更新」: 只在点按钮时联网一次查 GitHub Releases, 不带用户数据, 不下载不替换。
+- `scripts/release.ps1` 发版脚本 + `docs/SMOKE_NEW_USER.md` 新用户走查清单(发版前置条件: 该版本要有走查记录)。
+- **未做**: `v0.2.0` tag(要先有人走查); 在全新目录真装一遍侧车依赖; `release.ps1 -Apply` 端到端。
+
 ### 稳固: 快照可恢复 / 同步失败不再显示成功 / 锁中毒不再连环崩溃 / 导入如实计数(2026-11-15)
 
 按 `docs/EVALUATION_2026-11-15.md` 阶段一落地 (S1–S5, 每项单独提交)。

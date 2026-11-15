@@ -389,3 +389,30 @@ v1-v17。覆盖: 设计语言(暖纸陶土)→主题(5 预设+自定义色)→�
 - P2 仍存 (低优先): `model_repo.list_all_with_bound` N+1、`sync_service::pending_count` 读错误吞成
   "0 已同步"、`reader_view` 模式切换丢滚动位置、`_onWordClick` O(N) 扫描取错上下文、`job_retry_failed`
   的 `"partial"` 分支 (job 无此状态, 死分支)。
+
+## 2026-11-15 评估落地: S1–S5 稳固阶段 (依据 docs/EVALUATION_2026-11-15.md)
+
+- **S2 快照恢复**: 恢复 = 暂存 `restore-pending.db` + 下次启动**开库之前**替换 (运行中的 WAL 库下面换
+  文件会损坏数据)。替换前把当前库另存为 `snapshots/data-before-restore-<时间>.db` (VACUUM INTO, 库已坏
+  才退回裸复制); 另存失败就不替换。日期只收 8 位数字防路径穿越。`data-before-restore-*` 不满足
+  `data-YYYYMMDD.db` 的 8 位日期判据, 所以不会被轮转删掉、也不会出现在可恢复列表里 (有测试锁定)。
+  入口: 设置页「数据快照与恢复」+「找不到书库」弹窗第 4 个按钮。**恢复的落点是下次启动实际使用的库**:
+  丢库弹窗场景下是默认数据目录的库, 想恢复到原书库位置要先「重新指定」。
+- **S3 同步 (最初以为 A, 实测是 B)**: 评估时以为「合并错误被 `let _ =` 吞了」。**实读代码发现**
+  `merge_remote_into_local` 返回的是写回条数, 不是 Result。真实缺口是逐条 `upsert_sync(..).is_ok()` 吞写库
+  失败 + 调用方照常把 `last_pull_rev` 推进到服务端最新值。修法: 返回 `MergeOutcome{wrote, failed}`,
+  failed>0 不推进进度并显示"同步失败"。**解析不了的远端条目只记日志跳过, 不算 failed** —— 否则一条
+  坏数据会让拉取进度永远卡住。测试用 SQLite `BEFORE INSERT` 触发器制造写库失败 (比 mock 一个失败的 repo 简单)。
+- **S4 锁中毒**: `infrastructure/lock.rs::MutexExt::lock_or_recover` 替换 172 处非测试 `lock().unwrap()`。
+  坑: `log.rs` 自己的锁不能用它 —— 日志锁中毒 → `lock_or_recover` 记日志 → 再取日志锁 → 递归, 所以日志那
+  两处直接 `unwrap_or_else(into_inner)`。另: 文档注释里列表后紧跟非缩进行会触发 clippy
+  `doc_lazy_continuation`, 让 clippy 数从基线 7 变 8、门禁失败 (列表前后要空行)。
+- **S5 `let _ =` 分类** (非测试代码约 170 处, 不一刀切):
+  - 已改成 `log_err`/如实计数 (真实失败会被隐藏): 任务状态/进度落盘、启动下一个排队任务、书的处理状态、
+    体检状态、全部暂停/继续、`register_book` 返回 None (任务完成但书没进书库)、导入备份时生词/词典写库失败
+    (此前无条件 +1, "已恢复 N 个生词"会虚高, 现在报告带 `failed_vocab`/`failed_dictionary`, toast 说出来)。
+  - 刻意保留 (理由): `app.emit` 约 24 处 (窗口关了才会失败, 无补救); `child.kill/wait` (清理, 进程可能已
+    退出); `remove_file`/`remove_dir_all` 清临时文件 (残留不影响正确性); `execute_batch("ROLLBACK;")`
+    (已经在错误路径上, 回滚失败也无事可做); 日志自身的写失败 (无处可记)。
+  - 仍存、低优先: `commands/misc.rs`、`services/components.rs`、`infrastructure/*_daemon.rs` 里各 7–9 处
+    多为进程清理类, 未逐条审; 需要时按上面三类归类。

@@ -88,10 +88,14 @@
 - 验收: 单测 `db_lock_survives_panicked_holder`(一个线程持锁 panic 后, 主线程仍能查询);
   `grep -c "conn.lock().unwrap()"` 在非测试代码里为 0。
 
-**T5 同步合并失败被当成成功(P1)**
-- 依据: `application/sync_service.rs:409` `let _ = merge_remote_into_local(...)`; 紧接着第 412 行
-  起把 `last_pull_rev` 推进到 `pr.rev` 并 `record_sync(..., Ok(()))`。合并一旦失败, 这批远端变更
-  不会再被拉取, 界面显示"已同步"。
+**T5 同步合并失败被当成成功(P1)** ✅ 2026-11-15 已修(S3 + S5)
+- 修正记录(执行时读代码发现): 原文写"合并错误被吞", **不准确** —— `merge_remote_into_local`
+  返回的是写回条数而不是 `Result`, `let _ =` 丢掉的是一个计数。真实缺口是: 逐条写本地库失败被
+  `.is_ok()` 吞掉(既不计数也不记日志), 调用方照常把 `last_pull_rev` 推进到 `pr.rev`, 这批远端变更
+  之后永远拉不到, 设置页显示"已同步"。另外 `SyncStateRepo::upsert` 的结果也被 `let _ =` 丢弃。
+  S3 已按真实缺口修(返回 `MergeOutcome{wrote, failed}`, 失败不推进进度并显示"同步失败")。
+- 原始依据: `application/sync_service.rs:409` `let _ = merge_remote_into_local(...)`; 紧接着第 412 行
+  起把 `last_pull_rev` 推进到 `pr.rev` 并 `record_sync(..., Ok(()))`。
 - 方案: 合并失败时不推进 `last_pull_rev`, 把错误记进同步状态并在设置页显示。同时把非测试代码里的
   `let _ =`(全库 370 处, 含测试)过一遍, 分成"确实可忽略"和"必须上报"两类, 前者加一句理由注释。
   `store_mod.rs:41` 的 `pragma_update(foreign_keys).ok()` 也在这批里。

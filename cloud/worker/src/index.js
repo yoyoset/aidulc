@@ -35,6 +35,10 @@ const CODE_TTL_MS = 10 * 60 * 1000;      // 6 位码 10 分钟有效
 const MAX_CODE_FAILS = 5;                 // 5 次错误
 const LOCK_MS = 15 * 60 * 1000;           // 锁 15 分钟
 const MAX_PUSH_WORDS = 2000;              // 单次推送词条数上限 (防滥用)
+// E5 (2026-11-15): 配对/兑换限流改按**来源**计数 (见 throttleCheck 的注释)
+const MAX_SOURCE_FAILS = 5;               // 同一来源 15 分钟内失败 5 次 → 锁该来源
+const GLOBAL_WINDOW_MS = 60 * 1000;       // 全站失败计数窗口
+const MAX_GLOBAL_FAILS = 30;              // 窗口内全站失败超过这个数 → 暂停所有兑换到窗口结束
 const MIN_INTERVAL = 60_000;              // 调度器最小步长兜底
 
 function json(data, status = 200) {
@@ -168,11 +172,17 @@ function requireToken(identity) {
 async function authDevice(request, storage, env) {
   const body = await readJson(request);
   const deviceName = String(body.device_name || '').trim() || 'device';
+  // E5: 先看这个来源 / 全站是否已被限流 (锁定期间连正确的码也不接受)
+  const source = clientId(request, env);
+  const limited = await throttleCheck(storage, source);
+  if (limited) return error(limited, 429);
 
   // 路径 A: ROOT_SECRET (首台)
   if (body.root_secret !== undefined && body.root_secret !== null) {
     if (!env.ROOT_SECRET) return error('服务端未配置 ROOT_SECRET', 500);
     if (body.root_secret !== env.ROOT_SECRET) {
+      // E5: ROOT_SECRET 同样可被枚举, 失败一并计入来源限流 (此前这条路径完全不限速)
+      await throttleFail(storage, source);
       return error('ROOT_SECRET 不正确', 403);
     }
     const user_id = 'me'; // 第一个 user 固定叫 me (迁移回填同名)
@@ -205,15 +215,18 @@ async function authDevice(request, storage, env) {
   const codeRaw = await storage.get('code:' + code);
   if (!codeRaw) {
     await recordFail(storage, code, fail);
+    await throttleFail(storage, source);
     return error('验证码不存在或已过期', 404);
   }
   const rec = JSON.parse(codeRaw);
   if (rec.used) {
     await recordFail(storage, code, fail);
+    await throttleFail(storage, source);
     return error('验证码已被使用 (一次性)', 410);
   }
   if (rec.expires_at && nowMs() > rec.expires_at) {
     await recordFail(storage, code, fail);
+    await throttleFail(storage, source);
     return error('验证码已过期', 410);
   }
   // 一次性: 立即标记 (防并发重复兑换)
@@ -239,6 +252,71 @@ async function authDevice(request, storage, env) {
     JSON.stringify({ name: deviceName, last_pull_rev: 0, last_push_at: 0 })
   );
   return json({ ok: true, user_id, user_name, device_id, token });
+}
+
+/**
+ * E5 (2026-11-15): 请求来源标识, 用来做兑换限流。
+ *
+ * 旧限流 (recordFail) 的键是**被猜的那个码**: 攻击者每次换一个码, 每个码都只失败 1 次,
+ * 永远触发不了 "5 次" —— 100 万个码、10 分钟有效期内可以无限枚举。限流必须按"谁在猜"计。
+ *
+ * 来源怎么取 (不能信客户端自报):
+ *   - CF Worker (env.DB 存在): CF 边缘一定会写 `CF-Connecting-IP`, 客户端伪造的会被覆盖。
+ *   - 自建 VPS (无 env.DB): server.mjs 用 TCP 对端地址 (反代后用代理追加的 X-Forwarded-For
+ *     最后一项) 写入 `x-aidulc-client-ip`, 并丢弃客户端自带的 cf-connecting-ip。
+ *   - 都取不到 → 'unknown' 共用一格 (宁可误伤也不放行)。
+ */
+function clientId(request, env) {
+  const h = env && env.DB ? request.headers.get('cf-connecting-ip') : request.headers.get('x-aidulc-client-ip');
+  return String(h || 'unknown').trim().slice(0, 64) || 'unknown';
+}
+
+/**
+ * 兑换前检查: 该来源是否被锁 / 全站失败是否过多。被限流返回给用户看的文案, 否则 null。
+ * 两层: 来源层挡单点枚举; 全站层挡"每个来源只试几次"的分布式枚举
+ * (全站每分钟最多 30 次失败 → 10 分钟有效期内最多约 300 次猜测, 命中某个活码的概率 ≈ 0.03%)。
+ * 代价: 有人刷全站失败可以让配对暂停 1 分钟 —— 只影响新设备配对, 已配对设备的同步不受影响。
+ * 局限: KV 的读-改-写不是原子的 (CF KV 还是最终一致), 并发/跨区时计数会少记, 这是尽力而为的限流。
+ */
+async function throttleCheck(storage, source) {
+  const now = nowMs();
+  const raw = await storage.get('ipfail:' + source);
+  const f = raw ? JSON.parse(raw) : null;
+  if (f && f.lock_until && now < f.lock_until) {
+    const mins = Math.ceil((f.lock_until - now) / 60000);
+    return `尝试次数过多, 已锁定 ${mins} 分钟`;
+  }
+  const gRaw = await storage.get('globalfail');
+  const g = gRaw ? JSON.parse(gRaw) : null;
+  if (g && now - g.window_start < GLOBAL_WINDOW_MS && g.count >= MAX_GLOBAL_FAILS) {
+    return '当前失败次数过多, 配对暂时停用, 请 1 分钟后再试';
+  }
+  return null;
+}
+
+/** 记一次失败: 来源计数 (到 5 次锁 15 分钟) + 全站窗口计数。 */
+async function throttleFail(storage, source) {
+  const now = nowMs();
+  const raw = await storage.get('ipfail:' + source);
+  const f = raw ? JSON.parse(raw) : { count: 0, lock_until: 0, first_at: now };
+  // 15 分钟没再失败 → 重新计 (锁定期之外的旧失败不一直累积)
+  if (f.first_at && now - f.first_at > LOCK_MS && !(f.lock_until && now < f.lock_until)) {
+    f.count = 0;
+    f.first_at = now;
+  }
+  f.count = (f.count || 0) + 1;
+  if (f.count >= MAX_SOURCE_FAILS) {
+    f.lock_until = now + LOCK_MS;
+    f.count = 0;
+    f.first_at = now;
+  }
+  await storage.put('ipfail:' + source, JSON.stringify(f));
+
+  const gRaw = await storage.get('globalfail');
+  let g = gRaw ? JSON.parse(gRaw) : null;
+  if (!g || now - g.window_start >= GLOBAL_WINDOW_MS) g = { window_start: now, count: 0 };
+  g.count += 1;
+  await storage.put('globalfail', JSON.stringify(g));
 }
 
 async function recordFail(storage, code, fail) {

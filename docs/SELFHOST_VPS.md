@@ -70,6 +70,9 @@ Environment=KV_DIR=/srv/aidulc/kv
 Environment=ROOT_SECRET=你的随机钥匙
 Environment=PORT=8080
 Environment=BIND=127.0.0.1
+# 配对限流按来源 IP 计 (2026-11-15 起)。经 CF Tunnel (下面第 4 节) 设 cf; 经 nginx/caddy 反代设 1;
+# 直连公网不用设。不设时反代后所有人共用 127.0.0.1 一格 —— 5 次失败会把所有人的配对锁 15 分钟。
+Environment=TRUST_PROXY=cf
 ExecStart=/usr/bin/node /srv/aidulc/cloud-worker/server.mjs
 Restart=always
 RestartSec=3
@@ -150,3 +153,5 @@ curl -s https://sync.viiyd.com/v1/capabilities
 | 首台换 token 403 | ROOT_SECRET 配错 | 核对 systemd 里 Environment=ROOT_SECRET |
 | 桌面端状态"未配置" | worker_url 填错 / 没换 token | 设置页重填 URL + 换 token |
 | node 起不来 | ROOT_SECRET 为空 (server.mjs 拒绝启动) | 设 Environment=ROOT_SECRET |
+| 配对总是提示"尝试次数过多, 已锁定" | 没设 TRUST_PROXY, 反代后所有人共用一个来源 | 经 CF Tunnel 设 TRUST_PROXY=cf, 经 nginx/caddy 设 1 |
+| 配对提示"配对暂时停用" | 全站每分钟失败超过 30 次 (有人在枚举或脚本在狂试) | 等 1 分钟; 已配对设备的同步不受影响 |

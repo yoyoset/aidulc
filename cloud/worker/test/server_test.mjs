@@ -81,11 +81,62 @@ try {
   const capRes = await fetch(base + '/v1/capabilities');
   const cap = await capRes.json();
   check('capabilities 自述 file + 无配额', cap.ok && cap.storage === 'file' && cap.max_writes_per_day === null, cap);
+
+  // 5. E5: 兑换限流的"来源"由本层按 TCP 对端写, 客户端自报的头一律无效
+  const tryCode = (i, extraHeaders) => fetch(base + '/v1/auth/device', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    body: JSON.stringify({ code: String(100000 + i * 7919) }),
+  }).then((r) => r.status);
+  const st = [];
+  for (let i = 0; i < 7; i++) {
+    // 每次伪造不同的来源头 (含 CF 的 cf-connecting-ip): 不该起作用
+    st.push(await tryCode(i, { 'x-aidulc-client-ip': '8.8.8.' + i, 'cf-connecting-ip': '9.9.9.' + i, 'x-forwarded-for': '7.7.7.' + i }));
+  }
+  check('伪造来源头无法绕过限流: 前 5 次 404, 之后 429', st.slice(0, 5).every((x) => x === 404) && st.slice(5).every((x) => x === 429), st);
 } catch (e) {
   check('server.mjs 冒烟整体', false, String(e && e.message));
 } finally {
   await stop();
   rmSync(kvDir, { recursive: true, force: true });
+}
+
+// 6. E5: 部署在反代后面 (trustProxy) 时按 X-Forwarded-For 的**最后一项**计来源 (前面的项客户端能写)
+{
+  const kv2 = mkdtempSync(join(tmpdir(), 'aidulc-server-test2-'));
+  const port2 = await freePort();
+  const srv2 = await startServer({ port: port2, kvDir: kv2, rootSecret: 's2', trustProxy: true, log: () => {} });
+  try {
+    const hit = (i, xff) => fetch('http://127.0.0.1:' + port2 + '/v1/auth/device', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': xff },
+      body: JSON.stringify({ code: String(200000 + i * 7919) }),
+    }).then((r) => r.status);
+    const same = [];
+    for (let i = 0; i < 7; i++) same.push(await hit(i, 'fake-' + i + ', 6.6.6.6')); // 最后一项相同 = 同一来源
+    check('trustProxy: 取 XFF 最后一项, 前面伪造的项不起作用 (同一来源被锁)', same.slice(5).every((x) => x === 429), same);
+    const fresh = await hit(50, 'fake, 6.6.6.7'); // 另一个真实来源
+    check('trustProxy: 另一个来源不受影响', fresh === 404, fresh);
+    // CF Tunnel 模式: 取 CF-Connecting-IP, 忽略客户端自带的 x-forwarded-for
+    const srv3 = await startServer({ port: await freePort(), kvDir: kv2, rootSecret: 's2', trustProxy: 'cf', log: () => {} });
+    try {
+      const p3 = srv3.server.address().port;
+      const cfHit = (i, cfip) => fetch('http://127.0.0.1:' + p3 + '/v1/auth/device', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'cf-connecting-ip': cfip, 'x-forwarded-for': 'spoof-' + i },
+        body: JSON.stringify({ code: String(400000 + i * 7919) }),
+      }).then((r) => r.status);
+      const cf = [];
+      for (let i = 0; i < 7; i++) cf.push(await cfHit(i, '4.4.4.4'));
+      check('TRUST_PROXY=cf: 按 CF-Connecting-IP 计, 同一来源被锁', cf.slice(5).every((x) => x === 429), cf);
+      check('TRUST_PROXY=cf: 另一个 CF 来源不受影响', (await cfHit(60, '4.4.4.5')) === 404);
+    } finally { await srv3.stop(); }
+  } catch (e) {
+    check('trustProxy 场景整体', false, String(e && e.message));
+  } finally {
+    await srv2.stop();
+    rmSync(kv2, { recursive: true, force: true });
+  }
 }
 
 console.log('');

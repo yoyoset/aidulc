@@ -24,8 +24,11 @@ function check(name, cond, detail) {
   else { fail++; console.log('  FAIL ' + name + (detail ? ' :: ' + JSON.stringify(detail) : '')); }
 }
 
-function call(method, path, { token, body } = {}) {
-  const headers = { 'Content-Type': 'application/json' };
+// E5: 兑换限流按来源计。默认每次调用换一个新来源 (模拟不同设备), 这样早期场景里的故意失败
+// 不会互相把对方锁住; 要测"同一来源"就显式传 ip。
+let ipSeq = 0;
+function call(method, path, { token, body, ip, headers: extra } = {}) {
+  const headers = { 'Content-Type': 'application/json', 'x-aidulc-client-ip': ip || ('10.9.' + Math.floor(++ipSeq / 250) + '.' + (ipSeq % 250)), ...(extra || {}) };
   if (token) headers.Authorization = 'Bearer ' + token;
   const req = new Request('http://test.local' + path, {
     method,
@@ -189,6 +192,59 @@ console.log('== 6. 6 位码一次性 + 限速 ==');
     if (rr.status === 429) locked = true;
   }
   check('5 次错误后锁 (429)', locked === true);
+}
+
+console.log('== 6b. E5 (2026-11-15): 兑换限流按来源计, 换码也绕不过 ==');
+{
+  // 旧实现按"被猜的码"计数: 每次换一个码, 每个码只失败 1 次, 永远触发不了上限。
+  const atk = '203.0.113.7';
+  const statuses = [];
+  for (let i = 0; i < 8; i++) {
+    const code = String(100000 + i * 7919).padStart(6, '0'); // 8 个互不相同的错码
+    const r = await call('POST', '/v1/auth/device', { ip: atk, body: { code } });
+    statuses.push(r.status);
+  }
+  check('同一来源用 8 个不同的错码: 前 5 次是 404, 之后 429 (旧实现全是 404)',
+    statuses.slice(0, 5).every((x) => x === 404) && statuses.slice(5).every((x) => x === 429), statuses);
+
+  // 锁定期间连正确的码也不接受 (否则攻击者猜中一次就能用)
+  const cd = await j(await call('POST', '/v1/auth/code', { token: tokenMe, body: { type: 'add-device' } }));
+  const locked = await call('POST', '/v1/auth/device', { ip: atk, body: { code: cd.code, device_name: 'x' } });
+  check('被锁来源提交正确的码也 → 429', locked.status === 429, locked.status);
+  // 另一个来源不受影响, 且这个码没被消耗
+  const other = await call('POST', '/v1/auth/device', { ip: '198.51.100.9', body: { code: cd.code, device_name: 'pad' } });
+  check('其它来源不受影响, 正确的码正常兑换', other.status === 200, other.status);
+
+  // ROOT_SECRET 路径以前完全不限速
+  const rs = [];
+  for (let i = 0; i < 7; i++) {
+    rs.push((await call('POST', '/v1/auth/device', { ip: '203.0.113.50', body: { root_secret: 'guess-' + i } })).status);
+  }
+  check('枚举 ROOT_SECRET: 前 5 次 403, 之后 429', rs.slice(0, 5).every((x) => x === 403) && rs.slice(5).every((x) => x === 429), rs);
+
+  // 来源不能由客户端伪造: 非 CF 运行时 (无 env.DB) 不看 cf-connecting-ip
+  const spoof = [];
+  for (let i = 0; i < 7; i++) {
+    spoof.push((await call('POST', '/v1/auth/device', {
+      ip: '203.0.113.99', headers: { 'cf-connecting-ip': '1.2.3.' + i }, body: { code: String(300000 + i * 13) },
+    })).status);
+  }
+  check('伪造 cf-connecting-ip 无法换来源 (仍被同一来源锁住)', spoof.slice(5).every((x) => x === 429), spoof);
+
+  // 全站层: 每个来源只失败 1 次, 累计超过 30 次后所有兑换暂停
+  const cd2 = await j(await call('POST', '/v1/auth/code', { token: tokenMe, body: { type: 'add-device' } }));
+  for (let i = 0; i < 40; i++) {
+    await call('POST', '/v1/auth/device', { ip: '192.0.2.' + (i + 1), body: { code: String(500000 + i * 17) } });
+  }
+  const g = await call('POST', '/v1/auth/device', { ip: '192.0.2.250', body: { code: cd2.code, device_name: 'z' } });
+  const gd = await j(g);
+  check('分布式枚举 (每来源只试 1 次) 触发全站暂停 → 429', g.status === 429 && /暂时停用/.test(gd.error || ''), [g.status, gd]);
+  // 全站窗口按真实时间走 (1 分钟), 测试后清掉它, 免得挡住后面场景里的正常兑换。
+  // 顺带验证: 窗口过期后恢复 —— 把窗口起点拨到 2 分钟前, 正确的码应该能兑换。
+  const kv = createFileKv(dir);
+  await kv.put('globalfail', JSON.stringify({ window_start: Date.now() - 120000, count: 99 }));
+  const back = await call('POST', '/v1/auth/device', { ip: '192.0.2.251', body: { code: cd2.code, device_name: 'z' } });
+  check('全站窗口过期后恢复兑换 (不是永久暂停)', back.status === 200, back.status);
 }
 
 console.log('== 7. 踢 token (P0-C: 手机配对收回) ==');

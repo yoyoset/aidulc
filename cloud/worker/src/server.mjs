@@ -22,6 +22,8 @@
  *   - 默认只监听 127.0.0.1; 对外必须经 nginx/caddy 反代 + TLS (CF 橙云代理也行),
  *     服务器自身不直接暴露公网 HTTP。
  *   - ROOT_SECRET 只用于首次换 token, 之后全靠 token; 丢了就重新 `secret put`。
+ *   - 兑换限流按来源 IP 计 (E5): 直连不用设; nginx/caddy 之后设 TRUST_PROXY=1 (反代须追加 X-Forwarded-For);
+ *     经 CF Tunnel (本项目文档的默认路径) 设 TRUST_PROXY=cf。不设 → 反代后所有人共用 127.0.0.1 一格。
  */
 'use strict';
 
@@ -32,7 +34,7 @@ import worker from './index.js';
  * 启动后端。返回 { server, stop }。
  * stop() 关闭服务器并等所有连接收尾 (测试用; 也接 SIGTERM/SIGINT 优雅退出)。
  */
-export function startServer({ host = '127.0.0.1', port = 8080, kvDir, rootSecret, log = console.log } = {}) {
+export function startServer({ host = '127.0.0.1', port = 8080, kvDir, rootSecret, trustProxy = false, log = console.log } = {}) {
   if (!rootSecret) {
     throw new Error('缺 ROOT_SECRET —— 部署前必须设, 否则首台永远换不了 token (假成功)');
   }
@@ -55,9 +57,26 @@ export function startServer({ host = '127.0.0.1', port = 8080, kvDir, rootSecret
       const body = await rawBody(req);
       // 适配成 Workers Request: 保留方法/URL/头/体; CF Worker 的 URL 来自 request.url
       const url = 'http://' + (req.headers.host || host + ':' + port) + (req.url || '/');
+      // E5 (2026-11-15): 来源标识给兑换限流用 (index.js 的 clientId)。必须由这一层写, 不能信客户端:
+      // 丢弃客户端自带的 cf-connecting-ip / x-aidulc-client-ip, 用 TCP 对端地址覆盖;
+      // 只有部署在自己的反代之后 (trustProxy) 才改用代理追加的 X-Forwarded-For **最后一项**
+      // (前面的项是客户端自己能写的)。不开 trustProxy 却放在反代后面 → 所有人共用 127.0.0.1 一格,
+      // 是安全的误伤 (限流更严), 不会放行。
+      const headers0 = { ...req.headers };
+      delete headers0['cf-connecting-ip'];
+      delete headers0['x-aidulc-client-ip'];
+      let clientIp = req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : 'unknown';
+      if (trustProxy === 'cf' && typeof req.headers['cf-connecting-ip'] === 'string' && req.headers['cf-connecting-ip']) {
+        // CF Tunnel (cloudflared) 转发来的请求: CF 边缘写的 CF-Connecting-IP, 客户端伪造不了
+        clientIp = req.headers['cf-connecting-ip'].trim();
+      } else if (trustProxy && trustProxy !== 'cf' && typeof req.headers['x-forwarded-for'] === 'string') {
+        const parts = req.headers['x-forwarded-for'].split(',').map((x) => x.trim()).filter(Boolean);
+        if (parts.length) clientIp = parts[parts.length - 1];
+      }
+      headers0['x-aidulc-client-ip'] = clientIp;
       const request = new Request(url, {
         method: req.method,
-        headers: req.headers,
+        headers: headers0,
         body: req.method === 'GET' || req.method === 'HEAD' || body.length === 0 ? undefined : body,
       });
       const response = await worker.fetch(request, env);
@@ -107,6 +126,8 @@ if (process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('server.mjs'
     port,
     kvDir: process.env.KV_DIR,
     rootSecret: process.env.ROOT_SECRET,
+    // 部署在 nginx/caddy 之后设 TRUST_PROXY=1; 经 CF Tunnel 设 TRUST_PROXY=cf —— 限流才按真实客户端 IP 计
+    trustProxy: process.env.TRUST_PROXY === 'cf' ? 'cf' : process.env.TRUST_PROXY === '1',
     log: (m) => console.log('[server.mjs] ' + m),
   }).then(({ stop }) => {
     for (const sig of ['SIGTERM', 'SIGINT']) {

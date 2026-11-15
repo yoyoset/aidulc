@@ -135,6 +135,13 @@ Run-Check "cargo test --release -- --test-threads=1" {
     Pop-Location
 }
 
+# 5b. 侧车依赖三方一致 (pyproject dependencies / requirements.lock / venv)
+# 2026-11-15: pyproject 以前没声明任何运行时依赖, 侧车能否复现取决于本机 venv 碰巧装了什么。
+Run-Check "sidecar:deps-lock (pyproject == lock == venv)" {
+    $env:PYTHONIOENCODING = "utf-8"
+    & "$root\prep\.venv\Scripts\python.exe" "$root\scripts\check_venv_lock.py"
+}
+
 # 6. Python 测试
 Run-Check "pytest" {
     & "$root\prep\.venv\Scripts\python.exe" -m pytest "$root\prep\tests" -q

@@ -5,6 +5,19 @@ version = "0.1.0"
 description = "aidulc 离线批处理侧车: loader → nlp → llm → tts → align → pack"
 requires-python = ">=3.13"
 
+# 直接运行时依赖, 精确版本 (2026-11-15 按本机 venv 实装版本写入)。传递依赖和完整快照在
+# requirements.lock; scripts/check_venv_lock.py 校验两者与 venv 三方一致。
+# torch 在锁文件里是 2.6.0+cu124 (本地版本号, 需 PyTorch CUDA 索引), 这里写不带本地版本的 2.6.0。
+dependencies = [
+  "torch==2.6.0",
+  "kokoro==0.7.16",
+  "llama-cpp-python==0.3.34",
+  "spacy==3.8.14",
+  "numpy==2.5.1",
+  "soundfile==0.14.0",
+  "jsonschema==4.26.0",
+]
+
 [project.optional-dependencies]
 test = ["pytest"]
 # R3.2 (2026-08-08): 文档解析器 (PyMuPDF)。epub 走原生解析不依赖它; pdf/mobi/azw3/fb2

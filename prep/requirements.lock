@@ -1,0 +1,123 @@
+# prep/requirements.lock —— 侧车 venv 的完整精确版本快照 (2026-11-15 由 `pip freeze` 生成)
+#
+# 用途: 换机器 / venv 损坏后能装回同一套版本, 以及让 PyInstaller 打出的侧车不取决于
+# "当时碰巧装了什么"。安装: `pip install -r prep/requirements.lock`(见 prep/setup.ps1)。
+# 校验: scripts/check_venv_lock.py 比对当前 venv 与本文件, 接入 check.ps1 (不一致即门禁失败)。
+#
+# 已知需要人工注意的几行 (没法写成纯 PyPI 精确版本):
+#   torch==2.6.0+cu124      本地版本号, CUDA 12.4 构建。需要 PyTorch 官方索引:
+#                           --extra-index-url https://download.pytorch.org/whl/cu124
+#   llama_cpp_python==0.3.34  本机装的是带 CUDA 的构建, **来源未能从元数据确认**
+#                           (PyPI 上默认是源码包, 需本机编译)。重装前先确认该用哪个 wheel 索引,
+#                           否则可能装成 CPU 版 —— 词典/讲解会慢一个数量级。
+#   en_core_web_sm          spaCy 模型包, 直接指向 GitHub release 的 wheel (带 sha256)。
+#   pytest / pyinstaller    测试与打包用, 不属于运行时, 但一并锁住保证构建可复现。
+#
+# 更新方式: 在 venv 里改完依赖, 重新 `pip freeze` 覆盖本文件的下面部分, 同步改
+# pyproject.toml 的 dependencies, 再跑 scripts\check.ps1。
+--extra-index-url https://download.pytorch.org/whl/cu124
+accelerate==1.14.0
+altgraph==0.17.5
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.14.2
+attrs==26.1.0
+babel==2.18.0
+blis==1.3.3
+catalogue==2.0.10
+certifi==2026.7.22
+cffi==2.1.0
+charset-normalizer==3.4.9
+click==8.4.2
+cloudpathlib==0.24.0
+colorama==0.4.6
+confection==1.3.3
+csvw==4.1.0
+curated-tokenizers==2.0.0
+curated-transformers==2.0.1
+cymem==2.0.13
+diskcache==5.6.3
+dlinfo==2.0.0
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#sha256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85
+espeakng-loader==0.2.4
+filelock==3.29.0
+fsspec==2026.4.0
+h11==0.16.0
+hf-xet==1.5.2
+httpcore==1.0.9
+httpx==0.28.1
+huggingface_hub==1.26.0
+idna==3.18
+iniconfig==2.3.0
+isodate==0.7.2
+Jinja2==3.1.6
+joblib==1.5.3
+jsonschema-specifications==2025.9.1
+jsonschema==4.26.0
+kokoro==0.7.16
+language-tags==1.3.1
+llama_cpp_python==0.3.34
+loguru==0.7.3
+markdown-it-py==4.2.0
+MarkupSafe==3.0.3
+mdurl==0.1.2
+misaki==0.7.4
+mpmath==1.3.0
+murmurhash==1.0.15
+networkx==3.6.1
+num2words==0.5.14
+numpy==2.5.1
+packaging==26.2
+pefile==2024.8.26
+phonemizer-fork==3.3.2
+pluggy==1.6.0
+preshed==3.0.13
+psutil==7.2.2
+pycparser==3.0
+pydantic==2.13.4
+pydantic_core==2.46.4
+Pygments==2.20.0
+pyinstaller-hooks-contrib==2026.6
+pyinstaller==6.21.0
+pymupdf==1.28.2
+pyparsing==3.3.2
+pytest==9.1.1
+python-dateutil==2.9.0.post0
+pywin32-ctypes==0.2.3
+PyYAML==6.0.3
+rdflib==7.6.0
+referencing==0.37.0
+regex==2026.7.19
+requests==2.34.2
+rfc3986==1.5.0
+rich==15.0.0
+rpds-py==2026.6.3
+safetensors==0.8.0
+scipy==1.18.0
+segments==2.4.0
+setuptools==83.0.0
+shellingham==1.5.4
+six==1.17.0
+smart_open==8.0.1
+soundfile==0.14.0
+spacy-curated-transformers==2.1.2
+spacy-legacy==3.0.12
+spacy-loggers==1.0.5
+spacy==3.8.14
+srsly==2.5.3
+sympy==1.13.1
+termcolor==3.3.0
+thinc==8.3.13
+tokenizers==0.22.2
+torch==2.6.0+cu124
+tqdm==4.70.0
+transformers==5.14.1
+typer==0.27.0
+typing-inspection==0.4.2
+typing_extensions==4.16.0
+uritemplate==4.2.0
+urllib3==2.7.0
+wasabi==1.1.3
+weasel==1.0.0
+win32_setctime==1.2.0
+wrapt==2.3.0

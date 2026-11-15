@@ -6,7 +6,7 @@
  * 提示, 以为数据丢了。
  *
  * 这个弹窗必须**点外部关不掉**, 也不能用 Esc 关闭: 用户必须先明确选择
- * 「重新指定 / 在原位置新建 / 改用默认位置」之一, 否则关掉后只会继续看空书库。
+ * 「重新指定 / 在原位置新建 / 改用默认位置 / 从快照恢复」之一, 否则关掉后只会继续看空书库。
  */
 (function (global) {
   'use strict';
@@ -46,12 +46,15 @@
     const pick = el('button', 'btn-primary', '重新指定书库位置…');
     const recreate = el('button', 'btn-small', '在原位置新建空书库');
     const useDefault = el('button', 'btn-small', '改用默认位置');
-    buttons.push(pick, recreate, useDefault);
+    // S2 (2026-11-15): 第 4 个出口 —— 原书库没了, 但每天的数据库快照还在 (放在数据根外面)。
+    const restore = el('button', 'btn-small', '从快照恢复数据…');
+    buttons.push(pick, recreate, useDefault, restore);
 
     const statusLine = el('div', 'sync-status', '');
+    const snapshotBox = el('div', 'missing-library-snapshots');
     const actions = el('div', 'modal-actions missing-library-actions');
-    actions.append(pick, recreate, useDefault);
-    box.append(statusLine, actions);
+    actions.append(pick, recreate, useDefault, restore);
+    box.append(statusLine, snapshotBox, actions);
     ov.appendChild(box);
     document.body.appendChild(ov);
 
@@ -116,6 +119,15 @@
       () => global.AiduMiscService.dataRootForgetPointer(),
       '已改用默认位置, 请重启应用。'
     );
+
+    // 4) 从每日快照恢复: 展开快照列表 (恢复在重启后、开库之前生效, 落在本次会话使用的
+    //    临时位置的数据库上 —— 想恢复到原书库位置, 先用上面的「重新指定」再恢复)。
+    restore.onclick = () => {
+      if (!global.AiduSnapshotRestore) { fail('当前版本不支持快照恢复'); return; }
+      restore.disabled = true;
+      snapshotBox.textContent = '';
+      global.AiduSnapshotRestore.mount(snapshotBox);
+    };
 
     // 故意不绑定遮罩点击 / Esc: 这是阻断式提示, 只能通过三个按钮之一离开。
 

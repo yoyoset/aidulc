@@ -27,6 +27,7 @@ mod commands {
     pub mod models;
     pub mod online_config;
     pub mod reader;
+    pub mod snapshot;
     pub mod srs;
     pub mod sync_backend;
     pub mod timing;
@@ -390,6 +391,22 @@ fn main() {
             .map(|m| m.legacy_db.to_string_lossy().to_string())
             .unwrap_or_else(|| data_dir.join("data.db").to_string_lossy().to_string())
     });
+    // S2 (2026-11-15): 用户在界面选了「从快照恢复」→ 这里(开库之前)才真正替换文件。
+    // 失败只记日志、保留暂存文件, 不阻断启动 (宁可不恢复, 也不能让程序打不开)。
+    match infrastructure::snapshot::apply_pending_restore(
+        &services::config::user_data_dir(),
+        std::path::Path::new(&db_path),
+    ) {
+        Ok(Some(saved)) => infrastructure::log::info(
+            "snapshot",
+            &format!(
+                "已从快照恢复数据库; 恢复前的库另存在 {}",
+                saved.to_string_lossy()
+            ),
+        ),
+        Ok(None) => {}
+        Err(e) => infrastructure::log::error("snapshot", &format!("恢复快照失败(未替换): {e}")),
+    }
     let db = store::Db::open(&db_path).expect("打开 SQLite 失败");
     // P0-2 (2026-11-09): 每天第一次启动给数据库做一份快照, 放在默认数据目录下
     // (与当前数据根无关)。失败只记日志, 不阻断启动。
@@ -658,6 +675,8 @@ fn main() {
             commands::misc::components_health,
             commands::data_root::data_root_status,
             commands::data_root::data_root_forget_pointer,
+            commands::snapshot::snapshot_list,
+            commands::snapshot::snapshot_restore,
             commands::data_root::library_dir_get,
             commands::data_root::library_root_status,
             commands::data_root::library_out_consolidate,

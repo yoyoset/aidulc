@@ -2772,11 +2772,12 @@ console.log('== 16. P0-1 (2026-11-09): 找不到书库时阻断式提示, 不再
   const title = ov && queryAll(ov, '.modal-title')[0];
   const btns = ov ? queryAll(ov, 'button') : [];
   check('P0-1: 标题为「找不到书库」', title && title.textContent === '找不到书库', title && title.textContent);
-  check('P0-1: 有 3 个处理按钮', btns.length === 3, 'n=' + btns.length);
+  check('P0-1: 有 4 个处理按钮 (含 S2 从快照恢复)', btns.length === 4, 'n=' + btns.length);
   check('P0-1: 三个按钮是重新指定/原位置新建/改用默认',
     btns.some((b) => b.textContent === '重新指定书库位置…') &&
     btns.some((b) => b.textContent === '在原位置新建空书库') &&
-    btns.some((b) => b.textContent === '改用默认位置'),
+    btns.some((b) => b.textContent === '改用默认位置') &&
+    btns.some((b) => b.textContent === '从快照恢复数据…'),
     btns.map((b) => b.textContent).join('|'));
   const text = textOf(ov);
   check('P0-1: 写明失效的指针路径', text.includes('E:/aidulc_data'), text.slice(0, 120));
@@ -2953,6 +2954,45 @@ console.log('== 19c. 2026-11-10: 依赖组件行必须写出实际选中的模�
   check('依赖行显示兜底 LLM 是 Sakura', text.includes('未设推荐，兜底用') && text.includes('Sakura'), text.slice(0, 260));
   check('依赖行显示兜底 TTS 是中文版 v1.1-zh', text.includes('Kokoro v1.1-zh'), text.slice(0, 320));
   check('依赖行给「去设推荐」入口', queryAll(pane, 'button').some((b) => b.textContent === '去设推荐'));
+}
+
+console.log('== 18. S2 (2026-11-15): 从快照恢复 (丢库弹窗第 4 个出口 + 设置页列表) ==');
+{
+  load('components/snapshot_restore.js');
+  const restoreCalls = [];
+  globalThis.AiduMiscService.snapshotList = async () => ({ ok: true, data: { pending: false, snapshots: [
+    { date: '20261109', size: 2097152, vocab_count: 1424 },
+    { date: '20261108', size: 1048576, vocab_count: null },
+  ] } });
+  globalThis.AiduMiscService.snapshotRestore = async (d) => { restoreCalls.push(d); return { ok: true, data: { staged: true } }; };
+
+  // 弹窗: 点「从快照恢复数据…」后展开列表
+  globalThis.AiduMissingLibraryModal.show({ missing: true, pointer: 'E:/x', fallback: 'C:/y' }, () => {});
+  const ov = (document.body._children || []).slice(-1)[0];
+  const openBtn = queryAll(ov, 'button').find((b) => b.textContent === '从快照恢复数据…');
+  openBtn && openBtn.onclick();
+  await new Promise((r) => setTimeout(r, 60));
+  const t = textOf(ov);
+  check('S2: 弹窗展开后列出快照日期与生词数', t.includes('2026-11-09') && t.includes('1424 个生词'), t.slice(0, 300));
+  check('S2: 生词数读不出来时写「生词数未知」', t.includes('生词数未知'), t.slice(0, 300));
+  check('S2: 列表按钮「恢复到这一份」有 2 个', queryAll(ov, 'button').filter((b) => b.textContent === '恢复到这一份').length === 2);
+
+  // 点恢复 → 二次确认 → 确认后才调用 snapshotRestore(带日期), 且只"暂存"
+  const first = queryAll(ov, 'button').find((b) => b.textContent === '恢复到这一份');
+  confirmCaptured = null;
+  first.onclick();
+  check('S2: 点恢复先弹确认, 此时还没调用后端', restoreCalls.length === 0 && confirmCaptured && /恢复/.test(confirmCaptured.title), confirmCaptured && confirmCaptured.title);
+  check('S2: 确认文案写明会另存当前库、需重启', confirmCaptured && /另存/.test(confirmCaptured.message) && /重新打开/.test(confirmCaptured.message));
+  await confirmCaptured.onConfirm();
+  check('S2: 确认后用快照日期调用 snapshotRestore', restoreCalls.length === 1 && restoreCalls[0] === '20261109', JSON.stringify(restoreCalls));
+  check('S2: 暂存后提示重启生效', textOf(ov).includes('请关闭并重新打开应用生效'));
+
+  // 没有快照时给人话
+  globalThis.AiduMiscService.snapshotList = async () => ({ ok: true, data: { pending: false, snapshots: [] } });
+  const empty = makeElement('div');
+  globalThis.AiduSnapshotRestore.mount(empty);
+  await new Promise((r) => setTimeout(r, 40));
+  check('S2: 无快照时说明会自动生成', textOf(empty).includes('还没有快照'));
 }
 
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);

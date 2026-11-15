@@ -562,6 +562,16 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "P0-1: 「改用默认位置」—— 删除数据根指针, 下次启动回默认数据目录",
     },
     CommandInfo {
+        path: "commands::snapshot::snapshot_list",
+        domain: "数据根",
+        desc: "S2: 列出可恢复的每日数据库快照 (日期/大小/生词数) 与是否有待生效的恢复",
+    },
+    CommandInfo {
+        path: "commands::snapshot::snapshot_restore",
+        domain: "数据根",
+        desc: "S2: 暂存「从快照恢复」, 重启后在开库之前替换 (恢复前的库另存为 data-before-restore-*)",
+    },
+    CommandInfo {
         path: "commands::data_root::library_dir_get",
         domain: "设置",
         desc: "书库位置(数据根)当前生效的绝对路径",

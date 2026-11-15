@@ -70,7 +70,13 @@
             wizardRow.appendChild(rerunWizard);
             wizardSec.appendChild(wizardRow);
             pane.appendChild(wizardSec);
-      
+
+            // S2 (2026-11-15): 数据库快照恢复 (组件自带说明文案, 这里只给个区块标题)
+            const snapSec = el('div', 'settings-section');
+            snapSec.appendChild(el('h2', null, '数据快照与恢复'));
+            if (window.AiduSnapshotRestore) AiduSnapshotRestore.mount(snapSec);
+            pane.appendChild(snapSec);
+
             // P1.2: 书库位置(用户明确要求的产品能力, 见 docs/ROADMAP.md P1)
             // UX5 #4 (2026-08-13): 书库位置 = 数据根 —— config/db/jobs_out/models/backups/logs
             // 全部在根下; 当前生效位置存在且可写 → 绿色徽章, 失效 → 红/灰 + 原因。

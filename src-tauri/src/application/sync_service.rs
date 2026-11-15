@@ -406,17 +406,39 @@ pub fn sync_endpoint(
     match pull_result {
         Ok(pr) => {
             // 远端更新的词条 → 本地 (复用 domain/sync.rs 新者胜合并)
-            let _ = merge_remote_into_local(db, user_id, &pr.changed);
+            let merged = merge_remote_into_local(db, user_id, &pr.changed);
+            if merged.failed > 0 {
+                return Ok(pull_failed_status(
+                    db,
+                    worker_url,
+                    user_id,
+                    endpoint_key,
+                    format!(
+                        "拉取到的 {} 条远端词条写入本地失败, 未推进拉取进度, 下次同步会重试",
+                        merged.failed
+                    ),
+                    wrote_this_push,
+                ));
+            }
             // 3. 更新 sync_state (成功)
             let now = crate::store::now_ms_for_store();
-            let _ = SyncStateRepo::new(db).upsert(&SyncState {
+            if let Err(e) = SyncStateRepo::new(db).upsert(&SyncState {
                 user_id: user_id.to_string(),
                 last_push_at: now,
                 last_pull_rev: pr.rev,
                 enabled: true,
                 updated_at: now,
                 endpoint_key: current_key,
-            });
+            }) {
+                return Ok(pull_failed_status(
+                    db,
+                    worker_url,
+                    user_id,
+                    endpoint_key,
+                    format!("同步状态保存失败, 下次会重复同步这一批: {e}"),
+                    wrote_this_push,
+                ));
+            }
             record_sync(user_id, endpoint_key, Ok(()));
             let last = last_sync_for(&format!("{user_id}|{endpoint_key}"));
             Ok(status_for(
@@ -482,8 +504,10 @@ fn remote_to_entry(r: &serde_json::Value) -> Option<crate::domain::vocab::VocabE
 /// 此前按 `r.updated_at == m.updated_at` 找合并结果, 而"本地新 / 同时间戳"时合并结果
 /// 就是本地 envelope —— 照样命中并把远端最小集 (snake_case) 写回来, 等于每次拉取都拿
 /// 解析成 0 的 SRS 状态覆盖本地 (updated_at 打 0、interval/ease/next_review 清零)。
-/// 返回写回条数 (测试断言用)。
-fn merge_remote_into_local(db: &Db, user_id: &str, changed: &[serde_json::Value]) -> usize {
+/// S3 (2026-11-15): 返回 `MergeOutcome` —— 此前只返回写回条数, 单条写库失败被
+/// `.is_ok()` 吞掉, 调用方照常把 last_pull_rev 推进到服务端最新值, 这些远端变更从此
+/// 不会再被拉到, 设置页却显示"已同步"。现在失败条数单独返回, 由调用方决定不推进进度。
+fn merge_remote_into_local(db: &Db, user_id: &str, changed: &[serde_json::Value]) -> MergeOutcome {
     use crate::domain::sync::{merge_envelopes, Envelope};
     let repo = crate::store::vocab_repo::VocabRepo::new(db);
     let mut local_envs: Vec<Envelope> = Vec::new();
@@ -519,6 +543,7 @@ fn merge_remote_into_local(db: &Db, user_id: &str, changed: &[serde_json::Value]
     }
     let merged = merge_envelopes(&local_envs, &remote_envs);
     let mut wrote = 0usize;
+    let mut failed = 0usize;
     for m in &merged {
         // 远端严格更新 (本地无该词, 或远端 updated_at 更大) → 写回。
         // 相等时间戳 = 本地就是源头 → 不写 (此前这里会拿远端最小集覆盖本地, 见函数注释)。
@@ -534,14 +559,62 @@ fn merge_remote_into_local(db: &Db, user_id: &str, changed: &[serde_json::Value]
                         .get(&m.key)
                         .cloned()
                         .unwrap_or_else(|| "default".to_string());
-                    if repo.upsert_sync(entry, user_id, &target_profile).is_ok() {
-                        wrote += 1;
+                    match repo.upsert_sync(entry, user_id, &target_profile) {
+                        Ok(_) => wrote += 1,
+                        Err(e) => {
+                            failed += 1;
+                            crate::infrastructure::log::error(
+                                "sync",
+                                &format!("远端词条「{}」写入本地失败: {e}", m.key),
+                            );
+                        }
                     }
+                } else {
+                    // 远端条目本身解析不了 (字段缺失/格式不对): 重试也不会好, 跳过并记日志;
+                    // 不能算 failed, 否则一条坏数据会让拉取进度永远卡住。
+                    crate::infrastructure::log::warn(
+                        "sync",
+                        &format!("远端词条「{}」格式无法解析, 已跳过", m.key),
+                    );
                 }
             }
         }
     }
-    wrote
+    MergeOutcome { wrote, failed }
+}
+
+/// 一次拉取合并的结果。`failed` = 写本地库失败的条数 (调用方据此决定是否推进拉取进度)。
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+struct MergeOutcome {
+    wrote: usize,
+    failed: usize,
+}
+
+/// 拉取阶段出错 (合并写库失败 / 同步状态存不下) 时的统一出口: 不推进进度,
+/// 把原因记进同步状态让设置页显示"同步失败", 下次同步会从原进度重拉。
+fn pull_failed_status(
+    db: &Db,
+    worker_url: &str,
+    user_id: &str,
+    endpoint_key: &str,
+    msg: String,
+    wrote_this_push: usize,
+) -> SyncStatus {
+    crate::infrastructure::log::error("sync", &msg);
+    record_sync(user_id, endpoint_key, Err(msg));
+    let last = last_sync_for(&format!("{user_id}|{endpoint_key}"));
+    status_for(
+        true,
+        worker_url,
+        user_id,
+        last,
+        pending_count(db, user_id, endpoint_key),
+        SyncOutcome {
+            last_wrote: wrote_this_push,
+            last_pulled: 0,
+            deck_exists: false,
+        },
+    )
 }
 
 /// 仅拉取合并 (前端"拉取"按钮; 正常流程用 sync_now 的先推后拉)
@@ -572,7 +645,20 @@ pub fn sync_pull(
         state.as_ref().map(|s| s.last_pull_rev).unwrap_or(0)
     };
     let pr = sync_v1_client::pull(worker_url, token, last_pull_rev)?;
-    let _ = merge_remote_into_local(db, user_id, &pr.changed);
+    let merged = merge_remote_into_local(db, user_id, &pr.changed);
+    if merged.failed > 0 {
+        return Ok(pull_failed_status(
+            db,
+            worker_url,
+            user_id,
+            endpoint_key,
+            format!(
+                "拉取到的 {} 条远端词条写入本地失败, 未推进拉取进度, 下次同步会重试",
+                merged.failed
+            ),
+            0,
+        ));
+    }
     let now = crate::store::now_ms_for_store();
     // UX A1: 换服务端后旧 last_push_at 作废 → 0 (下次 sync_now 全量重推)。
     // 全新本地 (state 不存在) 是首次拉取, 拉回的词本就在这个服务端 → 不算待推 (用 now)。
@@ -581,14 +667,23 @@ pub fn sync_pull(
     } else {
         state.as_ref().map(|s| s.last_push_at).unwrap_or(now)
     };
-    let _ = SyncStateRepo::new(db).upsert(&SyncState {
+    if let Err(e) = SyncStateRepo::new(db).upsert(&SyncState {
         user_id: user_id.to_string(),
         last_push_at,
         last_pull_rev: pr.rev,
         enabled: true,
         updated_at: now,
         endpoint_key: current_key,
-    });
+    }) {
+        return Ok(pull_failed_status(
+            db,
+            worker_url,
+            user_id,
+            endpoint_key,
+            format!("同步状态保存失败, 下次会重复拉取这一批: {e}"),
+            0,
+        ));
+    }
     record_sync(user_id, endpoint_key, Ok(()));
     let last = last_sync_for(&format!("{user_id}|{endpoint_key}"));
     Ok(status_for(
@@ -1299,7 +1394,7 @@ mod tests {
         remote.next_review = Some(t0 + 3000);
         let changed = vec![to_minimal_payload(&remote)];
 
-        let wrote = merge_remote_into_local(&db, "me", &changed);
+        let wrote = merge_remote_into_local(&db, "me", &changed).wrote;
         assert_eq!(wrote, 1, "远端新 → 应写回 1 条");
 
         // 关键断言: 不产生 default 重复行
@@ -1350,7 +1445,7 @@ mod tests {
         // 远端是最小集, 时间戳与本地相同 (就是本地推上去的) → 不得写回
         let remote = entry("same", t0);
         let changed = vec![to_minimal_payload(&remote)];
-        let wrote = merge_remote_into_local(&db, "me", &changed);
+        let wrote = merge_remote_into_local(&db, "me", &changed).wrote;
         assert_eq!(wrote, 0, "相等时间戳不得写回 (本地是源头)");
 
         let got = repo.get("me", "default", "same").expect("本地行应在");
@@ -1371,7 +1466,7 @@ mod tests {
         let repo = crate::store::vocab_repo::VocabRepo::new(&db);
         let remote = entry("brandnew", crate::store::now_ms_for_store());
         let changed = vec![to_minimal_payload(&remote)];
-        let wrote = merge_remote_into_local(&db, "me", &changed);
+        let wrote = merge_remote_into_local(&db, "me", &changed).wrote;
         assert_eq!(wrote, 1);
         assert!(
             repo.get("me", "default", "brandnew").is_some(),
@@ -1593,5 +1688,79 @@ mod tests {
         );
         // 关键: push 请求根本没发出去
         assert_eq!(*pushed.lock().unwrap(), 0, "超配额应在发出 push 前拒绝");
+    }
+
+    /// 让往 vocab 表 INSERT 必然失败的 SQLite 触发器 (制造"写本地库失败")。
+    const FAIL_VOCAB_INSERT: &str = "CREATE TRIGGER fail_vocab_insert BEFORE INSERT ON vocab \
+         BEGIN SELECT RAISE(ABORT, 'boom'); END;";
+
+    /// S3 (2026-11-15) 回归: 拉回的远端词条写本地库失败时, 不能推进 last_pull_rev,
+    /// 也不能显示"已同步" —— 此前合并结果被 `let _ =` 丢弃 (且单条写库失败被 `.is_ok()`
+    /// 吞掉), 进度照常推进, 这批变更永远不会再被拉到。
+    #[test]
+    fn pull_merge_failure_does_not_advance_rev() {
+        let (url, _order) = start_mock_worker();
+        let ep = endpoint_key_for(&url, "me");
+
+        // 设备 A: 推一个词到 mock 服务端
+        let db_a = temp_db();
+        crate::store::vocab_repo::VocabRepo::new(&db_a)
+            .upsert_content(entry("bank", 100), "me", "default")
+            .unwrap();
+        let st = sync_endpoint(&db_a, &url, "tok", "me", "me", &ep).unwrap();
+        assert_eq!(st.status, "synced", "前置: A 推送应成功 {st:?}");
+
+        // 设备 B: 本地空库, 但往 vocab 插入必失败
+        let db_b = temp_db();
+        db_b.conn
+            .lock()
+            .unwrap()
+            .execute_batch(FAIL_VOCAB_INSERT)
+            .unwrap();
+        let st = sync_pull(&db_b, &url, "tok", "me", "me", &ep).unwrap();
+        assert_eq!(st.status, "failed", "合并写库失败必须显示失败: {st:?}");
+        assert!(
+            st.last_error
+                .as_deref()
+                .unwrap_or("")
+                .contains("写入本地失败"),
+            "{st:?}"
+        );
+        let state = crate::store::sync_state_repo::SyncStateRepo::new(&db_b).get("me", &ep);
+        assert!(
+            state.map(|s| s.last_pull_rev).unwrap_or(0) == 0,
+            "失败时不得推进 last_pull_rev"
+        );
+
+        // 去掉故障后再拉: 同一批变更仍能拉到 (进度没被推过头)
+        db_b.conn
+            .lock()
+            .unwrap()
+            .execute_batch("DROP TRIGGER fail_vocab_insert")
+            .unwrap();
+        let st = sync_pull(&db_b, &url, "tok", "me", "me", &ep).unwrap();
+        assert_ne!(st.status, "failed", "{st:?}");
+        assert!(
+            crate::store::vocab_repo::VocabRepo::new(&db_b)
+                .get_any_profile("me", "bank")
+                .is_some(),
+            "故障恢复后应能把 bank 拉回本地"
+        );
+    }
+
+    #[test]
+    fn merge_reports_failed_count_and_skips_unparsable() {
+        let db = temp_db();
+        db.conn
+            .lock()
+            .unwrap()
+            .execute_batch(FAIL_VOCAB_INSERT)
+            .unwrap();
+        let good = to_minimal_payload(&entry("bank", 100));
+        // 解析不了的条目不算 failed, 避免一条坏数据让拉取进度永远卡住
+        let junk = serde_json::json!({ "lemma": "zzz", "updated_at": "not-a-number" });
+        let out = merge_remote_into_local(&db, "me", &[good, junk]);
+        assert_eq!(out.wrote, 0);
+        assert_eq!(out.failed, 1, "只有真正写库失败的才计入 failed: {out:?}");
     }
 }

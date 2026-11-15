@@ -174,7 +174,7 @@
         },
         "notices": {
           "type": "array",
-          "description": "正常事件(非失败): realign=checkpoint 位置冲突后强制重跑; untranslatable=原文无可翻译内容已跳过; health=parse 阶段 S4/S5 体检异常(未达阻断阈值, 但必须让用户看得到)。绝不能并进失败计数。",
+          "description": "正常事件(非失败): realign=checkpoint 位置冲突后强制重跑; untranslatable=原文无可翻译内容已跳过; health=parse 阶段 S4/S5 体检异常(未达阻断阈值, 但必须让用户看得到); align_interpolated=词级时间轴有词靠两锚点间插值补齐(覆盖率 100% 但时间是近似的)。绝不能并进失败计数。新增 kind 必须同步加进下方 enum, 否则 pack 阶段整本书校验失败(prep/tests/test_notice_kinds_contract.py 守这条)。",
           "items": {
             "type": "object",
             "required": [
@@ -193,7 +193,8 @@
                 "enum": [
                   "realign",
                   "untranslatable",
-                  "health"
+                  "health",
+                  "align_interpolated"
                 ]
               },
               "reason": {

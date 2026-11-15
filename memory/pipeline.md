@@ -342,6 +342,11 @@ ch002/016/017/018/025  1-2 segs 覆盖 0  "Bad." / "Yes" / "Now."
   tts/stage 记成 `quality.add_notice(..., "align_interpolated", ...)` 进 `noticeCounts`。
   插值让覆盖率恒为 100%, **不单独记等于把对齐质量下降藏起来**, 以后回归了没人发现。
   用 notice 而不是 failure: 它不是错误(高亮仍单调、不冻结), 只是精度提示。
+- **坑(2026-11-14 实测)**: 加这个 kind 时漏改 `contracts/bookpack.schema.json` 的
+  `notices[].kind` enum。验证数据里插值恰好 0 次, 测试全绿; 真书第一次触发插值, TTS
+  2327 句全跑完后在 pack 阶段整本 `书包校验失败`(run.log 只有人话摘要, 具体字段在
+  `quality_report.json` 的 `error` 里)。已补 enum + `prep/tests/test_notice_kinds_contract.py`
+  静态扫描所有 `add_notice` 的 kind 对契约校验。**新增 notice kind = 改契约**。
 
 ### 真实数据验证 (拿 checkpoint 里的真 segment 列表 + 按 Kokoro 习惯合成的 token 流)
 ```

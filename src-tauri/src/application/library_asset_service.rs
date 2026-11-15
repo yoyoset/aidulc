@@ -1,5 +1,6 @@
 //! Atomic ownership operations for source/edition assets.
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store;
 use rusqlite::params;
 use std::collections::HashSet;
@@ -9,7 +10,7 @@ use std::path::Path;
 /// This is deliberately conservative for jobs: a queued job with a valid source path
 /// remains visible even when its output directory has not been created yet.
 pub fn cleanup_orphans(db: &store::Db) -> Result<(), String> {
-    let conn = db.conn.lock().unwrap();
+    let conn = db.conn.lock_or_recover();
     conn.execute_batch("BEGIN IMMEDIATE;")
         .map_err(|e| e.to_string())?;
     let result = (|| {
@@ -68,7 +69,7 @@ pub fn cleanup_orphans(db: &store::Db) -> Result<(), String> {
 /// 引用的目录。成功产书的任务其目录 = edition.pack_dir, 被引用 → 保留。跑在启动早期
 /// (队列泵起之前), 不存在"目录正被使用"的竞态。
 pub fn cleanup_orphan_job_dirs(db: &store::Db, out_dir: &Path) -> Result<(), String> {
-    let conn = db.conn.lock().unwrap();
+    let conn = db.conn.lock_or_recover();
     let mut referenced: HashSet<String> = HashSet::new();
     let mut stmt = conn
         .prepare("SELECT output_dir FROM jobs")
@@ -128,7 +129,7 @@ fn normalize_dir(s: &str) -> String {
 }
 
 pub fn delete_edition(db: &store::Db, edition_id: &str) -> Result<Vec<String>, String> {
-    let conn = db.conn.lock().unwrap();
+    let conn = db.conn.lock_or_recover();
     conn.execute_batch("BEGIN IMMEDIATE;")
         .map_err(|e| e.to_string())?;
     let result = (|| {
@@ -197,7 +198,7 @@ pub fn delete_source(db: &store::Db, source_id: &str) -> Result<Vec<String>, Str
     for id in ids {
         packs.extend(delete_edition(db, &id)?);
     }
-    let conn = db.conn.lock().unwrap();
+    let conn = db.conn.lock_or_recover();
     // BOOK_WORKFLOW §2.3: job 按 source_id 级联清理 (v19 起 job 显式关联 source);
     // 兼容历史行(book_path 关联)也一并清, 不靠单一列。
     if !source_path.is_empty() {
@@ -231,7 +232,7 @@ pub fn delete_source(db: &store::Db, source_id: &str) -> Result<Vec<String>, Str
 /// 必须确认该批次没有活跃 job, 否则会删掉正在跑的任务的账。启动早期调用 (与
 /// cleanup_orphan_job_dirs 同阶段, 队列泵起之前)。
 pub fn cleanup_orphan_batches(db: &store::Db) -> Result<usize, String> {
-    let conn = db.conn.lock().unwrap();
+    let conn = db.conn.lock_or_recover();
     let deleted = conn
         .execute(
             "DELETE FROM batches WHERE NOT EXISTS (

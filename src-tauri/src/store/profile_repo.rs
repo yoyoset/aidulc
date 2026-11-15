@@ -1,5 +1,6 @@
 //! store/profile_repo.rs —— profile 唯一写者 (3.4 所有权表)
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -54,7 +55,7 @@ impl<'a> ProfileRepo<'a> {
     }
 
     pub fn upsert(&self, p: &Profile) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO profiles (id, name, explain_strategy, voice, speed, highlight_granularity, explain_max_chars, explain_min_sentence_chars)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -80,7 +81,7 @@ impl<'a> ProfileRepo<'a> {
     }
 
     pub fn get(&self, id: &str) -> Option<Profile> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.query_row(
             "SELECT id, name, explain_strategy, voice, speed, highlight_granularity, explain_max_chars, explain_min_sentence_chars FROM profiles WHERE id = ?1",
             [id],
@@ -101,7 +102,7 @@ impl<'a> ProfileRepo<'a> {
     }
 
     pub fn list(&self) -> Vec<Profile> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn.prepare("SELECT id, name, explain_strategy, voice, speed, highlight_granularity, explain_max_chars, explain_min_sentence_chars FROM profiles ORDER BY id").unwrap();
         stmt.query_map([], |r| {
             Ok(Profile {
@@ -123,7 +124,7 @@ impl<'a> ProfileRepo<'a> {
     /// 删除档案 (M6). 调用方已 guard 内建档案; 引用该档案的旧书保留 id 字符串,
     /// 书卡对找不到的档案显示"未知档案"而非崩溃。
     pub fn delete(&self, id: &str) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute("DELETE FROM profiles WHERE id = ?1", [id])
             .map_err(|e| format!("删除档案失败: {e}"))?;
         Ok(())

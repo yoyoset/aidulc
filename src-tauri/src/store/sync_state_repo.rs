@@ -9,6 +9,7 @@
 //! UX5 #3 (M3, 2026-08-13): 主键从 user_id 改为复合 (user_id, endpoint_key) ——
 //! 一个主体可同时启用多个后端, 每格独立进度; enabled 列标记该格是否参与"立即同步"。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -35,7 +36,7 @@ impl<'a> SyncStateRepo<'a> {
     }
 
     pub fn get(&self, user_id: &str, endpoint_key: &str) -> Option<SyncState> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let s = conn
             .query_row(
                 "SELECT user_id, endpoint_key, last_push_at, last_pull_rev, enabled, updated_at
@@ -61,7 +62,7 @@ impl<'a> SyncStateRepo<'a> {
     /// 目前仅测试引用; 保留供前端"按后端看进度"扩展。
     #[allow(dead_code)]
     pub fn get_for_user(&self, user_id: &str) -> Vec<SyncState> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare(
                 "SELECT user_id, endpoint_key, last_push_at, last_pull_rev, enabled, updated_at
@@ -89,7 +90,7 @@ impl<'a> SyncStateRepo<'a> {
 
     /// M3: 只读该 (user, endpoint) 的 enabled 标记。返回 (有行, enabled)。
     pub fn enabled_flag(&self, user_id: &str, endpoint_key: &str) -> (bool, bool) {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let row: Option<(i64,)> = conn
             .query_row(
                 "SELECT enabled FROM sync_state WHERE user_id = ?1 AND endpoint_key = ?2",
@@ -111,7 +112,7 @@ impl<'a> SyncStateRepo<'a> {
         endpoint_key: &str,
         enabled: bool,
     ) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO sync_state (user_id, endpoint_key, last_push_at, last_pull_rev, enabled, updated_at)
              VALUES (?1, ?2, 0, 0, ?3, ?4)
@@ -126,7 +127,7 @@ impl<'a> SyncStateRepo<'a> {
     }
 
     pub fn upsert(&self, s: &SyncState) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO sync_state (user_id, endpoint_key, last_push_at, last_pull_rev, enabled, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -151,7 +152,7 @@ impl<'a> SyncStateRepo<'a> {
 
     /// 删除某 user 的全部同步行 (F4 强制全量重推 / 断开同步用)。
     pub fn delete_for_user(&self, user_id: &str) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute("DELETE FROM sync_state WHERE user_id = ?1", [user_id])
             .map_err(|e| format!("清同步状态失败: {e}"))?;
         drop(conn);

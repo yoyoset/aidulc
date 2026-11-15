@@ -12,6 +12,7 @@
 //! 相关字段——那些每次结合当前句子现查现生成, 不适合固化进一份全局共享表
 //! (不然会出现"用别的书语境生成的例句"这种文不对题的情况)。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::{params, Connection};
 
@@ -47,7 +48,7 @@ impl<'a> DictBaseRepo<'a> {
     }
 
     pub fn get(&self, word: &str) -> Option<DictBaseEntry> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         get_on_conn(&conn, word)
     }
 
@@ -55,7 +56,7 @@ impl<'a> DictBaseRepo<'a> {
     /// (收紧"只有真生成成功才落库"之前, 失败原因经 upsert_if_absent 固化进了这张
     /// first-write-wins 的共享基底, 几乎不会被后续成功结果覆盖)。
     pub fn cleanup_failed_entries(&self) -> usize {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "DELETE FROM dict_base WHERE meanings LIKE '%词义查询失败%' OR meanings LIKE '%词义待补充%'",
             [],
@@ -74,7 +75,7 @@ impl<'a> DictBaseRepo<'a> {
         meanings: &[String],
         phrases: &[String],
     ) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT OR IGNORE INTO dict_base (word, pos, phonetic, meanings, phrases, source, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, 'llm', ?6)",
@@ -106,7 +107,7 @@ impl<'a> DictBaseRepo<'a> {
         path: &str,
         label: Option<&str>,
     ) -> Result<ImportStats, String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let file_name = std::path::Path::new(path)
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -130,7 +131,7 @@ impl<'a> DictBaseRepo<'a> {
 
     /// 基底统计(按来源分), 给设置页展示"当前基底有多少词、种子/自己积累各多少"。
     pub fn stats(&self) -> Result<Vec<(String, i64)>, String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare("SELECT source, COUNT(*) FROM dict_base GROUP BY source ORDER BY source")
             .map_err(|e| format!("查基底统计失败: {e}"))?;
@@ -143,7 +144,7 @@ impl<'a> DictBaseRepo<'a> {
 
     /// 列出所有自定义词典源, 设置页渲染"我的词典源"列表用。
     pub fn list_sources(&self) -> Result<Vec<DictBaseSource>, String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         crate::store::dict_base_sources_repo::list(&conn)
     }
 
@@ -151,7 +152,7 @@ impl<'a> DictBaseRepo<'a> {
     /// 写), 再删源记录本身——两步在同一把已持有的 conn 锁内顺序执行, 不需要再包
     /// 一层事务。返回删除的词条数。
     pub fn delete_source(&self, source_id: &str) -> Result<usize, String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let deleted = conn
             .execute(
                 "DELETE FROM dict_base WHERE source_id = ?1",

@@ -1,5 +1,6 @@
 //! store/jobs_repo.rs —— 任务表唯一写者 (P4 + G2: batch_id / 多语言预留)
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -49,7 +50,7 @@ impl<'a> JobsRepo<'a> {
     }
 
     pub fn upsert(&self, j: &Job) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO jobs (id, edition_id, source_id, book_path, profile_id, output_dir, status, stage,
                                current, total, failed_count, batch_id, source_language, target_language,
@@ -100,7 +101,7 @@ impl<'a> JobsRepo<'a> {
                                 error, progress, created_at, updated_at";
 
     pub fn get(&self, id: &str) -> Option<Job> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.query_row(
             &format!("SELECT {} FROM jobs WHERE id = ?1", Self::COLS),
             [id],
@@ -110,7 +111,7 @@ impl<'a> JobsRepo<'a> {
     }
 
     pub fn list(&self) -> Vec<Job> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare(&format!(
                 "SELECT {} FROM jobs ORDER BY created_at DESC LIMIT ?1",
@@ -141,7 +142,7 @@ impl<'a> JobsRepo<'a> {
     /// (空测试), 改成悬空 id 才真的红。`NOT EXISTS` 对 NULL 安全, 且 edition_id 为 NULL
     /// 时相关子查询无行 → 同样判为"无 edition 引用", 语义与原来一致。
     pub fn cleanup_old(&self, keep_days: i64) -> Result<usize, String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let cutoff = crate::store::now_ms_for_store() - keep_days * 86_400_000;
         conn.execute(
             "DELETE FROM jobs
@@ -153,7 +154,7 @@ impl<'a> JobsRepo<'a> {
     }
 
     pub fn list_by_batch(&self, batch_id: &str) -> Vec<Job> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare(&format!(
                 "SELECT {} FROM jobs WHERE batch_id = ?1 ORDER BY created_at",
@@ -167,14 +168,14 @@ impl<'a> JobsRepo<'a> {
     }
 
     pub fn remove(&self, id: &str) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute("DELETE FROM jobs WHERE id = ?1", [id])
             .map_err(|e| format!("删任务失败: {e}"))?;
         Ok(())
     }
 
     pub fn attach_edition(&self, job_id: &str, edition_id: &str) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "UPDATE jobs SET edition_id=?1, updated_at=?2 WHERE id=?3",
             params![edition_id, crate::store::now_ms_for_store(), job_id],
@@ -196,7 +197,7 @@ impl<'a> JobsRepo<'a> {
     /// 用户在处理台点"继续"才真正重启。保留 stage/current/total/progress (不重置),
     /// 暂停行能显示"⏸ 讲解 1234/21972", 用户一眼知道断在哪。
     pub fn reset_stale(&self) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "UPDATE jobs SET status = 'paused', error = NULL,
                              updated_at = strftime('%s','now')*1000

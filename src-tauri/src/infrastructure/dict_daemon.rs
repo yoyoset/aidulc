@@ -21,6 +21,7 @@
 //! 同一模式, 不新造一套): 超时 → kill 守护 → 从注册表移除 → 返回明确错误。查词路径
 //! 永远在超时内返回, 不会再永久挂起主线程。
 
+use crate::infrastructure::lock::MutexExt;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -115,7 +116,7 @@ fn spawn(prep_path: &std::path::Path, model: &str) -> Result<DictDaemon, String>
                 match reader.read_line(&mut line) {
                     Ok(0) => break,
                     Ok(_) => {
-                        let mut b = buf.lock().unwrap();
+                        let mut b = buf.lock_or_recover();
                         b.push_back(line.trim_end().to_string());
                         if b.len() > 8 {
                             b.pop_front();
@@ -162,7 +163,7 @@ fn spawn(prep_path: &std::path::Path, model: &str) -> Result<DictDaemon, String>
     let wgen = d.gen;
     std::thread::spawn(move || {
         std::thread::sleep(IDLE_TIMEOUT);
-        let mut reg = registry().lock().unwrap();
+        let mut reg = registry().lock_or_recover();
         let still_same = reg.as_ref().map(|x| x.gen == wgen).unwrap_or(false);
         let still_idle = reg
             .as_ref()
@@ -180,7 +181,7 @@ fn spawn(prep_path: &std::path::Path, model: &str) -> Result<DictDaemon, String>
 
 /// 进程提前退出时, 把 stderr 尾部的报错拼进错误文案 (人话: 用户能看到侧车为什么没起来)。
 fn stderr_tail_string(d: &DictDaemon) -> String {
-    let lines: Vec<String> = d.stderr_tail.lock().unwrap().iter().cloned().collect();
+    let lines: Vec<String> = d.stderr_tail.lock_or_recover().iter().cloned().collect();
     if lines.is_empty() {
         String::new()
     } else {

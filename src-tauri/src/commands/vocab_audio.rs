@@ -3,6 +3,7 @@
 //! 实现在 application/vocab_audio_task.rs(含"为什么不进 jobs 队列"的说明)。
 //! 这里只是薄壳: 取 State、算模型路径、转发。
 
+use crate::infrastructure::lock::MutexExt;
 use std::sync::Arc;
 use tauri::State;
 
@@ -35,12 +36,12 @@ pub fn vocab_audio_start(
 pub fn vocab_audio_status(
     vstate: State<'_, Arc<task::VocabAudioState>>,
 ) -> Result<task::VocabAudioProgress, String> {
-    Ok(vstate.progress.lock().unwrap().clone())
+    Ok(vstate.progress.lock_or_recover().clone())
 }
 
 /// 取消。只置标志, 工作线程处理完当前这个词就收尾(不硬杀, 避免半个 wav 落盘)。
 #[tauri::command]
 pub fn vocab_audio_cancel(vstate: State<'_, Arc<task::VocabAudioState>>) -> Result<(), String> {
-    *vstate.cancel.lock().unwrap() = true;
+    *vstate.cancel.lock_or_recover() = true;
     Ok(())
 }

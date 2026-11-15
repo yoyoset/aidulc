@@ -13,6 +13,7 @@
 //! - pending 由 sync_state.last_push_at 计算: updated_at > last_push_at 的词条数
 //! - 协议 v1 (sync_v1_client), 词条最小集 (词/音标/释义/来源单句)
 
+use crate::infrastructure::lock::MutexExt;
 use crate::infrastructure::sync_v1_client;
 use crate::store::sync_state_repo::{SyncState, SyncStateRepo};
 use crate::store::Db;
@@ -75,7 +76,7 @@ fn pending_count(db: &Db, user_id: &str, endpoint_key: &str) -> usize {
         .get(user_id, endpoint_key)
         .map(|s| s.last_push_at)
         .unwrap_or(0);
-    let conn = db.conn.lock().unwrap();
+    let conn = db.conn.lock_or_recover();
     let n: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM vocab WHERE user_id = ?1 AND updated_at > ?2",
@@ -143,19 +144,18 @@ static LAST_SYNC: OnceLock<Mutex<std::collections::HashMap<String, (i64, Result<
 fn last_sync_for(user_id: &str) -> Option<(i64, Result<(), String>)> {
     LAST_SYNC
         .get()
-        .and_then(|m| m.lock().unwrap().get(user_id).cloned())
+        .and_then(|m| m.lock_or_recover().get(user_id).cloned())
 }
 
 pub fn reset_last_sync(user_id: &str) {
     let m = LAST_SYNC.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
     let keys: Vec<String> = m
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .keys()
         .filter(|k| k.starts_with(&format!("{user_id}|")))
         .cloned()
         .collect();
-    let mut guard = m.lock().unwrap();
+    let mut guard = m.lock_or_recover();
     for k in keys {
         guard.remove(&k);
     }
@@ -173,8 +173,7 @@ pub fn force_full_reset(db: &Db, user_id: &str) -> Result<(), String> {
 fn record_sync(user_id: &str, endpoint_key: &str, result: Result<(), String>) {
     let now = crate::store::now_ms_for_store();
     let m = LAST_SYNC.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-    m.lock()
-        .unwrap()
+    m.lock_or_recover()
         .insert(format!("{user_id}|{endpoint_key}"), (now, result));
 }
 

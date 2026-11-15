@@ -1,6 +1,7 @@
 //! store/model_repo.rs —— 模型注册表唯一写者 (H1)
 //! 语言/模型跟随书; 注册表是"已安装模型"清单, active 标记 = 推荐默认。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -37,7 +38,7 @@ impl<'a> ModelRepo<'a> {
     }
 
     pub fn upsert(&self, m: &ModelEntry) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO model_registry (id, family, language, model_id, version, variant,
                                          path, source_type, source_ref, commit_sha, sha256,
@@ -75,7 +76,7 @@ impl<'a> ModelRepo<'a> {
     }
 
     pub fn get(&self, id: &str) -> Option<ModelEntry> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.query_row(
             "SELECT id, family, language, model_id, version, variant,
                     path, source_type, source_ref, commit_sha, sha256,
@@ -110,7 +111,7 @@ impl<'a> ModelRepo<'a> {
 
     /// 某语言某家族的所有模型
     pub fn list_by(&self, family: &str, language: &str) -> Vec<ModelEntry> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare(
                 "SELECT id, family, language, model_id, version, variant,
@@ -127,7 +128,7 @@ impl<'a> ModelRepo<'a> {
     }
 
     pub fn list_all(&self) -> Vec<ModelEntry> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare(
                 "SELECT id, family, language, model_id, version, variant,
@@ -146,7 +147,7 @@ impl<'a> ModelRepo<'a> {
     /// 返回 (ModelEntry, bound_count), bound = 被书/译本引用的次数 (资产状态用)。
     /// 锁在方法内部自管, 调用方绝不能再手动 lock conn。
     pub fn list_all_with_bound(&self) -> Vec<(ModelEntry, i64)> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare(
                 "SELECT id, family, language, model_id, version, variant,
@@ -177,7 +178,7 @@ impl<'a> ModelRepo<'a> {
     }
 
     pub fn remove(&self, id: &str) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute("DELETE FROM model_registry WHERE id = ?1", [id])
             .map_err(|e| format!("删模型失败: {e}"))?;
         Ok(())

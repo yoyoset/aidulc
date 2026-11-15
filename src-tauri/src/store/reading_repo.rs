@@ -1,5 +1,6 @@
 //! store/reading_repo.rs —— 阅读进度/书签/播放位置唯一写者
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -72,7 +73,7 @@ impl<'a> ReadingRepo<'a> {
         day: i64,
         delta_ms: i64,
     ) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO reading_daily (user_id, book_key, day, time_spent_ms) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(user_id, book_key, day) DO UPDATE SET
@@ -91,7 +92,7 @@ impl<'a> ReadingRepo<'a> {
         from_day: i64,
         to_day: i64,
     ) -> Vec<(i64, i64)> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare(
                 "SELECT day, time_spent_ms FROM reading_daily
@@ -111,7 +112,7 @@ impl<'a> ReadingRepo<'a> {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO reading_state (user_id, book_key, chapter, position_ms, bookmarks, verified, time_spent_ms, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -136,7 +137,7 @@ impl<'a> ReadingRepo<'a> {
     }
 
     pub fn get(&self, user_id: &str, book_key: &str) -> Option<ReadingState> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.query_row(
             "SELECT user_id, book_key, chapter, position_ms, bookmarks, verified, time_spent_ms FROM reading_state WHERE user_id = ?1 AND book_key = ?2",
             params![user_id, book_key],

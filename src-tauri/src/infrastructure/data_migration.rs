@@ -17,6 +17,7 @@
 //!   - Phase 2 (下次启动, cleanup_pending): 数据库还没开, 旧文件解锁 →
 //!     按标记删旧 jobs_out / data.db(-wal/-shm) / config.toml → 删标记。
 
+use crate::infrastructure::lock::MutexExt;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -417,7 +418,7 @@ pub fn run_migration(
 
     // 3. 复制 data.db: SQLite 在线备份 VACUUM INTO → 一致性快照
     {
-        let conn = db.conn.lock().unwrap();
+        let conn = db.conn.lock_or_recover();
         let sql = format!(
             "VACUUM INTO '{}'",
             plan.target_db.to_string_lossy().replace('\'', "''")
@@ -504,7 +505,7 @@ pub fn rewrite_db_paths(db: &crate::store::Db, old: &Path, new: &Path) -> Result
     if old_s.is_empty() || new_s.is_empty() {
         return Ok(());
     }
-    let conn = db.conn.lock().unwrap();
+    let conn = db.conn.lock_or_recover();
     for table in ["books", "editions"] {
         conn.execute(
             &format!(
@@ -671,7 +672,7 @@ pub fn migrate_root_into_out(
 
     // 2. 复制 data.db (SQLite 在线快照)
     {
-        let conn = db.conn.lock().unwrap();
+        let conn = db.conn.lock_or_recover();
         let sql = format!(
             "VACUUM INTO '{}'",
             new_root

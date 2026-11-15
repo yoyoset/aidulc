@@ -9,6 +9,7 @@
 //! (不是 State<T>), 命令层调用时用 `.inner()` 转换。这不是新规则, 是把已经在用的模式
 //! 应用到其它函数上。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::{jobs, store, PrepConfig, PrepState};
 use tauri::Manager;
 
@@ -101,7 +102,7 @@ pub fn start_prep_job(
         .map_err(|e| format!("写 job_request 失败: {e}"))?;
 
     {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock_or_recover();
         q.push(job_id.clone());
     }
     let _ = app.emit(
@@ -395,7 +396,7 @@ pub fn batch_start_prep(
         std::fs::write(&req_path, serde_json::to_string_pretty(&job_req).unwrap())
             .map_err(|e| format!("写 job_request 失败: {e}"))?;
         {
-            let mut q = state.queue.lock().unwrap();
+            let mut q = state.queue.lock_or_recover();
             q.push(job_id);
         }
         enqueued.push(book_id.clone());
@@ -618,7 +619,7 @@ pub fn batch_start(
         std::fs::write(&req_path, serde_json::to_string_pretty(&job_req).unwrap())
             .map_err(|e| format!("写 job_request 失败: {e}"))?;
         {
-            let mut q = state.queue.lock().unwrap();
+            let mut q = state.queue.lock_or_recover();
             q.push(job_id);
         }
     }
@@ -748,7 +749,7 @@ pub fn job_retry_custom(
     let req_path = job_dir.join("job_request.json");
     let _ = std::fs::write(&req_path, serde_json::to_string_pretty(&job_req).unwrap());
     {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock_or_recover();
         q.push(id.clone());
     }
     {
@@ -778,7 +779,7 @@ pub fn job_pause(
     match job.status.as_str() {
         "queued" => {
             // 排队中 → 从队列移除 + 状态 paused
-            let mut q = state.queue.lock().unwrap();
+            let mut q = state.queue.lock_or_recover();
             q.retain(|x| x != &id);
             drop(q);
             let mut j = job.clone();
@@ -789,14 +790,14 @@ pub fn job_pause(
         "running" => {
             // 运行中 → kill 子进程; 子进程退出后 pump_queue 的收尾会把状态写成 done/failed,
             // 这里直接标记 paused, 收尾循环检测到 paused 就不覆盖
-            let mut guard = state.child.lock().unwrap();
+            let mut guard = state.child.lock_or_recover();
             if let Some(child) = guard.as_mut() {
                 let _ = child.kill();
                 let _ = child.wait();
             }
             *guard = None;
             drop(guard); // Bug fix (2026-08-13): 释放 child 锁再锁 running_job, 避免 ABBA 死锁
-            *state.running_job.lock().unwrap() = None;
+            *state.running_job.lock_or_recover() = None;
             let mut j = job.clone();
             j.status = "paused".into();
             j.updated_at = now_ms();
@@ -831,7 +832,7 @@ pub fn job_cancel(
     let job = repo.get(&id).ok_or("任务不存在")?;
     match job.status.as_str() {
         "queued" => {
-            let mut q = state.queue.lock().unwrap();
+            let mut q = state.queue.lock_or_recover();
             q.retain(|x| x != &id);
             drop(q);
             let mut j = job.clone();
@@ -841,14 +842,14 @@ pub fn job_cancel(
             repo.upsert(&j)?;
         }
         "running" => {
-            let mut guard = state.child.lock().unwrap();
+            let mut guard = state.child.lock_or_recover();
             if let Some(child) = guard.as_mut() {
                 let _ = child.kill();
                 let _ = child.wait();
             }
             *guard = None;
             drop(guard);
-            *state.running_job.lock().unwrap() = None;
+            *state.running_job.lock_or_recover() = None;
             let mut j = job.clone();
             j.status = "failed".into();
             j.error = Some("用户取消".into());
@@ -887,7 +888,7 @@ pub fn job_resume(
     j.updated_at = now_ms();
     repo.upsert(&j)?;
     {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock_or_recover();
         q.push(id.clone());
     }
     let _ = app.emit("job-list-changed", serde_json::json!({}));
@@ -903,11 +904,11 @@ pub fn pump_queue(
 ) -> Result<(), String> {
     use tauri::Emitter;
 
-    if state.running_job.lock().unwrap().is_some() {
+    if state.running_job.lock_or_recover().is_some() {
         return Ok(());
     }
     let next = {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock_or_recover();
         if q.is_empty() {
             return Ok(());
         }
@@ -953,7 +954,7 @@ pub fn pump_queue(
             }
         }
     }
-    *state.running_job.lock().unwrap() = Some(job_id.clone());
+    *state.running_job.lock_or_recover() = Some(job_id.clone());
 
     let req_path = std::path::Path::new(&job.output_dir).join("job_request.json");
     let job_dir = std::path::PathBuf::from(&job.output_dir);
@@ -962,8 +963,8 @@ pub fn pump_queue(
         Err(e) => {
             // Bug fix (审查确认): spawn 失败时清理 running_job + 标记任务 failed,
             // 否则队列永久卡死且无任何反馈
-            *state.running_job.lock().unwrap() = None;
-            *state.child.lock().unwrap() = None;
+            *state.running_job.lock_or_recover() = None;
+            *state.child.lock_or_recover() = None;
             let mut j = job.clone();
             j.status = "failed".into();
             j.stage = "spawn_error".into();
@@ -982,7 +983,7 @@ pub fn pump_queue(
             return Err(format!("启动侧车失败: {e}"));
         }
     };
-    *state.child.lock().unwrap() = Some(child);
+    *state.child.lock_or_recover() = Some(child);
 
     let app2 = app.clone();
     let job_id2 = job_id.clone();
@@ -1188,8 +1189,8 @@ pub fn pump_queue(
         }
         let prep_state_opt = app_state.try_state::<PrepState>();
         if let Some(st) = &prep_state_opt {
-            *st.running_job.lock().unwrap() = None;
-            *st.child.lock().unwrap() = None;
+            *st.running_job.lock_or_recover() = None;
+            *st.child.lock_or_recover() = None;
         }
         if let (Some(cfg), Some(db), Some(st)) = (
             app_state.try_state::<PrepConfig>(),

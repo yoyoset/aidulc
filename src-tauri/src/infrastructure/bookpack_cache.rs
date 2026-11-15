@@ -13,6 +13,7 @@
 //! bookpack(实测 Wolf 21 ≈ 23.88MB/条), 同一会话打开的书越多内存越涨, 只靠重启清。
 //! 现在改成 LRU, 超 `DEFAULT_CAP` 条淘汰最久未用的键, 内存有界。
 
+use crate::infrastructure::lock::MutexExt;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
@@ -52,7 +53,7 @@ impl BookpackCache {
 
     /// 命中返回 Some(完整 bookpack), 并标记最近使用; 未命中返回 None(调用方读盘解析后 put)。
     pub fn get(&self, key: &str) -> Option<Arc<serde_json::Value>> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock_or_recover();
         if inner.map.contains_key(key) {
             if let Some(pos) = inner.order.iter().position(|k| k == key) {
                 let k = inner.order.remove(pos).unwrap();
@@ -66,7 +67,7 @@ impl BookpackCache {
     /// 写入缓存 (key = pack_dir 字符串); 超上限淘汰最久未用的键。
     pub fn put(&self, key: &str, bookpack: serde_json::Value) -> Arc<serde_json::Value> {
         let arc = Arc::new(bookpack);
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock_or_recover();
         if !inner.map.contains_key(key) {
             inner.order.push_back(key.to_string());
         }
@@ -81,7 +82,7 @@ impl BookpackCache {
 
     /// 失效某个目录的缓存 (edition 覆盖/删除时调用, 防读到旧内容)。
     pub fn invalidate(&self, key: &str) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock_or_recover();
         inner.map.remove(key);
         inner.order.retain(|k| k != key);
     }
@@ -89,7 +90,7 @@ impl BookpackCache {
     /// 缓存条目数 (测试用)。
     #[cfg(test)]
     pub fn len(&self) -> usize {
-        self.inner.lock().unwrap().map.len()
+        self.inner.lock_or_recover().map.len()
     }
 }
 

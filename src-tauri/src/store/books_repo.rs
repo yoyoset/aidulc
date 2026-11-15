@@ -1,6 +1,7 @@
 //! store/books_repo.rs —— 书库唯一写者 (3.4 所有权表)
 //! v5 (H1): 书级语言 + 模型绑定 (语言/模型跟随书)
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -97,7 +98,7 @@ impl<'a> BooksRepo<'a> {
     }
 
     pub fn upsert(&self, b: &Book) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO books (id, title, source_path, pack_dir, profile_id, status, kind,
                                 source_book_id, chapter_count, failed_count, last_opened_at,
@@ -131,7 +132,7 @@ impl<'a> BooksRepo<'a> {
     }
 
     pub fn get(&self, id: &str) -> Option<Book> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.query_row(
             &format!("SELECT {} FROM books WHERE id = ?1", Book::COLS),
             [id],
@@ -141,7 +142,7 @@ impl<'a> BooksRepo<'a> {
     }
 
     pub fn list(&self) -> Vec<Book> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare(&format!(
                 "SELECT {} FROM books ORDER BY updated_at DESC",
@@ -156,7 +157,7 @@ impl<'a> BooksRepo<'a> {
 
     /// 按 kind 过滤: original = 原版管理 | product = AI 成品 (可阅读)
     pub fn list_by_kind(&self, kind: &str) -> Vec<Book> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare(&format!(
                 "SELECT {} FROM books WHERE kind = ?1 ORDER BY updated_at DESC",
@@ -172,7 +173,7 @@ impl<'a> BooksRepo<'a> {
     /// v32: 取最早一条待标准化的原书 (按 created_at 升序), 无则 None。
     /// 只在标准化的串行队列里用 —— 每次只取一条, 处理完再取下一条。
     pub fn next_pending_standardize(&self) -> Option<Book> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.query_row(
             &format!(
                 "SELECT {} FROM books WHERE standardize_status = 'pending' ORDER BY created_at ASC LIMIT 1",
@@ -186,7 +187,7 @@ impl<'a> BooksRepo<'a> {
 
     /// 删除原书 (books 表唯一写者; 2026-08-09 接线进 delete_source, 不再是死代码)。
     pub fn remove(&self, id: &str) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute("DELETE FROM books WHERE id = ?1", [id])
             .map_err(|e| format!("删书失败: {e}"))?;
         Ok(())

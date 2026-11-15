@@ -5,6 +5,7 @@
 //! kid profile 的词属于孩子)。本 repo 只管 users 表本身; 数据表的 user_id 列由
 //! 各自 repo 读写 (vocab_repo/dict_repo/reading_repo/highlights_repo)。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -31,7 +32,7 @@ impl<'a> UsersRepo<'a> {
     }
 
     pub fn list(&self) -> Vec<User> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare("SELECT id, name, created_at, updated_at FROM users ORDER BY created_at")
             .unwrap();
@@ -55,7 +56,7 @@ impl<'a> UsersRepo<'a> {
     // get: 仅测试用 (S4 起 upsert 已由 users_create 命令接线; get 仍无调用方)
     #[allow(dead_code)]
     pub fn get(&self, id: &str) -> Option<User> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let u = conn
             .query_row(
                 "SELECT id, name, created_at, updated_at FROM users WHERE id = ?1",
@@ -76,7 +77,7 @@ impl<'a> UsersRepo<'a> {
 
     // S4 (2026-08-10): 新建成员接线 (users_create 命令)。保留 as 内部方法, 不新增 repo。
     pub fn upsert(&self, u: &User) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO users (id, name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(id) DO UPDATE SET
@@ -91,7 +92,7 @@ impl<'a> UsersRepo<'a> {
     // users_delete 命令接线 (2026-08-14): 只在 users_service::delete_if_empty
     // 确认该 user 名下 7 张数据表都无行后才调用; 本方法不做任何业务校验。
     pub fn delete(&self, id: &str) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute("DELETE FROM users WHERE id = ?1", params![id])
             .map_err(|e| format!("删 users 失败: {e}"))?;
         drop(conn);

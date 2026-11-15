@@ -1,5 +1,6 @@
 //! store/batches_repo.rs —— 批量任务唯一写者 (G2)
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -31,7 +32,7 @@ impl<'a> BatchesRepo<'a> {
     }
 
     pub fn upsert(&self, b: &Batch) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO batches (id, profile_id, source_language, target_language, status,
                                   total_books, done_books, failed_books, created_at, updated_at)
@@ -58,7 +59,7 @@ impl<'a> BatchesRepo<'a> {
     }
 
     pub fn get(&self, id: &str) -> Option<Batch> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.query_row(
             "SELECT id, profile_id, source_language, target_language, status,
                     total_books, done_books, failed_books, created_at, updated_at
@@ -83,7 +84,7 @@ impl<'a> BatchesRepo<'a> {
     }
 
     pub fn list(&self) -> Vec<Batch> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare(
                 "SELECT id, profile_id, source_language, target_language, status,
@@ -114,7 +115,7 @@ impl<'a> BatchesRepo<'a> {
     /// 只删批次行, 不级联 jobs —— jobs 仍按 batch_id 分组显示在任务列表, 只是不再有
     /// 批次摘要行。批次行小, 保留期取宽 (30 天), 目的是别让表无界累积。
     pub fn cleanup_old(&self, keep_days: i64) -> Result<usize, String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let cutoff = crate::store::now_ms_for_store() - keep_days * 86_400_000;
         conn.execute(
             "DELETE FROM batches
@@ -125,7 +126,7 @@ impl<'a> BatchesRepo<'a> {
     }
 
     pub fn update_progress(&self, id: &str, done: i64, failed: i64) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "UPDATE batches SET done_books = ?1, failed_books = ?2,
                 status = CASE WHEN total_books > 0 AND ?1 + ?2 >= total_books AND ?2 = 0 THEN 'completed'

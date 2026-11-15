@@ -1,6 +1,7 @@
 //! store/dict_repo.rs —— 个人词典唯一写者
 //! V1 (2026-08-09): 加 user 维度, key = {user}:{profile}:{lemma} (同 vocab_repo)。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 
@@ -20,7 +21,7 @@ impl<'a> DictRepo<'a> {
         user_id: &str,
         profile_id: &str,
     ) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let word = payload
             .get("word")
             .and_then(|w| w.as_str())
@@ -54,7 +55,7 @@ impl<'a> DictRepo<'a> {
 
     pub fn get(&self, key: &str, user_id: &str, profile_id: &str) -> Option<serde_json::Value> {
         let full_key = format!("{}:{}:{}", user_id, profile_id, key.to_lowercase());
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.query_row(
             "SELECT payload FROM dictionary WHERE key = ?1",
             [&full_key],
@@ -72,7 +73,7 @@ impl<'a> DictRepo<'a> {
         user_id: &str,
         profile_id: &str,
     ) -> Vec<(String, serde_json::Value)> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare("SELECT lemma, payload FROM dictionary WHERE user_id = ?1 AND profile_id = ?2 ORDER BY lemma")
             .unwrap();
@@ -96,7 +97,7 @@ impl<'a> DictRepo<'a> {
         profile_id: &str,
         q: &str,
     ) -> Vec<(String, serde_json::Value)> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let like = format!("%{}%", q.to_lowercase());
         let mut stmt = conn
             .prepare("SELECT lemma, payload FROM dictionary WHERE user_id = ?1 AND profile_id = ?2 AND lemma LIKE ?3 ORDER BY lemma")
@@ -117,7 +118,7 @@ impl<'a> DictRepo<'a> {
     /// I-A: 删除条目
     pub fn remove(&self, key: &str, user_id: &str, profile_id: &str) -> Result<(), String> {
         let full_key = format!("{}:{}:{}", user_id, profile_id, key.to_lowercase());
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute("DELETE FROM dictionary WHERE key = ?1", [&full_key])
             .map_err(|e| format!("删词典条目失败: {e}"))?;
         Ok(())
@@ -129,7 +130,7 @@ impl<'a> DictRepo<'a> {
     /// 从没真正再碰过 LLM。这是一次性清理: 启动时把这类历史脏数据删掉, 让这些
     /// 词能重新走一次真实查询。返回值给日志/诊断用, 不是必须消费的信号。
     pub fn cleanup_failed_entries(&self) -> usize {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "DELETE FROM dictionary WHERE payload LIKE '%词义查询失败%' OR payload LIKE '%词义待补充%'",
             [],

@@ -3,6 +3,7 @@
 //! 依赖 app 状态 (PrepState/PrepConfig), 通过 State 注入。
 
 use crate::application::job_orchestrator as orch;
+use crate::infrastructure::lock::MutexExt;
 use crate::{store, PrepConfig, PrepState};
 use tauri::State;
 
@@ -157,19 +158,19 @@ pub fn job_remove(state: State<PrepState>, db: State<store::Db>, id: String) -> 
     // Bug fix (2026-08-13): 原来 holding running_job 再锁 child (嵌套), 与 job_pause/
     // cancel_prep_job 的 child→running_job 顺序相反 → ABBA 死锁隐患。改成两把锁绝不嵌套:
     // 先判是否在跑, 再单独锁 child 杀进程, 再单独锁 running_job 清空。
-    let is_running = state.running_job.lock().unwrap().as_deref() == Some(&id);
+    let is_running = state.running_job.lock_or_recover().as_deref() == Some(&id);
     if is_running {
-        let mut guard = state.child.lock().unwrap();
+        let mut guard = state.child.lock_or_recover();
         if let Some(child) = guard.as_mut() {
             let _ = child.kill();
             let _ = child.wait();
         }
         *guard = None;
         drop(guard);
-        *state.running_job.lock().unwrap() = None;
+        *state.running_job.lock_or_recover() = None;
     }
     {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock_or_recover();
         q.retain(|x| x != &id);
     }
     let repo = store::jobs_repo::JobsRepo::new(db.inner());

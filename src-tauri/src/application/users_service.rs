@@ -4,6 +4,7 @@
 //! 且至少保留一个用户 (不能删到 0 个)。users 表本身的唯一写者仍是 users_repo,
 //! 这里只做跨表只读校验 (COUNT), 命中哪张表就用人话报哪张。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::{users_repo::UsersRepo, Db};
 
 /// 7 张需要"名下无数据"校验的表: (表名, 人话表名)。人话表名用于错误信息,
@@ -26,7 +27,7 @@ pub fn delete_if_empty(db: &Db, id: &str) -> Result<(), String> {
         return Err("至少保留一个用户, 不能删除最后一个".into());
     }
 
-    let conn = db.conn.lock().unwrap();
+    let conn = db.conn.lock_or_recover();
     for (table, label) in DATA_TABLES {
         let count: i64 = conn
             .query_row(

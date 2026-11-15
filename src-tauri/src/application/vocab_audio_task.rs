@@ -11,6 +11,7 @@
 //! 见 pipeline/runner.py 的 LLM/TTS 不同驻), 而补发音走的是常驻语音守护(tts_daemon),
 //! 是另一种资源。塞进同一条队列会让它排在几小时的备料后面, 与"点一下马上开始"的预期
 //! 相反。所以它是一个独立的单例后台任务, 只借用处理中页的展示位。
+use crate::infrastructure::lock::MutexExt;
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 
@@ -84,7 +85,7 @@ pub fn start(
     words: Vec<String>,
 ) -> Result<VocabAudioProgress, String> {
     {
-        let p = state.progress.lock().unwrap();
+        let p = state.progress.lock_or_recover();
         if p.running {
             return Ok(p.clone());
         }
@@ -102,16 +103,16 @@ pub fn start(
     }
 
     {
-        let mut p = state.progress.lock().unwrap();
+        let mut p = state.progress.lock_or_recover();
         *p = VocabAudioProgress {
             running: true,
             total: words.len(),
             ..Default::default()
         };
     }
-    *state.cancel.lock().unwrap() = false;
+    *state.cancel.lock_or_recover() = false;
 
-    let snapshot = state.progress.lock().unwrap().clone();
+    let snapshot = state.progress.lock_or_recover().clone();
     std::thread::spawn(move || {
         run_loop(app, state, prep_path, data_dir, tts_model, words);
     });
@@ -131,8 +132,8 @@ fn run_loop(
     let _ = std::fs::create_dir_all(&target_dir);
 
     for w in words {
-        if *state.cancel.lock().unwrap() {
-            let mut p = state.progress.lock().unwrap();
+        if *state.cancel.lock_or_recover() {
+            let mut p = state.progress.lock_or_recover();
             finish(&mut p, "canceled", now_ms());
             let _ = app.emit("vocab-audio-progress", p.clone());
             return;
@@ -147,14 +148,14 @@ fn run_loop(
             }
         };
         {
-            let mut p = state.progress.lock().unwrap();
+            let mut p = state.progress.lock_or_recover();
             apply_outcome(&mut p, &w, outcome);
             // 每词发一次事件: 词一多(几百个)也就几百条, 前端只更新一行进度, 不昂贵;
             // 攒批发反而会让"当前正在处理哪个词"看起来卡住。
             let _ = app.emit("vocab-audio-progress", p.clone());
         }
     }
-    let mut p = state.progress.lock().unwrap();
+    let mut p = state.progress.lock_or_recover();
     finish(&mut p, "done", now_ms());
     let _ = app.emit("vocab-audio-progress", p.clone());
 }

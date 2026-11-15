@@ -3,6 +3,7 @@
 //! "书库到底在哪、怎么搬、怎么导入外部库"是一个独立且高风险(涉及文件搬迁+DB路径重写)
 //! 的真实域, 不该和运行时探针/在线引擎配置混在一份"misc"文件里。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::{PrepConfig, PrepState};
 use tauri::State;
 
@@ -129,7 +130,7 @@ pub fn library_out_consolidate(
     paths: State<crate::DataPaths>,
     db: State<crate::store::Db>,
 ) -> Result<serde_json::Value, String> {
-    if prep_state.running_job.lock().unwrap().is_some() {
+    if prep_state.running_job.lock_or_recover().is_some() {
         return Err("有任务正在处理中, 请先等待完成或暂停后再收拢书库".into());
     }
     let data_dir = paths.inner().data_dir.clone();
@@ -240,7 +241,7 @@ pub fn library_dir_pick_and_set(
     db: State<crate::store::Db>,
     new_dir: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    if prep_state.running_job.lock().unwrap().is_some() {
+    if prep_state.running_job.lock_or_recover().is_some() {
         return Err("有任务正在处理中, 请先等待完成或暂停后再更改书库位置".into());
     }
 

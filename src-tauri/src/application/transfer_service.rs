@@ -10,6 +10,7 @@
 //! 拍板"可勾选, 各是个独立边界, 可以全选")。绝不导出 token/设置/书包路径——那些不是
 //! "阅读留下的痕迹"这类数据, 是配置/凭据, 见 CLAUDE.md 对配置导入导出的另一条决策。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::vocab_repo::VocabRepo;
 use crate::store::Db;
 use rusqlite::params;
@@ -18,7 +19,7 @@ use rusqlite::params;
 pub fn export_aidu_data(db: &Db) -> Result<serde_json::Value, String> {
     // 收集所有 profile (从 vocab 表 distinct)
     let profiles: Vec<String> = {
-        let conn = db.conn.lock().unwrap();
+        let conn = db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare("SELECT DISTINCT profile_id FROM vocab UNION SELECT DISTINCT profile_id FROM dictionary")
             .map_err(|e| format!("查 profile 失败: {e}"))?;
@@ -82,7 +83,7 @@ pub fn export_aidu_data(db: &Db) -> Result<serde_json::Value, String> {
     let mut reading_state_data = serde_json::Map::new();
     {
         let uid = crate::store::users_repo::DEFAULT_USER_ID;
-        let conn = db.conn.lock().unwrap();
+        let conn = db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare("SELECT book_key, chapter, position_ms, bookmarks, verified, time_spent_ms FROM reading_state WHERE user_id = ?1")
             .map_err(|e| format!("查阅读进度失败: {e}"))?;
@@ -318,7 +319,7 @@ fn list_dictionary_payloads(
     db: &Db,
     profile_id: &str,
 ) -> serde_json::Map<String, serde_json::Value> {
-    let conn = db.conn.lock().unwrap();
+    let conn = db.conn.lock_or_recover();
     let mut out = serde_json::Map::new();
     let uid = crate::store::users_repo::DEFAULT_USER_ID;
     let prefix = format!("{uid}:{profile_id}:");

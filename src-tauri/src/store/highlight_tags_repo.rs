@@ -12,6 +12,7 @@
 //! 就算中途崩溃, 最坏情况是残留一个不存在的 tag_id 引用, 前端按"找不到就当未
 //! 打标签"处理, 不会展示错误标签。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -34,7 +35,7 @@ impl<'a> HighlightTagsRepo<'a> {
     }
 
     pub fn create(&self, tag: &HighlightTag) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO highlight_tags (id, user_id, label, created_at) VALUES (?1, ?2, ?3, ?4)",
             params![tag.id, tag.user_id, tag.label, tag.created_at],
@@ -44,7 +45,7 @@ impl<'a> HighlightTagsRepo<'a> {
     }
 
     pub fn rename(&self, user_id: &str, id: &str, label: &str) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "UPDATE highlight_tags SET label = ?1 WHERE id = ?2 AND user_id = ?3",
             params![label, id, user_id],
@@ -54,7 +55,7 @@ impl<'a> HighlightTagsRepo<'a> {
     }
 
     pub fn list_by_user(&self, user_id: &str) -> Vec<HighlightTag> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare(
                 "SELECT id, user_id, label, created_at FROM highlight_tags
@@ -75,7 +76,7 @@ impl<'a> HighlightTagsRepo<'a> {
     }
 
     pub fn remove(&self, user_id: &str, id: &str) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "DELETE FROM highlight_tags WHERE id = ?1 AND user_id = ?2",
             params![id, user_id],

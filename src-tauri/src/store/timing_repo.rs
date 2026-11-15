@@ -20,6 +20,7 @@
 //! 行数等于**锚点数**而不是**点击次数**; 偏移归零的锚点直接删除; 与前一条锚点等值的冗余
 //! 锚点直接删除; 每章锚点数硬上限 `MAX_ANCHORS_PER_CHAPTER`。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -50,7 +51,7 @@ impl<'a> TimingRepo<'a> {
     /// 性能: 前端在打开书时**一次性**取回整本 (通常 0 行, 有校准也就几行), 之后切章
     /// 零 IO。复合主键的最左前缀就是 edition_id, 这条查询走主键索引。
     pub fn list_for_edition(&self, edition_id: &str) -> Result<Vec<TimingAnchor>, String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare(
                 "SELECT chapter_index, from_sentence, offset_ms FROM timing_offsets
@@ -119,7 +120,7 @@ impl<'a> TimingRepo<'a> {
             ));
         }
 
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO timing_offsets
                 (edition_id, chapter_index, from_sentence, offset_ms, updated_at)
@@ -142,7 +143,7 @@ impl<'a> TimingRepo<'a> {
 
     /// 复位一章 (删掉该章全部锚点)
     pub fn reset_chapter(&self, edition_id: &str, chapter_index: i64) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "DELETE FROM timing_offsets WHERE edition_id = ?1 AND chapter_index = ?2",
             params![edition_id, chapter_index],
@@ -162,7 +163,7 @@ impl<'a> TimingRepo<'a> {
         chapter_index: i64,
         from_sentence: i64,
     ) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "DELETE FROM timing_offsets
              WHERE edition_id = ?1 AND chapter_index = ?2 AND from_sentence = ?3",

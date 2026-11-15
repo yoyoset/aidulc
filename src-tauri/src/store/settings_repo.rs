@@ -1,5 +1,6 @@
 //! store/settings_repo.rs —— 阅读/显示设置唯一写者 (P2)
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -95,7 +96,7 @@ impl<'a> SettingsRepo<'a> {
     }
 
     pub fn upsert(&self, s: &ReaderSettings) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO reader_settings (user_id, profile_id, font_size, line_height, content_width,
                                           font_family, theme, highlight_granularity, child_mode,
@@ -136,7 +137,7 @@ impl<'a> SettingsRepo<'a> {
     /// K8 (2026-08-14): 按 (user_id, profile_id) 取——之前只按 profile_id, 多用户
     /// 共享一台设备时阅读显示设置会互相覆盖。
     pub fn get(&self, user_id: &str, profile_id: &str) -> ReaderSettings {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.query_row(
             "SELECT user_id, profile_id, font_size, line_height, content_width, font_family,
                     theme, highlight_granularity, child_mode,

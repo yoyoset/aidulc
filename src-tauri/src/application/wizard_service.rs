@@ -3,12 +3,13 @@
 //! 6 步: 1语言 → 2数据目录 → 3硬件 → 4模型发现 → 5依赖清单 → 6完成
 //! 状态落 wizard_state 表, 每步可跳过, 重启续走。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 
 pub const TOTAL_STEPS: i64 = 6;
 
 pub fn get_state(db: &Db) -> (i64, String) {
-    let conn = db.conn.lock().unwrap();
+    let conn = db.conn.lock_or_recover();
     conn.query_row(
         "SELECT step, status FROM wizard_state WHERE id = 'first-run'",
         [],
@@ -18,7 +19,7 @@ pub fn get_state(db: &Db) -> (i64, String) {
 }
 
 pub fn set_step(db: &Db, step: i64, status: &str) -> Result<(), String> {
-    let conn = db.conn.lock().unwrap();
+    let conn = db.conn.lock_or_recover();
     conn.execute(
         "INSERT INTO wizard_state (id, step, status, updated_at)
          VALUES ('first-run', ?1, ?2, strftime('%s','now')*1000)

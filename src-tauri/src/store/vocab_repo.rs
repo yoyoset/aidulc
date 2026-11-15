@@ -10,6 +10,7 @@
 //! - 只有 SRS owner 能改 SRS 字段 (aidulc v1 不做复习, 保留给 aidu 扩展)
 
 use crate::domain::vocab::{normalize_vocab_entry, VocabEntry};
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 
@@ -51,7 +52,7 @@ impl<'a> VocabRepo<'a> {
         };
         let key = Self::full_key(user_id, profile_id, &norm.lemma);
         let now = crate::store::now_ms_for_store();
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
 
         // 读旧 payload (保留 SRS)
         let old_payload: Option<String> = conn
@@ -130,7 +131,7 @@ impl<'a> VocabRepo<'a> {
         let key = Self::full_key(user_id, profile_id, &norm.lemma);
         let now = crate::store::now_ms_for_store();
         let payload = serde_json::to_value(&norm).unwrap_or(serde_json::Value::Null);
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO vocab (key, word, lemma, pos, meaning, sense_id, phonetic, context, level,
                                 collocations, stage, interval_days, ease_factor, next_review, reviews,
@@ -162,7 +163,7 @@ impl<'a> VocabRepo<'a> {
     /// 读 canonical payload (无损)
     pub fn get(&self, user_id: &str, profile_id: &str, lemma: &str) -> Option<VocabEntry> {
         let key = Self::full_key(user_id, profile_id, lemma);
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let payload: Option<String> = conn
             .query_row("SELECT payload FROM vocab WHERE key = ?1", [&key], |r| {
                 r.get(0)
@@ -173,7 +174,7 @@ impl<'a> VocabRepo<'a> {
     }
 
     pub fn list(&self, user_id: &str, profile_id: &str) -> Vec<VocabEntry> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare("SELECT payload FROM vocab WHERE user_id = ?1 AND profile_id = ?2 ORDER BY added_at DESC")
             .unwrap();
@@ -207,7 +208,7 @@ impl<'a> VocabRepo<'a> {
     /// I-B: 删除生词 (仅本 user)
     pub fn remove(&self, user_id: &str, profile_id: &str, lemma: &str) -> Result<(), String> {
         let key = Self::full_key(user_id, profile_id, lemma);
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute("DELETE FROM vocab WHERE key = ?1", [&key])
             .map_err(|e| format!("删生词失败: {e}"))?;
         Ok(())
@@ -222,7 +223,7 @@ impl<'a> VocabRepo<'a> {
         profile_id: &str,
         lemmas: &[String],
     ) -> Result<usize, String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute_batch("BEGIN IMMEDIATE;")
             .map_err(|e| format!("删除事务开始失败: {e}"))?;
         let result = (|| -> Result<usize, String> {
@@ -261,7 +262,7 @@ impl<'a> VocabRepo<'a> {
         plan: &[(String, i64)],
     ) -> Result<usize, String> {
         let now = crate::store::now_ms_for_store();
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute_batch("BEGIN IMMEDIATE;")
             .map_err(|e| format!("打散事务开始失败: {e}"))?;
         let result = (|| -> Result<usize, String> {
@@ -295,7 +296,7 @@ impl<'a> VocabRepo<'a> {
 
     /// V6: 某 user 全部词条 (跨 profile; 同步按 user 分账, 不看讲解策略)。
     pub fn list_all_for_user(&self, user_id: &str) -> Vec<VocabEntry> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare("SELECT payload FROM vocab WHERE user_id = ?1")
             .unwrap();
@@ -317,7 +318,7 @@ impl<'a> VocabRepo<'a> {
     /// (P0 修复, 2026-08-10): 此前只回 entry、丢失 profile, 远端赢时写死 "default"
     /// → me:kid:reticent 的远端更新会新建 me:default:reticent 重复行。
     pub fn get_any_profile(&self, user_id: &str, lemma: &str) -> Option<(String, VocabEntry)> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let row: Option<(String, String)> = conn
             .query_row(
                 "SELECT profile_id, payload FROM vocab WHERE user_id = ?1 AND lemma = ?2 LIMIT 1",

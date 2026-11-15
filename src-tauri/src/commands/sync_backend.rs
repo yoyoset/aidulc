@@ -3,6 +3,7 @@
 //! 这些命令管的是"同步后端(哪台服务器/哪个 worker)怎么连、怎么切、怎么断"这一个真实域,
 //! 和阅读/词典完全不相关。Tauri 命令名不变, 只是物理文件挪动。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store;
 use tauri::State;
 
@@ -37,7 +38,7 @@ pub async fn sync_status(
     crate::infrastructure::log::info("cmd", &format!("enter: sync_status user={user_id}"));
     let t0 = crate::store::now_ms_for_store();
     let svc = services.inner();
-    let url = svc.cf_worker_url.lock().unwrap().clone();
+    let url = svc.cf_worker_url.lock_or_recover().clone();
     let (endpoint_key, token, _server_user) = endpoint_state(&user_id, &url)?;
     crate::infrastructure::log::info(
         "cmd",
@@ -68,7 +69,7 @@ pub async fn sync_now(
     let t0 = crate::store::now_ms_for_store();
     crate::infrastructure::log::info("cmd", &format!("enter: sync_now user={user_id}"));
     let svc = services.inner();
-    let active_url = svc.cf_worker_url.lock().unwrap().clone();
+    let active_url = svc.cf_worker_url.lock_or_recover().clone();
     // 确保当前生效后端的 V6 老 token 迁移到 (user, endpoint) 新 key
     let (epk, _t, _su) = endpoint_state(&user_id, &active_url)?;
     let _ = epk;
@@ -120,7 +121,7 @@ pub fn sync_backends_list(
     if changed {
         let _ = cfg.save(&cfg_dir);
     }
-    let active_url = services.inner().cf_worker_url.lock().unwrap().clone();
+    let active_url = services.inner().cf_worker_url.lock_or_recover().clone();
     let user_name = store::users_repo::UsersRepo::new(db.inner())
         .get(&user_id)
         .map(|u| u.name)
@@ -239,7 +240,7 @@ pub fn sync_backend_switch(
     cfg.cf_worker_url = new_url.clone();
     cfg.save(&cfg_dir)?;
     // 运行时生效 (AppServices.cf_worker_url 是同步命令读的)
-    *services.inner().cf_worker_url.lock().unwrap() = new_url.clone();
+    *services.inner().cf_worker_url.lock_or_recover() = new_url.clone();
     crate::infrastructure::log::info(
         "cmd",
         &format!("sync_backend_switch -> {url}", url = new_url),
@@ -279,7 +280,7 @@ pub fn sync_backend_remove(
     crate::infrastructure::log::info("cmd", &format!("enter: sync_backend_remove {name}"));
     let cfg_dir = paths.inner().data_dir.clone();
     let mut cfg = crate::services::config::Config::load(&cfg_dir);
-    let active_url = services.inner().cf_worker_url.lock().unwrap().clone();
+    let active_url = services.inner().cf_worker_url.lock_or_recover().clone();
     let idx = cfg
         .sync_backends
         .iter()
@@ -303,7 +304,7 @@ pub async fn sync_pull_now(
     let t0 = crate::store::now_ms_for_store();
     crate::infrastructure::log::info("cmd", &format!("enter: sync_pull_now user={user_id}"));
     let svc = services.inner();
-    let url = svc.cf_worker_url.lock().unwrap().clone();
+    let url = svc.cf_worker_url.lock_or_recover().clone();
     let (endpoint_key, token, server_user) = endpoint_state(&user_id, &url)?;
     let s = crate::application::sync_service::sync_pull(
         db.inner(),
@@ -375,7 +376,7 @@ pub async fn sync_auth_device(
     cfg.save(&cfg_dir)
         .map_err(|e| format!("保存同步配置失败: {e}"))?;
     let svc = services.inner();
-    *svc.cf_worker_url.lock().unwrap() = worker_url;
+    *svc.cf_worker_url.lock_or_recover() = worker_url;
     crate::infrastructure::log::info(
         "cmd",
         &format!(
@@ -398,7 +399,7 @@ pub async fn sync_make_code(
     let t0 = crate::store::now_ms_for_store();
     crate::infrastructure::log::info("cmd", &format!("enter: sync_make_code user={user_id}"));
     let svc = services.inner();
-    let url = svc.cf_worker_url.lock().unwrap().clone();
+    let url = svc.cf_worker_url.lock_or_recover().clone();
     // 2026-08-21 修复(用户报"明明已连接, 生成邀请码却报未配置同步"): 这里之前直接读
     // 老 V6 单 key(get_cf_token_for), 但 sync_status/立即同步走的是 endpoint_state
     // 的迁移感知解析(老 key 读得到会自动迁到新的按 endpoint 分的 key)——迁移一旦
@@ -430,7 +431,7 @@ pub fn sync_disconnect(
     services: State<'_, crate::AppServices>,
     user_id: String,
 ) -> Result<(), String> {
-    let url = services.inner().cf_worker_url.lock().unwrap().clone();
+    let url = services.inner().cf_worker_url.lock_or_recover().clone();
     let _ = endpoint_state(&user_id, &url).map(|(endpoint_key, _, _)| {
         let _ = crate::services::credentials::delete_cf_token_for_endpoint(&user_id, &endpoint_key);
     });
@@ -451,7 +452,7 @@ pub async fn sync_pair_qr(
     user_id: String,
 ) -> Result<serde_json::Value, String> {
     let svc = services.inner();
-    let url = svc.cf_worker_url.lock().unwrap().clone();
+    let url = svc.cf_worker_url.lock_or_recover().clone();
     // 2026-08-21 修复: 同 sync_make_code——统一走 endpoint_state 的迁移感知解析,
     // 不再单独读已经迁移走的老 V6 key。
     let (_endpoint_key, token, _server_user) = endpoint_state(&user_id, &url)?;
@@ -499,7 +500,7 @@ pub async fn sync_revoke_token(
     target_token: String,
 ) -> Result<serde_json::Value, String> {
     let svc = services.inner();
-    let url = svc.cf_worker_url.lock().unwrap().clone();
+    let url = svc.cf_worker_url.lock_or_recover().clone();
     // 2026-08-21 修复: 同上——统一走 endpoint_state。
     let (_endpoint_key, token, _server_user) = endpoint_state(&user_id, &url)?;
     if url.is_empty() || token.is_empty() {

@@ -1,5 +1,6 @@
 //! Editions are the only writer for generated book assets.
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -59,7 +60,7 @@ impl<'a> EditionsRepo<'a> {
     }
 
     pub fn upsert(&self, e: &Edition) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO editions (id,source_id,title,pack_dir,profile_id,status,chapter_count,failed_count,
                 last_opened_at,source_language,target_language,llm_id,tts_id,nlp_id,created_at,updated_at)
@@ -77,7 +78,7 @@ impl<'a> EditionsRepo<'a> {
     }
 
     pub fn get(&self, id: &str) -> Option<Edition> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.query_row(
             &format!("SELECT {} FROM editions WHERE id=?1", Self::COLS),
             [id],
@@ -97,7 +98,7 @@ impl<'a> EditionsRepo<'a> {
         tts_id: Option<&str>,
         nlp_id: Option<&str>,
     ) -> Option<Edition> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.query_row(
             &format!(
                 "SELECT {} FROM editions WHERE source_id=?1 AND profile_id=?2
@@ -120,7 +121,7 @@ impl<'a> EditionsRepo<'a> {
     }
 
     pub fn list_by_source(&self, source_id: &str) -> Vec<Edition> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut s = conn
             .prepare(&format!(
                 "SELECT {} FROM editions WHERE source_id=?1 ORDER BY updated_at DESC",
@@ -134,7 +135,7 @@ impl<'a> EditionsRepo<'a> {
     }
 
     pub fn list(&self) -> Vec<Edition> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut s = conn
             .prepare(&format!(
                 "SELECT {} FROM editions ORDER BY updated_at DESC",
@@ -148,7 +149,7 @@ impl<'a> EditionsRepo<'a> {
     }
 
     pub fn find_by_pack_dir(&self, pack_dir: &str) -> Option<Edition> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.query_row(
             &format!("SELECT {} FROM editions WHERE pack_dir=?1", Self::COLS),
             [pack_dir],
@@ -158,7 +159,7 @@ impl<'a> EditionsRepo<'a> {
     }
 
     pub fn touch_opened(&self, id: &str, now: i64) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "UPDATE editions SET last_opened_at=?1, updated_at=?1 WHERE id=?2",
             params![now, id],

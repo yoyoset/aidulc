@@ -31,13 +31,13 @@ pub fn init(log_dir: &std::path::Path) -> Result<(), String> {
 /// 当前日志文件路径 (给前端"打开日志"用)
 pub fn log_path() -> Option<String> {
     let slot = LOGGER.get()?;
-    let guard = slot.lock().unwrap();
+    let guard = slot.lock().unwrap_or_else(|e| e.into_inner());
     guard.as_ref().map(|l| l.path.to_string_lossy().to_string())
 }
 
 fn write_line(level: &str, module: &str, msg: &str) {
     if let Some(m) = LOGGER.get() {
-        let mut guard = m.lock().unwrap();
+        let mut guard = m.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(l) = guard.as_mut() {
             let ts = crate::store::now_ms_for_store();
             let line = format!("{ts} {level} [{module}] {msg}\n");

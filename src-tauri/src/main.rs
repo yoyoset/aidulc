@@ -78,6 +78,7 @@ mod infrastructure {
     pub mod downloader;
     pub mod frequency;
     pub mod gpu_check;
+    pub mod lock;
     pub mod log;
     pub mod online_client;
     pub mod snapshot;

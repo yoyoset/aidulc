@@ -9,6 +9,7 @@
 //! 协议 (tts_server.py): 每行 stdin 一个 JSON 请求 {"word","voice","speed"},
 //!   每行 stdout 一个 JSON 响应 {"ok":true,"result":{"wav_base64":...}} 或 {"ok":false,"error":...}。
 
+use crate::infrastructure::lock::MutexExt;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -95,7 +96,7 @@ fn spawn(prep_path: &std::path::Path, model: &str, language: &str) -> Result<Tts
                 match reader.read_line(&mut line) {
                     Ok(0) => break,
                     Ok(_) => {
-                        let mut b = buf.lock().unwrap();
+                        let mut b = buf.lock_or_recover();
                         b.push_back(line.trim_end().to_string());
                         if b.len() > 8 {
                             b.pop_front();
@@ -136,7 +137,7 @@ fn spawn(prep_path: &std::path::Path, model: &str, language: &str) -> Result<Tts
     let wgen = d.gen;
     std::thread::spawn(move || {
         std::thread::sleep(IDLE_TIMEOUT);
-        let mut reg = registry().lock().unwrap();
+        let mut reg = registry().lock_or_recover();
         let still_same = reg.as_ref().map(|x| x.gen == wgen).unwrap_or(false);
         let still_idle = reg
             .as_ref()
@@ -153,7 +154,7 @@ fn spawn(prep_path: &std::path::Path, model: &str, language: &str) -> Result<Tts
 }
 
 fn stderr_tail_string(d: &TtsDaemon) -> String {
-    let lines: Vec<String> = d.stderr_tail.lock().unwrap().iter().cloned().collect();
+    let lines: Vec<String> = d.stderr_tail.lock_or_recover().iter().cloned().collect();
     if lines.is_empty() {
         String::new()
     } else {

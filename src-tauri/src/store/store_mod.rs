@@ -1,5 +1,6 @@
 //! store/mod.rs —— SQLite 唯一真相源: WAL + busy_timeout + 顺序迁移
 
+use crate::infrastructure::lock::MutexExt;
 use rusqlite::{params, Connection};
 use std::collections::HashSet;
 use std::sync::Mutex;
@@ -66,7 +67,7 @@ impl Db {
             i64,
             Option<String>,
         );
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock_or_recover();
         // 版本表
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS schema_migrations (

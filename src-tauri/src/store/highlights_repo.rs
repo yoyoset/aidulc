@@ -6,6 +6,7 @@
 //!   created_at, updated_at。
 //! 精确词范围 span 渲染留待前端后续; 本层只保证"存下来、能列出、能删"。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store::Db;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -52,7 +53,7 @@ impl<'a> HighlightsRepo<'a> {
     }
 
     pub fn upsert(&self, h: &Highlight) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "INSERT INTO highlights (id, user_id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, kind, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
@@ -71,7 +72,7 @@ impl<'a> HighlightsRepo<'a> {
     }
 
     pub fn list_by_book(&self, user_id: &str, book_key: &str) -> Vec<Highlight> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare(
                 "SELECT id, user_id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, kind, created_at, updated_at
@@ -101,7 +102,7 @@ impl<'a> HighlightsRepo<'a> {
 
     /// M7 R31: 全部摘录 (导出/备份用; 前端按书查用 list_by_book)
     pub fn list_all(&self) -> Vec<Highlight> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
             .prepare(
                 "SELECT id, user_id, book_key, chapter, sentence_index, selected_text, note, start_seg, end_seg, kind, created_at, updated_at
@@ -133,7 +134,7 @@ impl<'a> HighlightsRepo<'a> {
     /// list_by_book 已有的 user_id 隔离粒度(这是本地单机应用, 不构成安全边界,
     /// 但和"每张表读写都按 user 隔离"这个项目自己声明的模型不一致, 补齐)。
     pub fn remove(&self, user_id: &str, id: &str) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "DELETE FROM highlights WHERE id = ?1 AND user_id = ?2",
             params![id, user_id],
@@ -147,7 +148,7 @@ impl<'a> HighlightsRepo<'a> {
     /// 这是跨表写, 按项目约定只能由 highlights 表自己的 repo 方法来改 highlights
     /// 表, 不能让 highlight_tags_repo.rs 直接写这张表。
     pub fn clear_kind_for_tag(&self, user_id: &str, tag_id: &str) -> Result<(), String> {
-        let conn = self.db.conn.lock().unwrap();
+        let conn = self.db.conn.lock_or_recover();
         conn.execute(
             "UPDATE highlights SET kind = '' WHERE user_id = ?1 AND kind = ?2",
             params![user_id, tag_id],

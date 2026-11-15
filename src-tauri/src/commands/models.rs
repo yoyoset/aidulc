@@ -2,6 +2,7 @@
 //! 薄层: 参数转换 → application::model_service
 
 use crate::application::model_service;
+use crate::infrastructure::lock::MutexExt;
 use crate::store;
 use tauri::State;
 
@@ -232,7 +233,7 @@ pub fn models_download(
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
     {
-        let mut reg = downloads_registry().lock().unwrap();
+        let mut reg = downloads_registry().lock_or_recover();
         // 清理完成超过 1 小时的任务 (内存不泄漏)
         let cutoff = (crate::commands::library::now_ms() - 3_600_000) as u64;
         reg.retain(|_, j| !(j.done && j.done_at.load(Ordering::Relaxed) < cutoff));
@@ -247,7 +248,7 @@ pub fn models_download(
     let bytes_read = Arc::new(AtomicU64::new(0));
     let total = Arc::new(AtomicU64::new(0));
     let done_at = Arc::new(AtomicU64::new(0));
-    downloads_registry().lock().unwrap().insert(
+    downloads_registry().lock_or_recover().insert(
         token.clone(),
         DownloadJob {
             done: false,
@@ -302,7 +303,7 @@ pub fn models_download(
         };
         job.done_at
             .store(crate::commands::library::now_ms() as u64, Ordering::Relaxed);
-        downloads_registry().lock().unwrap().insert(token2, job);
+        downloads_registry().lock_or_recover().insert(token2, job);
     });
     Ok(serde_json::json!({ "token": token, "started": true }))
 }
@@ -332,7 +333,7 @@ fn downloads_registry() -> &'static std::sync::Mutex<std::collections::HashMap<S
 pub fn models_download_status(token: String) -> Result<serde_json::Value, String> {
     use std::sync::atomic::Ordering;
     let map = downloads_registry();
-    let m = map.lock().unwrap();
+    let m = map.lock_or_recover();
     let job = m.get(&token).ok_or("下载任务不存在")?.clone();
     Ok(serde_json::json!({
         "done": job.done, "ok": job.ok, "path": job.path, "error": job.error,

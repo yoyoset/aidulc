@@ -8,6 +8,7 @@
 //! 的原书 —— 兜底解析要开 pymupdf 进程, 同一时刻也只处理一本, 不并发 (导入 10 本
 //! block 书不会并发起 10 个进程)。
 
+use crate::infrastructure::lock::MutexExt;
 use crate::store;
 
 /// 单例状态: 同一时刻只处理一本书 (不是"每本书一个线程")。
@@ -73,7 +74,7 @@ pub fn apply_report(report_text: &str, report_path: &str) -> StandardizeOutcome 
 /// 队列泵是否应立即返回 (已经在跑)。单独抽出可测: pump 需要 AppHandle, 不好在单测里
 /// 起真 tauri runtime, 而"running=true 短路"这条守卫是最需要锁死的分支。
 pub fn should_skip_pump(state: &StandardizeState) -> bool {
-    *state.running.lock().unwrap()
+    *state.running.lock_or_recover()
 }
 
 /// 同步 spawn 侧车 --standardize-book, 等待退出 (这条线程本身已是后台线程)。
@@ -129,7 +130,7 @@ pub fn pump_standardize_queue(
     };
 
     // 3. running=true + 这本书 running + emit (卡片立刻显示"转换中")
-    *state.running.lock().unwrap() = true;
+    *state.running.lock_or_recover() = true;
     {
         let mut b = next.clone();
         b.standardize_status = "running".into();
@@ -185,7 +186,7 @@ pub fn pump_standardize_queue(
 
         // running=false → 处理下一条 pending (参照 pump_queue 递归处理队列的写法)
         if let Some(state) = app2.try_state::<StandardizeState>() {
-            *state.running.lock().unwrap() = false;
+            *state.running.lock_or_recover() = false;
         }
         if let (Some(cfg), Some(db), Some(state)) = (
             app2.try_state::<crate::PrepConfig>(),

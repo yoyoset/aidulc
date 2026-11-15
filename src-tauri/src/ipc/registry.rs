@@ -647,6 +647,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "UX5 #6: 清除在线引擎 API key (删 Credential Manager 里的 key, 清除后两档开关置灰)",
     },
     CommandInfo {
+        path: "commands::update::app_check_update",
+        domain: "运行时",
+        desc: "D4: 检查应用本体新版本 (只在用户点按钮时联网一次查 GitHub Releases, 不带用户数据)",
+    },
+    CommandInfo {
         path: "commands::misc::boot_ping",
         domain: "运行时",
         desc: "boot 探针(开发用: 验证进程活着)",

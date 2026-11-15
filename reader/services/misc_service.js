@@ -11,6 +11,8 @@
     runtimeConfig() { return AiduBridge.invoke('runtime_config'); },
     // K11 (2026-08-14): 应用本体版本号——之前界面完全没有出口显示
     appVersion() { return AiduBridge.invoke('app_version'); },
+    // D4 (2026-11-15): 检查更新 —— 只在用户点按钮时联网一次, 返回 {current, latest, newer, url}
+    appCheckUpdate() { return AiduBridge.invoke('app_check_update'); },
     openPath(path) { return AiduBridge.openPath(path); },
     // P1.2: 书库位置("...存放在哪"的产品化入口, 见 docs/ROADMAP.md P1)
     libraryDirGet() { return AiduBridge.invoke('library_dir_get'); },

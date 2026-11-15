@@ -54,6 +54,35 @@
                 versionInfo.textContent = r.ok ? ('aidulc v' + r.data) : '版本号读取失败';
               });
             }
+            // D4 (2026-11-15): 检查更新 —— 只在用户点这个按钮时才联网一次 (离线优先:
+            // 不在启动/后台探测), 只报"有没有新版本 + 下载页链接", 不下载不替换。
+            if (global.AiduMiscService && AiduMiscService.appCheckUpdate) {
+              const updRow = el('div', 'settings-row');
+              const updBtn = el('button', 'btn-small', '检查更新');
+              const updInfo = el('span', 'log-info', '点击后会联网查询一次 GitHub 上的最新版本号 (不发送任何个人数据)。');
+              updRow.append(updBtn, updInfo);
+              aboutSec.appendChild(updRow);
+              updBtn.onclick = () => {
+                updBtn.disabled = true;
+                updInfo.textContent = '检查中…';
+                AiduMiscService.appCheckUpdate().then((r) => {
+                  updBtn.disabled = false;
+                  if (!r.ok) { updInfo.textContent = '检查失败: ' + r.error; return; }
+                  const d = r.data || {};
+                  if (!d.latest) { updInfo.textContent = '还没有发布过正式版本, 当前 v' + d.current + '。'; return; }
+                  if (!d.newer) { updInfo.textContent = '已是最新版本 (当前 v' + d.current + ', 最新发布 ' + d.latest + ')。'; return; }
+                  updInfo.textContent = '有新版本 ' + d.latest + ' (当前 v' + d.current + '), 下载页: ' + d.url;
+                  const copyBtn = el('button', 'btn-small', '复制下载链接');
+                  copyBtn.onclick = () => {
+                    const done = () => AiduToast.show('已复制下载链接', 'success');
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                      navigator.clipboard.writeText(d.url).then(done, () => AiduToast.show('复制失败, 请手动选中链接复制', 'error'));
+                    } else { AiduToast.show('当前环境不支持复制, 请手动选中链接复制', 'error'); }
+                  };
+                  updRow.appendChild(copyBtn);
+                }).catch((e) => { updBtn.disabled = false; updInfo.textContent = '检查失败: ' + String((e && e.message) || e); });
+              };
+            }
 
             // N1 (2026-08-12): 向导可重入 —— 走完的向导换机器/换数据目录时能再进一次
             const wizardSec = el('div', 'settings-section');

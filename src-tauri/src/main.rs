@@ -31,6 +31,7 @@ mod commands {
     pub mod srs;
     pub mod sync_backend;
     pub mod timing;
+    pub mod update;
     pub mod vocab;
     pub mod vocab_audio;
 }
@@ -88,6 +89,7 @@ mod infrastructure {
     }
     pub mod sync_v1_client;
     pub mod tts_daemon;
+    pub mod update_check;
 }
 mod ipc {
     pub mod commands;
@@ -673,6 +675,7 @@ fn main() {
             commands::models::wizard_reset,
             commands::misc::runtime_config,
             commands::misc::app_version,
+            commands::update::app_check_update,
             commands::misc::components_health,
             commands::data_root::data_root_status,
             commands::data_root::data_root_forget_pointer,

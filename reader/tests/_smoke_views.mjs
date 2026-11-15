@@ -2995,5 +2995,39 @@ console.log('== 18. S2 (2026-11-15): 从快照恢复 (丢库弹窗第 4 个出�
   check('S2: 无快照时说明会自动生成', textOf(empty).includes('还没有快照'));
 }
 
+console.log('== 19. D4 (2026-11-15): 检查更新只在点按钮时联网, 结果如实呈现 ==');
+{
+  store.state.settingsTab = 'system';
+  globalThis.AiduMiscService.libraryDirGet = async () => ({ ok: true, data: 'C:/aidulc-data' });
+  globalThis.AiduMiscService.appVersion = async () => ({ ok: true, data: '0.1.0' });
+  let updCalls = 0;
+  let updReply = { ok: true, data: { current: '0.1.0', latest: 'v0.2.0', newer: true, url: 'https://example.test/rel/v0.2.0' } };
+  globalThis.AiduMiscService.appCheckUpdate = async () => { updCalls++; return updReply; };
+  const svU = new globalThis.SettingsView(store);
+  const cU = makeElement('div');
+  svU.render(cU);
+  await new Promise((r) => setTimeout(r, 90));
+  store.state.settingsTab = null;
+  check('D4: 渲染设置页时不会自己联网检查更新 (调用次数为 0)', updCalls === 0, 'calls=' + updCalls);
+  const updBtn = queryAll(cU, 'button').find((b) => b.textContent === '检查更新');
+  check('D4: 设置页有「检查更新」按钮', !!updBtn);
+  updBtn && updBtn.onclick();
+  await new Promise((r) => setTimeout(r, 40));
+  const tU = textOf(cU);
+  check('D4: 点击后才调用一次', updCalls === 1, 'calls=' + updCalls);
+  check('D4: 有新版本时写出新旧版本号和下载页', tU.includes('有新版本 v0.2.0') && tU.includes('当前 v0.1.0') && tU.includes('https://example.test/rel/v0.2.0'), tU.slice(-220));
+  check('D4: 有新版本时给「复制下载链接」', queryAll(cU, 'button').some((b) => b.textContent === '复制下载链接'));
+  // 已是最新 / 没有发布 / 网络失败 三种文案
+  updReply = { ok: true, data: { current: '0.2.0', latest: 'v0.2.0', newer: false, url: 'x' } };
+  updBtn.onclick(); await new Promise((r) => setTimeout(r, 40));
+  check('D4: 已是最新 → 明说已是最新版本', textOf(cU).includes('已是最新版本'), textOf(cU).slice(-160));
+  updReply = { ok: true, data: { current: '0.1.0', latest: null, newer: false, url: '' } };
+  updBtn.onclick(); await new Promise((r) => setTimeout(r, 40));
+  check('D4: 还没有发布版本 → 说明而不是报错', textOf(cU).includes('还没有发布过正式版本'), textOf(cU).slice(-160));
+  updReply = { ok: false, error: '连不上更新服务器 (可能离线): timeout' };
+  updBtn.onclick(); await new Promise((r) => setTimeout(r, 40));
+  check('D4: 网络失败 → 如实显示失败原因, 按钮恢复可用', textOf(cU).includes('检查失败: 连不上更新服务器') && updBtn.disabled === false, textOf(cU).slice(-160));
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

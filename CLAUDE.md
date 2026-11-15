@@ -19,7 +19,8 @@
 | `users` | `users_repo.rs` | **V1 新增**: 身份 ("谁"), 与 profile("讲解策略")分开; 顶栏切人 |
 | `profiles` | `profile_repo.rs` | 讲解策略/音色/语速/高亮粒度 |
 | `reading_state` | `reading_repo.rs` | 阅读进度/书签/播放位置 (V1 起复合主键 user_id+book_key) |
-| `highlights` | `highlights_repo.rs` | 摘录标注 (V1 起带 user_id) |
+| `highlights` | `highlights_repo.rs` | 摘录标注 (V1 起带 user_id)。`kind` 列 **2026-09-05 起改自由文本**: 空串=未打标签, 非空=某个 `highlight_tags.id`, 不再是固定枚举 |
+| `highlight_tags` | `highlight_tags_repo.rs` | **2026-09-05 新增**: 摘录自定义标签定义(只存 id/label, 不存"谁打了谁"——那部分是 `highlights.kind`)。取代同一天上线又被用户否掉的固定三分类("默认/待复习/生词相关")。删标签需要级联清 `highlights.kind`, 这是唯一一处 `highlight_tags_repo.rs` 之外的调用方(`ipc::commands::highlight_tag_delete`)依次调两个 repo 各自方法完成级联(不是事务, 两步都幂等)——决策/坑见 `memory/reader.md` 附录"摘录标注与自定义标签域" |
 | `reading_daily` | `reading_repo.rs` | 按日阅读时长 (V1 起复合主键 user_id+book_key+day) |
 | `books` | `books_repo.rs` | 原书(source)登记；不承载可阅读成品 |
 | `editions` | `editions_repo.rs` | 译本/成品(edition)及生成参数快照 |

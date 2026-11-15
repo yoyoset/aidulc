@@ -113,7 +113,7 @@ pub fn start_prep_job(
     );
     app.emit("job-list-changed", serde_json::json!({})).ok();
 
-    let _ = pump_queue(app.clone(), cfg, state, db);
+    pump_logged(app.clone(), cfg, state, db);
     Ok(job_id)
 }
 
@@ -417,7 +417,7 @@ pub fn batch_start_prep(
     }
     let _ = app.emit("library-changed", serde_json::json!({}));
     let _ = app.emit("job-list-changed", serde_json::json!({}));
-    let _ = pump_queue(app.clone(), cfg, state, db);
+    pump_logged(app.clone(), cfg, state, db);
     Ok(serde_json::json!({ "batch_id": batch_id, "enqueued": enqueued, "skipped": skipped }))
 }
 
@@ -562,7 +562,11 @@ pub fn batch_start(
                 created_at: now_ms(),
                 updated_at: now_ms(),
             };
-            let _ = books_repo.upsert(&book);
+            crate::infrastructure::log::log_err(
+                "job",
+                "更新书的处理状态",
+                books_repo.upsert(&book),
+            );
         }
         // 书级模型: 书有绑定用书级, 否则按书语言全局推荐
         let (b_llm, b_tts, b_nlp) = crate::application::model_service::resolve_for_book(
@@ -625,7 +629,7 @@ pub fn batch_start(
     }
     let _ = app.emit("library-changed", serde_json::json!({}));
     let _ = app.emit("job-list-changed", serde_json::json!({}));
-    let _ = pump_queue(app.clone(), cfg, state, db);
+    pump_logged(app.clone(), cfg, state, db);
     Ok(batch_id)
 }
 
@@ -762,7 +766,7 @@ pub fn job_retry_custom(
         j.updated_at = now_ms();
         repo.upsert(&j)?;
     }
-    let _ = pump_queue(app.clone(), cfg, state, db);
+    pump_logged(app.clone(), cfg, state, db);
     Ok(())
 }
 
@@ -856,7 +860,7 @@ pub fn job_cancel(
             j.updated_at = now_ms();
             repo.upsert(&j)?;
             // 队列里还有别的任务时接着跑, 不是取消一个就把整条队列停了
-            let _ = pump_queue(app.clone(), cfg, state, db);
+            pump_logged(app.clone(), cfg, state, db);
         }
         _ => {
             return Err(format!(
@@ -892,8 +896,18 @@ pub fn job_resume(
         q.push(id.clone());
     }
     let _ = app.emit("job-list-changed", serde_json::json!({}));
-    let _ = pump_queue(app.clone(), cfg, state, db);
+    pump_logged(app.clone(), cfg, state, db);
     Ok(())
+}
+
+/// 启动下一个排队任务; 失败只记日志。调用点都在"别的事刚做完, 顺手推进队列"的位置,
+/// 没法再向上返回错误, 但不能像以前 `let _ =` 那样连日志都不留 (S5)。
+fn pump_logged(app: tauri::AppHandle, cfg: &PrepConfig, state: &PrepState, db: &store::Db) {
+    crate::infrastructure::log::log_err(
+        "queue",
+        "启动下一个排队任务",
+        pump_queue(app, cfg, state, db),
+    );
 }
 
 pub fn pump_queue(
@@ -949,7 +963,11 @@ pub fn pump_queue(
                 b.status = "processing".into();
                 b.pack_dir = job.output_dir.clone();
                 b.updated_at = now_ms();
-                let _ = books_repo.upsert(&b);
+                crate::infrastructure::log::log_err(
+                    "job",
+                    "更新书的处理状态",
+                    books_repo.upsert(&b),
+                );
                 let _ = app.emit("library-changed", serde_json::json!({}));
             }
         }
@@ -970,7 +988,7 @@ pub fn pump_queue(
             j.stage = "spawn_error".into();
             j.error = Some(format!("启动处理引擎失败: {e}"));
             j.updated_at = now_ms();
-            let _ = repo.upsert(&j);
+            crate::infrastructure::log::log_err("job", "保存任务状态/进度", repo.upsert(&j));
             let _ = app.emit(
                 "job-progress",
                 serde_json::json!({
@@ -979,7 +997,7 @@ pub fn pump_queue(
                 }),
             );
             // 继续处理队列里的下一个任务
-            let _ = pump_queue(app, cfg, state, db);
+            pump_logged(app, cfg, state, db);
             return Err(format!("启动侧车失败: {e}"));
         }
     };
@@ -1042,7 +1060,11 @@ pub fn pump_queue(
                                     // v9: 全书完成度 (阶段权重均分, 后端算)
                                     j.progress = overall_progress(&j.stage, *current, *total);
                                     j.updated_at = now_ms();
-                                    let _ = repo.upsert(&j);
+                                    crate::infrastructure::log::log_err(
+                                        "job",
+                                        "保存任务状态/进度",
+                                        repo.upsert(&j),
+                                    );
                                 }
                             }
                         }
@@ -1056,7 +1078,11 @@ pub fn pump_queue(
                                     j.current = done;
                                     j.progress = overall_progress(&j.stage, done, j.total);
                                     j.updated_at = now_ms();
-                                    let _ = repo.upsert(&j);
+                                    crate::infrastructure::log::log_err(
+                                        "job",
+                                        "保存任务状态/进度",
+                                        repo.upsert(&j),
+                                    );
                                 }
                             }
                         }
@@ -1067,7 +1093,11 @@ pub fn pump_queue(
                                 if let Some(mut j) = repo.get(&job_id2) {
                                     j.failed_count = failed_count;
                                     j.updated_at = now_ms();
-                                    let _ = repo.upsert(&j);
+                                    crate::infrastructure::log::log_err(
+                                        "job",
+                                        "保存任务状态/进度",
+                                        repo.upsert(&j),
+                                    );
                                 }
                             }
                         }
@@ -1094,7 +1124,11 @@ pub fn pump_queue(
                 if j.status == "paused" {
                     job_batch_id = j.batch_id.clone();
                     j.updated_at = now_ms();
-                    let _ = repo.upsert(&j);
+                    crate::infrastructure::log::log_err(
+                        "job",
+                        "保存任务状态/进度",
+                        repo.upsert(&j),
+                    );
                 } else {
                     let bp = std::path::Path::new(&j.output_dir).join("bookpack.json");
                     j.status = if bp.exists() {
@@ -1124,7 +1158,11 @@ pub fn pump_queue(
                     }
                     j.updated_at = now_ms();
                     job_batch_id = j.batch_id.clone();
-                    let _ = repo.upsert(&j);
+                    crate::infrastructure::log::log_err(
+                        "job",
+                        "保存任务状态/进度",
+                        repo.upsert(&j),
+                    );
                 }
             }
             if let Some(bid) = job_batch_id {
@@ -1146,7 +1184,9 @@ pub fn pump_queue(
                             &job_dir2.to_string_lossy(),
                             &profile_id,
                         );
-                        let _ = crate::application::library_service::register_book(
+                        // S5: 任务做完了, 但登记进书库失败 (register_book 返回 None) —— 书不会出现在
+                        // 书库里, 必须留下日志, 否则只看到"处理完成"却找不到书。
+                        let registered = crate::application::library_service::register_book(
                             db.inner(),
                             id,
                             &job_dir2.to_string_lossy(),
@@ -1168,12 +1208,25 @@ pub fn pump_queue(
                             },
                             None,
                         );
+                        if registered.is_none() {
+                            crate::infrastructure::log::error(
+                                "job",
+                                &format!(
+                                    "任务 {job_id2} 已完成, 但登记进书库失败 (读取/解析 {} 的 bookpack.json 出错), 书不会出现在书库里",
+                                    job_dir2.to_string_lossy()
+                                ),
+                            );
+                        }
                         if let Some(edition) =
                             crate::store::editions_repo::EditionsRepo::new(db.inner())
                                 .find_by_pack_dir(&job_dir2.to_string_lossy())
                         {
-                            let _ = crate::store::jobs_repo::JobsRepo::new(db.inner())
-                                .attach_edition(&job_id2, &edition.id);
+                            crate::infrastructure::log::log_err(
+                                "job",
+                                "关联任务与译本",
+                                crate::store::jobs_repo::JobsRepo::new(db.inner())
+                                    .attach_edition(&job_id2, &edition.id),
+                            );
                         }
                         // v7 架构分离: 原版书标 done (产物独立为 product)
                         // Bug fix (2026-08-13): 用 orig_book_id2 (job.source_id) 而非重算
@@ -1197,7 +1250,7 @@ pub fn pump_queue(
             app_state.try_state::<store::Db>(),
             prep_state_opt,
         ) {
-            let _ = pump_queue(app_state.clone(), cfg.inner(), st.inner(), db.inner());
+            pump_logged(app_state.clone(), cfg.inner(), st.inner(), db.inner());
         }
         let _ = app_state.emit("job-list-changed", serde_json::json!({}));
     });

@@ -168,59 +168,10 @@ pub fn export_aidu_data_scoped(
 /// 从 AIDU v3 JSON 导入 vocab + dictionary (按 updatedAt 合并, 不覆盖本地更新的条目)
 pub fn import_aidu_data(db: &Db, backup: &serde_json::Value) -> Result<serde_json::Value, String> {
     let data = backup.get("data").ok_or("备份缺少 data 段")?;
-    let mut imported_vocab = 0usize;
-    let mut imported_dict = 0usize;
 
-    // vocab: data.vocab["vocab_<profile>"] = {lemma: entry}
-    if let Some(vocab_map) = data.get("vocab").and_then(|v| v.as_object()) {
-        let uid = crate::store::users_repo::DEFAULT_USER_ID;
-        for (storage_key, entries) in vocab_map {
-            let profile = storage_key
-                .strip_prefix("vocab_")
-                .unwrap_or(storage_key)
-                .to_string();
-            if let Some(entries_obj) = entries.as_object() {
-                let repo = VocabRepo::new(db);
-                for (lemma, payload) in entries_obj {
-                    match serde_json::from_value::<crate::domain::vocab::VocabEntry>(
-                        payload.clone(),
-                    ) {
-                        Ok(entry) => {
-                            let local = repo.get(uid, &profile, lemma);
-                            let remote_newer = payload
-                                .get("updatedAt")
-                                .and_then(|v| v.as_i64())
-                                .unwrap_or(0)
-                                > local.as_ref().map(|l| l.updated_at).unwrap_or(0);
-                            if remote_newer {
-                                let _ = repo.upsert_sync(entry, uid, &profile);
-                                imported_vocab += 1;
-                            }
-                        }
-                        Err(e) => {
-                            let _ = e;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // dictionary: data.dictionaries["dictionary_<profile>"] = {lemma: entry}
-    if let Some(dict_map) = data.get("dictionaries").and_then(|v| v.as_object()) {
-        for (storage_key, entries) in dict_map {
-            let profile = storage_key
-                .strip_prefix("dictionary_")
-                .unwrap_or(storage_key)
-                .to_string();
-            if let Some(entries_obj) = entries.as_object() {
-                for (lemma, payload) in entries_obj {
-                    let _ = upsert_dictionary(db, &profile, lemma, payload);
-                    imported_dict += 1;
-                }
-            }
-        }
-    }
+    // vocab / dictionary: 各自一节, 返回 (已导入, 没导进来)
+    let (imported_vocab, failed_vocab) = import_vocab_section(db, data);
+    let (imported_dict, failed_dict) = import_dictionary_section(db, data);
 
     // M7 R31: 摘录 (data.highlights["highlights_<book_key>"] = [Highlight...])
     // upsert 按 id 覆盖, 重复备份幂等。
@@ -310,6 +261,8 @@ pub fn import_aidu_data(db: &Db, backup: &serde_json::Value) -> Result<serde_jso
     Ok(serde_json::json!({
         "imported_vocab": imported_vocab,
         "imported_dictionary": imported_dict,
+        "failed_vocab": failed_vocab,
+        "failed_dictionary": failed_dict,
         "imported_highlights": imported_hl,
         "imported_reading_state": imported_reading,
     }))
@@ -340,6 +293,90 @@ fn list_dictionary_payloads(
         }
     }
     out
+}
+
+/// 导入 data.vocab["vocab_<profile>"] = {lemma: entry}; 返回 (已导入, 没导进来)。
+/// 只有远端 updatedAt 严格更新才写; 写库失败/格式无法解析的都计入第二个数 (S5)。
+fn import_vocab_section(db: &Db, data: &serde_json::Value) -> (usize, usize) {
+    let mut imported = 0usize;
+    let mut failed = 0usize;
+    if let Some(vocab_map) = data.get("vocab").and_then(|v| v.as_object()) {
+        let uid = crate::store::users_repo::DEFAULT_USER_ID;
+        for (storage_key, entries) in vocab_map {
+            let profile = storage_key
+                .strip_prefix("vocab_")
+                .unwrap_or(storage_key)
+                .to_string();
+            if let Some(entries_obj) = entries.as_object() {
+                let repo = VocabRepo::new(db);
+                for (lemma, payload) in entries_obj {
+                    match serde_json::from_value::<crate::domain::vocab::VocabEntry>(
+                        payload.clone(),
+                    ) {
+                        Ok(entry) => {
+                            let local = repo.get(uid, &profile, lemma);
+                            let remote_newer = payload
+                                .get("updatedAt")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0)
+                                > local.as_ref().map(|l| l.updated_at).unwrap_or(0);
+                            if remote_newer {
+                                // S5: 此前不管写没写成功都 +1, 报告里的"已导入 N 个生词"会虚高。
+                                match repo.upsert_sync(entry, uid, &profile) {
+                                    Ok(_) => imported += 1,
+                                    Err(e) => {
+                                        failed += 1;
+                                        crate::infrastructure::log::error(
+                                            "transfer",
+                                            &format!("导入生词「{lemma}」写库失败: {e}"),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            // 条目格式不对 (备份被手改过/版本不兼容): 跳过, 但要让用户知道有几条没进来。
+                            failed += 1;
+                            crate::infrastructure::log::warn(
+                                "transfer",
+                                &format!("导入生词「{lemma}」格式无法解析, 已跳过: {e}"),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (imported, failed)
+}
+
+/// 导入 data.dictionaries["dictionary_<profile>"] = {lemma: entry}; 返回 (已导入, 没导进来)。
+fn import_dictionary_section(db: &Db, data: &serde_json::Value) -> (usize, usize) {
+    let mut imported = 0usize;
+    let mut failed = 0usize;
+    if let Some(dict_map) = data.get("dictionaries").and_then(|v| v.as_object()) {
+        for (storage_key, entries) in dict_map {
+            let profile = storage_key
+                .strip_prefix("dictionary_")
+                .unwrap_or(storage_key)
+                .to_string();
+            if let Some(entries_obj) = entries.as_object() {
+                for (lemma, payload) in entries_obj {
+                    match upsert_dictionary(db, &profile, lemma, payload) {
+                        Ok(_) => imported += 1,
+                        Err(e) => {
+                            failed += 1;
+                            crate::infrastructure::log::error(
+                                "transfer",
+                                &format!("导入词典条目「{lemma}」写库失败: {e}"),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (imported, failed)
 }
 
 fn upsert_dictionary(
@@ -521,6 +558,38 @@ mod tests {
         let report = import_aidu_data(&db, &backup).unwrap();
         assert_eq!(report["imported_vocab"], 0, "远端较旧不应覆盖");
         assert_eq!(repo.get("me", "default", "bank").unwrap().updated_at, 500);
+    }
+
+    /// S5 (2026-11-15) 回归: 导入时写库失败的条目不能计入"已导入", 要在 failed_vocab 里如实给出
+    /// (此前 `let _ = upsert_sync` 后无条件 +1, 提示"已恢复 N 个生词"会虚高)。
+    /// 格式无法解析的条目同样计入 failed_vocab, 而不是悄悄丢掉。
+    #[test]
+    fn import_counts_failed_writes_and_unparsable_entries() {
+        let db = temp_db();
+        db.conn
+            .lock()
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER fail_vocab_insert BEFORE INSERT ON vocab \
+                 BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+            )
+            .unwrap();
+        let backup = serde_json::json!({
+            "version": 3,
+            "data": { "vocab": { "vocab_default": {
+                "bank": serde_json::to_value(vocab_entry("bank", 100)).unwrap(),
+                "broken": { "word": 42 }
+            } } }
+        });
+        let report = import_aidu_data(&db, &backup).unwrap();
+        assert_eq!(
+            report["imported_vocab"], 0,
+            "写库失败的不能算已导入: {report}"
+        );
+        assert_eq!(
+            report["failed_vocab"], 2,
+            "1 条写库失败 + 1 条格式无法解析: {report}"
+        );
     }
 
     #[test]

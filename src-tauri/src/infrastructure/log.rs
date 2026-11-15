@@ -57,6 +57,15 @@ pub fn error(module: &str, msg: &str) {
     write_line("ERROR", module, msg);
 }
 
+/// S5 (2026-11-15): 丢弃 `Result` 之前先把错误记进日志。
+/// 用在"失败了不该打断主流程、但事后必须查得到"的地方 (进度落盘、排队、登记书库…),
+/// 取代裸 `let _ = ...` —— 后者让这类失败在日志里完全不留痕迹。
+pub fn log_err<T, E: std::fmt::Display>(module: &str, what: &str, r: Result<T, E>) {
+    if let Err(e) = r {
+        error(module, &format!("{what}失败: {e}"));
+    }
+}
+
 /// 前端错误日志 (命令)
 pub fn log_from_frontend(level: String, module: String, message: String) -> Result<(), String> {
     match level.as_str() {

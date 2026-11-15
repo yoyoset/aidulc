@@ -137,7 +137,7 @@ pub fn pump_standardize_queue(
         b.standardize_note = None;
         b.standardize_cache_path = None;
         b.updated_at = store::now_ms_for_store();
-        let _ = repo.upsert(&b);
+        crate::infrastructure::log::log_err("standardize", "保存体检状态", repo.upsert(&b));
     }
     let _ = app.emit("library-changed", serde_json::json!({}));
 
@@ -179,7 +179,7 @@ pub fn pump_standardize_queue(
                 b.standardize_note = Some(outcome.note);
                 b.standardize_cache_path = outcome.cache_path;
                 b.updated_at = store::now_ms_for_store();
-                let _ = repo.upsert(&b);
+                crate::infrastructure::log::log_err("standardize", "保存体检状态", repo.upsert(&b));
             }
         }
         let _ = app2.emit("library-changed", serde_json::json!({}));
@@ -193,7 +193,11 @@ pub fn pump_standardize_queue(
             app2.try_state::<store::Db>(),
             app2.try_state::<StandardizeState>(),
         ) {
-            let _ = pump_standardize_queue(app2.clone(), cfg.inner(), state.inner(), db.inner());
+            crate::infrastructure::log::log_err(
+                "standardize",
+                "启动下一个体检任务",
+                pump_standardize_queue(app2.clone(), cfg.inner(), state.inner(), db.inner()),
+            );
         }
     });
 

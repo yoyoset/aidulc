@@ -605,7 +605,12 @@
             if (d.imported_vocab) bits.push(d.imported_vocab + ' 个生词');
             if (d.imported_dictionary) bits.push(d.imported_dictionary + ' 条词典');
             if (d.imported_highlights) bits.push(d.imported_highlights + ' 条摘录');
-            AiduToast.show('已恢复' + (bits.length ? ' ' + bits.join(' · ') : ''), 'success');
+            // S5 (2026-11-15): 有条目没导进来 (写库失败/格式无法解析) 必须说出来, 不能只报成功数
+            const failedN = (d.failed_vocab || 0) + (d.failed_dictionary || 0);
+            const doneText = '已恢复' + (bits.length ? ' ' + bits.join(' · ') : '');
+            AiduToast.show(
+              failedN ? doneText + ` · 另有 ${failedN} 条没能导入 (详见日志)` : doneText,
+              failedN ? 'error' : 'success');
             this._load();
           });
         };

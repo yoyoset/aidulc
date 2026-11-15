@@ -317,7 +317,11 @@ pub fn pause_all(
         .map(|j| j.id)
         .collect();
     for id in ids {
-        let _ = orch::job_pause(app.clone(), state.inner(), db.inner(), id);
+        crate::infrastructure::log::log_err(
+            "jobs",
+            "全部暂停时暂停任务",
+            orch::job_pause(app.clone(), state.inner(), db.inner(), id),
+        );
     }
     let _ = app.emit("job-list-changed", serde_json::json!({}));
     Ok(())
@@ -340,7 +344,11 @@ pub fn resume_all(
         .map(|j| j.id)
         .collect();
     for id in ids {
-        let _ = orch::job_resume(app.clone(), state.inner(), cfg.inner(), db.inner(), id);
+        crate::infrastructure::log::log_err(
+            "jobs",
+            "全部继续时恢复任务",
+            orch::job_resume(app.clone(), state.inner(), cfg.inner(), db.inner(), id),
+        );
     }
     let _ = app.emit("job-list-changed", serde_json::json!({}));
     Ok(())

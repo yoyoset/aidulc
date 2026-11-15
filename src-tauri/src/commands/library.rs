@@ -580,7 +580,7 @@ pub fn load_bookpack(
     };
     if repo.get(&auto_id).is_none() {
         // M 系列: 复用共享登记 (读 bookpack.json → 构造 Book → upsert)
-        let _ = crate::application::library_service::register_book(
+        if crate::application::library_service::register_book(
             db.inner(),
             auto_id.clone(),
             &target.to_string_lossy(),
@@ -592,7 +592,17 @@ pub fn load_bookpack(
             None,
             None,
             None,
-        );
+        )
+        .is_none()
+        {
+            crate::infrastructure::log::error(
+                "library",
+                &format!(
+                    "登记书库失败: {} 的 bookpack.json 读取/解析出错",
+                    target.to_string_lossy()
+                ),
+            );
+        }
     }
     let _ = app.emit("library-changed", serde_json::json!({}));
 

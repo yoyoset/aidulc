@@ -95,7 +95,7 @@
                       go.style.marginLeft = '8px';
                       go.onclick = () => {
                         const card = document.querySelector && document.querySelector('.model-active-card');
-                        if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        if (card && card.scrollIntoView) card.scrollIntoView({ behavior: (window.AiduMotion ? AiduMotion.scrollBehavior() : 'smooth'), block: 'start' });
                       };
                       row.appendChild(go);
                     }

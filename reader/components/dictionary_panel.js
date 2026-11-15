@@ -74,7 +74,7 @@
       el.className = 'dict-panel';
       el.innerHTML = `
         <div class="dict-header">
-          <button class="btn-small dict-close">✕</button>
+          <button class="btn-small dict-close" aria-label="关闭词典面板">✕</button>
         </div>
         <div class="dict-body"></div>
       `;
@@ -84,8 +84,20 @@
       this.body = el.querySelector('.dict-body');
     }
 
+    /** E7 (2026-11-15): 词来自书里被点的文本, 不能拼进 innerHTML (含 < 的 token 会被当成标签), 用 textContent 建节点。 */
+    _setStatusView(word, text) {
+      this.body.textContent = '';
+      const w = document.createElement('div');
+      w.className = 'dict-word';
+      w.textContent = word;
+      const s = document.createElement('div');
+      s.className = 'dict-loading';
+      s.textContent = text;
+      this.body.append(w, s);
+    }
+
     _setLoading(word) {
-      this.body.innerHTML = `<div class="dict-word">${word}</div><div class="dict-loading">查词中…</div>`;
+      this._setStatusView(word, '查词中…');
     }
 
     _setError(msg) {
@@ -176,7 +188,7 @@
         go.className = 'btn-small';
         go.textContent = '确认发送';
         go.onclick = () => {
-          this.body.innerHTML = `<div class="dict-word">${this._word}</div><div class="dict-loading">在线查词中…</div>`;
+          this._setStatusView(this._word, '在线查词中…');
           AiduDictionaryService.lookupOnline(this._word, this._context).then((r) => {
             if (!r.ok) { this._setOnlineError(r.error); return; }
             // K13 (2026-08-14): source='online' 让 _render 里的置信度徽章显示"在线 AI 生成"

@@ -80,6 +80,7 @@
       close.type = 'button';
       close.className = 'rd-calibrator-close';
       close.textContent = '×';
+      close.setAttribute('aria-label', '关闭跟读校准');
       close.title = '收起';
       close.onclick = () => this.hide();
       head.appendChild(close);

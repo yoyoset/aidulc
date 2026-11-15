@@ -77,6 +77,7 @@
       const close = document.createElement('button');
       close.className = 'btn-small';
       close.textContent = '✕';
+      close.setAttribute('aria-label', '关闭书签面板');
       close.onclick = () => panel.remove();
       header.append(title, close);
       const list = document.createElement('div');

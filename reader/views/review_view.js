@@ -69,7 +69,12 @@
     async _load() {
       const res = await AiduDictionaryService.vocabAll(this.profileId);
       if (!res.ok) {
-        this._container.innerHTML = '<div class="global-error">加载生词失败: ' + res.error + '</div>';
+        // E7: 错误文本不拼进 innerHTML (后端错误里可能带路径/尖括号), 用 textContent
+        this._container.textContent = '';
+        const errBox = document.createElement('div');
+        errBox.className = 'global-error';
+        errBox.textContent = '加载生词失败: ' + res.error;
+        this._container.appendChild(errBox);
         return;
       }
       const entries = res.data || [];

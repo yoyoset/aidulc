@@ -417,6 +417,7 @@
       back.className = 'rd-back';
       back.textContent = '←';
       back.title = '返回';
+      back.setAttribute('aria-label', back.title);
       back.onclick = () => this.onBack && this.onBack();
       const title = document.createElement('span');
       title.className = 'rd-title';
@@ -433,18 +434,21 @@
       bookmarksBtn.className = 'rd-gear rd-bookmarks-btn';
       bookmarksBtn.textContent = '🔖';
       bookmarksBtn.title = '书签';
+      bookmarksBtn.setAttribute('aria-label', bookmarksBtn.title);
       bookmarksBtn.onclick = () => this.bookmarks.showPanel();
       // UX7 #4: 顶栏「📕 笔记」入口(摘录面板)—— 不再只藏在 Ctrl+K 命令面板里
       const notesBtn = document.createElement('button');
       notesBtn.className = 'rd-gear rd-notes-btn';
       notesBtn.textContent = '📕';
       notesBtn.title = '笔记(摘录)';
+      notesBtn.setAttribute('aria-label', notesBtn.title);
       notesBtn.onclick = () => this.highlights.togglePanel();
       // 2026-08-31: 顶栏「⏱ 跟读校准」—— 高亮和声音对不上时从当前句起整体平移
       const syncBtn = document.createElement('button');
       syncBtn.className = 'rd-gear rd-sync-btn';
       syncBtn.textContent = '⏱';
       syncBtn.title = '跟读校准 (高亮和声音对不上时用)';
+      syncBtn.setAttribute('aria-label', syncBtn.title);
       syncBtn.hidden = true; // 无音频的章节没有可校准的时间轴, 由 _loadChapter 按章开关
       syncBtn.onclick = () => this.calibrator.toggle();
       this.syncBtn = syncBtn;
@@ -452,6 +456,7 @@
       gear.className = 'rd-gear';
       gear.textContent = '⚙';
       gear.title = '页面设置';
+      gear.setAttribute('aria-label', gear.title);
       gear.onclick = () => {
         // B (2026-08-11): 打开前把 live 的 pace/preset 同步进 settings 快照 —— 设置浮层
         // 的「播放」节要反映当前值 (pace 可能被 S 键/↻ 改过, preset 可能被跟读条改过,
@@ -781,6 +786,7 @@
       const close = document.createElement('button');
       close.className = 'btn-small';
       close.textContent = '✕';
+      close.setAttribute('aria-label', '关闭');
       close.onclick = () => panel.remove();
       head.append(title, close);
       const body = document.createElement('div');
@@ -877,7 +883,7 @@
       const r = block.getBoundingClientRect();
       const vh = window.innerHeight || 1;
       if (r.top >= 0 && r.bottom <= vh) return; // 完全在视口内, 不动
-      window.scrollTo({ top: window.scrollY + r.top - vh * 0.4, behavior: 'smooth' });
+      window.scrollTo({ top: window.scrollY + r.top - vh * 0.4, behavior: (window.AiduMotion ? AiduMotion.scrollBehavior() : 'smooth') });
     }
 
     _setAnchor(index, opts = {}) {
@@ -915,11 +921,11 @@
       const block = document.querySelector(`.atomic-block[data-index="${index}"]`);
       if (!block) return;
       if (center == null) {
-        block.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        block.scrollIntoView({ behavior: (window.AiduMotion ? AiduMotion.scrollBehavior() : 'smooth'), block: 'center' });
         return;
       }
       const r = block.getBoundingClientRect();
-      window.scrollTo({ top: window.scrollY + r.top - window.innerHeight * center, behavior: 'smooth' });
+      window.scrollTo({ top: window.scrollY + r.top - window.innerHeight * center, behavior: (window.AiduMotion ? AiduMotion.scrollBehavior() : 'smooth') });
     }
 
     async _setSentenceVisible(index) {

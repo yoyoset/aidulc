@@ -3029,5 +3029,25 @@ console.log('== 19. D4 (2026-11-15): 检查更新只在点按钮时联网, 结�
   check('D4: 网络失败 → 如实显示失败原因, 按钮恢复可用', textOf(cU).includes('检查失败: 连不上更新服务器') && updBtn.disabled === false, textOf(cU).slice(-160));
 }
 
+console.log('== 20. E7 (2026-11-15): 文本不拼进 innerHTML + 图标按钮有可读名称 ==');
+{
+  // ① 被点的词来自书里的文本: 含 < 的 token 必须当文本显示, 不能被解析成标签
+  const evil = '<img src=x onerror=alert(1)>';
+  const pe = new globalThis.DictionaryPanel();
+  pe.body = makeElement('div');
+  pe._setLoading(evil);
+  const wordEl = queryAll(pe.body, '.dict-word')[0];
+  check('E7: 查词面板把词当文本显示 (textContent 原样)', wordEl && wordEl.textContent === evil, wordEl && wordEl.textContent);
+  check('E7: 词里的 <img> 没有被解析成元素', queryAll(pe.body, 'img').length === 0, 'img=' + queryAll(pe.body, 'img').length);
+  check('E7: 状态行「查词中…」仍在', textOf(pe.body).includes('查词中…'));
+  pe._word = evil;
+  // ② 全局播放按钮: 文字是 ▶/⏹ 符号, 读屏要念成人话, 且随状态变化
+  const gs2 = new globalThis.GlobalStopButton({ onToggle: () => {} });
+  const nameOf = (b) => (b.getAttribute ? b.getAttribute('aria-label') : (b.attrs || {})['aria-label']);
+  check('E7: 全局播放按钮(▶)有 aria-label', !!nameOf(gs2.el) && /播放/.test(nameOf(gs2.el)), nameOf(gs2.el));
+  gs2.setPlaying(true);
+  check('E7: 播放中(⏹)的 aria-label 随之变成「停止」', /停止/.test(nameOf(gs2.el) || ''), nameOf(gs2.el));
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

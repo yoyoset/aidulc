@@ -73,6 +73,7 @@
         // 用户列表只剩 1 个时隐藏, 避免删到 0 个。
         const delUserBtn = el('button', 'app-nav-link', '🗑');
         delUserBtn.title = '删除当前用户(仅空用户可删)';
+        delUserBtn.setAttribute('aria-label', delUserBtn.title);
         const renderUsers = (users) => {
           userSel.innerHTML = '';
           users.forEach((u) => {

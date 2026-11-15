@@ -1006,3 +1006,16 @@ span.dict-source-online { background: var(--md-sys-color-warning-container); col
   cursor: pointer; font-size: 0.9rem;
 }
 .vocab-menu-item:hover { background: var(--md-sys-color-surface-variant); }
+
+/* E7 (2026-11-15): 尊重系统「减少动态效果」。过渡/动画统一压到近乎瞬时 (不删, 状态变化仍然发生,
+   只是不再动); JS 里的平滑滚动走 core/motion.js 取 behavior。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

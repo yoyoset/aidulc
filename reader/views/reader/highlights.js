@@ -453,6 +453,7 @@
       const close = document.createElement('button');
       close.className = 'btn-small';
       close.textContent = '✕';
+      close.setAttribute('aria-label', '关闭摘录面板');
       close.onclick = () => {
         panel.remove();
         this._searchInput = null; this._kindFilter = null; this._tagManagerWrap = null;

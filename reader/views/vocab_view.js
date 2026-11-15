@@ -154,7 +154,15 @@
     _load() {
       // M 系列: 走 service (生词本数据源是 vocab_all)
       AiduDictionaryService.vocabAll(this.profileId).then((res) => {
-        if (!res.ok) { this.listEl.innerHTML = '<div class="global-error">加载失败: ' + res.error + '</div>'; return; }
+        if (!res.ok) {
+          // E7: 错误文本不拼进 innerHTML, 用 textContent
+          this.listEl.textContent = '';
+          const errBox = document.createElement('div');
+          errBox.className = 'global-error';
+          errBox.textContent = '加载失败: ' + res.error;
+          this.listEl.appendChild(errBox);
+          return;
+        }
         this.entries = res.data || [];
         this._renderStats();
         this._renderChart();
@@ -254,6 +262,7 @@
           new Date(e.added_at || Date.now()).toLocaleDateString());
         // H3: 行尾 ⋯ 菜单 (维护动作): 移出生词本 / 标记已掌握 / 编辑释义 / 在阅读器中打开
         const menuBtn = el('button', 'vocab-menu-btn', '⋯');
+        menuBtn.setAttribute('aria-label', '更多操作');
         menuBtn.title = '更多操作';
         menuBtn.onclick = (ev) => { ev.stopPropagation(); this._openRowMenu(e, row); };
         head.append(check, word, meaning, stage, added, menuBtn);

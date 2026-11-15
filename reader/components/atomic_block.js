@@ -73,6 +73,7 @@
       const playBtn = document.createElement('button');
       playBtn.className = 'atool atool-play';
       playBtn.title = '从这句播到章末'; // S5: 默认通篇; 逐句模式经 setPace 改提示
+      playBtn.setAttribute('aria-label', playBtn.title);
       playBtn.textContent = '▶';
       playBtn.onclick = (e) => { e.stopPropagation(); onPlay && onPlay(index); };
       tools.appendChild(playBtn);
@@ -80,6 +81,7 @@
       const followBtn = document.createElement('button');
       followBtn.className = 'atool atool-follow';
       followBtn.title = '逐句跟读 (进/退)';
+      followBtn.setAttribute('aria-label', followBtn.title);
       followBtn.textContent = '↻';
       followBtn.onclick = (e) => { e.stopPropagation(); onFollowToggle && onFollowToggle(index); };
       tools.appendChild(followBtn);
@@ -286,6 +288,7 @@
           isPlaying = !!v;
           playBtn.textContent = isPlaying ? '❙❙' : '▶';
           playBtn.title = isPlaying ? '暂停这句' : (blockPace === 'sentence' ? '只播这句 (逐句)' : '从这句播到章末');
+          playBtn.setAttribute('aria-label', playBtn.title);
           playBtn.classList.toggle('active', isPlaying);
         },
 
@@ -293,6 +296,7 @@
         setPace(p) {
           blockPace = p === 'sentence' ? 'sentence' : 'flow';
           playBtn.title = isPlaying ? '暂停这句' : (blockPace === 'sentence' ? '只播这句 (逐句)' : '从这句播到章末');
+          playBtn.setAttribute('aria-label', playBtn.title);
         },
 
         setFollow(v) {
@@ -300,6 +304,7 @@
           followBtn.classList.toggle('active', isFollow);
           followBtn.textContent = isFollow ? '⤫' : '↻';
           followBtn.title = isFollow ? '退出逐句跟读' : '逐句跟读 (进/退)';
+          followBtn.setAttribute('aria-label', followBtn.title);
         },
 
         /** 词级朗读高亮 (先答后核/静默正文的词底色) */

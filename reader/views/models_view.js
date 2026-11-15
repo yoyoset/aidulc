@@ -290,6 +290,7 @@
           const when = s.imported_at ? new Date(s.imported_at).toLocaleString() : '';
           const code = el('code', 'j0-path', `${s.label} · ${s.word_count} 词${when ? ' · ' + when : ''}`);
           const rm = el('button', 'btn-small scan-path-rm', '×');
+          rm.setAttribute('aria-label', '移除这个扫描目录');
           rm.title = '删除这个词典源(连同它导入的所有词条)';
           rm.onclick = () => {
             AiduModal.confirm({
@@ -320,6 +321,7 @@
         const row = el('div', 'model-dir-row');
         const code = el('code', 'j0-path', p);
         const rm = el('button', 'btn-small scan-path-rm', '×');
+        rm.setAttribute('aria-label', '移除这个扫描目录');
         rm.title = '从扫描/下载目录移除';
         rm.onclick = () => { this._modelDirs.splice(i, 1); this._renderModelDirs(dirsEl); };
         row.append(code, rm);
@@ -1138,6 +1140,7 @@
         const row = el('div', 'scan-path-row');
         const code = el('code', 'j0-path', p);
         const rm = el('button', 'btn-small scan-path-rm', '×');
+        rm.setAttribute('aria-label', '移除这个扫描目录');
         rm.title = '移除这个扫描路径';
         rm.onclick = () => { this._scanPaths.splice(i, 1); this._renderScanPaths(pathList, resultEl); };
         row.append(code, rm);

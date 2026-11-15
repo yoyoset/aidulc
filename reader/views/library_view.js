@@ -353,6 +353,7 @@
             openBtn.onclick = () => this.onOpenBook && this.onOpenBook(book);
             actions.append(openBtn);
           const menuBtn = el('button', 'btn-small', '⋯');
+          menuBtn.setAttribute('aria-label', '更多操作');
           // K12 (2026-08-14): 只在没封面时提供"补封面"入口, 有封面的书不需要
           menuBtn.onclick = () => this._openBookMenu(book, { export: true, delete: true, online: true, backfillCover: !book.cover_file });
           actions.appendChild(menuBtn);
@@ -368,6 +369,7 @@
           }
           actions.append(createBtn);
           const menuBtn = el('button', 'btn-small', '⋯');
+          menuBtn.setAttribute('aria-label', '更多操作');
           // 2026-08-17: 补封面接到这里。K12 当初只把它写进 kind==='product' 分支, 而
           // main.js 只挂了 new LibraryView(store,'original') 这一个视图 —— 那个分支
           // 在 UI 上根本到不了, 这个功能从写出来就是点不到的(用户实测: 书卡 ⋯ 和
@@ -436,6 +438,7 @@
                 }
                 childOpen.onclick = () => this.onOpenBook && this.onOpenBook(edition);
                 const childMenu = el('button', 'btn-small', '⋯');
+                childMenu.setAttribute('aria-label', '更多操作');
                 childMenu.onclick = () => this._openBookMenu(edition, { delete: true, editionChild: true });
                 childActions.append(childOpen, childMenu);
               }

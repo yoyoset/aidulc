@@ -22,6 +22,7 @@
     _render(playing) {
       this.el.textContent = playing ? '⏹' : '▶';
       this.el.title = playing ? '停止 (回到本句开头)' : '播放 (从当前句)';
+      this.el.setAttribute('aria-label', this.el.title);
       this.el.classList.toggle('playing', playing);
     }
 

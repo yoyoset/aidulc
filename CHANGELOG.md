@@ -6,6 +6,15 @@
 
 ## [Unreleased]
 
+### 安全与可访问性小修: 配对限流按来源 / innerHTML / aria-label / 减少动态效果(2026-11-15)
+
+- **同步服务端**(`cloud/worker`): 配对码兑换限流从"按被猜的码计数"(换码即绕过, 100 万个码可无限枚举; ROOT_SECRET 路径不限速)
+  改为按来源计数 + 全站每分钟失败上限。VPS 入口由 `server.mjs` 写可信来源头; 经 CF Tunnel 部署请加 `TRUST_PROXY=cf`,
+  经 nginx/caddy 加 `TRUST_PROXY=1`。**已部署的服务端需重新部署才生效。**
+- 阅读器: 4 处把文本拼进 `innerHTML` 改为 `textContent`; 20 余个只有图标的按钮补 `aria-label`; 系统开了「减少动态效果」时
+  过渡/动画和 JS 平滑滚动都收敛为瞬时。
+
+
 ### 可交付: 侧车依赖锁 / 文档归档 / 检查更新 / 发版脚本(2026-11-15)
 
 按 `docs/EVALUATION_2026-11-15.md` 阶段二落地 (D1–D5, 每项单独提交)。

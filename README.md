@@ -108,7 +108,7 @@ scripts/    check.ps1(全量门禁) + run.ps1(构建并启动) + sync_schema.ps1
 
 还有一条不成文但贯穿全项目的: **先实测再下结论**。涉及外部工具/文件格式的行为, 能跑
 就不要凭文档假设; 发现早先的判断和实测矛盾, 如实记录"最初以为是 A, 实测是 B"——
-`memory/`、`docs/GOAL_*.md`、`docs/WATCH_*.md` 里保留了不少这类更正, 它们是排查同类
+`memory/`、`docs/archive/GOAL_*.md`、`docs/archive/WATCH_*.md` 里保留了不少这类更正, 它们是排查同类
 问题最有价值的线索。
 
 ## 环境要求

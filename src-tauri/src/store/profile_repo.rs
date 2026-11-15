@@ -16,7 +16,7 @@ pub struct Profile {
     /// K33 (2026-08-16, 用户拍板"讲解深度分档不够, 要能调字数和触发门槛"): 讲解字数
     /// 上限——替代之前硬编码在提示词里的"讲得啰嗦一点没关系"这类无约束描述(实测
     /// Wonder 一书 explain 阶段讲解中位数 512 字符, 是原文的 10.7 倍, 且拖慢生成
-    /// 速度——见 docs/GOAL_2026-08-16_PERF.md)。
+    /// 速度——见 docs/archive/GOAL_2026-08-16_PERF.md)。
     #[serde(default = "default_explain_max_chars")]
     pub explain_max_chars: i64,
     /// K33: 讲解触发门槛——原文长度(字符数)低于这个值的句子不生成讲解, 直接跳过

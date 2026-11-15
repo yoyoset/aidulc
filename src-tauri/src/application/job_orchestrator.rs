@@ -707,7 +707,7 @@ pub fn job_retry_custom(
     }
     // F13 (2026-08-08): 重跑必须保留原始 profile (音色/策略/速度/粒度快照)
     let job_dir = std::path::PathBuf::from(&job.output_dir);
-    // STDIMPORT (2026-08-17, docs/GOAL_2026-08-16_STDIMPORT.md 方案 A): 重跑时可以重选
+    // STDIMPORT (2026-08-17, docs/archive/GOAL_2026-08-16_STDIMPORT.md 方案 A): 重跑时可以重选
     // 学习档案。**不改 book_id**(book_id 里烧进去的档案段退化成"创建时的档案"这个历史
     // 标签), 只把新档案写进本次 job_request 和任务行——用户的诉求是"就地改设置再重跑,
     // 只重跑讲解", 不是"生成另一本书"(那条路径由书库里换档案重新创建译本覆盖)。

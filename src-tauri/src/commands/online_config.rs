@@ -1,5 +1,5 @@
 //! commands/online_config.rs —— 在线 AI 引擎配置命令 (K3, 2026-08-11)
-//! 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 从 commands/misc.rs 拆出——
+//! 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 从 commands/misc.rs 拆出——
 //! OpenAI 兼容在线引擎的配置读写测试是独立于数据根/运行时探针的一个域。
 
 use tauri::State;

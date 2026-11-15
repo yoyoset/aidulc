@@ -1,5 +1,5 @@
 //! commands/log.rs —— 前端日志命令 (用户反馈排查)
-//! 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 从 commands/reader.rs 拆出。
+//! 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 从 commands/reader.rs 拆出。
 
 /// 前端错误/警告落盘 (全局 error/unhandledrejection 捕获)
 #[tauri::command]

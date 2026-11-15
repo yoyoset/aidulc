@@ -1,5 +1,5 @@
 //! commands/misc.rs —— 运行时探针命令 (M 系列)
-//! 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 原文件把"运行时/健康检查"、
+//! 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 原文件把"运行时/健康检查"、
 //! "数据根/书库位置/整根迁移"、"在线引擎配置"三个不相关域全挤在一起(命名"misc"本身
 //! 就是这个问题的证据), 已拆到 commands/data_root.rs、commands/online_config.rs。
 //! 这里只留真正"运行时探针": runtime_config/components_health/boot_ping/doc_parser_install。

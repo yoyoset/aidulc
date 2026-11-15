@@ -1,6 +1,6 @@
 //! commands/book_audit.rs —— 源书体检 (S1-S6) 的导入时把关入口
 //!
-//! STDIMPORT (2026-08-17, docs/GOAL_2026-08-16_STDIMPORT.md 第 3 节): 之前"导入"
+//! STDIMPORT (2026-08-17, docs/archive/GOAL_2026-08-16_STDIMPORT.md 第 3 节): 之前"导入"
 //! 只是往 books 表登记一行(路径 + status=pending), 完全不碰文件内容——一本路径编码
 //! 有问题、正文丢 95% 的书照样"导入成功", 要等用户点了开始处理、任务真跑起来才在
 //! parse 阶段被拦下。这里把同一份判据(prep 侧 core/standard.py, Rust 不重写一遍)

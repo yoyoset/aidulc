@@ -1,6 +1,6 @@
 //! infra/bookpack_cache.rs —— 书包解析缓存 (阶段3, 2026-08-09)
 //!
-//! 背景 (docs/FORENSIC_P0.md §4, 实测): `load_bookpack` 和 `load_bookpack_chapter`
+//! 背景 (docs/archive/FORENSIC_P0.md §4, 实测): `load_bookpack` 和 `load_bookpack_chapter`
 //! 每次请求都 `std::fs::read_to_string` 读整个 bookpack.json + `serde_json::from_str`
 //! 全量解析。真实 Wolf 21 书包(23.88MB)实测: 单次 open 读+解析 ≈ 470ms, 每切一章
 //! ≈ 419ms 整文件重读重解析 —— 大书多章切换时明显卡顿甚至像死掉。

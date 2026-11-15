@@ -1,6 +1,6 @@
 /**
  * views/settings/reading_tab.js —— 设置页「阅读显示」tab (主题/主题色/儿童模式)
- * 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 从 settings_view.js 拆出。
+ * 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 从 settings_view.js 拆出。
  * PALETTES 仍是 SettingsView 的静态成员(见该文件), 这里在调用时按运行时全局引用
  * (脚本加载顺序不影响, 因为只在 render 实际执行时才读取, 不在模块解析期读取)。
  */

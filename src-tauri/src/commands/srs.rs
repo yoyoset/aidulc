@@ -1,5 +1,5 @@
 //! commands/srs.rs —— 背单词调度器命令 (V2, 2026-08-09)
-//! 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 从原 commands/vocab.rs 再拆——
+//! 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 从原 commands/vocab.rs 再拆——
 //! 评分/间隔算法调度是独立于"生词本增删查"的一个域(调用 domain::srs 纯函数),
 //! 单独成文件。
 

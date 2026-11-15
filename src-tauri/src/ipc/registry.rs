@@ -131,7 +131,7 @@ pub const COMMANDS: &[CommandInfo] = &[
     },
     // ---- 阅读会话 (commands/reader.rs); 生词/词典/背单词 (commands/vocab.rs);
     //      同步后端 (commands/sync_backend.rs); 日志 (commands/log.rs)
-    //      治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 原来全挤在 reader.rs 一个文件,
+    //      治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 原来全挤在 reader.rs 一个文件,
     //      path 字段驱动 F29 去对应 .rs 文件里找函数签名, 拆分后必须跟着改, 不只是改注释。
     CommandInfo {
         path: "commands::dictionary::word_lookup",

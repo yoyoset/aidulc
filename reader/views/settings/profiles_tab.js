@@ -1,6 +1,6 @@
 /**
  * views/settings/profiles_tab.js —— 设置页「学习档案」tab (M6)
- * 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 从 settings_view.js 拆出。
+ * 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 从 settings_view.js 拆出。
  * VOICES/PALETTES 仍是 SettingsView 的静态成员(见该文件), 这里在调用时按运行时全局引用
  * (脚本加载顺序不影响, 因为只在 render 实际执行时才读取, 不在模块解析期读取)。
  */
@@ -151,7 +151,7 @@
 
       // K33 (2026-08-16, 用户拍板"讲解深度分档不够, 要能调字数和触发门槛"): 讲解字数上限——
       // 替代之前硬编码在提示词里的"讲得啰嗦一点没关系"(实测 Wonder 一书讲解中位数 512 字符,
-      // 是原文的 10.7 倍, 且大部分内容跑题、拖慢生成速度, 见 docs/GOAL_2026-08-16_PERF.md)。
+      // 是原文的 10.7 倍, 且大部分内容跑题、拖慢生成速度, 见 docs/archive/GOAL_2026-08-16_PERF.md)。
       const maxCharsRow = el('label', 'settings-row', '讲解字数上限');
       const maxCharsSel = el('select', null);
       [[50, '50 字(极简)'], [100, '100 字'], [150, '150 字(默认)'], [200, '200 字'], [300, '300 字(详细)']].forEach(([v, l]) => {

@@ -6,7 +6,7 @@
 
 一个"家的空间" = 一个 worker 实例。所有设备同步到同一个空间, 内部按 user 隔离。
 服务端**只存 SRS 状态 + 词条最小集(含来源单句)**, 绝不接收/存储书文件或整章正文
-(硬边界, 见 `docs/GOAL_STAGE_SRS.md`)。
+(硬边界, 见 `docs/archive/GOAL_STAGE_SRS.md`)。
 
 ## 接口
 

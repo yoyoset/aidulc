@@ -725,7 +725,7 @@ impl Db {
         }
         // v26 (UX7 #3, 2026-08-13): reading_state.bookmarks 从"当前章一组下标" number[]
         // 改成按章分组 { chapter: number[] }——旧格式切章时互相覆盖, 导致"书签没了", 见
-        // docs/GOAL_2026-08-13_UX7.md 二/#3。老数据不丢: 数组按该行自己的 chapter 列归位;
+        // docs/archive/GOAL_2026-08-13_UX7.md 二/#3。老数据不丢: 数组按该行自己的 chapter 列归位;
         // 已经是对象的行原样跳过 (幂等, 防止迁移重跑把数据二次包裹)。
         if version < 26 {
             conn.execute_batch("BEGIN IMMEDIATE;")

@@ -66,7 +66,7 @@
       settingsLayout.append(tabbar, panes);
       wrap.appendChild(settingsLayout);
 
-      // 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 5 个 tab 的渲染逻辑已拆到
+      // 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 5 个 tab 的渲染逻辑已拆到
       // reader/views/settings/*.js (system_tab.js/models_tab.js/sync_tab.js/
       // profiles_tab.js/reading_tab.js), 原来 889 行的巨型 render() 现在只做 tab 骨架 + 分发。
       new global.SettingsSystemTab().render(systemPane, this.store);

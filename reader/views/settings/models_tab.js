@@ -1,6 +1,6 @@
 /**
  * views/settings/models_tab.js —— 设置页「模型与依赖」tab 里的"依赖组件"小节
- * 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 从 settings_view.js 拆出。
+ * 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 从 settings_view.js 拆出。
  * 模型列表本身由已有的 ModelsView 类渲染(settings_view.js 里 new ModelsView().render()),
  * 这里只是同一个 pane 下追加的"依赖组件"(prep/ffmpeg/PyMuPDF/CUDA)健康检查小节。
  */

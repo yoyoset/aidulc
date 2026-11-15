@@ -1,5 +1,5 @@
 //! commands/reader.rs —— 阅读会话相关命令 (整本在线翻译 + 书签)
-//! 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 原文件把词典/生词本/背单词/
+//! 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 原文件把词典/生词本/背单词/
 //! 同步后端管理/日志五个不相关域全挤在一起(1710 行), 已拆到 commands/vocab.rs、
 //! commands/sync_backend.rs、commands/log.rs。这里只留真正"阅读"相关的命令。
 

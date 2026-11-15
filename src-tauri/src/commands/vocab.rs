@@ -1,5 +1,5 @@
 //! commands/vocab.rs —— 生词本命令 (I-B)
-//! 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 从原 commands/vocab.rs 再拆——
+//! 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 从原 commands/vocab.rs 再拆——
 //! 词典(dictionary 表)挪到 commands/dictionary.rs, 背单词调度(SRS 评分)挪到
 //! commands/srs.rs, 这里只留生词本(vocab 表, vocab_repo.rs 唯一写者)的增删查统计。
 

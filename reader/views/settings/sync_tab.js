@@ -1,6 +1,6 @@
 /**
  * views/settings/sync_tab.js —— 设置页「同步与数据」tab (背单词状态跨设备同步)
- * 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 从 settings_view.js 拆出。
+ * 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 从 settings_view.js 拆出。
  */
 (function (global) {
   'use strict';

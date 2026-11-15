@@ -1,6 +1,6 @@
 """scripts/audit_sources.py —— 对书库里已登记的源书批量跑 S1-S6 体检, 输出一张表。
 
-一次性运维脚本(不进 prep 包、不进打包), 用途见 docs/GOAL_2026-08-16_STDIMPORT.md
+一次性运维脚本(不进 prep 包、不进打包), 用途见 docs/archive/GOAL_2026-08-16_STDIMPORT.md
 第 2 节: 在改重跑/导入逻辑之前, 先把现有源书按"达标 / 只有警告 / 不达标"分三类,
 决定每本书用哪种重跑方式。
 

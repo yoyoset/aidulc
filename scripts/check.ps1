@@ -101,7 +101,7 @@ Run-Check "file-size (未登记文件硬上限; exempt 见 scripts/file_size_bas
     if ($violations.Count -gt 0) {
         Write-Output "超过 $defaultMax 行且未登记豁免:"
         $violations | ForEach-Object { Write-Output $_ }
-        Write-Output "—— 先看能不能按真实职责边界拆(参考 docs/GOAL_2026-08-13_FILESIZE.md);"
+        Write-Output "—— 先看能不能按真实职责边界拆(参考 docs/archive/GOAL_2026-08-13_FILESIZE.md);"
         Write-Output "确认'长但没混域、拆了更糟'再登记进 scripts/file_size_baseline.json 的 exempt, 并写明理由。"
         $global:LASTEXITCODE = 1
     } else {

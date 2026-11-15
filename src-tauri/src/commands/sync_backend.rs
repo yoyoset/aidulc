@@ -1,5 +1,5 @@
 //! commands/sync_backend.rs —— 同步状态/配置/多后端管理命令 (I-C, L11/M3)
-//! 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 从 commands/reader.rs 拆出——
+//! 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 从 commands/reader.rs 拆出——
 //! 这些命令管的是"同步后端(哪台服务器/哪个 worker)怎么连、怎么切、怎么断"这一个真实域,
 //! 和阅读/词典完全不相关。Tauri 命令名不变, 只是物理文件挪动。
 

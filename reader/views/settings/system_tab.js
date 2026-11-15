@@ -1,6 +1,6 @@
 /**
  * views/settings/system_tab.js —— 设置页「系统与书库」tab (日志/首次向导/书库位置/在线引擎)
- * 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 从 settings_view.js 的巨型
+ * 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 从 settings_view.js 的巨型
  * render() 拆出——原来 5 个 tab 全内联写在一个 889 行的函数里, 现在每个 tab 独立成文件,
  * 仿 reader/views/reader/*.js 已经用过的拆分模式。
  */

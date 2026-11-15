@@ -1,5 +1,5 @@
 //! commands/dictionary.rs —— 查词/词典命令 (I-A)
-//! 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 从 commands/vocab.rs 再拆——
+//! 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 从 commands/vocab.rs 再拆——
 //! 词典(dictionary 表, dict_repo.rs 唯一写者)和生词本(vocab 表, vocab_repo.rs 唯一写者)
 //! 是项目自己在存储所有权表里就分开的两张表/两个真实域, 这里只留"查词 + 个人词典资产"。
 

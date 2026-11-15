@@ -1,5 +1,5 @@
 //! commands/data_root.rs —— 数据根/书库位置/整根迁移命令 (J0/L1/L7/UX5 #4)
-//! 治理 (2026-08-13, docs/GOAL_2026-08-13_FILESIZE.md): 从 commands/misc.rs 拆出——
+//! 治理 (2026-08-13, docs/archive/GOAL_2026-08-13_FILESIZE.md): 从 commands/misc.rs 拆出——
 //! "书库到底在哪、怎么搬、怎么导入外部库"是一个独立且高风险(涉及文件搬迁+DB路径重写)
 //! 的真实域, 不该和运行时探针/在线引擎配置混在一份"misc"文件里。
 

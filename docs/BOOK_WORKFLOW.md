@@ -137,7 +137,7 @@ source 不能直接“打开阅读”；只有 edition 可以打开阅读。
 - 指向不存在 source/edition 的 job。
 - 仍被数据库引用的 pack_dir。
 
-## 4. 阶段 0 取证结果(2026-08-09, 详见 docs/FORENSIC_P0.md)
+## 4. 阶段 0 取证结果(2026-08-09, 详见 docs/archive/FORENSIC_P0.md)
 
 > 原取证任务已执行完毕, 本节记录结论, 作为阶段 2/3 修复依据。
 

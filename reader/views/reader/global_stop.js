@@ -2,7 +2,7 @@
  * views/reader/global_stop.js —— 浮动全局播放/停止按钮 (UX7 #2)
  * 只订阅 player.playing 状态、点击调 player.toggle(); 不持有任何播放编排逻辑
  * (stop 后再点 = 从当前句重读, 这个语义 player.toggle()/playFrom() 已经具备,
- * 见 docs/GOAL_2026-08-13_UX7.md 二、#2 复核)。仅当前章有音频时可见。
+ * 见 docs/archive/GOAL_2026-08-13_UX7.md 二、#2 复核)。仅当前章有音频时可见。
  */
 (function (global) {
   'use strict';

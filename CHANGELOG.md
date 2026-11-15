@@ -476,11 +476,11 @@ K12 把这个入口只写进 `library_view` 的 `kind === 'product'` 分支, 而
 给 translate/explain/tts 每次真实模型调用加计时探针(写进 `run.log`), 据此**更正了一个
 错误判断**: 原以为"批量化是最大杠杆", 实测 explain:translate 的耗时比(28.6x)与输出长度比
 (27x)几乎完全一致 —— 耗时正比于**生成的 token 数**, 不是调用次数。真正的杠杆是把讲解
-写短(即 K33), 而不是攒批。分析见 `docs/GOAL_2026-08-16_PERF.md`。
+写短(即 K33), 而不是攒批。分析见 `docs/archive/GOAL_2026-08-16_PERF.md`。
 
 ### chore: 跑批观察日志(2026-08-17)
 
-10 本书连跑一夜, 每小时抽查一次, 记录在 `docs/WATCH_2026-08-17.md` +
+10 本书连跑一夜, 每小时抽查一次, 记录在 `docs/archive/WATCH_2026-08-17.md` +
 `scripts/watch_run.py`(只读体检脚本)。这份日志里保留了**两次自我更正**:
 用文件 mtime 判断 checkpoint 内容新旧不成立(重跑时 translate 会重写整个文件, 刷新 mtime
 但保留旧 explanation), 正确判据是本轮 explain 调用次数 vs 讲解条数; 以及"字数上限=0"
@@ -490,7 +490,7 @@ K12 把这个入口只写进 `library_view` 的 `kind === 'product'` 分支, 而
 
 用户实测反馈的三件事(导入疑似重复 / "开始阅读准备"边界混乱 / 打开大书卡死)驱动了这次
 全流程重构。以 `docs/BOOK_WORKFLOW.md` 为基线文档, 阶段 0 先真实 exe 取证(报告见
-`docs/FORENSIC_P0.md`), 再按阶段 1-7 逐步落地。
+`docs/archive/FORENSIC_P0.md`), 再按阶段 1-7 逐步落地。
 
 **导入(阶段 2)**
 - `batch_import` 后端拆出可测的 `register_import_batch`(不需要 AppHandle): 同一路径同一
@@ -542,12 +542,12 @@ K12 把这个入口只写进 `library_view` 的 `kind === 'product'` 分支, 而
 - 新 lint `css:no-blk-texture`(atomic-block 禁 backdrop-filter/background-image)。
 
 **用户视角细化(阶段 7)**
-- `docs/UX_REQUIREMENTS.md`: 6 组 30+ 条需求明细; 落地快赢项(库刷新即时化 / prep 用
+- `docs/archive/UX_REQUIREMENTS.md`: 6 组 30+ 条需求明细; 落地快赢项(库刷新即时化 / prep 用
   edition_id 不再重算 book_id / 模型路径只显示文件名 / done→已就绪徽章)。
 
 **文档**
-- 新增 `docs/FORENSIC_P0.md`(阶段 0 取证报告, 更新 F45/F46)、`docs/ACCEPTANCE_P5.md`
-  (真实 exe 验收 10 条, 9/10 已实测 + GUI 复核清单)、`docs/UX_REQUIREMENTS.md`。
+- 新增 `docs/archive/FORENSIC_P0.md`(阶段 0 取证报告, 更新 F45/F46)、`docs/archive/ACCEPTANCE_P5.md`
+  (真实 exe 验收 10 条, 9/10 已实测 + GUI 复核清单)、`docs/archive/UX_REQUIREMENTS.md`。
 - README 同步更新(见下)。
 
 **验收(阶段 5)**

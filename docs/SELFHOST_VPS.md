@@ -150,8 +150,8 @@ curl -s https://sync.viiyd.com/v1/capabilities
 |---|---|---|
 | HTTPS 握手失败 (alert 40) | 用了 3-label 子域名, Universal SSL 不覆盖 | 换 2-label 子域名 |
 | 公网 80 被重定向到 lander | 机房面板 L7 拦截 HTTP | 用 CF Tunnel, 不依赖入站端口 |
-| 首台换 token 403 | ROOT_SECRET 配错 | 核对 systemd 里 Environment=ROOT_SECRET |
-| 桌面端状态"未配置" | worker_url 填错 / 没换 token | 设置页重填 URL + 换 token |
+| 首台连接 403 | ROOT_SECRET 配错 | 核对 systemd 里 Environment=ROOT_SECRET (忘了就在 VPS 上 `grep ROOT_SECRET /etc/systemd/system/aidulc-sync.service` 看) |
+| 桌面端状态"未配置" | 地址填错 / 还没点"连接" | 设置页「连接同步服务器」卡片重填地址 + 凭据, 点"连接" |
 | node 起不来 | ROOT_SECRET 为空 (server.mjs 拒绝启动) | 设 Environment=ROOT_SECRET |
 | 配对总是提示"尝试次数过多, 已锁定" | 没设 TRUST_PROXY, 反代后所有人共用一个来源 | 经 CF Tunnel 设 TRUST_PROXY=cf, 经 nginx/caddy 设 1 |
 | 配对提示"配对暂时停用" | 全站每分钟失败超过 30 次 (有人在枚举或脚本在狂试) | 等 1 分钟; 已配对设备的同步不受影响 |

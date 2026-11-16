@@ -263,6 +263,8 @@ load('views/prep_view.js');
 load('views/settings/system_tab.js');
 load('views/settings/models_tab.js');
 load('views/settings/profiles_tab.js');
+load('core/sync_credential.js');
+load('views/settings/sync_connect.js');
 load('views/settings/sync_tab.js');
 load('views/settings/reading_tab.js');
 load('views/settings_view.js');
@@ -534,6 +536,49 @@ console.log('== 2b. settings 同步区: 邀请新成员 (invite-user, 三项已�
   // 还原 makeCode (后续测试可能用到默认行为)
   globalThis.window.prompt = undefined;
   globalThis.AiduSyncService.makeCode = async () => ({ ok: true, data: { code: '654321' } });
+}
+
+console.log('== 2b2. 同步「连接」引导卡 (2026-11-16: 填完地址后不知道下一步) ==');
+{
+  const authCalls = [];
+  const savedAuth = globalThis.AiduSyncService.authDevice;
+  const savedStatus = globalThis.AiduSyncService.status;
+  globalThis.AiduSyncService.status = async () => ({ ok: true, data: { configured: false } });
+  globalThis.AiduSyncService.authDevice = async (...a) => { authCalls.push(a); return { ok: true, data: { user_id: 'me', device_id: 'd' } }; };
+  const svC = new globalThis.SettingsView(store);
+  const cC = makeElement('div');
+  svC.render(cC);
+  await new Promise((r) => setTimeout(r, 30));
+  const connectBtn = queryAll(cC, 'button').find((b) => b.textContent === '连接');
+  check('同步页有「连接」按钮', !!connectBtn);
+  check('没填地址和凭据时「连接」禁用', connectBtn && connectBtn.disabled === true);
+  const inputs = queryAll(cC, 'input').filter((i) => (i.placeholder || '').includes('同步地址') || (i.placeholder || '').includes('凭据'));
+  check('有同步地址、凭据两个输入框', inputs.length === 2, 'inputs=' + inputs.length);
+  const [urlIn, credIn] = inputs;
+  urlIn.value = 'https://sync.example.com';
+  urlIn.oninput();
+  const hintText = () => queryAll(cC, '.import-tip').map((e) => e.textContent).join('|');
+  check('填了地址没填凭据: 提示说明首台用 ROOT_SECRET / 其它用 6 位码', hintText().includes('ROOT_SECRET') && hintText().includes('6 位码'), hintText());
+  credIn.value = '123456';
+  credIn.oninput();
+  check('填 6 位数字: 识别为邀请码, 连接可点', hintText().includes('识别为 6 位邀请码') && connectBtn.disabled === false, hintText());
+  connectBtn.onclick();
+  await new Promise((r) => setTimeout(r, 30));
+  check('点连接 → authDevice(url, 邀请码通道, 密钥为空)', authCalls.length === 1 && authCalls[0][0] === 'https://sync.example.com' && authCalls[0][2] === null && authCalls[0][3] === '123456', JSON.stringify(authCalls));
+  check('连上后出现「添加另一台电脑」「手机扫码连接」', queryAll(cC, 'button').some((b) => b.textContent === '添加另一台电脑') && queryAll(cC, 'button').some((b) => b.textContent === '手机扫码连接'));
+  const addBtn = queryAll(cC, 'button').find((b) => b.textContent === '添加另一台电脑');
+  addBtn.onclick();
+  await new Promise((r) => setTimeout(r, 30));
+  check('点「添加另一台电脑」直接显示 6 位码和怎么用', hintText().includes('654321') && hintText().includes('10 分钟'), hintText());
+  // 连接失败要说原因和下一步
+  globalThis.AiduSyncService.authDevice = async () => ({ ok: false, error: 'invalid code' });
+  credIn.value = 'wrong-secret';
+  credIn.oninput();
+  connectBtn.onclick();
+  await new Promise((r) => setTimeout(r, 30));
+  check('连接失败: 显示原因 + 检查 ROOT_SECRET 的指引', hintText().includes('连接失败') && hintText().includes('ROOT_SECRET'), hintText());
+  globalThis.AiduSyncService.authDevice = savedAuth;
+  globalThis.AiduSyncService.status = savedStatus;
 }
 
 console.log('== 2c. L9 (2026-08-11): 阅读显示 tab 是全局设置 (主题/主题色/儿童模式+说明) ==');

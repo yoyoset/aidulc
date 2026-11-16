@@ -39,7 +39,7 @@
                 backendNameInput.value = ''; backendUrlInput.value = '';
                 if (!r.ok) { syncStatus.textContent = '新增后端失败: ' + r.error; return; }
                 renderBackends();
-                syncStatus.textContent = '已新增后端。切过去后立即同步即可换库。';
+                syncStatus.textContent = '已新增后端 (还没连接)。点它右边的「切换」, 再到上面「连接同步服务器」填凭据。';
               });
             };
             const renderBackends = () => {
@@ -65,7 +65,7 @@
                   enableCb.type = 'checkbox';
                   enableCb.checked = !!b.enabled;
                   enableCb.disabled = !b.connected;
-                  enableCb.title = b.connected ? '勾选后「立即同步」会同步到这个后端' : '该后端还没有 token (先切过去换 token), 无法启用同步';
+                  enableCb.title = b.connected ? '勾选后「立即同步」会同步到这个后端' : '该后端还没连接 (先「切换」过去, 再在上面「连接同步服务器」填凭据), 无法启用同步';
                   enableCb.onchange = () => {
                     AiduSyncService.backendToggle(b.name, enableCb.checked).then((r) => {
                       if (!r.ok) { enableCb.checked = !enableCb.checked; syncStatus.textContent = '保存启用状态失败: ' + r.error; return; }
@@ -96,25 +96,13 @@
               });
             };
             renderBackends();
-            const urlInput = el('input', 'prep-input');
-            urlInput.placeholder = 'CF Worker URL (自建 worker 链接)';
-            const secretInput = el('input', 'prep-input');
-            secretInput.type = 'password';
-            secretInput.placeholder = 'ROOT_SECRET 或 6 位邀请码 (换 token, 不落明文)';
-            const authBtn = el('button', 'btn-small', '换 token');
-            authBtn.title = '首台用 ROOT_SECRET; 后续设备用 6 位邀请码 (add-device/invite-user)';
             const syncBtn = el('button', 'btn-primary', '立即同步');
             const pullBtn = el('button', 'btn-small', '拉取合并');
             // J8 (2026-08-11): 低频操作收进「更多」—— 主按钮是「立即同步」, 不是「换 token」。
             const moreBtn = el('button', 'btn-small', '更多');
             const moreBox = el('div', 'sync-more hidden');
-            const codeBtn = el('button', 'btn-small', '生成邀请码');
-            codeBtn.title = '给另一台设备: 绑到当前 user (add-device)';
             const inviteBtn = el('button', 'btn-small', '邀请新成员');
             inviteBtn.title = '给另一个人: 服务端新建成员, 对方填名字 (invite-user, 三项已定 ①)';
-            // P0-C (2026-08-10): 手机扫码配对 —— 生成二维码, 手机打开即免登录
-            const pairBtn = el('button', 'btn-small', '手机扫码连接');
-            pairBtn.title = '生成二维码: 手机扫码打开即连, 收藏成书签免登录 (书签带 token = 拿到链接的人能读你的词库)';
             const disconnectBtn = el('button', 'btn-small btn-danger', '断开同步');
             disconnectBtn.title = '删除当前 user 的 token, 本机不再同步';
             disconnectBtn.disabled = true;
@@ -124,13 +112,23 @@
             forceFullBtn.title = '服务端词库被清空/损坏后使用: 清掉本机同步进度, 下次立即同步会全量重推所有词';
             forceFullBtn.disabled = true;
             moreBtn.onclick = () => moreBox.classList.toggle('hidden');
-            moreBox.append(codeBtn, inviteBtn, pairBtn, forceFullBtn, disconnectBtn);
+            moreBox.append(inviteBtn, forceFullBtn, disconnectBtn);
             // L5 (2026-08-11): 同步动作按钮成组、组内间距固定 —— 不再被 space-between 撑开
             // (此前是 settings-row 里的散列按钮, 用户抱怨"间隔太远")。
             const syncRow = el('div', 'page-toolbar');
             syncRow.style.flexWrap = 'wrap';
             syncRow.append(syncBtn, pullBtn, moreBtn);
-            syncSec.append(syncStatus, backendList, backendAddRow, urlInput, secretInput, authBtn, syncRow, moreBox);
+            // 2026-11-16: 「连接」引导卡放最前 (填地址 → 填凭据 → 连接; 已连接则给"添加电脑/手机"),
+            // 「新增后端」是多后端的高级用法, 收进折叠, 不再和连接表单抢位置。
+            const advanced = el('details', 'sync-advanced');
+            advanced.appendChild(el('summary', null, '高级: 管理多个同步服务器'));
+            advanced.append(backendList, backendAddRow);
+            syncSec.appendChild(syncStatus);
+            const connect = global.AiduSyncConnect.mount(syncSec, {
+              onConnected: () => { renderBackends(); AiduSyncService.status().then((res) => { if (res.ok && res.data) refreshStatus(res.data, false); }); },
+              onPair: () => startPair(),
+            });
+            syncSec.append(syncRow, moreBox, advanced);
              pane.appendChild(syncSec);
       
             // UX A2 (2026-08-11): 显示「本次推 N 条 / 拉 M 条」; 同步后 N=0 且服务端词库为空
@@ -163,25 +161,14 @@
               }
               syncStatus.textContent = text;
               // J8 (2026-08-11): URL 回填当前值 (用户不输入也能看到已配置的 endpoint)
-              if (d.worker_url && !urlInput.value) urlInput.value = d.worker_url;
+              connect.setStatus(d);
               disconnectBtn.disabled = !d.configured;
               forceFullBtn.disabled = !d.configured;
             };
             AiduSyncService.status().then((res) => {
               if (res.ok && res.data) refreshStatus(res.data, false);
-              else syncStatus.textContent = '未配置 (输入 Worker URL + ROOT_SECRET/邀请码 换 token)';
+              else { syncStatus.textContent = '未配置'; connect.setStatus({ configured: false }); }
             });
-            authBtn.onclick = () => {
-              syncStatus.textContent = '换 token 中…';
-              const rootSecret = secretInput.value.trim() || null;
-              const code = /^\d{6}$/.test(secretInput.value.trim()) ? secretInput.value.trim() : null;
-              AiduSyncService.authDevice(urlInput.value.trim(), null, rootSecret, code, '主电脑').then((r) => {
-                secretInput.value = '';
-                if (!r.ok) { syncStatus.textContent = '换 token 失败: ' + r.error; return; }
-                syncStatus.textContent = '已换 token: user=' + (r.data.user_name || r.data.user_id) + ' · 设备=' + r.data.device_id;
-                disconnectBtn.disabled = false;
-              });
-            };
             // M3 (2026-08-13): sync_now 返回数组 (每个已启用后端一个结果)。聚合展示。
             const summarizeSync = (arr) => {
               if (!Array.isArray(arr) || !arr.length) {
@@ -224,15 +211,6 @@
                 }),
               });
             };
-            // V6: 生成 add-device 邀请码 (绑当前 user)
-            codeBtn.onclick = () => {
-              syncStatus.textContent = '生成邀请码中…';
-              AiduSyncService.makeCode(null, 'add-device', null).then((r) => {
-                if (!r.ok) { syncStatus.textContent = '生成失败: ' + r.error; return; }
-                AiduToast.show('邀请码: ' + r.data.code + ' (10 分钟有效)', 'info');
-                syncStatus.textContent = '邀请码已复制: ' + r.data.code;
-              });
-            };
             // 三项已定 ①: invite-user —— 服务端新建成员, 对方填名字 (两种码类型完整暴露)
             inviteBtn.onclick = () => {
               const name = (window.prompt('新成员名字 (如"孩子"):', '') || '').trim();
@@ -255,12 +233,13 @@
                   AiduToast.show('已断开同步', 'info');
                   disconnectBtn.disabled = true;
                   syncStatus.textContent = '状态: 未配置';
+                  connect.setStatus({ configured: false });
                 }),
               });
             };
             // P0-C (2026-08-10): 手机扫码连接 —— 复用 sync_pair_qr (auth/code + auth/device 换独立
             // device token, 不覆盖本机 token), 弹窗显示二维码 + 安全明示 + 踢设备。
-            pairBtn.onclick = () => {
+            const startPair = () => {
               syncStatus.textContent = '生成二维码中…';
               AiduSyncService.pairQr().then((r) => {
                 if (!r.ok) { syncStatus.textContent = '生成配对码失败: ' + (r.error || ''); return; }

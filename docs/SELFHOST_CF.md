@@ -108,13 +108,18 @@ curl -X POST https://aidulc-sync.<你的子域>.workers.dev/v1/auth/device ^
 
 ### 6. 桌面端连接
 
-1. 打开设置 → "同步与数据"。
-2. Worker URL 填: `https://aidulc-sync.<你的子域>.workers.dev`
-   (不含尾部斜杠)。
-3. 密钥框填 `ROOT_SECRET` 或 6 位邀请码 → 点"换 token"。
-   - 首台: 填 ROOT_SECRET。
-   - 后续设备: 首台点"生成邀请码"(add-device), 输入 6 位码。
-4. 点"立即同步"。
+设置 → "同步与数据" → 最上面的 **"连接同步服务器"** 卡片, 两步填完点"连接":
+
+1. **① 同步地址**: `https://aidulc-sync.<你的子域>.workers.dev` (不含尾部斜杠)。
+2. **② 凭据**:
+   - **第一台设备**: 填 `ROOT_SECRET` (第 3 步设的那串)。
+   - **之后的电脑**: 在已连接的电脑上点 **"添加另一台电脑"**, 界面直接显示 6 位码 (10 分钟内有效, 只能用一次), 填到这里。
+   - 输入框下面会实时说明"识别为邀请码 / 识别为 ROOT_SECRET / 还缺什么"。
+3. 连上后卡片变成"✓ 已连接", 点"立即同步"。
+
+> **忘了 ROOT_SECRET**: 它只存在服务器端, 客户端不保存。CF 版在 Cloudflare 控制台 → Workers → 该 Worker → Settings → Variables
+> 里只能看到是否存在、看不到明文, 忘了只能重设 (`npx wrangler secret put ROOT_SECRET`), 已连接的设备不受影响。
+> VPS 版见 `SELFHOST_VPS.md` 的同名提示。
 
 ### 7. 手机扫码连接 (可选)
 

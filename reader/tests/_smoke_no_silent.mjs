@@ -419,6 +419,8 @@ load('views/prep_view.js');
 load('views/settings/system_tab.js');
 load('views/settings/models_tab.js');
 load('views/settings/profiles_tab.js');
+load('core/sync_credential.js');
+load('views/settings/sync_connect.js');
 load('views/settings/sync_tab.js');
 load('views/settings/reading_tab.js');
 load('views/settings_view.js');

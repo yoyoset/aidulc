@@ -34,6 +34,33 @@ fn standardize_cache_for(db: &store::Db, book_id: &str) -> Option<String> {
         .and_then(|b| b.standardize_cache_path.clone())
 }
 
+/// E4 (2026-11-16): 备料前至少要有这么多可用空间。一本书的成品 (音频+图+库) 通常几百 MB,
+/// 加上中间产物 (切句音频/对齐缓存), 2 GiB 是"跑一本不至于中途写爆"的保守下限, 不是精确估算。
+pub const MIN_FREE_BYTES_FOR_PREP: u64 = 2 * 1024 * 1024 * 1024;
+
+/// 纯函数: 可用空间够不够。`free == 0` 视为"查询失败/未知", 不拦 (宁可放行也不误伤)。
+pub fn disk_blocker(free: u64, need: u64, dir: &str) -> Option<String> {
+    if free == 0 || free >= need {
+        return None;
+    }
+    let gb = |b: u64| b as f64 / (1024.0 * 1024.0 * 1024.0);
+    Some(format!(
+        "磁盘空间不足: 数据目录所在盘 ({dir}) 只剩 {:.1} GB, 备料至少需要 {:.1} GB。请清理磁盘, 或在设置里把数据目录迁到空间更大的盘, 再开始处理",
+        gb(free),
+        gb(need)
+    ))
+}
+
+/// 备料入口统一的磁盘预检 (单书/批次/批量三处共用)。
+fn ensure_disk_for_prep(cfg: &PrepConfig) -> Result<(), String> {
+    let dir = cfg.out_dir.to_string_lossy().to_string();
+    let free = crate::infrastructure::downloader::disk_free_bytes(&dir);
+    match disk_blocker(free, MIN_FREE_BYTES_FOR_PREP, &dir) {
+        Some(msg) => Err(msg),
+        None => Ok(()),
+    }
+}
+
 /// 启动单本任务 (G2: 支持 batch_id/多语言)
 pub fn start_prep_job(
     app: tauri::AppHandle,
@@ -49,6 +76,7 @@ pub fn start_prep_job(
 ) -> Result<String, String> {
     use tauri::Emitter;
 
+    ensure_disk_for_prep(cfg)?;
     let job_id = format!("job-{}", uuid_short());
     let job_dir = cfg.out_dir.join("jobs").join(&job_id);
     std::fs::create_dir_all(&job_dir).map_err(|e| format!("建任务目录失败: {e}"))?;
@@ -323,6 +351,7 @@ pub fn batch_start_prep(
     if books.is_empty() {
         return Err("没有可处理的书".into());
     }
+    ensure_disk_for_prep(cfg)?;
     // R2/S3: 前置检查 (含 ffmpeg)
     let (ok_ids, skipped) =
         crate::application::model_service::preflight_batch(db, &books, &cfg.prep_path, &cfg.ffmpeg);
@@ -437,6 +466,7 @@ pub fn batch_start(
     if book_paths.is_empty() {
         return Err("批量任务至少需要一本书".into());
     }
+    ensure_disk_for_prep(cfg)?;
     // M 系列 (单一真相源): 前端传来的 models 可能为空 (runtime_config 现在从注册表解析,
     // 但旧前端/异常路径可能缺) → 用 model_registry 推荐补全; 仍缺则可读失败。
     let lang = source_language.clone().unwrap_or_else(|| "en".into());
@@ -1368,7 +1398,28 @@ fn profile_from_snapshot(job_dir: &std::path::Path, profile_id: &str) -> serde_j
 
 #[cfg(test)]
 mod tests {
-    use super::{enrich_progress, overall_progress, profile_from_snapshot, register_import_batch};
+    use super::{
+        disk_blocker, enrich_progress, overall_progress, profile_from_snapshot,
+        register_import_batch, MIN_FREE_BYTES_FOR_PREP,
+    };
+
+    #[test]
+    fn disk_blocker_blocks_only_when_known_and_short() {
+        let gb = 1024u64 * 1024 * 1024;
+        let msg = disk_blocker(gb / 2, MIN_FREE_BYTES_FOR_PREP, "E:\\data").expect("0.5GB 应被拦");
+        assert!(
+            msg.contains("0.5 GB") && msg.contains("2.0 GB") && msg.contains("E:\\data"),
+            "{msg}"
+        );
+        assert!(msg.contains("迁"), "要给出可操作的出路: {msg}");
+        assert!(
+            disk_blocker(2 * gb, MIN_FREE_BYTES_FOR_PREP, "x").is_none(),
+            "刚好够不拦"
+        );
+        assert!(disk_blocker(50 * gb, MIN_FREE_BYTES_FOR_PREP, "x").is_none());
+        // 0 = 查询失败, 不能因为不知道就拦用户
+        assert!(disk_blocker(0, MIN_FREE_BYTES_FOR_PREP, "x").is_none());
+    }
 
     #[test]
     fn enrich_progress_carries_overall_progress() {

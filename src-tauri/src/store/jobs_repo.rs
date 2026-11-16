@@ -110,6 +110,23 @@ impl<'a> JobsRepo<'a> {
         .ok()
     }
 
+    /// E2 (2026-11-15): 阅读器里点「重试失败句」时, 由书 (译本) 反查生成它的任务。
+    /// 优先按 `edition_id` 关联, 其次按 `output_dir == pack_dir` (老任务没来得及 attach_edition);
+    /// 同一本书重跑过多次时取最近更新的一条。
+    pub fn latest_for_book(&self, edition_id: &str, pack_dir: &str) -> Option<Job> {
+        let conn = self.db.conn.lock_or_recover();
+        conn.query_row(
+            &format!(
+                "SELECT {} FROM jobs WHERE edition_id = ?1 OR (?2 <> '' AND output_dir = ?2)
+                 ORDER BY updated_at DESC LIMIT 1",
+                Self::COLS
+            ),
+            params![edition_id, pack_dir],
+            Self::row_to_job,
+        )
+        .ok()
+    }
+
     pub fn list(&self) -> Vec<Job> {
         let conn = self.db.conn.lock_or_recover();
         let mut stmt = conn
@@ -414,5 +431,47 @@ mod tests {
             repo.get("old_linked").is_some(),
             "edition 引用的 job 仍保留"
         );
+    }
+
+    #[test]
+    fn latest_for_book_prefers_edition_link_then_output_dir_and_picks_newest() {
+        let db = temp_db();
+        let repo = JobsRepo::new(&db);
+        let mut a = job("a_old", "done");
+        a.edition_id = Some("ed1".into());
+        a.updated_at = 100;
+        let mut b = job("b_new", "failed");
+        b.edition_id = Some("ed1".into());
+        b.updated_at = 200;
+        let mut c = job("c_other", "done");
+        c.edition_id = Some("ed2".into());
+        c.updated_at = 300;
+        // 老任务: 没 attach_edition, 只能靠 output_dir 对上 pack_dir
+        let mut d = job("d_legacy", "done");
+        d.output_dir = "out/legacy_pack".into();
+        d.updated_at = 50;
+        for j in [&a, &b, &c, &d] {
+            repo.upsert(j).unwrap();
+        }
+        assert_eq!(
+            repo.latest_for_book("ed1", "").unwrap().id,
+            "b_new",
+            "同一本书重跑过 → 取最近的"
+        );
+        assert_eq!(
+            repo.latest_for_book("ed2", "").unwrap().id,
+            "c_other",
+            "不同书互不串"
+        );
+        assert_eq!(
+            repo.latest_for_book("edX", "out/legacy_pack").unwrap().id,
+            "d_legacy",
+            "没关联 edition 的老任务按 output_dir 找回"
+        );
+        assert!(
+            repo.latest_for_book("edX", "").is_none(),
+            "空 pack_dir 不能匹配到别的任务"
+        );
+        assert!(repo.latest_for_book("edX", "out/nothing").is_none());
     }
 }

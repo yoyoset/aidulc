@@ -30,7 +30,7 @@
 
   class AtomicBlock {
     static create(sentence, index, handlers, options = {}) {
-      const { onPlay, onBubbleClick, onFollowToggle, onRevealToggle } = handlers;
+      const { onPlay, onBubbleClick, onFollowToggle, onRevealToggle, onFailureInfo } = handlers;
       const {
         mode = 'guess',
         current = false,
@@ -92,6 +92,22 @@
       revealBtn.textContent = '↧';
       revealBtn.onclick = (e) => { e.stopPropagation(); onRevealToggle && onRevealToggle(index); };
       tools.appendChild(revealBtn);
+
+      // E2 (2026-11-15): 这句有环节没处理成功 (翻译/讲解/朗读/逐词高亮) —— 在句旁标出来,
+      // 点开说明缺什么 + 提供「重试失败句」。常显 (不像另外三个开关只在 hover 时出现),
+      // 否则用户读到没声音的句子时根本不知道有这个入口。
+      const health = global.AiduSentenceHealth;
+      const issues = health ? health.issuesOf(sentence) : [];
+      if (issues.length) {
+        block.classList.add('blk-failed');
+        const warnBtn = document.createElement('button');
+        warnBtn.className = 'atool atool-warn';
+        warnBtn.textContent = '!';
+        warnBtn.title = '这句有环节没处理成功: ' + health.describe(issues);
+        warnBtn.setAttribute('aria-label', warnBtn.title);
+        warnBtn.onclick = (e) => { e.stopPropagation(); onFailureInfo && onFailureInfo(index, issues); };
+        tools.appendChild(warnBtn);
+      }
       block.appendChild(tools);
 
       // --- 原文行 ---

@@ -280,6 +280,17 @@ body.reader-active ::selection {
 .atool:hover { background: var(--rd-accent); color: var(--rd-surface-raised); }
 .atool.active { background: var(--rd-accent); color: var(--rd-surface-raised); }
 
+/* E2: 有环节没处理成功的句子 —— 句旁的「!」常显 (不依赖 hover), 用语义警告色; 句子本身只加一条细左标 */
+.atomic-block.blk-failed .tools { opacity: 1; }
+.atool.atool-warn {
+  /* 文字用配套的 on-warning-container (warning 直接压在 warning-container 上只有 2.93:1, 不达 AA) */
+  background: var(--md-sys-color-warning-container);
+  color: var(--md-sys-color-on-warning-container);
+  font-weight: 700;
+}
+.atool.atool-warn:hover { background: var(--md-sys-color-on-warning-container); color: var(--md-sys-color-warning-container); } /* 反色, 仍是同一对令牌 (8.9:1) */
+.atomic-block.blk-failed { box-shadow: inset 2px 0 0 var(--md-sys-color-warning); }
+
 /* ---- 原文行 (纸面/墨色) ---- */
 .row-en.sentence {
   display: flex;

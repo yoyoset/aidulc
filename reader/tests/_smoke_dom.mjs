@@ -159,7 +159,7 @@ function load(rel) {
   eval(code);
 }
 ['core/timeline.js', 'core/shadow.js', 'core/render_plan.js',
-  'core/reader_state.js', 'core/follow_presets.js',
+  'core/reader_state.js', 'core/follow_presets.js', 'core/sentence_health.js',
   'components/atomic_block.js', 'components/reader_renderer.js'].forEach(load);
 
 // ---------- 测试句子 ----------
@@ -377,6 +377,25 @@ console.log('== S6 语义通道共存 (生词/短语/摘录/朗读同句可叠�
   blkC._ab.setWordReading(4);
   const jumpsR = blkC.querySelector('.bubble[data-seg-idx="4"]');
   check('朗读底色与生词/短语/摘录叠加', jumpsR && jumpsR.classList.contains('word-reading') && jumpsR.classList.contains('phrasal-member'), jumpsR && jumpsR.className);
+}
+
+console.log('== E2 (2026-11-15): 没处理成功的句子在阅读器里有标记 ==');
+{
+  const failCalls = [];
+  const hFail = { ...handlers, onFailureInfo: (i, issues) => failCalls.push([i, issues.map((x) => x.stage)]) };
+  const bad = { ...sentence, status: 'partial', failedStages: ['align', 'tts'] };
+  const bb = globalThis.AtomicBlock.create(bad, 7, hFail, { mode: 'guess' });
+  const warn = queryAll(bb, '.atool-warn')[0];
+  check('E2: 失败句有常显的「!」按钮', !!warn && warn.textContent === '!');
+  check('E2: 失败句块带 blk-failed 类', bb.classList.contains('blk-failed'));
+  check('E2: 按钮名称写明缺什么 (朗读、逐词高亮), 读屏可读', warn && /朗读、逐词高亮/.test(warn.getAttribute('aria-label') || ''), warn && warn.getAttribute('aria-label'));
+  warn && warn.onclick({ stopPropagation() {} });
+  check('E2: 点「!」→ 回调带句序号和失败阶段', failCalls.length === 1 && failCalls[0][0] === 7 && failCalls[0][1].join() === 'tts,align', JSON.stringify(failCalls));
+  const good = globalThis.AtomicBlock.create(sentence, 1, hFail, { mode: 'guess' });
+  check('E2: 正常句没有「!」也没有 blk-failed', queryAll(good, '.atool-warn').length === 0 && !good.classList.contains('blk-failed'));
+  const oldPack = { original_text: 'Hi.', segments: [['Hi', 'INTJ', 'hi'], ['.', 'PUNCT', '.']] };
+  const ob = globalThis.AtomicBlock.create(oldPack, 2, hFail, { mode: 'guess' });
+  check('E2: 老书包 (无 status/failedStages) 不受影响', queryAll(ob, '.atool-warn').length === 0);
 }
 
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);

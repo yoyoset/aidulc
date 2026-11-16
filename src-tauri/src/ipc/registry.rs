@@ -405,6 +405,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "重试失败句",
     },
     CommandInfo {
+        path: "commands::jobs::job_retry_for_book",
+        domain: "任务",
+        desc: "E2: 阅读器内「重试失败句」—— 按书 (译本 id) 反查任务并重试, 只重跑失败/未完成的句子",
+    },
+    CommandInfo {
         path: "commands::jobs::job_retry_custom",
         domain: "任务",
         desc: "自定义重跑 (重选模型/档案 + 指定重跑阶段)",

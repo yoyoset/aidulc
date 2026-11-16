@@ -3049,5 +3049,32 @@ console.log('== 20. E7 (2026-11-15): 文本不拼进 innerHTML + 图标按钮有
   check('E7: 播放中(⏹)的 aria-label 随之变成「停止」', /停止/.test(nameOf(gs2.el) || ''), nameOf(gs2.el));
 }
 
+console.log('== 21. E2 (2026-11-15): 阅读器内「重试失败句」—— 说明缺什么, 确认后才按书重试 ==');
+{
+  load('core/sentence_health.js');
+  load('views/reader_view.js');
+  const retryCalls = [];
+  globalThis.AiduJobService.retryForBook = async (bookId) => { retryCalls.push(bookId); return { ok: true, data: 'job-1' }; };
+  const fakeView = { bookId: 'edition-42' };
+  const issues = [{ stage: 'translate', label: '翻译' }, { stage: 'tts', label: '朗读' }];
+  confirmCaptured = null;
+  globalThis.ReaderView.prototype._onFailureInfo.call(fakeView, 3, issues);
+  check('E2: 点「!」弹确认 (说明缺翻译、朗读), 此时还没调后端', confirmCaptured && retryCalls.length === 0 && /翻译、朗读/.test(confirmCaptured.message), confirmCaptured && confirmCaptured.message);
+  check('E2: 朗读失败时说明「播放时是静音」', /静音/.test(confirmCaptured.message));
+  check('E2: 说明重试范围 = 整本书的失败句, 已成功的不重做', /所有失败的句子/.test(confirmCaptured.message) && /不会重做/.test(confirmCaptured.message));
+  check('E2: 按钮文案「重试失败句」', confirmCaptured.confirmText === '重试失败句');
+  await confirmCaptured.onConfirm();
+  check('E2: 确认后用当前书的 id 调 retryForBook', retryCalls.length === 1 && retryCalls[0] === 'edition-42', JSON.stringify(retryCalls));
+
+  // 后端拒绝 (找不到任务 / 在处理中) → 错误必须抛给确认框去显示, 不能静默
+  globalThis.AiduJobService.retryForBook = async () => ({ ok: false, error: '这本书正在处理中 (或已在排队)' });
+  confirmCaptured = null;
+  globalThis.ReaderView.prototype._onFailureInfo.call(fakeView, 3, [{ stage: 'translate', label: '翻译' }]);
+  let thrown = null;
+  try { await confirmCaptured.onConfirm(); } catch (e) { thrown = e; }
+  check('E2: 后端拒绝时把人话错误抛出 (确认框会显示)', thrown && /正在处理中/.test(thrown.message), thrown && thrown.message);
+  check('E2: 只有翻译失败时不提「静音」', !/静音/.test(confirmCaptured.message));
+}
+
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

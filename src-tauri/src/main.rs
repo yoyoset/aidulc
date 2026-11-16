@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod application {
+    pub mod book_retry;
     pub mod book_transfer_service;
     pub mod dictionary_service;
     pub mod job_orchestrator;
@@ -647,6 +648,7 @@ fn main() {
             commands::jobs::job_list,
             commands::jobs::job_remove,
             commands::jobs::job_retry_failed,
+            commands::jobs::job_retry_for_book,
             commands::jobs::job_retry_custom,
             commands::jobs::job_detail,
             commands::jobs::cancel_prep_job,

@@ -180,6 +180,7 @@
         onBookmark: this.handlers.onBookmark,
         onFollowToggle: this.handlers.onFollowToggle,
         onRevealToggle: this.handlers.onRevealToggle,
+        onFailureInfo: this.handlers.onFailureInfo,
       }, {
         mode: this.mode,
         current: index === this._current,

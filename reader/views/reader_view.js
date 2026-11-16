@@ -117,6 +117,7 @@
         onBookmark: (i) => this._toggleBookmark(i),
         onFollowToggle: (i) => this._toggleFollow(i),
         onRevealToggle: (i) => this._toggleReveal(i),
+        onFailureInfo: (i, issues) => this._onFailureInfo(i, issues),
       };
 
       this._onKeydown = (e) => this._handleKeydown(e);
@@ -1079,6 +1080,31 @@
     }
 
     // ---------------- 揭示 / 核对 / 模式 ----------------
+
+    /** E2 (2026-11-15): 点句旁的「!」—— 说明这句缺什么, 并提供就地「重试失败句」。
+     *  重试按书 (译本) 反查生成它的任务, 只重跑失败/未完成的句子 (checkpoint), 已成功的不重做;
+     *  整本书的失败句一起排队, 不是只重试这一句。 */
+    _onFailureInfo(index, issues) {
+      const H = window.AiduSentenceHealth;
+      const what = H ? H.describe(issues) : '部分环节';
+      const noAudio = (issues || []).some((i) => i.stage === 'tts' || i.stage === 'align');
+      AiduModal.confirm({
+        title: '这一句有环节没处理成功',
+        message: [
+          `没处理成功的环节: ${what}。`,
+          noAudio ? '朗读/逐词高亮失败的句子, 播放时是静音、没有逐词高亮。' : null,
+          '',
+          '点「重试失败句」会把这本书里所有失败的句子重新排队处理 (已经成功的不会重做), ' +
+            '进度在「处理中」页; 处理完再回来打开这本书即可。',
+        ].filter((x) => x !== null).join('\n'),
+        confirmText: '重试失败句',
+        cancelText: '先不用',
+        onConfirm: () => AiduJobService.retryForBook(this.bookId).then((r) => {
+          if (!r.ok) throw new Error(r.error);
+          AiduToast.show('已重新排队, 在「处理中」页看进度', 'success');
+        }),
+      });
+    }
 
     _toggleReveal(index) {
       if (this.rd.displayMode !== 'guess' || index < 0) return;

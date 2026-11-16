@@ -353,3 +353,22 @@ pub fn resume_all(
     let _ = app.emit("job-list-changed", serde_json::json!({}));
     Ok(())
 }
+
+/// E2 (2026-11-15): 阅读器内「重试失败句」—— 按书 (译本 id) 反查任务并重试, 返回任务 id。
+/// 只重跑失败/未完成的句子 (checkpoint), 已成功的不重做。找不到任务 / 任务在跑时给可操作的人话。
+#[tauri::command]
+pub fn job_retry_for_book(
+    app: tauri::AppHandle,
+    state: State<PrepState>,
+    cfg: State<PrepConfig>,
+    db: State<store::Db>,
+    book_id: String,
+) -> Result<String, String> {
+    crate::application::book_retry::retry_for_book(
+        app,
+        state.inner(),
+        cfg.inner(),
+        db.inner(),
+        &book_id,
+    )
+}

@@ -9,6 +9,8 @@
     list() { return AiduBridge.invoke('job_list'); },
     remove(id) { return AiduBridge.invoke('job_remove', { id }); },
     retryFailed(id) { return AiduBridge.invoke('job_retry_failed', { id }); },
+    // E2 (2026-11-15): 阅读器内重试 —— 按书 (译本 id) 反查任务, 只重跑失败/未完成的句子
+    retryForBook(bookId) { return AiduBridge.invoke('job_retry_for_book', { bookId }); },
     // 自定义重跑 (2026-08-13): 手动重选模型 + 指定重跑范围 (forceStages 为空 = 自动)
     retryCustom(id, llmId, ttsId, nlpId, forceStages, profileId) {
       return AiduBridge.invoke('job_retry_custom', {

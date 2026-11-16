@@ -464,3 +464,12 @@ v1-v17。覆盖: 设计语言(暖纸陶土)→主题(5 预设+自定义色)→�
   **改用 Edit 工具写 JS, 并且插入后立刻 `node --check`**; 这次是跑冒烟才暴露的, 本该先 check。
 - **坑 3 (测试加载)**: views 冒烟里单独 `load('views/reader_view.js')` 不会带上 `core/sentence_health.js`, 导致文案退化成"部分环节"
   —— 断言失败是对的 (说明测试确实在检查文案), 补 load 即可。
+
+## 阶段三收尾: E1 / E3 / E4 / E6 (2026-11-16)
+
+- **E1 样书要带朗读才有意义**: 旧样书 5 句自编文本、无音频, 体验不到跟读这个核心卖点。新样书直接用真实侧车在临时目录跑公版小样 EPUB(`contracts/fixtures/sample_book/alice_sample.epub`), 不经过应用/数据库, 不碰用户书库。产物编进二进制 (`include_bytes!`, 同 dict_seed 做法), 不依赖 Tauri resource 路径。**生成机器的本地路径会写进 `bookpack.json` 的 `models` 字段** (hf_cache/用户目录), 发安装包前必须换成模型名 —— 单测锁定。bookpack 最后写 (它在 = 音频都已写好), 中途失败不留半成品。老样书目录 (只有 bookpack.json) 判定为不完整 → 再导入时升级。
+- **坑 (E1)**: 用 bash heredoc 写 job_request.json 时, 路径里的反斜杠被吞, 侧车报 `Invalid \escape`。**写含路径的 JSON 用 Write 工具 + 正斜杠**。另: 终端里看到的中文乱码是控制台显示问题, 不是文件坏了 —— 用 `ascii()` 打印或检查 `\ufffd` 数量才能下结论 (这次先误判成文件乱码, 查证后文件是合法 UTF-8)。
+- **E3 不加依赖**: 先查了 Cargo 缓存里没有 `tauri-plugin-notification`, 而前端已有 `job_done` 事件挂载点, 就用 WebView 的 `Notification` API。代价是真机行为未验证 (见 ROADMAP 残留)。决策逻辑 (`core/notify.js`) 是零依赖纯函数, 单测 7 条。偏好存 localStorage `aidulc.notify` (跟 `aidulc.lib.compact` 同类的机器级显示偏好)。
+- **E4**: `free == 0` (查询失败) 必须放行 —— 宁可不拦也别误伤。阈值 2 GiB 是保守下限, 不是估算。
+- **E6 的两个坑**: ① `main.rs` 里命令列表自己就 154 行, 任何包住它的函数都 >150 → 必须每行放多个命令 + `#[rustfmt::skip]`; F29 测试 (`registry_matches_generate_handler`) 按字面量**首次出现**截取, **我自己写的文档注释里带了完整宏字面量, 注释抢先匹配导致测试截错位置** (第一次跑就失败)。② 提取函数后 clippy 报 4 处 `needless_borrow` (原来 `&exe_dir` 现在已是引用) —— 抽函数后要重跑 clippy, 基线 7 不能涨。
+- **拆函数用行号脚本做, 先断言锚点**: 两个脚本 (`system_tab`/`main`) 都先 `assert` 目标行内容再改, 我自己的第一个断言写错 (拿注释行当代码行) 于是在写文件前就停了, 文件没动 —— 这是断言前置的价值。

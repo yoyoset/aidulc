@@ -448,3 +448,19 @@ v1-v17。覆盖: 设计语言(暖纸陶土)→主题(5 预设+自定义色)→�
   有 title 的 aria-label 镜像 title (动态改 title 的地方也要跟着), 脚本批量改时校验每条规则命中次数
   (第一次因行尾带注释的 `title = ...; // ...` 没匹配而中止, 且前三个文件已写入 —— **批量脚本要幂等或先全部校验再写入**)。
   冒烟的 DOM stub 不解析 HTML, 所以"词含 `<img>` 不被解析"的断言靠 `.dict-word` 节点存在来区分新旧实现 (旧实现下该节点根本不存在)。
+
+## 2026-11-15 评估落地: E2 失败句标记
+
+- **起因**: 备料可以部分成功 (失败句写静音占位, 书包照常生成), 句子上有 `status`/`failedStages`, 但阅读器**完全不读**这两个字段。
+  8 月 UX 审计把它列为"本次不做"(中成本)。现在做了最小闭环: 句旁常显「!」→ 说明缺哪些环节 → 「重试失败句」。
+- **判定边界**: 只信后端明确写下的 `failedStages`/`status`, **不猜"译文为空=失败"** —— 原文无可翻译内容的句子会被刻意跳过
+  (`untranslatable` 是正常事件), 猜了就是误报。`status=partial/failed` 但 `failedStages` 为空时仍标出 (缺细节不能当没事)。
+- **阅读器不认识任务, 只认识书**: `job_retry_for_book(book_id)` 先按 `jobs.edition_id` 找, 再按 `output_dir == pack_dir` 找 (老任务没
+  attach_edition), 同一本书重跑过多次取最近更新的一条。阅读器打开书用的 id 有两种 (译本 id / 处理台传的书包目录), 后者没有 edition 行,
+  所以把 id 本身当 pack_dir 去匹配。任务在 running/queued 时不能重试, 要给人话 (用户该做的事不同), 不能都落成"任务不存在"。
+- **坑 1 (对比度)**: 新增的「!」徽章第一版用 `--md-sys-color-warning` 文字压在 `warning-container` 上, 实算只有 2.93:1, 不达项目自己的
+  AA 标准 (门禁的 `check_contrast` 只校验预设里列出的角色对, **新增的色对不会自动被查**)。改用配套的 `on-warning-container` (8.9:1)。
+- **坑 2 (转义)**: 用 python 往 JS 里插入含 `\n` 的模板字符串时, 反斜杠被吞成真换行, 得到跨行的单引号字符串 → `SyntaxError`。
+  **改用 Edit 工具写 JS, 并且插入后立刻 `node --check`**; 这次是跑冒烟才暴露的, 本该先 check。
+- **坑 3 (测试加载)**: views 冒烟里单独 `load('views/reader_view.js')` 不会带上 `core/sentence_health.js`, 导致文案退化成"部分环节"
+  —— 断言失败是对的 (说明测试确实在检查文案), 补 load 即可。

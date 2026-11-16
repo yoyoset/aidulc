@@ -9,6 +9,7 @@ mod application {
     pub mod library_service;
     pub mod model_service;
     pub mod quality_notice;
+    pub mod sample_book;
     pub mod standardize_task;
     pub mod sync_service;
     pub mod transfer_service;

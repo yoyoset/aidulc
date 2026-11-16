@@ -399,19 +399,21 @@
         }
         choices.appendChild(row);
       };
-      mk('① 导入我自己的书', '把 EPUB / TXT 拖进书库, 生成可阅读的译本。', () => this.onDone && this.onDone());
-      // UX5 #7 (2026-08-13): R1 内置样书 —— 从「即将支持」变为可用, 点击导入样书进书库
-      mk('② 先看一本内置样书', '导入官方示例书 (无音频文本样书), 立即体验阅读与查词。', () => {
+      // E1 (2026-11-16): 样书排第一并带朗读 —— 新用户装完向导最该先得到一次成功体验
+      // (听着读、逐句高亮、点词查词), 不用先装几个 GB 的模型也不用先找一本自己的书。
+      // UX5 #7 (2026-08-13): R1 内置样书; E1 起是带音频的公版样书 (爱丽丝梦游仙境片段)。
+      mk('① 先读一本内置样书 (推荐)', '带朗读的公版样书, 立即体验听着读、逐句高亮和点词查词, 不需要先装任何模型。', () => {
         AiduBridge.invoke('sample_book_import').then((r) => {
           if (!r.ok) {
             if (typeof AiduToast !== 'undefined') AiduToast.show('样书导入失败: ' + r.error, 'error');
             return;
           }
-          if (typeof AiduToast !== 'undefined') AiduToast.show('已导入样书, 在书库里可以打开阅读', 'success');
+          if (typeof AiduToast !== 'undefined') AiduToast.show('已导入样书, 在书库里点开就能听着读', 'success');
           // 进书库, 样书已在其中 (可点开阅读)
           if (this.onDone) this.onDone();
         });
       });
+      mk('② 导入我自己的书', '把 EPUB / TXT 拖进书库, 生成可阅读的译本 (需要先配好模型)。', () => this.onDone && this.onDone());
       mk('③ 先去配模型', '检查/下载翻译与语音模型, 提前备好。', () => {
         // M2 同款教训: 用 store 实例 (this.store), 不是 global.AiduStore (那是类, 没有 set)
         if (this.store) this.store.set({ settingsTab: 'models' });

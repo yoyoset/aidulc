@@ -1,0 +1,1983 @@
+{
+ "schemaVersion": 1,
+ "title": "Sample: Alice in Wonderland (样书, 带朗读)",
+ "profile": {
+  "id": "default",
+  "name": "成人自读",
+  "explainStrategy": "brief",
+  "voice": "af_heart",
+  "speed": 1
+ },
+ "generatedAt": 1794796678338,
+ "prepVersion": "0.1.0",
+ "chapters": [
+  {
+   "index": 0,
+   "title": "Chapter 1. Down the Rabbit-Hole",
+   "audioFile": "audio/ch_000.opus",
+   "images": [],
+   "sentences": [
+    {
+     "original_text": "Alice was beginning to get very tired of sitting by her sister on the bank, and of having nothing to do.",
+     "translation": "爱丽丝开始越来越厌倦坐在姐姐身边，无所事事。",
+     "explanation": "of + doing 表示对某动作的持续感受；两个并列的 of 结构强调重复的无聊状态，是固定搭配。",
+     "segments": [
+      [
+       "Alice",
+       "NOUN",
+       "Alice"
+      ],
+      [
+       "was",
+       "VERB",
+       "be"
+      ],
+      [
+       "beginning",
+       "VERB",
+       "begin"
+      ],
+      [
+       "to",
+       "PART",
+       "to"
+      ],
+      [
+       "get",
+       "VERB",
+       "get"
+      ],
+      [
+       "very",
+       "ADV",
+       "very"
+      ],
+      [
+       "tired",
+       "ADJ",
+       "tired"
+      ],
+      [
+       "of",
+       "PREP",
+       "of"
+      ],
+      [
+       "sitting",
+       "VERB",
+       "sit"
+      ],
+      [
+       "by",
+       "PREP",
+       "by"
+      ],
+      [
+       "her",
+       "DET",
+       "her"
+      ],
+      [
+       "sister",
+       "NOUN",
+       "sister"
+      ],
+      [
+       "on",
+       "PREP",
+       "on"
+      ],
+      [
+       "the",
+       "DET",
+       "the"
+      ],
+      [
+       "bank",
+       "NOUN",
+       "bank"
+      ],
+      [
+       ",",
+       "PUNCT",
+       ","
+      ],
+      [
+       "and",
+       "CONJ",
+       "and"
+      ],
+      [
+       "of",
+       "PREP",
+       "of"
+      ],
+      [
+       "having",
+       "VERB",
+       "have"
+      ],
+      [
+       "nothing",
+       "PRON",
+       "nothing"
+      ],
+      [
+       "to",
+       "PART",
+       "to"
+      ],
+      [
+       "do",
+       "VERB",
+       "do"
+      ],
+      [
+       ".",
+       "PUNCT",
+       "."
+      ]
+     ],
+     "phrasal_verbs": [],
+     "audio": {
+      "chapter": 0,
+      "start_ms": 0,
+      "end_ms": 6375
+     },
+     "words": [
+      {
+       "seg_idx": 0,
+       "start_ms": 300,
+       "end_ms": 675
+      },
+      {
+       "seg_idx": 1,
+       "start_ms": 675,
+       "end_ms": 850
+      },
+      {
+       "seg_idx": 2,
+       "start_ms": 850,
+       "end_ms": 1350
+      },
+      {
+       "seg_idx": 3,
+       "start_ms": 1350,
+       "end_ms": 1450
+      },
+      {
+       "seg_idx": 4,
+       "start_ms": 1450,
+       "end_ms": 1662
+      },
+      {
+       "seg_idx": 5,
+       "start_ms": 1662,
+       "end_ms": 1987
+      },
+      {
+       "seg_idx": 6,
+       "start_ms": 1987,
+       "end_ms": 2437
+      },
+      {
+       "seg_idx": 7,
+       "start_ms": 2437,
+       "end_ms": 2562
+      },
+      {
+       "seg_idx": 8,
+       "start_ms": 2562,
+       "end_ms": 2925
+      },
+      {
+       "seg_idx": 9,
+       "start_ms": 2925,
+       "end_ms": 3100
+      },
+      {
+       "seg_idx": 10,
+       "start_ms": 3100,
+       "end_ms": 3262
+      },
+      {
+       "seg_idx": 11,
+       "start_ms": 3262,
+       "end_ms": 3637
+      },
+      {
+       "seg_idx": 12,
+       "start_ms": 3637,
+       "end_ms": 3737
+      },
+      {
+       "seg_idx": 13,
+       "start_ms": 3737,
+       "end_ms": 3825
+      },
+      {
+       "seg_idx": 14,
+       "start_ms": 3825,
+       "end_ms": 4425
+      },
+      {
+       "seg_idx": 15,
+       "start_ms": 4425,
+       "end_ms": 4525
+      },
+      {
+       "seg_idx": 16,
+       "start_ms": 4525,
+       "end_ms": 4637
+      },
+      {
+       "seg_idx": 17,
+       "start_ms": 4637,
+       "end_ms": 4725
+      },
+      {
+       "seg_idx": 18,
+       "start_ms": 4725,
+       "end_ms": 5075
+      },
+      {
+       "seg_idx": 19,
+       "start_ms": 5075,
+       "end_ms": 5450
+      },
+      {
+       "seg_idx": 20,
+       "start_ms": 5450,
+       "end_ms": 5575
+      },
+      {
+       "seg_idx": 21,
+       "start_ms": 5575,
+       "end_ms": 6100
+      },
+      {
+       "seg_idx": 22,
+       "start_ms": 6100,
+       "end_ms": 6275
+      }
+     ],
+     "status": "ok",
+     "failedStages": []
+    },
+    {
+     "original_text": "Once or twice she had peeped into the book her sister was reading, but it had no pictures or conversations in it.",
+     "translation": "她曾几次偷偷看过妹妹在读的书，但书中没有图片或对话。",
+     "explanation": "had peeped 是过去完成时，表示在‘她看’之前已经发生的行为；'no pictures or conversations' 是并列结构，强调书中无内容。",
+     "segments": [
+      [
+       "Once",
+       "ADV",
+       "once"
+      ],
+      [
+       "or",
+       "CONJ",
+       "or"
+      ],
+      [
+       "twice",
+       "ADV",
+       "twice"
+      ],
+      [
+       "she",
+       "PRON",
+       "she"
+      ],
+      [
+       "had",
+       "VERB",
+       "have"
+      ],
+      [
+       "peeped",
+       "VERB",
+       "peep"
+      ],
+      [
+       "into",
+       "PREP",
+       "into"
+      ],
+      [
+       "the",
+       "DET",
+       "the"
+      ],
+      [
+       "book",
+       "NOUN",
+       "book"
+      ],
+      [
+       "her",
+       "DET",
+       "her"
+      ],
+      [
+       "sister",
+       "NOUN",
+       "sister"
+      ],
+      [
+       "was",
+       "VERB",
+       "be"
+      ],
+      [
+       "reading",
+       "VERB",
+       "read"
+      ],
+      [
+       ",",
+       "PUNCT",
+       ","
+      ],
+      [
+       "but",
+       "CONJ",
+       "but"
+      ],
+      [
+       "it",
+       "PRON",
+       "it"
+      ],
+      [
+       "had",
+       "VERB",
+       "have"
+      ],
+      [
+       "no",
+       "DET",
+       "no"
+      ],
+      [
+       "pictures",
+       "NOUN",
+       "picture"
+      ],
+      [
+       "or",
+       "CONJ",
+       "or"
+      ],
+      [
+       "conversations",
+       "NOUN",
+       "conversation"
+      ],
+      [
+       "in",
+       "PREP",
+       "in"
+      ],
+      [
+       "it",
+       "PRON",
+       "it"
+      ],
+      [
+       ".",
+       "PUNCT",
+       "."
+      ]
+     ],
+     "phrasal_verbs": [],
+     "audio": {
+      "chapter": 0,
+      "start_ms": 6375,
+      "end_ms": 13200
+     },
+     "words": [
+      {
+       "seg_idx": 0,
+       "start_ms": 275,
+       "end_ms": 487
+      },
+      {
+       "seg_idx": 1,
+       "start_ms": 487,
+       "end_ms": 575
+      },
+      {
+       "seg_idx": 2,
+       "start_ms": 575,
+       "end_ms": 1187
+      },
+      {
+       "seg_idx": 3,
+       "start_ms": 1187,
+       "end_ms": 1312
+      },
+      {
+       "seg_idx": 4,
+       "start_ms": 1312,
+       "end_ms": 1462
+      },
+      {
+       "seg_idx": 5,
+       "start_ms": 1462,
+       "end_ms": 1762
+      },
+      {
+       "seg_idx": 6,
+       "start_ms": 1762,
+       "end_ms": 1937
+      },
+      {
+       "seg_idx": 7,
+       "start_ms": 1937,
+       "end_ms": 2025
+      },
+      {
+       "seg_idx": 8,
+       "start_ms": 2025,
+       "end_ms": 2300
+      },
+      {
+       "seg_idx": 9,
+       "start_ms": 2300,
+       "end_ms": 2462
+      },
+      {
+       "seg_idx": 10,
+       "start_ms": 2462,
+       "end_ms": 2825
+      },
+      {
+       "seg_idx": 11,
+       "start_ms": 2825,
+       "end_ms": 3000
+      },
+      {
+       "seg_idx": 12,
+       "start_ms": 3000,
+       "end_ms": 3675
+      },
+      {
+       "seg_idx": 13,
+       "start_ms": 3675,
+       "end_ms": 3775
+      },
+      {
+       "seg_idx": 14,
+       "start_ms": 3775,
+       "end_ms": 3912
+      },
+      {
+       "seg_idx": 15,
+       "start_ms": 3912,
+       "end_ms": 4000
+      },
+      {
+       "seg_idx": 16,
+       "start_ms": 4000,
+       "end_ms": 4212
+      },
+      {
+       "seg_idx": 17,
+       "start_ms": 4212,
+       "end_ms": 4487
+      },
+      {
+       "seg_idx": 18,
+       "start_ms": 4487,
+       "end_ms": 5137
+      },
+      {
+       "seg_idx": 19,
+       "start_ms": 5137,
+       "end_ms": 5300
+      },
+      {
+       "seg_idx": 20,
+       "start_ms": 5300,
+       "end_ms": 6050
+      },
+      {
+       "seg_idx": 21,
+       "start_ms": 6050,
+       "end_ms": 6150
+      },
+      {
+       "seg_idx": 22,
+       "start_ms": 6150,
+       "end_ms": 6575
+      },
+      {
+       "seg_idx": 23,
+       "start_ms": 6575,
+       "end_ms": 6725
+      }
+     ],
+     "status": "ok",
+     "failedStages": []
+    },
+    {
+     "original_text": "So she was considering in her own mind whether the pleasure of making a daisy-chain would be worth the trouble of getting up and picking the daisies.",
+     "translation": "她正在心里考虑，做雏菊链的乐趣是否值得起床去采雏菊的麻烦。",
+     "explanation": "considering...whether... 是固定搭配，表示‘考虑是否……’；whether 引导宾语从句，说明考虑的内容。",
+     "segments": [
+      [
+       "So",
+       "ADV",
+       "so"
+      ],
+      [
+       "she",
+       "PRON",
+       "she"
+      ],
+      [
+       "was",
+       "VERB",
+       "be"
+      ],
+      [
+       "considering",
+       "VERB",
+       "consider"
+      ],
+      [
+       "in",
+       "PREP",
+       "in"
+      ],
+      [
+       "her",
+       "DET",
+       "her"
+      ],
+      [
+       "own",
+       "ADJ",
+       "own"
+      ],
+      [
+       "mind",
+       "NOUN",
+       "mind"
+      ],
+      [
+       "whether",
+       "CONJ",
+       "whether"
+      ],
+      [
+       "the",
+       "DET",
+       "the"
+      ],
+      [
+       "pleasure",
+       "NOUN",
+       "pleasure"
+      ],
+      [
+       "of",
+       "PREP",
+       "of"
+      ],
+      [
+       "making",
+       "VERB",
+       "make"
+      ],
+      [
+       "a",
+       "DET",
+       "a"
+      ],
+      [
+       "daisy",
+       "NOUN",
+       "daisy"
+      ],
+      [
+       "-",
+       "PUNCT",
+       "-"
+      ],
+      [
+       "chain",
+       "NOUN",
+       "chain"
+      ],
+      [
+       "would",
+       "VERB",
+       "would"
+      ],
+      [
+       "be",
+       "VERB",
+       "be"
+      ],
+      [
+       "worth",
+       "ADJ",
+       "worth"
+      ],
+      [
+       "the",
+       "DET",
+       "the"
+      ],
+      [
+       "trouble",
+       "NOUN",
+       "trouble"
+      ],
+      [
+       "of",
+       "PREP",
+       "of"
+      ],
+      [
+       "getting",
+       "VERB",
+       "get"
+      ],
+      [
+       "up",
+       "PART",
+       "up"
+      ],
+      [
+       "and",
+       "CONJ",
+       "and"
+      ],
+      [
+       "picking",
+       "VERB",
+       "pick"
+      ],
+      [
+       "the",
+       "DET",
+       "the"
+      ],
+      [
+       "daisies",
+       "NOUN",
+       "daisy"
+      ],
+      [
+       ".",
+       "PUNCT",
+       "."
+      ]
+     ],
+     "phrasal_verbs": [
+      {
+       "text": "getting up",
+       "indices": [
+        23,
+        24
+       ],
+       "lemma": "",
+       "translation": ""
+      }
+     ],
+     "audio": {
+      "chapter": 0,
+      "start_ms": 13200,
+      "end_ms": 21950
+     },
+     "words": [
+      {
+       "seg_idx": 0,
+       "start_ms": 275,
+       "end_ms": 512
+      },
+      {
+       "seg_idx": 1,
+       "start_ms": 512,
+       "end_ms": 675
+      },
+      {
+       "seg_idx": 2,
+       "start_ms": 675,
+       "end_ms": 850
+      },
+      {
+       "seg_idx": 3,
+       "start_ms": 850,
+       "end_ms": 1550
+      },
+      {
+       "seg_idx": 4,
+       "start_ms": 1550,
+       "end_ms": 1637
+      },
+      {
+       "seg_idx": 5,
+       "start_ms": 1637,
+       "end_ms": 1787
+      },
+      {
+       "seg_idx": 6,
+       "start_ms": 1787,
+       "end_ms": 2050
+      },
+      {
+       "seg_idx": 7,
+       "start_ms": 2050,
+       "end_ms": 2775
+      },
+      {
+       "seg_idx": 8,
+       "start_ms": 2775,
+       "end_ms": 3037
+      },
+      {
+       "seg_idx": 9,
+       "start_ms": 3037,
+       "end_ms": 3137
+      },
+      {
+       "seg_idx": 10,
+       "start_ms": 3137,
+       "end_ms": 3575
+      },
+      {
+       "seg_idx": 11,
+       "start_ms": 3575,
+       "end_ms": 3700
+      },
+      {
+       "seg_idx": 12,
+       "start_ms": 3700,
+       "end_ms": 4025
+      },
+      {
+       "seg_idx": 13,
+       "start_ms": 4025,
+       "end_ms": 4125
+      },
+      {
+       "seg_idx": 14,
+       "start_ms": 4125,
+       "end_ms": 4596
+      },
+      {
+       "seg_idx": 15,
+       "start_ms": 4596,
+       "end_ms": 4690
+      },
+      {
+       "seg_idx": 16,
+       "start_ms": 4690,
+       "end_ms": 5162
+      },
+      {
+       "seg_idx": 17,
+       "start_ms": 5162,
+       "end_ms": 5300
+      },
+      {
+       "seg_idx": 18,
+       "start_ms": 5300,
+       "end_ms": 5487
+      },
+      {
+       "seg_idx": 19,
+       "start_ms": 5487,
+       "end_ms": 5800
+      },
+      {
+       "seg_idx": 20,
+       "start_ms": 5800,
+       "end_ms": 5912
+      },
+      {
+       "seg_idx": 21,
+       "start_ms": 5912,
+       "end_ms": 6325
+      },
+      {
+       "seg_idx": 22,
+       "start_ms": 6325,
+       "end_ms": 6450
+      },
+      {
+       "seg_idx": 23,
+       "start_ms": 6450,
+       "end_ms": 6750
+      },
+      {
+       "seg_idx": 24,
+       "start_ms": 6750,
+       "end_ms": 7112
+      },
+      {
+       "seg_idx": 25,
+       "start_ms": 7112,
+       "end_ms": 7250
+      },
+      {
+       "seg_idx": 26,
+       "start_ms": 7250,
+       "end_ms": 7562
+      },
+      {
+       "seg_idx": 27,
+       "start_ms": 7562,
+       "end_ms": 7650
+      },
+      {
+       "seg_idx": 28,
+       "start_ms": 7650,
+       "end_ms": 8525
+      },
+      {
+       "seg_idx": 29,
+       "start_ms": 8525,
+       "end_ms": 8650
+      }
+     ],
+     "status": "ok",
+     "failedStages": []
+    },
+    {
+     "original_text": "Suddenly a White Rabbit with pink eyes ran close by her.",
+     "translation": "突然，一只眼睛是粉色的白兔从她身边跑过。",
+     "explanation": "pink eyes 是固定搭配，指'粉红色的眼睛'；with pink eyes 作后置定语，修饰 White Rabbit，说明其特征。",
+     "segments": [
+      [
+       "Suddenly",
+       "ADV",
+       "suddenly"
+      ],
+      [
+       "a",
+       "DET",
+       "a"
+      ],
+      [
+       "White",
+       "NOUN",
+       "White"
+      ],
+      [
+       "Rabbit",
+       "NOUN",
+       "Rabbit"
+      ],
+      [
+       "with",
+       "PREP",
+       "with"
+      ],
+      [
+       "pink",
+       "ADJ",
+       "pink"
+      ],
+      [
+       "eyes",
+       "NOUN",
+       "eye"
+      ],
+      [
+       "ran",
+       "VERB",
+       "run"
+      ],
+      [
+       "close",
+       "ADV",
+       "close"
+      ],
+      [
+       "by",
+       "PREP",
+       "by"
+      ],
+      [
+       "her",
+       "PRON",
+       "she"
+      ],
+      [
+       ".",
+       "PUNCT",
+       "."
+      ]
+     ],
+     "phrasal_verbs": [],
+     "audio": {
+      "chapter": 0,
+      "start_ms": 21950,
+      "end_ms": 25825
+     },
+     "words": [
+      {
+       "seg_idx": 0,
+       "start_ms": 300,
+       "end_ms": 787
+      },
+      {
+       "seg_idx": 1,
+       "start_ms": 787,
+       "end_ms": 900
+      },
+      {
+       "seg_idx": 2,
+       "start_ms": 900,
+       "end_ms": 1150
+      },
+      {
+       "seg_idx": 3,
+       "start_ms": 1150,
+       "end_ms": 1487
+      },
+      {
+       "seg_idx": 4,
+       "start_ms": 1487,
+       "end_ms": 1662
+      },
+      {
+       "seg_idx": 5,
+       "start_ms": 1662,
+       "end_ms": 1950
+      },
+      {
+       "seg_idx": 6,
+       "start_ms": 1950,
+       "end_ms": 2350
+      },
+      {
+       "seg_idx": 7,
+       "start_ms": 2350,
+       "end_ms": 2625
+      },
+      {
+       "seg_idx": 8,
+       "start_ms": 2625,
+       "end_ms": 2925
+      },
+      {
+       "seg_idx": 9,
+       "start_ms": 2925,
+       "end_ms": 3100
+      },
+      {
+       "seg_idx": 10,
+       "start_ms": 3100,
+       "end_ms": 3600
+      },
+      {
+       "seg_idx": 11,
+       "start_ms": 3600,
+       "end_ms": 3775
+      }
+     ],
+     "status": "ok",
+     "failedStages": []
+    }
+   ]
+  },
+  {
+   "index": 1,
+   "title": "Chapter 2. The Pool of Tears",
+   "audioFile": "audio/ch_001.opus",
+   "images": [],
+   "sentences": [
+    {
+     "original_text": "Curiouser and curiouser! cried Alice.",
+     "translation": "爱丽丝喊道：更奇怪的是更奇怪！",
+     "explanation": "curiouser and curiouser 是比较级递进，体现惊奇感；固定搭配，非标准语法，属口语化修辞。",
+     "segments": [
+      [
+       "Curiouser",
+       "NOUN",
+       "Curiouser"
+      ],
+      [
+       "and",
+       "CONJ",
+       "and"
+      ],
+      [
+       "curiouser",
+       "NOUN",
+       "curiouser"
+      ],
+      [
+       "!",
+       "PUNCT",
+       "!"
+      ],
+      [
+       "cried",
+       "VERB",
+       "cry"
+      ],
+      [
+       "Alice",
+       "NOUN",
+       "Alice"
+      ],
+      [
+       ".",
+       "PUNCT",
+       "."
+      ]
+     ],
+     "phrasal_verbs": [],
+     "audio": {
+      "chapter": 1,
+      "start_ms": 0,
+      "end_ms": 3075
+     },
+     "words": [
+      {
+       "seg_idx": 0,
+       "start_ms": 275,
+       "end_ms": 875
+      },
+      {
+       "seg_idx": 1,
+       "start_ms": 875,
+       "end_ms": 1000
+      },
+      {
+       "seg_idx": 2,
+       "start_ms": 1000,
+       "end_ms": 1775
+      },
+      {
+       "seg_idx": 3,
+       "start_ms": 1775,
+       "end_ms": 1912
+      },
+      {
+       "seg_idx": 4,
+       "start_ms": 1912,
+       "end_ms": 2200
+      },
+      {
+       "seg_idx": 5,
+       "start_ms": 2200,
+       "end_ms": 2825
+      },
+      {
+       "seg_idx": 6,
+       "start_ms": 2825,
+       "end_ms": 2975
+      }
+     ],
+     "status": "ok",
+     "failedStages": []
+    },
+    {
+     "original_text": "Now I am opening out like the largest telescope that ever was.",
+     "translation": "现在我正像历史上最大的望远镜一样展开。",
+     "explanation": "opening out 是现在分词短语，表主动进行；like 后接名词短语作比喻，核心语法是比喻结构，强调形象扩张。",
+     "segments": [
+      [
+       "Now",
+       "ADV",
+       "now"
+      ],
+      [
+       "I",
+       "PRON",
+       "I"
+      ],
+      [
+       "am",
+       "VERB",
+       "be"
+      ],
+      [
+       "opening",
+       "VERB",
+       "open"
+      ],
+      [
+       "out",
+       "PART",
+       "out"
+      ],
+      [
+       "like",
+       "PREP",
+       "like"
+      ],
+      [
+       "the",
+       "DET",
+       "the"
+      ],
+      [
+       "largest",
+       "ADJ",
+       "large"
+      ],
+      [
+       "telescope",
+       "NOUN",
+       "telescope"
+      ],
+      [
+       "that",
+       "PRON",
+       "that"
+      ],
+      [
+       "ever",
+       "ADV",
+       "ever"
+      ],
+      [
+       "was",
+       "VERB",
+       "be"
+      ],
+      [
+       ".",
+       "PUNCT",
+       "."
+      ]
+     ],
+     "phrasal_verbs": [
+      {
+       "text": "opening out",
+       "indices": [
+        3,
+        4
+       ],
+       "lemma": "",
+       "translation": ""
+      }
+     ],
+     "audio": {
+      "chapter": 1,
+      "start_ms": 3075,
+      "end_ms": 7350
+     },
+     "words": [
+      {
+       "seg_idx": 0,
+       "start_ms": 325,
+       "end_ms": 637
+      },
+      {
+       "seg_idx": 1,
+       "start_ms": 637,
+       "end_ms": 825
+      },
+      {
+       "seg_idx": 2,
+       "start_ms": 825,
+       "end_ms": 975
+      },
+      {
+       "seg_idx": 3,
+       "start_ms": 975,
+       "end_ms": 1350
+      },
+      {
+       "seg_idx": 4,
+       "start_ms": 1350,
+       "end_ms": 1700
+      },
+      {
+       "seg_idx": 5,
+       "start_ms": 1700,
+       "end_ms": 1862
+      },
+      {
+       "seg_idx": 6,
+       "start_ms": 1862,
+       "end_ms": 1987
+      },
+      {
+       "seg_idx": 7,
+       "start_ms": 1987,
+       "end_ms": 2400
+      },
+      {
+       "seg_idx": 8,
+       "start_ms": 2400,
+       "end_ms": 3025
+      },
+      {
+       "seg_idx": 9,
+       "start_ms": 3025,
+       "end_ms": 3175
+      },
+      {
+       "seg_idx": 10,
+       "start_ms": 3175,
+       "end_ms": 3400
+      },
+      {
+       "seg_idx": 11,
+       "start_ms": 3400,
+       "end_ms": 4025
+      },
+      {
+       "seg_idx": 12,
+       "start_ms": 4025,
+       "end_ms": 4175
+      }
+     ],
+     "status": "ok",
+     "failedStages": []
+    },
+    {
+     "original_text": "Goodbye feet!",
+     "translation": "再见了，脚！",
+     "explanation": "固定搭配 'goodbye' 用于告别，后接名词 'feet' 为口语化表达，无实际语法复杂点，属俚语。",
+     "segments": [
+      [
+       "Goodbye",
+       "NOUN",
+       "Goodbye"
+      ],
+      [
+       "feet",
+       "NOUN",
+       "foot"
+      ],
+      [
+       "!",
+       "PUNCT",
+       "!"
+      ]
+     ],
+     "phrasal_verbs": [],
+     "audio": {
+      "chapter": 1,
+      "start_ms": 7350,
+      "end_ms": 9000
+     },
+     "words": [
+      {
+       "seg_idx": 0,
+       "start_ms": 350,
+       "end_ms": 737
+      },
+      {
+       "seg_idx": 1,
+       "start_ms": 737,
+       "end_ms": 1375
+      },
+      {
+       "seg_idx": 2,
+       "start_ms": 1375,
+       "end_ms": 1550
+      }
+     ],
+     "status": "ok",
+     "failedStages": []
+    },
+    {
+     "original_text": "for when I look down at my feet, they seem almost out of sight.",
+     "translation": "当我低头看脚时，它们似乎几乎看不见了。",
+     "explanation": "for 引导原因状语从句，表‘因为’；they 指代 feet，指代明确。",
+     "segments": [
+      [
+       "for",
+       "PREP",
+       "for"
+      ],
+      [
+       "when",
+       "CONJ",
+       "when"
+      ],
+      [
+       "I",
+       "PRON",
+       "I"
+      ],
+      [
+       "look",
+       "VERB",
+       "look"
+      ],
+      [
+       "down",
+       "PART",
+       "down"
+      ],
+      [
+       "at",
+       "PREP",
+       "at"
+      ],
+      [
+       "my",
+       "DET",
+       "my"
+      ],
+      [
+       "feet",
+       "NOUN",
+       "foot"
+      ],
+      [
+       ",",
+       "PUNCT",
+       ","
+      ],
+      [
+       "they",
+       "PRON",
+       "they"
+      ],
+      [
+       "seem",
+       "VERB",
+       "seem"
+      ],
+      [
+       "almost",
+       "ADV",
+       "almost"
+      ],
+      [
+       "out",
+       "PREP",
+       "out"
+      ],
+      [
+       "of",
+       "PREP",
+       "of"
+      ],
+      [
+       "sight",
+       "NOUN",
+       "sight"
+      ],
+      [
+       ".",
+       "PUNCT",
+       "."
+      ]
+     ],
+     "phrasal_verbs": [
+      {
+       "text": "look down",
+       "indices": [
+        3,
+        4
+       ],
+       "lemma": "",
+       "translation": ""
+      }
+     ],
+     "audio": {
+      "chapter": 1,
+      "start_ms": 9000,
+      "end_ms": 12775
+     },
+     "words": [
+      {
+       "seg_idx": 0,
+       "start_ms": 275,
+       "end_ms": 362
+      },
+      {
+       "seg_idx": 1,
+       "start_ms": 362,
+       "end_ms": 487
+      },
+      {
+       "seg_idx": 2,
+       "start_ms": 487,
+       "end_ms": 625
+      },
+      {
+       "seg_idx": 3,
+       "start_ms": 625,
+       "end_ms": 825
+      },
+      {
+       "seg_idx": 4,
+       "start_ms": 825,
+       "end_ms": 1062
+      },
+      {
+       "seg_idx": 5,
+       "start_ms": 1062,
+       "end_ms": 1137
+      },
+      {
+       "seg_idx": 6,
+       "start_ms": 1137,
+       "end_ms": 1287
+      },
+      {
+       "seg_idx": 7,
+       "start_ms": 1287,
+       "end_ms": 1775
+      },
+      {
+       "seg_idx": 8,
+       "start_ms": 1775,
+       "end_ms": 1875
+      },
+      {
+       "seg_idx": 9,
+       "start_ms": 1875,
+       "end_ms": 2037
+      },
+      {
+       "seg_idx": 10,
+       "start_ms": 2037,
+       "end_ms": 2325
+      },
+      {
+       "seg_idx": 11,
+       "start_ms": 2325,
+       "end_ms": 2712
+      },
+      {
+       "seg_idx": 12,
+       "start_ms": 2712,
+       "end_ms": 2837
+      },
+      {
+       "seg_idx": 13,
+       "start_ms": 2837,
+       "end_ms": 2925
+      },
+      {
+       "seg_idx": 14,
+       "start_ms": 2925,
+       "end_ms": 3525
+      },
+      {
+       "seg_idx": 15,
+       "start_ms": 3525,
+       "end_ms": 3675
+      }
+     ],
+     "status": "ok",
+     "failedStages": []
+    }
+   ]
+  },
+  {
+   "index": 2,
+   "title": "Chapter 3. A Caucus-Race and a Long Tale",
+   "audioFile": "audio/ch_002.opus",
+   "images": [],
+   "sentences": [
+    {
+     "original_text": "They were indeed a queer-looking party that assembled on the bank.",
+     "translation": "确实是一个奇怪的团体在河岸上聚集了。",
+     "explanation": "queer-looking 是固定搭配，意为‘看起来奇怪的’，非字面意义；'that assembled' 为定语从句，修饰 'party'，说明谁聚集了。",
+     "segments": [
+      [
+       "They",
+       "PRON",
+       "they"
+      ],
+      [
+       "were",
+       "VERB",
+       "be"
+      ],
+      [
+       "indeed",
+       "ADV",
+       "indeed"
+      ],
+      [
+       "a",
+       "DET",
+       "a"
+      ],
+      [
+       "queer",
+       "NOUN",
+       "queer"
+      ],
+      [
+       "-",
+       "PUNCT",
+       "-"
+      ],
+      [
+       "looking",
+       "VERB",
+       "look"
+      ],
+      [
+       "party",
+       "NOUN",
+       "party"
+      ],
+      [
+       "that",
+       "PRON",
+       "that"
+      ],
+      [
+       "assembled",
+       "VERB",
+       "assemble"
+      ],
+      [
+       "on",
+       "PREP",
+       "on"
+      ],
+      [
+       "the",
+       "DET",
+       "the"
+      ],
+      [
+       "bank",
+       "NOUN",
+       "bank"
+      ],
+      [
+       ".",
+       "PUNCT",
+       "."
+      ]
+     ],
+     "phrasal_verbs": [],
+     "audio": {
+      "chapter": 2,
+      "start_ms": 0,
+      "end_ms": 4075
+     },
+     "words": [
+      {
+       "seg_idx": 0,
+       "start_ms": 275,
+       "end_ms": 425
+      },
+      {
+       "seg_idx": 1,
+       "start_ms": 425,
+       "end_ms": 600
+      },
+      {
+       "seg_idx": 2,
+       "start_ms": 600,
+       "end_ms": 1037
+      },
+      {
+       "seg_idx": 3,
+       "start_ms": 1037,
+       "end_ms": 1137
+      },
+      {
+       "seg_idx": 4,
+       "start_ms": 1137,
+       "end_ms": 1382
+      },
+      {
+       "seg_idx": 5,
+       "start_ms": 1382,
+       "end_ms": 1431
+      },
+      {
+       "seg_idx": 6,
+       "start_ms": 1431,
+       "end_ms": 1775
+      },
+      {
+       "seg_idx": 7,
+       "start_ms": 1775,
+       "end_ms": 2425
+      },
+      {
+       "seg_idx": 8,
+       "start_ms": 2425,
+       "end_ms": 2587
+      },
+      {
+       "seg_idx": 9,
+       "start_ms": 2587,
+       "end_ms": 3062
+      },
+      {
+       "seg_idx": 10,
+       "start_ms": 3062,
+       "end_ms": 3162
+      },
+      {
+       "seg_idx": 11,
+       "start_ms": 3162,
+       "end_ms": 3250
+      },
+      {
+       "seg_idx": 12,
+       "start_ms": 3250,
+       "end_ms": 3825
+      },
+      {
+       "seg_idx": 13,
+       "start_ms": 3825,
+       "end_ms": 3975
+      }
+     ],
+     "status": "ok",
+     "failedStages": []
+    },
+    {
+     "original_text": "The first question of course was, how to get dry again.",
+     "translation": "当然第一个问题是，如何再次变干。",
+     "explanation": "how to get dry again 是一个疑问词引导的名词性从句，作 'the first question' 的同位语，说明问题的具体内容。",
+     "segments": [
+      [
+       "The",
+       "DET",
+       "the"
+      ],
+      [
+       "first",
+       "ADJ",
+       "first"
+      ],
+      [
+       "question",
+       "NOUN",
+       "question"
+      ],
+      [
+       "of",
+       "PREP",
+       "of"
+      ],
+      [
+       "course",
+       "NOUN",
+       "course"
+      ],
+      [
+       "was",
+       "VERB",
+       "be"
+      ],
+      [
+       ",",
+       "PUNCT",
+       ","
+      ],
+      [
+       "how",
+       "CONJ",
+       "how"
+      ],
+      [
+       "to",
+       "PART",
+       "to"
+      ],
+      [
+       "get",
+       "VERB",
+       "get"
+      ],
+      [
+       "dry",
+       "ADJ",
+       "dry"
+      ],
+      [
+       "again",
+       "ADV",
+       "again"
+      ],
+      [
+       ".",
+       "PUNCT",
+       "."
+      ]
+     ],
+     "phrasal_verbs": [],
+     "audio": {
+      "chapter": 2,
+      "start_ms": 4075,
+      "end_ms": 7675
+     },
+     "words": [
+      {
+       "seg_idx": 0,
+       "start_ms": 250,
+       "end_ms": 362
+      },
+      {
+       "seg_idx": 1,
+       "start_ms": 362,
+       "end_ms": 662
+      },
+      {
+       "seg_idx": 2,
+       "start_ms": 662,
+       "end_ms": 1037
+      },
+      {
+       "seg_idx": 3,
+       "start_ms": 1037,
+       "end_ms": 1125
+      },
+      {
+       "seg_idx": 4,
+       "start_ms": 1125,
+       "end_ms": 1425
+      },
+      {
+       "seg_idx": 5,
+       "start_ms": 1425,
+       "end_ms": 1925
+      },
+      {
+       "seg_idx": 6,
+       "start_ms": 1925,
+       "end_ms": 2025
+      },
+      {
+       "seg_idx": 7,
+       "start_ms": 2025,
+       "end_ms": 2187
+      },
+      {
+       "seg_idx": 8,
+       "start_ms": 2187,
+       "end_ms": 2275
+      },
+      {
+       "seg_idx": 9,
+       "start_ms": 2275,
+       "end_ms": 2450
+      },
+      {
+       "seg_idx": 10,
+       "start_ms": 2450,
+       "end_ms": 2725
+      },
+      {
+       "seg_idx": 11,
+       "start_ms": 2725,
+       "end_ms": 3350
+      },
+      {
+       "seg_idx": 12,
+       "start_ms": 3350,
+       "end_ms": 3500
+      }
+     ],
+     "status": "ok",
+     "failedStages": []
+    },
+    {
+     "original_text": "The best thing to get us dry would be a Caucus-race.",
+     "translation": "能最快让我们干透的东西，是一场 Caucus-race。",
+     "explanation": "Caucus-race 是固定搭配，意为‘某种极端荒谬的竞赛’，属俚语；'would be' 表示假设，体现反讽语气，非字面因果。",
+     "segments": [
+      [
+       "The",
+       "DET",
+       "the"
+      ],
+      [
+       "best",
+       "ADJ",
+       "good"
+      ],
+      [
+       "thing",
+       "NOUN",
+       "thing"
+      ],
+      [
+       "to",
+       "PART",
+       "to"
+      ],
+      [
+       "get",
+       "VERB",
+       "get"
+      ],
+      [
+       "us",
+       "PRON",
+       "we"
+      ],
+      [
+       "dry",
+       "ADJ",
+       "dry"
+      ],
+      [
+       "would",
+       "VERB",
+       "would"
+      ],
+      [
+       "be",
+       "VERB",
+       "be"
+      ],
+      [
+       "a",
+       "DET",
+       "a"
+      ],
+      [
+       "Caucus",
+       "NOUN",
+       "Caucus"
+      ],
+      [
+       "-",
+       "PUNCT",
+       "-"
+      ],
+      [
+       "race",
+       "NOUN",
+       "race"
+      ],
+      [
+       ".",
+       "PUNCT",
+       "."
+      ]
+     ],
+     "phrasal_verbs": [],
+     "audio": {
+      "chapter": 2,
+      "start_ms": 7675,
+      "end_ms": 10925
+     },
+     "words": [
+      {
+       "seg_idx": 0,
+       "start_ms": 250,
+       "end_ms": 325
+      },
+      {
+       "seg_idx": 1,
+       "start_ms": 325,
+       "end_ms": 600
+      },
+      {
+       "seg_idx": 2,
+       "start_ms": 600,
+       "end_ms": 812
+      },
+      {
+       "seg_idx": 3,
+       "start_ms": 812,
+       "end_ms": 900
+      },
+      {
+       "seg_idx": 4,
+       "start_ms": 900,
+       "end_ms": 1037
+      },
+      {
+       "seg_idx": 5,
+       "start_ms": 1037,
+       "end_ms": 1200
+      },
+      {
+       "seg_idx": 6,
+       "start_ms": 1200,
+       "end_ms": 1762
+      },
+      {
+       "seg_idx": 7,
+       "start_ms": 1762,
+       "end_ms": 1887
+      },
+      {
+       "seg_idx": 8,
+       "start_ms": 1887,
+       "end_ms": 2012
+      },
+      {
+       "seg_idx": 9,
+       "start_ms": 2012,
+       "end_ms": 2075
+      },
+      {
+       "seg_idx": 10,
+       "start_ms": 2075,
+       "end_ms": 2579
+      },
+      {
+       "seg_idx": 11,
+       "start_ms": 2579,
+       "end_ms": 2663
+      },
+      {
+       "seg_idx": 12,
+       "start_ms": 2663,
+       "end_ms": 3000
+      },
+      {
+       "seg_idx": 13,
+       "start_ms": 3000,
+       "end_ms": 3150
+      }
+     ],
+     "status": "ok",
+     "failedStages": []
+    }
+   ]
+  }
+ ],
+ "quality": {
+  "stages": {
+   "align": {
+    "done": 11,
+    "failed": 0,
+    "successRate": 1.0
+   },
+   "explain": {
+    "done": 11,
+    "failed": 0,
+    "successRate": 1.0
+   },
+   "nlp": {
+    "done": 3,
+    "failed": 0,
+    "successRate": 1.0
+   },
+   "translate": {
+    "done": 11,
+    "failed": 0,
+    "successRate": 1.0
+   },
+   "tts": {
+    "done": 11,
+    "failed": 0,
+    "successRate": 1.0
+   }
+  },
+  "failedSentences": [],
+  "notices": [],
+  "noticeCounts": {},
+  "summary": "全部句子成功。"
+ },
+ "models": {
+  "llm": "Qwen3-4B-Instruct-2507-Q4_K_M",
+  "tts": "Kokoro-82M"
+ }
+}

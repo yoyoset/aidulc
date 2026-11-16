@@ -18,6 +18,18 @@
     /** @param {HTMLElement} pane 挂载点(「系统与书库」tab 的 pane)
      *  @param {object} store 阅读器全局 store (加载已有书库成功后需要触发 change) */
     render(pane, store) {
+      // E6 (2026-11-16): 原来 468 行的巨型 render 拆成按区块的私有方法, render 只剩装配顺序
+      this._logSection(pane);
+      this._aboutSection(pane);
+      // E3 (2026-11-16): 备料结束的系统通知开关
+      if (global.AiduNotifySection) AiduNotifySection.mount(pane);
+      this._wizardSection(pane);
+      this._snapshotSection(pane);
+      this._librarySection(pane, store);
+      this._onlineSection(pane);
+    }
+
+    _logSection(pane) {
             // 日志区: 反馈排查入口
             const logSec = el('div', 'settings-section');
             logSec.appendChild(el('h2', null, '日志'));
@@ -39,7 +51,9 @@
             logRow.append(logInfo, openLogBtn);
             logSec.appendChild(logRow);
              pane.appendChild(logSec);
+    }
 
+    _aboutSection(pane) {
             // K11 (2026-08-14): 应用本体版本号——之前模型/依赖组件都有各自的"检查更新",
             // 唯独应用本体没有任何 UI 出口显示版本, 报 bug 时说不清。只加版本号展示,
             // 不做整页"关于"/许可证/在线更新检查(是否要联网检查本体更新是产品决策,
@@ -83,7 +97,9 @@
                 }).catch((e) => { updBtn.disabled = false; updInfo.textContent = '检查失败: ' + String((e && e.message) || e); });
               };
             }
+    }
 
+    _wizardSection(pane) {
             // N1 (2026-08-12): 向导可重入 —— 走完的向导换机器/换数据目录时能再进一次
             const wizardSec = el('div', 'settings-section');
             wizardSec.appendChild(el('h2', null, '首次设置向导'));
@@ -99,13 +115,17 @@
             wizardRow.appendChild(rerunWizard);
             wizardSec.appendChild(wizardRow);
             pane.appendChild(wizardSec);
+    }
 
+    _snapshotSection(pane) {
             // S2 (2026-11-15): 数据库快照恢复 (组件自带说明文案, 这里只给个区块标题)
             const snapSec = el('div', 'settings-section');
             snapSec.appendChild(el('h2', null, '数据快照与恢复'));
             if (window.AiduSnapshotRestore) AiduSnapshotRestore.mount(snapSec);
             pane.appendChild(snapSec);
+    }
 
+    _librarySection(pane, store) {
             // P1.2: 书库位置(用户明确要求的产品能力, 见 docs/ROADMAP.md P1)
             // UX5 #4 (2026-08-13): 书库位置 = 数据根 —— config/db/jobs_out/models/backups/logs
             // 全部在根下; 当前生效位置存在且可写 → 绿色徽章, 失效 → 红/灰 + 原因。
@@ -140,6 +160,17 @@
             libSec.appendChild(libMsg);
              pane.appendChild(libSec);
       
+      const ctx = { libPath, libBadge, libMeta, libOutWarn, libMsg, libOpenBtn, libChangeBtn, libLoadBtn };
+      const refreshLibPath = this._libStatus(ctx);
+      refreshLibPath();
+      this._libOpen(ctx);
+      this._libChange(ctx, refreshLibPath);
+      this._libLoad(ctx, store);
+    }
+
+    /** 书库位置的状态徽章/摘要/收拢警告/旧位置迁移提示; 返回 refresh 函数供别处在改动后重刷 */
+    _libStatus(ctx) {
+      const { libPath, libBadge, libMeta, libOutWarn, libMsg, libOpenBtn, libChangeBtn, libLoadBtn } = ctx;
             const refreshLibPath = () => {
               AiduMiscService.libraryDirGet().then((r) => {
                 libPath.textContent = r.ok ? r.data : ('读取失败: ' + r.error);
@@ -239,8 +270,11 @@
                 libMsg.appendChild(migrateBtn);
               });
             };
-            refreshLibPath();
-      
+      return refreshLibPath;
+    }
+
+    _libOpen(ctx) {
+      const { libPath, libMsg, libOpenBtn } = ctx;
             libOpenBtn.onclick = () => {
               const p = libPath.textContent;
               if (!p || p.startsWith('读取')) return;
@@ -252,6 +286,10 @@
               });
             };
       
+    }
+
+    _libChange(ctx, refreshLibPath) {
+      const { libPath, libMsg, libChangeBtn } = ctx;
             // UX5 #4: 更改… = 整根迁移。流程: 选目录 → 确认 (L1 清单+备份说明) → 迁移 → 重启生效。
             libChangeBtn.onclick = () => {
               libChangeBtn.disabled = true;
@@ -298,6 +336,11 @@
               });
             };
       
+
+    }
+
+    _libLoad(ctx, store) {
+      const { libMsg, libLoadBtn } = ctx;
             // L7 (2026-08-11): 加载已有书库目录 —— 扫描 → 确认 → 登记 (只登记路径, 不复制)。
             libLoadBtn.onclick = () => {
               libLoadBtn.disabled = true;
@@ -345,6 +388,9 @@
                 });
               });
             };
+    }
+
+    _onlineSection(pane) {
             // K3 (2026-08-11): 在线 AI 引擎 —— 离线查词的兜底 (不是替代)。
             // endpoint + model 存 config.toml; API key 存 Credential Manager (不落明文)。
             // 外发粒度三档: 查词(1词+1句) / 单句讲解 / 整本外发(默认关,每本确认)。这里只管配置。

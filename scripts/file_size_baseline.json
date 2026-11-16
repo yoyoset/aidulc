@@ -29,7 +29,7 @@
 
   "defaultMaxFileLines": 600,
   "maxFunctionLines": 150,
-  "functionOverBaseline": 17,
+  "functionOverBaseline": 15,
 
   "exempt": {
     "src-tauri/src/store/store_mod.rs": "v1→v34 顺序迁移链, 顺序本身就是文档; 拆开就读不出'先后发生了什么'。每加一条真实迁移必然变长 —— 正是旧行数基线年年撞线的典型。",

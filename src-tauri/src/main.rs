@@ -290,8 +290,17 @@ mod prep_path_tests {
     }
 }
 
-fn main() {
-    // 1. 配置
+/// E6 (2026-11-16): 原来 447 行的 `main` 按启动阶段拆成下面几个函数, `main` 只剩装配顺序。
+/// 拆分不改任何行为/顺序; 每段的"为什么"注释原样随代码走。
+struct BootLayout {
+    exe_dir: std::path::PathBuf,
+    portable: bool,
+    data_dir: std::path::PathBuf,
+    data_root_missing: Option<std::path::PathBuf>,
+}
+
+/// 阶段 1: 定数据根 + 初始化日志 + 固定位置启动日志 + 清理上次迁移残留 (全在开库之前)。
+fn init_data_layout() -> BootLayout {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
@@ -346,14 +355,26 @@ fn main() {
     if let Err(e) = infrastructure::data_migration::cleanup_pending(&data_dir) {
         infrastructure::log::info("migration", &format!("清理旧数据失败(不阻断): {e}"));
     }
+    BootLayout {
+        exe_dir,
+        portable,
+        data_dir,
+        data_root_missing,
+    }
+}
 
-    // J0: 迁移判定 —— 旧位置 (exe_dir 锚定) 有数据、新位置空 → 本会话沿用旧路径, 前端提示迁移。
+/// 阶段 2: 旧位置 (exe_dir 锚定) 有数据、新位置空 → 本会话沿用旧路径, 前端提示迁移。
+fn detect_legacy_migration(
+    exe_dir: &std::path::Path,
+    data_dir: &std::path::Path,
+    portable: bool,
+) -> Option<infrastructure::data_migration::MigrationPlan> {
     let migration = if portable {
         None
     } else {
         services::config::detect_migration(
-            &exe_dir,
-            &data_dir,
+            exe_dir,
+            data_dir,
             std::path::Path::new("jobs_out"),
             std::path::Path::new("data.db"),
         )
@@ -380,21 +401,11 @@ fn main() {
             ),
         );
     }
+    migration
+}
 
-    // 配置: 迁移 pending 时读旧位置 config.toml (沿用 cf_worker_url 等), 否则读数据根。
-    let config_dir = migration
-        .as_ref()
-        .map(|_| exe_dir.as_path())
-        .unwrap_or(&data_dir);
-    let cfg = services::config::Config::load(config_dir);
-
-    // 2. 数据库
-    let db_path = std::env::var("AIDULC_DB").unwrap_or_else(|_| {
-        migration
-            .as_ref()
-            .map(|m| m.legacy_db.to_string_lossy().to_string())
-            .unwrap_or_else(|| data_dir.join("data.db").to_string_lossy().to_string())
-    });
+/// 阶段 3: 应用待恢复的快照 → 开库 → 每日快照 → 词典基底种子。开不了库是致命错误。
+fn open_database(db_path: &str) -> store::Db {
     // S2 (2026-11-15): 用户在界面选了「从快照恢复」→ 这里(开库之前)才真正替换文件。
     // 失败只记日志、保留暂存文件, 不阻断启动 (宁可不恢复, 也不能让程序打不开)。
     match infrastructure::snapshot::apply_pending_restore(
@@ -411,7 +422,7 @@ fn main() {
         Ok(None) => {}
         Err(e) => infrastructure::log::error("snapshot", &format!("恢复快照失败(未替换): {e}")),
     }
-    let db = store::Db::open(&db_path).expect("打开 SQLite 失败");
+    let db = store::Db::open(db_path).expect("打开 SQLite 失败");
     // P0-2 (2026-11-09): 每天第一次启动给数据库做一份快照, 放在默认数据目录下
     // (与当前数据根无关)。失败只记日志, 不阻断启动。
     if let Err(e) =
@@ -428,17 +439,11 @@ fn main() {
             infrastructure::log::error("app", &format!("词典基底种子导入失败(不阻断启动): {e}"));
         }
     }
+    db
+}
 
-    // 3. 书库/输出目录 (见 resolve_out_dir 文档注释: 2026-08-07 修复的路径 bug
-    //    + 合并此前重复的 library_dir/out_dir 两个概念, 见 Config.out_dir 文档注释)
-    // J0: 相对路径锚点 = 迁移 pending 时旧位置 exe_dir, 否则数据根 data_dir。
-    let out_anchor = migration.as_ref().map(|_| &exe_dir).unwrap_or(&data_dir);
-    let out_dir = resolve_out_dir(out_anchor, &cfg.out_dir, std::env::var("AIDULC_OUT").ok());
-
-    // 4. prep 侧车 (多级探测: 环境变量 → exe 同级 → 开发目录 → 上级 prep 构建)
-    let prep_path = resolve_prep_path(&exe_dir);
-    // 书库路径此前是静默的相对路径 bug 根源(见上方修复注释), 启动时明确打印解析后的
-    // 绝对路径, 用户/开发者都能一眼确认书包实际存放位置, 不用再靠猜。
+/// 启动时把解析到的侧车/书库路径写进日志, 用户和开发者一眼确认实际位置。
+fn log_resolved_paths(prep_path: &std::path::Path, out_dir: &std::path::Path) {
     infrastructure::log::info(
         "app",
         &format!(
@@ -455,15 +460,16 @@ fn main() {
             out_dir.exists()
         ),
     );
+}
 
-    jobs::job_guard::init_child_job_object();
-
+/// 重置 stale 任务并收集恢复队列 (只收真正 queued 的, 理由见下)。
+fn recover_job_queue(db: &store::Db) -> Vec<String> {
     // G2/G7: 启动时重置 stale 任务 (P0-A, 2026-08-10: running → paused, **不是** queued)。
     // 恢复队列只收集真正 queued 的任务 —— stale running 任务已变成 paused, 不会被 pump_queue
     // 在启动时立刻拉起侧车 (66MB PyInstaller 解包 + 模型加载会拖到整窗未响应, 真机实测过)。
     // 用户在处理台点"继续"才重启, 与"暂停→继续"同一语义。
     let recover_queue: Vec<String> = {
-        let jobs_repo = store::jobs_repo::JobsRepo::new(&db);
+        let jobs_repo = store::jobs_repo::JobsRepo::new(db);
         let _ = jobs_repo.reset_stale();
         jobs_repo
             .list()
@@ -472,6 +478,203 @@ fn main() {
             .map(|j| j.id)
             .collect()
     };
+    recover_queue
+}
+
+/// `setup` 钩子: 启动后清理孤儿数据并恢复队列。
+fn startup_housekeeping(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // G7: 启动后自动恢复队列任务 —— 只有用户明确 queued 的任务才自动跑;
+    // stale running 任务已被 reset_stale 标记成 paused, 不在此列 (P0-A, 2026-08-10)。
+    if let (Some(cfg), Some(db), Some(st)) = (
+        app.try_state::<PrepConfig>(),
+        app.try_state::<store::Db>(),
+        app.try_state::<PrepState>(),
+    ) {
+        let _ = application::library_asset_service::cleanup_orphans(db.inner());
+        // 2026-08-09 无限成长修复: 清理无主任务的孤儿 job 目录 (失败/取消/移除过、
+        // 从未产出书的任务目录会累积 checkpoint/TTS/日志, 是磁盘最大漏)
+        let _ = application::library_asset_service::cleanup_orphan_job_dirs(
+            db.inner(),
+            &cfg.inner().out_dir,
+        );
+        // I3 (2026-08-11): 清理孤儿批次 (批次建了但没有任何 job; 安全边界: 有活跃
+        // job 的批次不清 —— 单测锁住)。删书时已级联清理, 这里是兜底清历史存量。
+        let _ = application::library_asset_service::cleanup_orphan_batches(db.inner());
+        // N6 (2026-08-10): 清终态且超保留期(30 天)的批次行, 批次表不再无界累积
+        let _ = store::batches_repo::BatchesRepo::new(db.inner()).cleanup_old(30);
+        // N6b (2026-08-10): 清终态且超保留期的任务行 (不删 running/queued 和
+        // 仍被 edition 引用的), 任务表不再无界累积
+        let _ = store::jobs_repo::JobsRepo::new(db.inner()).cleanup_old(30);
+        // 2026-09-05 一次性清理: 收紧"查词失败不落库"之前遗留的脏数据——失败
+        // 原因被当成词义存进个人缓存/共享基底, 导致同一个词永远秒失败(见
+        // dict_repo.rs::cleanup_failed_entries 头注释)。清完之后这两条恒为
+        // no-op(没有脏数据可清), 常驻在启动流程里代价可忽略。
+        let _ = store::dict_repo::DictRepo::new(db.inner()).cleanup_failed_entries();
+        let _ = store::dict_base_repo::DictBaseRepo::new(db.inner()).cleanup_failed_entries();
+        // 修复: 任务死 (进程被强杀) 但书状态卡 processing → 恢复 pending (书库可见可重试)
+        let books_repo = store::books_repo::BooksRepo::new(db.inner());
+        for b in books_repo.list_by_kind("original") {
+            if b.status == "processing" {
+                let mut nb = b.clone();
+                nb.status = "pending".into();
+                nb.updated_at = store::now_ms_for_store();
+                let _ = books_repo.upsert(&nb);
+            }
+        }
+        let _ = application::job_orchestrator::pump_queue(
+            app.handle().clone(),
+            cfg.inner(),
+            st.inner(),
+            db.inner(),
+        );
+        // v32 (2026-08-19): 处理上次会话没跑完就退出、留在库里的 pending 行 ——
+        // 不这样做的话, 关 app 时正好有本书在排队, 它会永远停在 pending, 没有
+        // 任何东西会再唤醒这条队列。
+        if let Some(std_state) = app.try_state::<application::standardize_task::StandardizeState>()
+        {
+            let _ = application::standardize_task::pump_standardize_queue(
+                app.handle().clone(),
+                cfg.inner(),
+                std_state.inner(),
+                db.inner(),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// 全部 IPC 命令的注册。generate_handler 宏调用必须留在本文件里, 且注释里不能再写出
+/// 该宏调用的完整字面量 (含 `!` 和 `[`) —— ipc/registry.rs 的 F29 测试从 main.rs 源码里
+/// 按"第一次出现"抠这段文本和 COMMANDS 清单比对, 注释抢先出现会让它截错位置。
+/// 每行放同一模块的若干命令 (rustfmt::skip 防止被拆回一行一个, 那样仅这个列表就超 150 行)。
+#[rustfmt::skip]
+fn app_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![
+        commands::library::library_list, commands::library::library_register,
+        commands::library::library_remove, commands::library::library_open,
+        commands::library::library_book_set_profile, commands::library::sample_book_import,
+        commands::library::edition_lookup, commands::library::load_bookpack,
+        commands::library::load_bookpack_chapter, commands::library::read_audio,
+        commands::library::read_audio_range,
+        commands::timing::timing_offsets_list, commands::timing::timing_offset_set,
+        commands::timing::timing_offset_reset,
+        commands::library::read_image, commands::library::pick_files,
+        commands::book_audit::book_audit_sources,
+        commands::book_assets::library_preview, commands::book_assets::backfill_cover,
+        commands::book_assets::write_cover_thumb,
+        commands::library::book_export, commands::library::book_import,
+        commands::dictionary::word_lookup, commands::dictionary::word_lookup_online,
+        commands::dictionary::dict_daemon_reset, commands::dictionary::word_lookup_online_confirm,
+        commands::reader::book_online_translate,
+        commands::vocab::add_vocab,
+        commands::dictionary::dict_list, commands::dictionary::dict_search,
+        commands::dictionary::dict_remove, commands::dictionary::tts_synth_word,
+        commands::dictionary::tts_prewarm, commands::dictionary::tts_cache_word,
+        commands::vocab_audio::vocab_audio_start, commands::vocab_audio::vocab_audio_status,
+        commands::vocab_audio::vocab_audio_cancel,
+        commands::dictionary::vocab_read_cached_audio,
+        commands::vocab::vocab_all, commands::vocab::vocab_search, commands::vocab::vocab_remove,
+        commands::vocab::vocab_common_preview, commands::vocab::vocab_remove_common,
+        commands::vocab::vocab_backlog_preview, commands::vocab::vocab_backlog_spread,
+        commands::srs::srs_preview, commands::srs::srs_grade, commands::srs::vocab_restore,
+        commands::sync_backend::sync_status, commands::sync_backend::sync_now,
+        commands::sync_backend::sync_pull_now, commands::sync_backend::sync_force_full,
+        commands::sync_backend::sync_backends_list, commands::sync_backend::sync_backend_add,
+        commands::sync_backend::sync_backend_switch, commands::sync_backend::sync_backend_toggle,
+        commands::sync_backend::sync_backend_remove, commands::sync_backend::sync_auth_device,
+        commands::sync_backend::sync_make_code, commands::sync_backend::sync_pair_qr,
+        commands::sync_backend::sync_revoke_token, commands::sync_backend::sync_disconnect,
+        commands::sync_backend::sync_config_set,
+        commands::reader::bookmarks_list,
+        commands::log::log_from_frontend, commands::log::log_path,
+        commands::jobs::start_prep_job, commands::jobs::batch_start, commands::jobs::batch_import,
+        commands::jobs::batch_start_prep, commands::jobs::batch_list, commands::jobs::batch_detail,
+        commands::jobs::job_list, commands::jobs::job_remove, commands::jobs::job_retry_failed,
+        commands::jobs::job_retry_for_book, commands::jobs::job_retry_custom,
+        commands::jobs::job_detail, commands::jobs::cancel_prep_job, commands::jobs::job_pause,
+        commands::jobs::job_resume, commands::jobs::pause_all, commands::jobs::resume_all,
+        commands::models::models_list, commands::models::models_by,
+        commands::models::models_recommend, commands::models::models_register,
+        commands::models::models_set_recommended, commands::models::models_set_family,
+        commands::models::models_remove, commands::models::models_scan,
+        commands::models::model_file_check, commands::models::models_bind_book,
+        commands::models::models_book_binding, commands::models::models_download,
+        commands::models::models_download_status, commands::models::models_hf_normalize,
+        commands::models::hardware_detect, commands::models::wizard_state,
+        commands::models::wizard_submit, commands::models::wizard_finish,
+        commands::models::wizard_reset,
+        commands::misc::runtime_config, commands::misc::app_version,
+        commands::update::app_check_update,
+        commands::misc::components_health,
+        commands::data_root::data_root_status, commands::data_root::data_root_forget_pointer,
+        commands::snapshot::snapshot_list, commands::snapshot::snapshot_restore,
+        commands::data_root::library_dir_get, commands::data_root::library_root_status,
+        commands::data_root::library_out_consolidate, commands::data_root::data_root_recommended,
+        commands::data_root::library_dir_pick, commands::data_root::library_dir_pick_and_set,
+        commands::data_root::library_dir_scan, commands::data_root::library_dir_import,
+        commands::data_root::data_migration_status, commands::data_root::data_migration_dry_run,
+        commands::data_root::data_migration_run,
+        commands::online_config::online_config_get, commands::online_config::online_config_set,
+        commands::online_config::online_config_test,
+        commands::online_config::online_config_clear_key,
+        commands::misc::boot_ping, commands::misc::doc_parser_install, commands::misc::gpu_status,
+        commands::misc::gpu_kill_process, commands::misc::dict_base_import_file,
+        commands::misc::dict_base_stats, commands::misc::dict_base_sources_list,
+        commands::misc::dict_base_source_delete,
+        ipc::commands::profile_upsert, ipc::commands::profile_list, ipc::commands::profile_delete,
+        ipc::commands::users_list, ipc::commands::users_create, ipc::commands::users_delete,
+        ipc::commands::highlights_list, ipc::commands::highlights_save,
+        ipc::commands::highlights_remove, ipc::commands::highlight_tag_list,
+        ipc::commands::highlight_tag_create, ipc::commands::highlight_tag_rename,
+        ipc::commands::highlight_tag_delete, ipc::commands::reading_save,
+        ipc::commands::reading_get, ipc::commands::reading_stats, ipc::commands::settings_upsert,
+        ipc::commands::settings_get, ipc::commands::transfer_export,
+        ipc::commands::transfer_import,
+    ]
+}
+
+fn main() {
+    // 1. 配置 (数据根/日志/迁移判定)
+    let BootLayout {
+        exe_dir,
+        portable,
+        data_dir,
+        data_root_missing,
+    } = init_data_layout();
+    let migration = detect_legacy_migration(&exe_dir, &data_dir, portable);
+    // 配置: 迁移 pending 时读旧位置 config.toml (沿用 cf_worker_url 等), 否则读数据根。
+    let config_dir = migration
+        .as_ref()
+        .map(|_| exe_dir.as_path())
+        .unwrap_or(&data_dir);
+    let cfg = services::config::Config::load(config_dir);
+
+    // 2. 数据库
+    let db_path = std::env::var("AIDULC_DB").unwrap_or_else(|_| {
+        migration
+            .as_ref()
+            .map(|m| m.legacy_db.to_string_lossy().to_string())
+            .unwrap_or_else(|| data_dir.join("data.db").to_string_lossy().to_string())
+    });
+    let db = open_database(&db_path);
+
+    // 3. 书库/输出目录 (见 resolve_out_dir 文档注释: 2026-08-07 修复的路径 bug
+    //    + 合并此前重复的 library_dir/out_dir 两个概念, 见 Config.out_dir 文档注释)
+    // J0: 相对路径锚点 = 迁移 pending 时旧位置 exe_dir, 否则数据根 data_dir。
+    let out_anchor = migration.as_ref().map(|_| &exe_dir).unwrap_or(&data_dir);
+    let out_dir = resolve_out_dir(out_anchor, &cfg.out_dir, std::env::var("AIDULC_OUT").ok());
+
+    // 4. prep 侧车 (多级探测: 环境变量 → exe 同级 → 开发目录 → 上级 prep 构建)
+    let prep_path = resolve_prep_path(&exe_dir);
+    log_resolved_paths(&prep_path, &out_dir);
+
+    jobs::job_guard::init_child_job_object();
+
+    // G2/G7: 启动时重置 stale 任务 (P0-A, 2026-08-10: running → paused, **不是** queued)。
+    // 恢复队列只收集真正 queued 的任务 —— stale running 任务已变成 paused, 不会被 pump_queue
+    // 在启动时立刻拉起侧车 (66MB PyInstaller 解包 + 模型加载会拖到整窗未响应, 真机实测过)。
+    // 用户在处理台点"继续"才重启, 与"暂停→继续"同一语义。
+    let recover_queue = recover_job_queue(&db);
 
     let svc = AppServices {
         cf_worker_url: Mutex::new(cfg.cf_worker_url.clone()),
@@ -510,223 +713,8 @@ fn main() {
         ))
         // 导入自动标准化转换的单例状态 (2026-08-19, 独立于备料队列, 见 standardize_task.rs)
         .manage(application::standardize_task::StandardizeState::default())
-        .setup(|app| {
-            // G7: 启动后自动恢复队列任务 —— 只有用户明确 queued 的任务才自动跑;
-            // stale running 任务已被 reset_stale 标记成 paused, 不在此列 (P0-A, 2026-08-10)。
-            if let (Some(cfg), Some(db), Some(st)) = (
-                app.try_state::<PrepConfig>(),
-                app.try_state::<store::Db>(),
-                app.try_state::<PrepState>(),
-            ) {
-                let _ = application::library_asset_service::cleanup_orphans(db.inner());
-                // 2026-08-09 无限成长修复: 清理无主任务的孤儿 job 目录 (失败/取消/移除过、
-                // 从未产出书的任务目录会累积 checkpoint/TTS/日志, 是磁盘最大漏)
-                let _ = application::library_asset_service::cleanup_orphan_job_dirs(
-                    db.inner(),
-                    &cfg.inner().out_dir,
-                );
-                // I3 (2026-08-11): 清理孤儿批次 (批次建了但没有任何 job; 安全边界: 有活跃
-                // job 的批次不清 —— 单测锁住)。删书时已级联清理, 这里是兜底清历史存量。
-                let _ = application::library_asset_service::cleanup_orphan_batches(db.inner());
-                // N6 (2026-08-10): 清终态且超保留期(30 天)的批次行, 批次表不再无界累积
-                let _ = store::batches_repo::BatchesRepo::new(db.inner()).cleanup_old(30);
-                // N6b (2026-08-10): 清终态且超保留期的任务行 (不删 running/queued 和
-                // 仍被 edition 引用的), 任务表不再无界累积
-                let _ = store::jobs_repo::JobsRepo::new(db.inner()).cleanup_old(30);
-                // 2026-09-05 一次性清理: 收紧"查词失败不落库"之前遗留的脏数据——失败
-                // 原因被当成词义存进个人缓存/共享基底, 导致同一个词永远秒失败(见
-                // dict_repo.rs::cleanup_failed_entries 头注释)。清完之后这两条恒为
-                // no-op(没有脏数据可清), 常驻在启动流程里代价可忽略。
-                let _ = store::dict_repo::DictRepo::new(db.inner()).cleanup_failed_entries();
-                let _ =
-                    store::dict_base_repo::DictBaseRepo::new(db.inner()).cleanup_failed_entries();
-                // 修复: 任务死 (进程被强杀) 但书状态卡 processing → 恢复 pending (书库可见可重试)
-                let books_repo = store::books_repo::BooksRepo::new(db.inner());
-                for b in books_repo.list_by_kind("original") {
-                    if b.status == "processing" {
-                        let mut nb = b.clone();
-                        nb.status = "pending".into();
-                        nb.updated_at = store::now_ms_for_store();
-                        let _ = books_repo.upsert(&nb);
-                    }
-                }
-                let _ = application::job_orchestrator::pump_queue(
-                    app.handle().clone(),
-                    cfg.inner(),
-                    st.inner(),
-                    db.inner(),
-                );
-                // v32 (2026-08-19): 处理上次会话没跑完就退出、留在库里的 pending 行 ——
-                // 不这样做的话, 关 app 时正好有本书在排队, 它会永远停在 pending, 没有
-                // 任何东西会再唤醒这条队列。
-                if let Some(std_state) =
-                    app.try_state::<application::standardize_task::StandardizeState>()
-                {
-                    let _ = application::standardize_task::pump_standardize_queue(
-                        app.handle().clone(),
-                        cfg.inner(),
-                        std_state.inner(),
-                        db.inner(),
-                    );
-                }
-            }
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
-            commands::library::library_list,
-            commands::library::library_register,
-            commands::library::library_remove,
-            commands::library::library_open,
-            commands::library::library_book_set_profile,
-            commands::library::sample_book_import,
-            commands::library::edition_lookup,
-            commands::library::load_bookpack,
-            commands::library::load_bookpack_chapter,
-            commands::library::read_audio,
-            commands::library::read_audio_range,
-            commands::timing::timing_offsets_list,
-            commands::timing::timing_offset_set,
-            commands::timing::timing_offset_reset,
-            commands::library::read_image,
-            commands::library::pick_files,
-            commands::book_audit::book_audit_sources,
-            commands::book_assets::library_preview,
-            commands::book_assets::backfill_cover,
-            commands::book_assets::write_cover_thumb,
-            commands::library::book_export,
-            commands::library::book_import,
-            commands::dictionary::word_lookup,
-            commands::dictionary::word_lookup_online,
-            commands::dictionary::dict_daemon_reset,
-            commands::dictionary::word_lookup_online_confirm,
-            commands::reader::book_online_translate,
-            commands::vocab::add_vocab,
-            commands::dictionary::dict_list,
-            commands::dictionary::dict_search,
-            commands::dictionary::dict_remove,
-            commands::dictionary::tts_synth_word,
-            commands::dictionary::tts_prewarm,
-            commands::dictionary::tts_cache_word,
-            commands::vocab_audio::vocab_audio_start,
-            commands::vocab_audio::vocab_audio_status,
-            commands::vocab_audio::vocab_audio_cancel,
-            commands::dictionary::vocab_read_cached_audio,
-            commands::vocab::vocab_all,
-            commands::vocab::vocab_search,
-            commands::vocab::vocab_remove,
-            commands::vocab::vocab_common_preview,
-            commands::vocab::vocab_remove_common,
-            commands::vocab::vocab_backlog_preview,
-            commands::vocab::vocab_backlog_spread,
-            commands::srs::srs_preview,
-            commands::srs::srs_grade,
-            commands::srs::vocab_restore,
-            commands::sync_backend::sync_status,
-            commands::sync_backend::sync_now,
-            commands::sync_backend::sync_pull_now,
-            commands::sync_backend::sync_force_full,
-            commands::sync_backend::sync_backends_list,
-            commands::sync_backend::sync_backend_add,
-            commands::sync_backend::sync_backend_switch,
-            commands::sync_backend::sync_backend_toggle,
-            commands::sync_backend::sync_backend_remove,
-            commands::sync_backend::sync_auth_device,
-            commands::sync_backend::sync_make_code,
-            commands::sync_backend::sync_pair_qr,
-            commands::sync_backend::sync_revoke_token,
-            commands::sync_backend::sync_disconnect,
-            commands::sync_backend::sync_config_set,
-            commands::reader::bookmarks_list,
-            commands::log::log_from_frontend,
-            commands::log::log_path,
-            commands::jobs::start_prep_job,
-            commands::jobs::batch_start,
-            commands::jobs::batch_import,
-            commands::jobs::batch_start_prep,
-            commands::jobs::batch_list,
-            commands::jobs::batch_detail,
-            commands::jobs::job_list,
-            commands::jobs::job_remove,
-            commands::jobs::job_retry_failed,
-            commands::jobs::job_retry_for_book,
-            commands::jobs::job_retry_custom,
-            commands::jobs::job_detail,
-            commands::jobs::cancel_prep_job,
-            commands::jobs::job_pause,
-            commands::jobs::job_resume,
-            commands::jobs::pause_all,
-            commands::jobs::resume_all,
-            commands::models::models_list,
-            commands::models::models_by,
-            commands::models::models_recommend,
-            commands::models::models_register,
-            commands::models::models_set_recommended,
-            commands::models::models_set_family,
-            commands::models::models_remove,
-            commands::models::models_scan,
-            commands::models::model_file_check,
-            commands::models::models_bind_book,
-            commands::models::models_book_binding,
-            commands::models::models_download,
-            commands::models::models_download_status,
-            commands::models::models_hf_normalize,
-            commands::models::hardware_detect,
-            commands::models::wizard_state,
-            commands::models::wizard_submit,
-            commands::models::wizard_finish,
-            commands::models::wizard_reset,
-            commands::misc::runtime_config,
-            commands::misc::app_version,
-            commands::update::app_check_update,
-            commands::misc::components_health,
-            commands::data_root::data_root_status,
-            commands::data_root::data_root_forget_pointer,
-            commands::snapshot::snapshot_list,
-            commands::snapshot::snapshot_restore,
-            commands::data_root::library_dir_get,
-            commands::data_root::library_root_status,
-            commands::data_root::library_out_consolidate,
-            commands::data_root::data_root_recommended,
-            commands::data_root::library_dir_pick,
-            commands::data_root::library_dir_pick_and_set,
-            commands::data_root::library_dir_scan,
-            commands::data_root::library_dir_import,
-            commands::data_root::data_migration_status,
-            commands::data_root::data_migration_dry_run,
-            commands::data_root::data_migration_run,
-            commands::online_config::online_config_get,
-            commands::online_config::online_config_set,
-            commands::online_config::online_config_test,
-            commands::online_config::online_config_clear_key,
-            commands::misc::boot_ping,
-            commands::misc::doc_parser_install,
-            commands::misc::gpu_status,
-            commands::misc::gpu_kill_process,
-            commands::misc::dict_base_import_file,
-            commands::misc::dict_base_stats,
-            commands::misc::dict_base_sources_list,
-            commands::misc::dict_base_source_delete,
-            ipc::commands::profile_upsert,
-            ipc::commands::profile_list,
-            ipc::commands::profile_delete,
-            ipc::commands::users_list,
-            ipc::commands::users_create,
-            ipc::commands::users_delete,
-            ipc::commands::highlights_list,
-            ipc::commands::highlights_save,
-            ipc::commands::highlights_remove,
-            ipc::commands::highlight_tag_list,
-            ipc::commands::highlight_tag_create,
-            ipc::commands::highlight_tag_rename,
-            ipc::commands::highlight_tag_delete,
-            ipc::commands::reading_save,
-            ipc::commands::reading_get,
-            ipc::commands::reading_stats,
-            ipc::commands::settings_upsert,
-            ipc::commands::settings_get,
-            ipc::commands::transfer_export,
-            ipc::commands::transfer_import,
-        ])
+        .setup(startup_housekeeping)
+        .invoke_handler(app_handler())
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, event| {

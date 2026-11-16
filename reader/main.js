@@ -270,6 +270,8 @@
   // UX 审计 (2026-08-09): 任务完成 → 全局 toast (不管用户停在哪个页都能看到结果),
   // 长任务不再需要用户自己回来刷新才知道"完成了"。等 300ms 让收尾线程把状态落盘,
   // 以便区分成功/失败 (侧车只保证"跑完了", done/failed 由 Rust 按 bookpack 是否生成判定)。
+  // E3: 偏好为开时, 启动就向系统要一次通知权限 (已授权/已拒绝时是空操作)
+  if (window.AiduNotify && AiduNotify.isEnabled()) AiduNotify.requestPermission();
   AiduBridge.listen('job-progress', (ev) => {
     const p = ev.payload || {};
     if (p.type !== 'job_done') return;
@@ -279,6 +281,8 @@
         const job = (res.data || []).find((j) => j.id === p.jobId);
         if (!job) return;
         const name = String(job.book_path || '').split(/[\\/]/).pop() || job.id;
+        // E3: 窗口不在前台时补一条系统通知 (在前台时页内 toast 已够)
+        if (window.AiduNotify) AiduNotify.notifyJob(job);
         if (job.status === 'failed') {
           AiduToast.show(`《${name}》处理失败，去"阅读准备"查看原因`, 'error');
         } else {

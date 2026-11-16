@@ -36,7 +36,7 @@
     urlInput.setAttribute('aria-label', '同步地址');
     const credInput = el('input', 'prep-input');
     credInput.type = 'password';
-    credInput.placeholder = '② 凭据: ROOT_SECRET (首台设备) 或 6 位邀请码';
+    credInput.placeholder = '② 凭据: ROOT_SECRET (首台) / 6 位邀请码 / 或直接粘贴手机配对链接';
     credInput.setAttribute('aria-label', '凭据');
     const hint = el('div', 'import-tip');
     const connectBtn = el('button', 'btn-primary', '连接');
@@ -75,17 +75,22 @@
       const a = C.authArgs(urlInput.value, credInput.value);
       connectBtn.disabled = true;
       hint.textContent = '连接中…';
-      global.AiduSyncService.authDevice(a.workerUrl, null, a.rootSecret, a.code, '主电脑').then((r) => {
+      // 配对链接 → 直接用链接里的令牌 (后端先验证); 其它 → ROOT_SECRET / 邀请码换新令牌
+      const call = a.token
+        ? global.AiduSyncService.connectToken(a.workerUrl, a.token)
+        : global.AiduSyncService.authDevice(a.workerUrl, null, a.rootSecret, a.code, '主电脑');
+      call.then((r) => {
         credInput.value = '';
         if (!r.ok) {
           refresh();
           hint.textContent = '连接失败: ' + (r.error || '未知原因') +
-            (a.code ? ' (邀请码 10 分钟内有效, 且只能用一次; 过期了回到已连接的设备重新生成)' : ' (检查地址是否能打开、ROOT_SECRET 是否和服务器上设的一致)');
+            (a.token ? '' : a.code ? ' (邀请码 10 分钟内有效, 且只能用一次; 过期了回到已连接的设备重新生成)' : ' (检查地址是否能打开、ROOT_SECRET 是否和服务器上设的一致)');
           return;
         }
         if (global.AiduToast) global.AiduToast.show('已连接', 'success');
         show(true);
-        stateLine.textContent = '✓ 已连接 ' + a.workerUrl + ' · 主体 ' + (r.data.user_name || r.data.user_id || '');
+        urlInput.value = a.workerUrl;
+        stateLine.textContent = '✓ 已连接 ' + a.workerUrl + ((r.data && (r.data.user_name || r.data.user_id)) ? ' · 主体 ' + (r.data.user_name || r.data.user_id) : '');
         if (opts && opts.onConnected) opts.onConnected(r.data);
       });
     };

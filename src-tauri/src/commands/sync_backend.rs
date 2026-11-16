@@ -387,6 +387,46 @@ pub async fn sync_auth_device(
     serde_json::to_value(auth).map_err(|e| e.to_string())
 }
 
+/// 2026-11-16: 用现成的设备令牌直接连接 —— 手机配对链接 (`...#t=<令牌>&u=<地址>`) 里的令牌
+/// 本来就是一个有效的设备令牌, 不必再用 ROOT_SECRET / 6 位码换新的。**先联网验证再保存**
+/// (令牌错了/被踢了不能存成"已连接")。服务端 user 未知, 按空记 (endpoint_key = "url|"),
+/// 与 sync_now 读取一致; 之后若改用邀请码连接, key 会变 → 全量重推 (宁可多推, 不会丢数据)。
+#[tauri::command]
+pub async fn sync_connect_token(
+    services: State<'_, crate::AppServices>,
+    paths: State<'_, crate::DataPaths>,
+    worker_url: String,
+    user_id: String,
+    token: String,
+) -> Result<serde_json::Value, String> {
+    use crate::services::{config, credentials};
+    crate::infrastructure::log::info("cmd", &format!("enter: sync_connect_token user={user_id}"));
+    let worker_url = worker_url.trim().trim_end_matches('/').to_string();
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err("令牌为空".into());
+    }
+    let (wu, tk) = (worker_url.clone(), token.clone());
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::infrastructure::sync_v1_client::verify_token(&wu, &tk)
+    })
+    .await
+    .map_err(|e| format!("验证令牌任务执行失败: {e}"))??;
+    credentials::save_cf_token_for(&user_id, &token)?;
+    credentials::save_cf_token_for_endpoint(
+        &user_id,
+        &crate::application::sync_service::endpoint_key_for(&worker_url, ""),
+        &token,
+    )?;
+    let cfg_dir = paths.inner().data_dir.clone();
+    let mut cfg = config::Config::load(&cfg_dir);
+    cfg.cf_worker_url = worker_url.clone();
+    cfg.save(&cfg_dir)
+        .map_err(|e| format!("保存同步配置失败: {e}"))?;
+    *services.inner().cf_worker_url.lock_or_recover() = worker_url.clone();
+    Ok(serde_json::json!({ "ok": true, "worker_url": worker_url }))
+}
+
 /// V6: 已登录 user 生成 6 位一次性码 (add-device / invite-user)
 /// K2 (2026-08-11): 改 async + spawn_blocking —— make_code 是网络调用。
 #[tauri::command]

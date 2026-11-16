@@ -314,6 +314,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         desc: "V6: ROOT_SECRET/6 位码 换该 user 的 token (协议 v1)",
     },
     CommandInfo {
+        path: "commands::sync_backend::sync_connect_token",
+        domain: "同步",
+        desc: "用现成设备令牌 (手机配对链接里的 t=) 直接连接: 先联网验证再保存",
+    },
+    CommandInfo {
         path: "commands::sync_backend::sync_make_code",
         domain: "同步",
         desc: "V6: 已登录 user 生成 6 位一次性码 (add-device/invite-user)",

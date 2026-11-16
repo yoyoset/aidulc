@@ -570,6 +570,20 @@ console.log('== 2b2. 同步「连接」引导卡 (2026-11-16: 填完地址后不
   addBtn.onclick();
   await new Promise((r) => setTimeout(r, 30));
   check('点「添加另一台电脑」直接显示 6 位码和怎么用', hintText().includes('654321') && hintText().includes('10 分钟'), hintText());
+  // 粘贴手机配对链接 (和 13 上卡片同格式): 直接用链接里的令牌, 不走 ROOT_SECRET/邀请码
+  const tokCalls = [];
+  const savedTok = globalThis.AiduSyncService.connectToken;
+  globalThis.AiduSyncService.connectToken = async (...a) => { tokCalls.push(a); return { ok: true, data: { ok: true, worker_url: 'https://sync.example.com' } }; };
+  const changeBtn = queryAll(cC, 'button').find((b) => b.textContent.includes('换一个服务器'));
+  changeBtn.onclick();
+  urlIn.value = '';
+  credIn.value = 'https://m.pages.dev/#t=tok999&u=https%3A%2F%2Fsync.example.com';
+  credIn.oninput();
+  check('粘贴配对链接: 不填地址也能点连接, 提示说明共用令牌', connectBtn.disabled === false && hintText().includes('配对链接'), hintText());
+  connectBtn.onclick();
+  await new Promise((r) => setTimeout(r, 30));
+  check('配对链接 → connectToken(地址, 令牌), 不调 authDevice', tokCalls.length === 1 && tokCalls[0][0] === 'https://sync.example.com' && tokCalls[0][1] === 'tok999', JSON.stringify(tokCalls));
+  globalThis.AiduSyncService.connectToken = savedTok;
   // 连接失败要说原因和下一步
   globalThis.AiduSyncService.authDevice = async () => ({ ok: false, error: 'invalid code' });
   credIn.value = 'wrong-secret';

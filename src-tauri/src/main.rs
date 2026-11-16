@@ -582,7 +582,7 @@ fn app_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         commands::sync_backend::sync_pull_now, commands::sync_backend::sync_force_full,
         commands::sync_backend::sync_backends_list, commands::sync_backend::sync_backend_add,
         commands::sync_backend::sync_backend_switch, commands::sync_backend::sync_backend_toggle,
-        commands::sync_backend::sync_backend_remove, commands::sync_backend::sync_auth_device,
+        commands::sync_backend::sync_backend_remove, commands::sync_backend::sync_auth_device, commands::sync_backend::sync_connect_token,
         commands::sync_backend::sync_make_code, commands::sync_backend::sync_pair_qr,
         commands::sync_backend::sync_revoke_token, commands::sync_backend::sync_disconnect,
         commands::sync_backend::sync_config_set,

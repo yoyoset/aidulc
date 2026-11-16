@@ -20,6 +20,10 @@
         rootSecret: rootSecret || null, code: code || null, deviceName,
       });
     },
+    // 2026-11-16: 用现成设备令牌 (手机配对链接里的 t=) 直接连接, 后端先联网验证再保存
+    connectToken(workerUrl, token, userId) {
+      return AiduBridge.invoke('sync_connect_token', { workerUrl, token, userId: userId || currentUser() });
+    },
     makeCode(userId, codeType, name) {
       return AiduBridge.invoke('sync_make_code', { userId: userId || currentUser(), codeType, name: name || null });
     },

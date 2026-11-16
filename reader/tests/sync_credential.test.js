@@ -46,4 +46,23 @@ describe('AiduSyncCredential', () => {
     expect(C.authArgs(' https://a.b.com ', '123456')).toEqual({ workerUrl: 'https://a.b.com', rootSecret: null, code: '123456' });
     expect(C.authArgs('https://a.b.com', 'sec')).toEqual({ workerUrl: 'https://a.b.com', rootSecret: 'sec', code: null });
   });
+
+  it('配对链接: 拆出令牌和地址 (地址是百分号编码的), 不是链接/缺字段一律 null', () => {
+    const link = 'https://aidulc-mobile.pages.dev/#t=abc123def456&u=https%3A%2F%2Fsync.example.com';
+    expect(C.parsePairLink(link)).toEqual({ token: 'abc123def456', url: 'https://sync.example.com' });
+    expect(C.parsePairLink(' ' + link + ' ')).not.toBeNull();
+    expect(C.parsePairLink('https://x.com/#t=only-token')).toBeNull(); // 缺 u
+    expect(C.parsePairLink('https://x.com/#u=https%3A%2F%2Fa.b.com')).toBeNull(); // 缺 t
+    expect(C.parsePairLink('https://x.com/no-fragment')).toBeNull();
+    expect(C.parsePairLink('abc123def456')).toBeNull(); // 裸令牌不猜 (和 ROOT_SECRET 分不开)
+    expect(C.parsePairLink('https://x.com/#t=a&u=%E0%A4%A')).toBeNull(); // 坏编码
+  });
+
+  it('粘贴链接: 识别为 link, 不要求先填地址, 提示说明和手机共用令牌, 参数带 token', () => {
+    const link = 'https://m.pages.dev/#t=tok999&u=https%3A%2F%2Fsync.example.com%2F';
+    expect(C.credentialKind(link)).toBe('link');
+    expect(C.canConnect('', link)).toBe(true);
+    expect(C.connectHint('', link)).toContain('共用同一个令牌');
+    expect(C.authArgs('', link)).toEqual({ workerUrl: 'https://sync.example.com', rootSecret: null, code: null, token: 'tok999' });
+  });
 });

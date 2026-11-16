@@ -8,10 +8,31 @@
 (function (global) {
   'use strict';
 
-  /** 凭据类型: 6 位纯数字 = 邀请码 (add-device/invite-user), 其它非空 = ROOT_SECRET */
+  /**
+   * 手机配对链接 `https://<手机端>/#t=<令牌>&u=<同步地址(百分号编码)>` → { token, url } | null。
+   * 这个链接里的令牌本身就是有效的设备令牌 (13 上 homepage 的卡片、「手机扫码连接」复制出来的都是它),
+   * 桌面端直接用它连接, 不必再找 ROOT_SECRET。不是链接/缺 t 或 u 一律 null, 不猜。
+   */
+  function parsePairLink(raw) {
+    const s = String(raw == null ? '' : raw).trim();
+    const i = s.indexOf('#');
+    if (!/^https?:\/\//i.test(s) || i < 0) return null;
+    const params = {};
+    s.slice(i + 1).split('&').forEach((kv) => {
+      const j = kv.indexOf('=');
+      if (j > 0) {
+        try { params[kv.slice(0, j)] = decodeURIComponent(kv.slice(j + 1)); } catch (e) { /* 坏编码 → 当没有 */ }
+      }
+    });
+    if (!params.t || !params.u) return null;
+    return { token: params.t, url: params.u };
+  }
+
+  /** 凭据类型: 配对链接 = link; 6 位纯数字 = 邀请码 (add-device/invite-user); 其它非空 = ROOT_SECRET */
   function credentialKind(raw) {
     const s = String(raw == null ? '' : raw).trim();
     if (!s) return 'empty';
+    if (parsePairLink(s)) return 'link';
     return /^\d{6}$/.test(s) ? 'code' : 'secret';
   }
 
@@ -28,6 +49,10 @@
 
   /** 连接按钮旁的一句提示: 告诉用户当前输入会被怎么用, 还缺什么 */
   function connectHint(url, cred) {
+    // 粘贴的是配对链接: 地址就在链接里, 不要求先填地址框
+    if (credentialKind(cred) === 'link') {
+      return '识别为配对链接 (地址和令牌都在里面), 点「连接」。注意: 它和手机共用同一个令牌, 在手机上「踢掉这台设备」会让这台一起失效。';
+    }
     const up = urlProblem(url);
     if (up) return up;
     switch (credentialKind(cred)) {
@@ -42,12 +67,18 @@
 
   /** 能不能点连接 */
   function canConnect(url, cred) {
-    return !urlProblem(url) && credentialKind(cred) !== 'empty';
+    const k = credentialKind(cred);
+    if (k === 'link') return true;
+    return !urlProblem(url) && k !== 'empty';
   }
 
   /** 给界面用: 把 sync_auth_device 的参数拼好 */
   function authArgs(url, cred) {
     const kind = credentialKind(cred);
+    if (kind === 'link') {
+      const l = parsePairLink(cred);
+      return { workerUrl: l.url.trim().replace(/\/+$/, ''), rootSecret: null, code: null, token: l.token };
+    }
     const v = String(cred || '').trim();
     return {
       workerUrl: String(url || '').trim(),
@@ -56,5 +87,5 @@
     };
   }
 
-  global.AiduSyncCredential = { credentialKind, urlProblem, connectHint, canConnect, authArgs };
+  global.AiduSyncCredential = { parsePairLink, credentialKind, urlProblem, connectHint, canConnect, authArgs };
 })(typeof window !== 'undefined' ? window : globalThis);

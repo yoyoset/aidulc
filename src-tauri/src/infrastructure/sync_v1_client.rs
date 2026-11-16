@@ -228,6 +228,34 @@ pub fn push(
     serde_json::from_value(v).map_err(|e| format!("解析 push 响应失败: {e}"))
 }
 
+/// 令牌验证结果 (纯函数, 单测覆盖): 2xx / 404(新 user 还没有 deck) → 令牌有效;
+/// 401/403 → 无效或已被踢; 其它 → 无法判断, 不能当有效存下来。
+pub fn token_check_from_status(status: u16) -> Result<(), String> {
+    match status {
+        200..=299 | 404 => Ok(()),
+        401 | 403 => Err(
+            "令牌无效或已被踢掉 (手机配对时点过「踢掉这台设备」就会这样), 请重新生成配对链接"
+                .into(),
+        ),
+        s => Err(format!("服务器返回 HTTP {s}, 无法确认令牌是否有效")),
+    }
+}
+
+/// 2026-11-16: 用现成令牌连接前先验证它 (单次请求, 不重试, 不下载词库):
+/// GET /v1/sync?since=<极大值> 只会返回空变更, 但会校验 token。
+pub fn verify_token(worker_url: &str, token: &str) -> Result<(), String> {
+    if worker_url.is_empty() {
+        return Err("同步地址为空".into());
+    }
+    let url = format!("{worker_url}/v1/sync?since=999999999999");
+    let resp = client()?
+        .get(&url)
+        .header("Authorization", auth_header(token))
+        .send()
+        .map_err(|e| format!("连不上同步服务器: {e}"))?;
+    token_check_from_status(resp.status().as_u16())
+}
+
 /// 增量拉取: since={rev} 返回该版本后的变更。
 pub fn pull(worker_url: &str, token: &str, since_rev: i64) -> Result<PullResult, String> {
     if worker_url.is_empty() {
@@ -299,6 +327,21 @@ mod tests {
                 "应只剩 unreserved/百分号: {enc}"
             );
         }
+    }
+
+    #[test]
+    fn token_check_distinguishes_invalid_from_unknown() {
+        assert!(token_check_from_status(200).is_ok());
+        assert!(
+            token_check_from_status(404).is_ok(),
+            "新 user 没有 deck 也算令牌有效"
+        );
+        for bad in [401u16, 403] {
+            let e = token_check_from_status(bad).unwrap_err();
+            assert!(e.contains("无效") && e.contains("踢掉"), "{e}");
+        }
+        let e = token_check_from_status(502).unwrap_err();
+        assert!(e.contains("502") && e.contains("无法确认"), "{e}");
     }
 
     #[test]

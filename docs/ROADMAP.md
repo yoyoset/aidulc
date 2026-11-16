@@ -80,8 +80,8 @@
 - **clippy 基线 7**: 全是"参数过多/类型复杂", 分布在 `job_orchestrator.rs`/`library_service.rs`/`sync_service.rs`/
   `commands/library.rs`/`commands/models.rs`。清零要把多参数函数改成请求结构体, 同时改 Tauri 命令调用约定和前端 `invoke()`
   传参, 是独立大改动。**只能降不能加。**
-- **超过 150 行的函数基线 17**(`scripts/file_size_baseline.json`): `store_mod.rs::migrate` 1201 行(顺序迁移链, 不拆)、
-  `main.rs::main` 445、`system_tab.js::render` 436、`job_orchestrator.rs::pump_queue` 355、`atomic_block.js::create` 338、
+- **超过 150 行的函数基线 15**(`scripts/file_size_baseline.json`): `store_mod.rs::migrate` 1201 行(顺序迁移链, 不拆)、
+  `job_orchestrator.rs::pump_queue` 347、`atomic_block.js::create` 359、
   `sync_tab.js::render` 311 等。只能降不能加。
 - Rust 测试必须 `--test-threads=1`(共享临时库); 改成每个测试独立临时目录只换来更快, 排最后。
 - 存储所有权的两处刻意例外见 CLAUDE.md(`wizard_state`、`library_asset_service.rs` 级联删除)。

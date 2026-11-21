@@ -349,7 +349,9 @@ pub fn sync_endpoint(
             let _ = SyncStateRepo::new(db).upsert(&SyncState {
                 user_id: user_id.to_string(),
                 last_push_at: new_last_push,
-                last_pull_rev: p.rev,
+                // 这次根本没走到拉取(部分推送失败就返回了), 拉取游标必须停在原处 ——
+                // 用 p.rev(推送后的最新 deck rev) 会把还没拉的远端变更一并跳过。
+                last_pull_rev,
                 enabled: true,
                 updated_at: crate::store::now_ms_for_store(),
                 endpoint_key: current_key.clone(),
@@ -380,28 +382,29 @@ pub fn sync_endpoint(
         Ok(p) => p.wrote as usize,
         Err(_) => 0,
     };
-    let push_result = match push_result {
-        Ok(p) => p,
-        Err(e) => {
-            record_sync(user_id, endpoint_key, Err(e.clone()));
-            let last = last_sync_for(&format!("{user_id}|{endpoint_key}"));
-            return Ok(status_for(
-                true,
-                worker_url,
-                user_id,
-                last,
-                pending_count(db, user_id, endpoint_key),
-                SyncOutcome {
-                    last_wrote: 0,
-                    last_pulled: 0,
-                    deck_exists: false,
-                },
-            ));
-        }
-    };
+    if let Err(e) = push_result {
+        record_sync(user_id, endpoint_key, Err(e.clone()));
+        let last = last_sync_for(&format!("{user_id}|{endpoint_key}"));
+        return Ok(status_for(
+            true,
+            worker_url,
+            user_id,
+            last,
+            pending_count(db, user_id, endpoint_key),
+            SyncOutcome {
+                last_wrote: 0,
+                last_pulled: 0,
+                deck_exists: false,
+            },
+        ));
+    }
 
-    // 2. 再拉: 增量
-    let pull_result = sync_v1_client::pull(worker_url, token, push_result.rev);
+    // 2. 再拉: 增量 —— 必须用**本地上次拉到的 rev** 当 since, 不能用 push 返回的 rev。
+    // worker 的 rev 是全 deck 单调递增的版本号: 刚推完一批词, push_result.rev 已经是
+    // 服务端最新版本, 用它当 since 会让 `rev > since` 一条都不命中 —— 云端已有的词
+    // 永远拉不回来, 却显示"已同步"。用户现场: 云端 1000+ 词, 新装本地 6 词, 同步后
+    // 本地还是 6 词。先推后拉由这里保证: 推完再用 last_pull_rev 全量补齐未拉过的远端变更。
+    let pull_result = sync_v1_client::pull(worker_url, token, last_pull_rev);
     match pull_result {
         Ok(pr) => {
             // 远端更新的词条 → 本地 (复用 domain/sync.rs 新者胜合并)
@@ -793,7 +796,14 @@ mod tests {
         let order2 = order.clone();
 
         std::thread::spawn(move || {
-            let mut store: std::collections::HashMap<String, serde_json::Value> =
+            // 每个 token 一份 deck: (deck rev, { word_key: (词条 rev, payload) })。
+            // 与真 worker 一致: rev 全 deck 单调递增, pull 只返回词条 rev > since 的条目
+            // —— 这是"拿 push 返回的 rev 当 since 会一条都拉不到"那个 bug 的复现条件。
+            type Deck = (
+                i64,
+                std::collections::HashMap<String, (i64, serde_json::Value)>,
+            );
+            let mut store: std::collections::HashMap<String, Deck> =
                 std::collections::HashMap::new();
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { continue };
@@ -828,28 +838,38 @@ mod tests {
                 let resp = if method == "POST" && path == "/v1/sync" {
                     order2.lock().unwrap().push(format!("push:{token}"));
                     let v: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
-                    let words = v.get("words").cloned().unwrap_or(serde_json::json!({}));
-                    let n = words.as_object().map(|m| m.len()).unwrap_or(0);
-                    // 合并进已有 store (worker 是逐词写 srs key, 推新词不丢旧词)
-                    let mut existing = store.get(&token).cloned().unwrap_or(serde_json::json!({}));
-                    if let (Some(ex), Some(incoming)) =
-                        (existing.as_object_mut(), words.as_object())
-                    {
+                    let deck = store.entry(token.clone()).or_default();
+                    let mut wrote = 0;
+                    if let Some(incoming) = v.get("words").and_then(|w| w.as_object()) {
                         for (k, val) in incoming {
-                            ex.insert(k.clone(), val.clone());
+                            deck.0 += 1;
+                            deck.1.insert(k.clone(), (deck.0, val.clone()));
+                            wrote += 1;
                         }
                     }
-                    store.insert(token.clone(), existing);
-                    let rev = 1 + store.keys().len() as i64;
-                    serde_json::json!({ "ok": true, "rev": rev, "wrote": n })
+                    let rev = deck.0;
+                    serde_json::json!({ "ok": true, "rev": rev, "wrote": wrote })
                 } else if method == "GET" && path.starts_with("/v1/sync") {
                     order2.lock().unwrap().push(format!("pull:{token}"));
-                    let words = store.get(&token).cloned().unwrap_or(serde_json::json!({}));
-                    let changed: Vec<serde_json::Value> = words
-                        .as_object()
-                        .map(|m| m.values().cloned().collect())
-                        .unwrap_or_default();
-                    serde_json::json!({ "ok": true, "rev": 7, "changed": changed })
+                    let since: i64 = path
+                        .split("since=")
+                        .nth(1)
+                        .and_then(|s| s.split('&').next())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0);
+                    let deck = store.get(&token).cloned().unwrap_or_default();
+                    let mut changed: Vec<serde_json::Value> = deck
+                        .1
+                        .values()
+                        .filter(|(rev, _)| *rev > since)
+                        .map(|(_, v)| v.clone())
+                        .collect();
+                    changed
+                        .sort_by_key(|v| v.get("updated_at").and_then(|x| x.as_i64()).unwrap_or(0));
+                    serde_json::json!({
+                        "ok": true, "rev": deck.0, "changed": changed,
+                        "deck_exists": !deck.1.is_empty(),
+                    })
                 } else {
                     serde_json::json!({ "ok": false, "error": "not found" })
                 };
@@ -1262,6 +1282,56 @@ mod tests {
         assert_eq!(pr.changed.len(), 2, "远端应有 2 条 (bank+austere): {pr:?}");
     }
 
+    /// 用户现场 (2026-11-21): 云端已有 1000+ 词, 新装的本地只有 6 个词, 同步后本地
+    /// 还是 6 个 —— "先推后拉"跑了, 但拉取用了 push 返回的 rev 当 since, 而那个 rev
+    /// 已是服务端最新版本, `词条 rev > since` 一条都不命中, 云端存量词永远拉不回来。
+    /// 这里用"另一台设备先灌云端, 新设备首次同步"复现: 拉取必须从 last_pull_rev=0 开始。
+    #[test]
+    fn fresh_local_pulls_existing_remote_deck_after_push() {
+        let (url, _order) = start_mock_worker();
+        let ep = endpoint_key_for(&url, "me");
+
+        // 另一台设备 (同一 token) 已把云端词库灌满: 3 词, deck rev 推到 3
+        let db_old = temp_db();
+        let repo_old = crate::store::vocab_repo::VocabRepo::new(&db_old);
+        for (i, w) in ["alpha", "beta", "gamma"].iter().enumerate() {
+            repo_old
+                .upsert_content(entry(w, 100 + i as i64), "me", "default")
+                .unwrap();
+        }
+        let s_old = sync_endpoint(&db_old, &url, "token-a", "me", "me", &ep).unwrap();
+        assert_eq!(s_old.last_wrote, 3, "前置: 云端应存 3 词: {s_old:?}");
+
+        // 新设备: 本地只有 1 个词, 从未同步过 (last_pull_rev = 0)
+        let db_new = temp_db();
+        let repo_new = crate::store::vocab_repo::VocabRepo::new(&db_new);
+        repo_new
+            .upsert_content(entry("local", 500), "me", "default")
+            .unwrap();
+        let s = sync_endpoint(&db_new, &url, "token-a", "me", "me", &ep).unwrap();
+
+        assert_eq!(s.last_wrote, 1, "本地新词应先推: {s:?}");
+        assert_eq!(
+            s.last_pulled, 4,
+            "拉取应从 last_pull_rev=0 开始, 拿到云端全部 4 条 (含刚推的那条): {s:?}"
+        );
+        let mut got: Vec<String> = repo_new
+            .list_all_for_user("me")
+            .iter()
+            .map(|e| e.word.clone())
+            .collect();
+        got.sort();
+        assert_eq!(
+            got,
+            vec!["alpha", "beta", "gamma", "local"],
+            "云端 3 词 + 本地 1 词都要在本地: {got:?}"
+        );
+
+        // 进度推进后再同步: 没有新变更 → 不重复拉全量
+        let s2 = sync_endpoint(&db_new, &url, "token-a", "me", "me", &ep).unwrap();
+        assert_eq!(s2.last_pulled, 0, "第二次同步不应重复拉全量: {s2:?}");
+    }
+
     #[test]
     fn unconfigured_when_no_url() {
         let s = status_for(false, "", "me", None, 0, SyncOutcome::default());
@@ -1603,6 +1673,14 @@ mod tests {
         );
         // bank/languid 已写成功 → 不再待推; 本地仍 3 条 (数据不丢)
         assert_eq!(repo.list_all_for_user("me").len(), 3, "本地词条不丢");
+        // 这次没走到拉取, 拉取游标不得被推到推送后的最新 rev (那会跳过还没拉的远端变更)
+        let state = crate::store::sync_state_repo::SyncStateRepo::new(&db)
+            .get("me", &endpoint_key_for(&url, "me"));
+        assert_eq!(
+            state.map(|s| s.last_pull_rev).unwrap_or(0),
+            0,
+            "部分推送失败时不得推进 last_pull_rev"
+        );
     }
 
     /// S2 (2026-08-10) 回归: 前置配额拒绝 —— worker 声明 max_writes_per_day=1000,

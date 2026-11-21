@@ -1246,6 +1246,21 @@ impl Db {
             )
             .map_err(|e| format!("迁移 v37 失败: {e}"))?;
         }
+        // v38 (同步拉取修复, 2026-11-21): 桌面端「立即同步」此前把 push 返回的 rev 当拉取
+        // 游标 (?since=), 而 push 后的 rev 已是服务端最新版本 —— 云端存量词一条都拉不回来
+        // (用户现场: 云端 1000+ 词, 本地 6 词, 界面却显示"已同步"), 且 last_pull_rev 照常
+        // 被推进到那个值, 之后的"拉取"也永远从错误的位置开始。代码已改成用上次拉到的 rev,
+        // 但已经写坏的游标不会自己回头: 这里把所有行 last_pull_rev 归 0, 下次同步重新全量
+        // 拉一遍。合并按 updated_at 新者胜, 本地更新的词不会被远端覆盖, 代价只是多一次下载;
+        // last_push_at 保留, 不触发全量重推。
+        if version < 38 {
+            conn.execute_batch(
+                "UPDATE sync_state SET last_pull_rev = 0;
+                 INSERT INTO schema_migrations (version, applied_at) VALUES (38, strftime('%s','now')*1000);
+                 ",
+            )
+            .map_err(|e| format!("迁移 v38 失败: {e}"))?;
+        }
         Ok(())
     }
 }
@@ -2158,6 +2173,41 @@ mod tests {
             )
             .unwrap();
         assert_eq!(hl_count, 1);
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-wal"));
+        let _ = std::fs::remove_file(format!("{path}-shm"));
+    }
+
+    #[test]
+    fn v38_resets_pull_rev_but_keeps_push_progress() {
+        // v38 (2026-11-21): 旧桌面端把 push 返回的 rev 当拉取游标, 云端存量词一条都拉
+        // 不回来。升级时 last_pull_rev 归 0 强制重拉; last_push_at 保留, 不触发重推。
+        let path = temp_path("v38");
+        let _ = std::fs::remove_file(&path);
+        {
+            let db = Db::open(&path).unwrap();
+            let conn = db.conn.lock().unwrap();
+            conn.execute_batch(
+                "INSERT INTO sync_state (user_id, endpoint_key, last_push_at, last_pull_rev, enabled, updated_at)
+                    VALUES ('me', 'https://a.workers.dev|me', 1234, 999, 1, 1234);
+                 DELETE FROM schema_migrations WHERE version >= 38;",
+            )
+            .unwrap();
+            drop(conn);
+        }
+        let db = Db::open(&path).unwrap();
+        let conn = db.conn.lock().unwrap();
+        let (push, pull): (i64, i64) = conn
+            .query_row(
+                "SELECT last_push_at, last_pull_rev FROM sync_state
+                 WHERE user_id='me' AND endpoint_key='https://a.workers.dev|me'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(pull, 0, "升级后应重新全量拉取云端变更");
+        assert_eq!(push, 1234, "last_push_at 必须保留 (不重推)");
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}-wal"));
